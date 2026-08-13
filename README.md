@@ -11,8 +11,8 @@ SIGNATE「AI ENGINEERING CHALLENGE」向けに検討している、質問非依�
 
 ```text
 design/   設計方針と実ファイルでの検証記録
-schemas/  Document・Evidence・RelationのJSON Schema
-scripts/  抽出、診断、整合性検証CLI
+schemas/  Document・Evidence・Relation・SearchUnitのJSON Schema
+scripts/  抽出、検索単位生成、診断、整合性検証CLI
 ```
 
 ## 主なスクリプト
@@ -23,6 +23,10 @@ scripts/  抽出、診断、整合性検証CLI
   - 少量の代表データでSchemaと抽出結果を確認する診断用プローブです。
 - `scripts/validate_intermediate_records.py`
   - ID、ハッシュ、親子関係、原本参照、Relation端点を検証します。
+- `scripts/build_search_units.py`
+  - 完了済み中間データから、質問非依存の検索単位を逐次生成します。
+- `scripts/validate_search_units.py`
+  - 検索単位のID、本文ハッシュ、元Evidenceへの参照を検証します。
 
 ## 実行例
 
@@ -36,6 +40,14 @@ python scripts/build_intermediate_records.py \
 python scripts/validate_intermediate_records.py \
   /path/to/new-output-directory \
   --root /path/to/source-root
+
+python scripts/build_search_units.py \
+  --intermediate /path/to/new-output-directory \
+  --out /path/to/new-search-output-directory
+
+python scripts/validate_search_units.py \
+  /path/to/new-search-output-directory \
+  --intermediate /path/to/new-output-directory
 ```
 
 出力先が空でない場合は上書きせず停止します。中間データの出力先は、再帰的な
@@ -59,8 +71,8 @@ python scripts/build_intermediate_records.py \
 基礎抽出器は質問文、案件名、record IDによる特別分岐を持ちません。
 形式別の未対応情報が残っている間はDocumentを`partial`として記録します。
 EvidenceとRelationはファイル単位シャードへ逐次書き出すため、全レコードを
-Pythonのメモリへ保持しません。検索用の表領域・行・意味単位への集約は、
-原本Evidenceとは別の派生層として追加する予定です。
+Pythonのメモリへ保持しません。検索用派生層は段落チャンク、ヘッダー候補付き表行、
+スライド、PDFページを`SearchUnit`へ変換し、元Evidence IDを保持します。
 
 ## データ管理
 
