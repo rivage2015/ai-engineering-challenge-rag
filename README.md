@@ -41,12 +41,26 @@ python scripts/validate_intermediate_records.py \
 出力先が空でない場合は上書きせず停止します。中間データの出力先は、再帰的な
 自己取り込みを防ぐため原本ルートの外側へ指定してください。
 
+中断したビルドは、同じルートと出力先を指定して再開できます。
+
+```bash
+python scripts/build_intermediate_records.py \
+  --root /path/to/source-root \
+  --out /path/to/existing-output-directory \
+  --resume
+```
+
+`build-state.json`には原本とファイル単位シャードのSHA-256が記録されます。
+再開時は両方が一致する完了済みファイルをスキップし、未完了・失敗・変更済みの
+ファイルだけを再処理します。
+
 ## 現在の状態
 
 基礎抽出器は質問文、案件名、record IDによる特別分岐を持ちません。
 形式別の未対応情報が残っている間はDocumentを`partial`として記録します。
-大規模XLSXでは中間JSONLが大きくなるため、全共有データを一括処理する前に
-ストリーミング出力と再開機能を追加する予定です。
+EvidenceとRelationはファイル単位シャードへ逐次書き出すため、全レコードを
+Pythonのメモリへ保持しません。検索用の表領域・行・意味単位への集約は、
+原本Evidenceとは別の派生層として追加する予定です。
 
 ## データ管理
 

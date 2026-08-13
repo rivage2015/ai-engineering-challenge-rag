@@ -15,7 +15,7 @@ import unicodedata
 import zipfile
 from datetime import date, datetime, timezone
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 
 SCHEMA_VERSION = "0.1"
@@ -29,6 +29,14 @@ def canonical_json(value: Any) -> str:
 
 def digest_bytes(value: bytes) -> str:
     return hashlib.sha256(value).hexdigest()
+
+
+def digest_file(path: Path, chunk_size: int = 1024 * 1024) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        while chunk := handle.read(chunk_size):
+            digest.update(chunk)
+    return digest.hexdigest()
 
 
 def digest_value(value: Any) -> str:
@@ -113,6 +121,8 @@ class Probe:
         diagnostic: bool = True,
         extractor: str = EXTRACTOR,
         extractor_version: str = EXTRACTOR_VERSION,
+        record_sink: Callable[[str, dict[str, Any]], None] | None = None,
+        retain_records: bool = True,
     ) -> None:
         self.root = root.resolve()
         self.run_at = run_at
@@ -120,10 +130,19 @@ class Probe:
         self.diagnostic = diagnostic
         self.extractor = extractor
         self.extractor_version = extractor_version
+        self.record_sink = record_sink
+        self.retain_records = retain_records
         self.documents: list[dict[str, Any]] = []
         self.evidence: list[dict[str, Any]] = []
         self.relations: list[dict[str, Any]] = []
         self._leaf_counts: dict[str, int] = {}
+        self._current_document: dict[str, Any] | None = None
+
+    def emit(self, kind: str, record: dict[str, Any]) -> None:
+        if self.retain_records:
+            getattr(self, kind).append(record)
+        if self.record_sink is not None:
+            self.record_sink(kind, record)
 
     def relative_path(self, path: Path) -> str:
         resolved = path.resolve()
@@ -134,9 +153,8 @@ class Probe:
         return nfc_path(relative)
 
     def add_document(self, path: Path, parser: str) -> dict[str, Any]:
-        raw = path.read_bytes()
         rel = self.relative_path(path)
-        source_sha = digest_bytes(raw)
+        source_sha = digest_file(path)
         doc_id = stable_id("doc", {"relative_path": rel, "source_sha256": source_sha})
         stat = path.stat()
         if self.diagnostic:
@@ -170,9 +188,22 @@ class Probe:
                 "errors": [],
             },
         }
-        self.documents.append(record)
+        if self._current_document is not None:
+            raise RuntimeError("only one source document may be active per Probe instance")
+        self._current_document = record
+        if self.retain_records:
+            self.documents.append(record)
         self._leaf_counts[doc_id] = 0
         return record
+
+    def finalize_document(self) -> dict[str, Any]:
+        if self._current_document is None:
+            raise RuntimeError("no active source document to finalize")
+        document = self._current_document
+        if self.record_sink is not None:
+            self.record_sink("documents", document)
+        self._current_document = None
+        return document
 
     def may_add_leaf(self, doc_id: str) -> bool:
         if self.max_items is not None and self._leaf_counts[doc_id] >= self.max_items:
@@ -190,7 +221,7 @@ class Probe:
             document["extraction"]["warnings"].append(warning)
 
     def record_failure(self, path: Path, error: Exception) -> None:
-        existing = next(
+        existing = self._current_document or next(
             (item for item in reversed(self.documents) if item["source"]["relative_path"] == self.relative_path(path)),
             None,
         )
@@ -248,7 +279,7 @@ class Probe:
             record["geometry"] = geometry
         if native_properties:
             record["native_properties"] = native_properties
-        self.evidence.append(record)
+        self.emit("evidence", record)
         if parent_id:
             self.add_relation(
                 "structural", "contains",
@@ -267,7 +298,7 @@ class Probe:
             "generator": self.extractor,
             "generator_version": self.extractor_version,
         }
-        self.relations.append({
+        self.emit("relations", {
             "schema_version": SCHEMA_VERSION,
             "record_type": "relation",
             "relation_id": stable_id("rel", identity),
@@ -308,6 +339,7 @@ class Probe:
             self.extract_pdf(path)
         else:
             self.extract_other(path)
+        self.finalize_document()
 
     def extract_docx(self, path: Path) -> None:
         from docx import Document
@@ -532,6 +564,8 @@ class Probe:
         self.contain_document(doc["document_id"], ev["evidence_id"])
 
     def write(self, output: Path) -> None:
+        if not self.retain_records:
+            raise RuntimeError("write() is unavailable when retain_records is false")
         output.mkdir(parents=True, exist_ok=True)
         for name, records in (
             ("documents.jsonl", self.documents),
