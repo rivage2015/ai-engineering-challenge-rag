@@ -1,0 +1,18 @@
+# Deny by default. This repository stores only reusable implementation files.
+*
+
+!.gitignore
+!README.md
+
+!design/
+!design/**
+
+!schemas/
+!schemas/**
+
+!scripts/
+!scripts/*.py
+
+**/__pycache__/
+**/*.py[cod]
+**/.DS_Store

@@ -1,0 +1,209 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://local.ai-engineering-challenge/schemas/evidence.schema.json",
+  "title": "Evidence",
+  "description": "原本から抽出した検索・回答根拠",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "record_type",
+    "evidence_id",
+    "document_id",
+    "evidence_type",
+    "location",
+    "content",
+    "provenance"
+  ],
+  "properties": {
+    "schema_version": {"const": "0.1"},
+    "record_type": {"const": "evidence"},
+    "evidence_id": {"type": "string", "pattern": "^ev_[0-9a-f]{16,64}$"},
+    "document_id": {"type": "string", "pattern": "^doc_[0-9a-f]{16,64}$"},
+    "evidence_type": {
+      "enum": [
+        "page",
+        "slide",
+        "worksheet",
+        "header",
+        "footer",
+        "speaker_note",
+        "text_block",
+        "paragraph",
+        "heading",
+        "table",
+        "table_row",
+        "table_cell",
+        "merged_range",
+        "formula",
+        "filter",
+        "pivot_table",
+        "data_validation",
+        "defined_name",
+        "chart",
+        "chart_series",
+        "image",
+        "shape",
+        "connector",
+        "comment",
+        "style_span",
+        "hyperlink",
+        "field",
+        "tracked_change",
+        "code_block",
+        "notebook_cell",
+        "metadata",
+        "other"
+      ]
+    },
+    "location": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "page_number": {"type": "integer", "minimum": 1},
+        "slide_number": {"type": "integer", "minimum": 1},
+        "sheet_name": {"type": "string", "minLength": 1},
+        "cell": {"type": "string", "pattern": "^[A-Z]{1,3}[1-9][0-9]*$"},
+        "range": {"type": "string", "minLength": 1},
+        "section": {"type": "string", "minLength": 1},
+        "paragraph_index": {"type": "integer", "minimum": 1},
+        "table_index": {"type": "integer", "minimum": 1},
+        "row_index": {"type": "integer", "minimum": 1},
+        "column_index": {"type": "integer", "minimum": 1},
+        "shape_id": {"type": "string", "minLength": 1},
+        "object_id": {"type": "string", "minLength": 1},
+        "object_index": {"type": "integer", "minimum": 1},
+        "series_index": {"type": "integer", "minimum": 1},
+        "notebook_cell_index": {"type": "integer", "minimum": 1},
+        "code_line_start": {"type": "integer", "minimum": 1},
+        "code_line_end": {"type": "integer", "minimum": 1},
+        "source_member": {"type": "string", "minLength": 1},
+        "locator_text": {"type": "string", "minLength": 1}
+      }
+    },
+    "content": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["value_type", "sha256", "is_truncated"],
+      "properties": {
+        "raw_text": {"type": "string"},
+        "raw_value": {},
+        "normalized_text": {"type": "string"},
+        "normalized_value": {},
+        "value_type": {
+          "enum": ["text", "integer", "number", "boolean", "date", "datetime", "null", "binary", "mixed"]
+        },
+        "unit": {"type": "string", "minLength": 1},
+        "language": {"type": "string", "pattern": "^[a-z]{2,3}(-[A-Z]{2})?$"},
+        "mime_type": {"type": "string", "minLength": 1},
+        "content_ref": {"type": "string", "minLength": 1},
+        "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+        "is_truncated": {"type": "boolean"},
+        "original_length": {"type": "integer", "minimum": 0}
+      },
+      "anyOf": [
+        {"required": ["raw_text"]},
+        {"required": ["raw_value"]},
+        {"required": ["content_ref"]}
+      ]
+    },
+    "style": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "bold": {"type": "boolean"},
+        "italic": {"type": "boolean"},
+        "underline": {"type": "boolean"},
+        "strikethrough": {"type": "boolean"},
+        "font_name": {"type": "string", "minLength": 1},
+        "font_size_pt": {"type": "number", "exclusiveMinimum": 0},
+        "source_style_id": {"type": "string", "minLength": 1},
+        "fill_type": {"type": "string", "minLength": 1},
+        "font_color_argb": {"$ref": "#/$defs/color"},
+        "fill_color_argb": {"$ref": "#/$defs/color"},
+        "highlight_color_argb": {"$ref": "#/$defs/color"},
+        "line_color_argb": {"$ref": "#/$defs/color"},
+        "theme_color": {"type": "string", "minLength": 1},
+        "theme_tint": {"type": "number"},
+        "number_format": {"type": "string"},
+        "horizontal_alignment": {"type": "string", "minLength": 1},
+        "vertical_alignment": {"type": "string", "minLength": 1},
+        "native_properties": {
+          "type": "object",
+          "additionalProperties": true
+        }
+      }
+    },
+    "geometry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["coordinate_space", "unit"],
+      "properties": {
+        "coordinate_space": {
+          "enum": ["page", "slide", "sheet", "image", "other"]
+        },
+        "unit": {"enum": ["pt", "emu", "px", "cell", "other"]},
+        "x": {"type": "number"},
+        "y": {"type": "number"},
+        "width": {"type": "number", "minimum": 0},
+        "height": {"type": "number", "minimum": 0},
+        "rotation_deg": {"type": "number"}
+      }
+    },
+    "parent_evidence_id": {"type": "string", "pattern": "^ev_[0-9a-f]{16,64}$"},
+    "ordinal": {"type": "integer", "minimum": 1},
+    "native_properties": {
+      "type": "object",
+      "description": "原形式固有の機械抽出事実。意味解釈は格納しない。",
+      "additionalProperties": true
+    },
+    "annotations": {
+      "type": "array",
+      "items": {"$ref": "#/$defs/annotation"}
+    },
+    "provenance": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "extraction_method",
+        "extractor",
+        "extractor_version",
+        "extracted_at",
+        "deterministic",
+        "confidence"
+      ],
+      "properties": {
+        "extraction_method": {"type": "string", "minLength": 1},
+        "extractor": {"type": "string", "minLength": 1},
+        "extractor_version": {"type": "string", "minLength": 1},
+        "extracted_at": {"type": "string", "format": "date-time"},
+        "deterministic": {"type": "boolean"},
+        "confidence": {"type": "number", "minimum": 0, "maximum": 1},
+        "warnings": {
+          "type": "array",
+          "items": {"type": "string"},
+          "uniqueItems": true
+        }
+      }
+    }
+  },
+  "$defs": {
+    "color": {
+      "type": "string",
+      "pattern": "^[0-9A-F]{8}$"
+    },
+    "annotation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["key", "value", "generated_by", "confidence"],
+      "properties": {
+        "key": {"type": "string", "minLength": 1},
+        "value": {},
+        "generated_by": {"type": "string", "minLength": 1},
+        "model_or_rule_version": {"type": "string", "minLength": 1},
+        "confidence": {"type": "number", "minimum": 0, "maximum": 1},
+        "created_at": {"type": "string", "format": "date-time"}
+      }
+    }
+  }
+}

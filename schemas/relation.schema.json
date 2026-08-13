@@ -1,0 +1,95 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://local.ai-engineering-challenge/schemas/relation.schema.json",
+  "title": "Relation",
+  "description": "DocumentまたはEvidence間の構造・版・意味上の関係",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "record_type",
+    "relation_id",
+    "relation_class",
+    "relation_type",
+    "from_ref",
+    "to_ref",
+    "provenance",
+    "status"
+  ],
+  "properties": {
+    "schema_version": {"const": "0.1"},
+    "record_type": {"const": "relation"},
+    "relation_id": {"type": "string", "pattern": "^rel_[0-9a-f]{16,64}$"},
+    "relation_class": {
+      "enum": [
+        "structural",
+        "version",
+        "spatial",
+        "semantic",
+        "citation",
+        "lineage",
+        "comparison",
+        "other"
+      ]
+    },
+    "relation_type": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9_]*$"
+    },
+    "from_ref": {"$ref": "#/$defs/reference"},
+    "to_ref": {"$ref": "#/$defs/reference"},
+    "properties": {
+      "type": "object",
+      "additionalProperties": true
+    },
+    "supporting_evidence_ids": {
+      "type": "array",
+      "items": {"type": "string", "pattern": "^ev_[0-9a-f]{16,64}$"},
+      "uniqueItems": true
+    },
+    "provenance": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["generated_by", "generator_version", "generated_at", "deterministic", "confidence"],
+      "properties": {
+        "generated_by": {"type": "string", "minLength": 1},
+        "generator_version": {"type": "string", "minLength": 1},
+        "generated_at": {"type": "string", "format": "date-time"},
+        "deterministic": {"type": "boolean"},
+        "confidence": {"type": "number", "minimum": 0, "maximum": 1},
+        "rule_or_model": {"type": "string", "minLength": 1},
+        "warnings": {
+          "type": "array",
+          "items": {"type": "string"},
+          "uniqueItems": true
+        }
+      }
+    },
+    "status": {"enum": ["proposed", "verified", "rejected"]}
+  },
+  "$defs": {
+    "reference": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["record_type", "record_id"],
+      "properties": {
+        "record_type": {"enum": ["document", "evidence"]},
+        "record_id": {"type": "string"}
+      },
+      "oneOf": [
+        {
+          "properties": {
+            "record_type": {"const": "document"},
+            "record_id": {"pattern": "^doc_[0-9a-f]{16,64}$"}
+          }
+        },
+        {
+          "properties": {
+            "record_type": {"const": "evidence"},
+            "record_id": {"pattern": "^ev_[0-9a-f]{16,64}$"}
+          }
+        }
+      ]
+    }
+  }
+}
