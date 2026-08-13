@@ -27,6 +27,12 @@ scripts/  抽出、検索単位生成、診断、整合性検証CLI
   - 完了済み中間データから、質問非依存の検索単位を逐次生成します。
 - `scripts/validate_search_units.py`
   - 検索単位のID、本文ハッシュ、元Evidenceへの参照を検証します。
+- `scripts/build_lexical_index.py`
+  - SearchUnitからAPI不要のSQLite BM25索引を構築します。
+- `scripts/search_lexical_index.py`
+  - 日本語文字n-gramと英数字語を使って検索し、元Evidence参照を返します。
+- `scripts/validate_lexical_index.py`
+  - SQLite内部整合性、件数、入力SearchUnitのSHA-256を検証します。
 
 ## 実行例
 
@@ -48,6 +54,19 @@ python scripts/build_search_units.py \
 python scripts/validate_search_units.py \
   /path/to/new-search-output-directory \
   --intermediate /path/to/new-output-directory
+
+python scripts/build_lexical_index.py \
+  --search-output /path/to/new-search-output-directory \
+  --out /path/to/new-index-directory
+
+python scripts/validate_lexical_index.py \
+  /path/to/new-index-directory \
+  --search-output /path/to/new-search-output-directory
+
+python scripts/search_lexical_index.py \
+  --index /path/to/new-index-directory \
+  --query '検索したい内容' \
+  --top-k 10
 ```
 
 出力先が空でない場合は上書きせず停止します。中間データの出力先は、再帰的な
@@ -73,6 +92,8 @@ python scripts/build_intermediate_records.py \
 EvidenceとRelationはファイル単位シャードへ逐次書き出すため、全レコードを
 Pythonのメモリへ保持しません。検索用派生層は段落チャンク、ヘッダー候補付き表行、
 スライド、PDFページを`SearchUnit`へ変換し、元Evidence IDを保持します。
+さらに、外部APIを使わないSQLite BM25索引を構築し、日本語文字n-gramによる
+検索結果から元Evidenceまで追跡できます。回答生成は検索評価後に接続します。
 
 ## データ管理
 
