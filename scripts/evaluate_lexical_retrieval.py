@@ -14,7 +14,7 @@ from pathlib import Path
 from typing import Any
 
 from lexical_search_common import canonical_json, digest_file
-from search_lexical_index import search
+from search_lexical_index import RANKER, RANKER_VERSION, search
 
 
 CASE_ID = re.compile(r"^qe_[0-9a-f]{16,64}$")
@@ -77,7 +77,13 @@ def metrics_for(outcomes: list[dict[str, Any]], cutoffs: list[int]) -> dict[str,
     return result
 
 
-def evaluate(index: Path, evaluation_set: Path, cutoffs: list[int]) -> dict[str, Any]:
+def evaluate(
+    index: Path,
+    evaluation_set: Path,
+    cutoffs: list[int],
+    field_value_weight: float = 0.5,
+    parent_context_penalty: float = 2.0,
+) -> dict[str, Any]:
     normalized_cutoffs = sorted(set(cutoffs))
     if not normalized_cutoffs or normalized_cutoffs[0] < 1:
         raise ValueError("all cutoffs must be positive")
@@ -98,7 +104,11 @@ def evaluate(index: Path, evaluation_set: Path, cutoffs: list[int]) -> dict[str,
     outcomes: list[dict[str, Any]] = []
     grouped: dict[str, list[dict[str, Any]]] = defaultdict(list)
     for case in cases:
-        retrieval = search(index, case["query"], maximum, snippet_chars=160)
+        retrieval = search(
+            index, case["query"], maximum, snippet_chars=160,
+            field_value_weight=field_value_weight,
+            parent_context_penalty=parent_context_penalty,
+        )
         retrieved = [item["search_unit_id"] for item in retrieval["results"]]
         relevant = set(case["relevant_search_unit_ids"])
         ranks = [rank for rank, search_unit_id in enumerate(retrieved, 1) if search_unit_id in relevant]
@@ -120,6 +130,14 @@ def evaluate(index: Path, evaluation_set: Path, cutoffs: list[int]) -> dict[str,
         grouped[outcome["category"]].append(outcome)
     return {
         "evaluation_method": "post_retrieval_relevance_comparison",
+        "retrieval_method": (
+            "BM25+field-aware-parent-child"
+            if field_value_weight or parent_context_penalty else "BM25"
+        ),
+        "ranker": RANKER,
+        "ranker_version": RANKER_VERSION,
+        "field_value_weight": field_value_weight,
+        "parent_context_penalty": parent_context_penalty,
         "inputs": {
             "evaluation_set_sha256": digest_file(evaluation_set),
             "lexical_index_state_sha256": digest_file(index / "lexical-index-state.json"),
@@ -137,8 +155,14 @@ def main() -> None:
     parser.add_argument("--evaluation-set", required=True, type=Path)
     parser.add_argument("--k", type=int, nargs="+", default=[1, 3, 5, 10])
     parser.add_argument("--out", type=Path)
+    parser.add_argument("--field-value-weight", type=float, default=0.5)
+    parser.add_argument("--parent-context-penalty", type=float, default=2.0)
     args = parser.parse_args()
-    report = evaluate(args.index.resolve(), args.evaluation_set.resolve(), args.k)
+    report = evaluate(
+        args.index.resolve(), args.evaluation_set.resolve(), args.k,
+        field_value_weight=args.field_value_weight,
+        parent_context_penalty=args.parent_context_penalty,
+    )
     rendered = canonical_json(report) + "\n"
     if args.out:
         output = args.out.resolve()

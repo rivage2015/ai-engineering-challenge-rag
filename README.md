@@ -30,7 +30,7 @@ scripts/  抽出、検索単位生成、診断、整合性検証CLI
 - `scripts/build_lexical_index.py`
   - SearchUnitからAPI不要のSQLite BM25索引を構築します。
 - `scripts/search_lexical_index.py`
-  - 日本語文字n-gramと英数字語を使って検索し、元Evidence参照を返します。
+  - 日本語n-gramのBM25に、表の列値一致と親子関係を使う汎用再ランキングを重ね、元Evidence参照を返します。
 - `scripts/validate_lexical_index.py`
   - SQLite内部整合性、件数、入力SearchUnitのSHA-256を検証します。
 - `scripts/build_self_retrieval_eval.py`
@@ -75,6 +75,14 @@ python scripts/search_lexical_index.py \
   --index /path/to/new-index-directory \
   --query '検索したい内容' \
   --top-k 10
+
+# 純粋なBM25基準線を再現する場合
+python scripts/search_lexical_index.py \
+  --index /path/to/new-index-directory \
+  --query '検索したい内容' \
+  --top-k 10 \
+  --field-value-weight 0 \
+  --parent-context-penalty 0
 
 python scripts/build_self_retrieval_eval.py \
   --search-output /path/to/new-search-output-directory \
