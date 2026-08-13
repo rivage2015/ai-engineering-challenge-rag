@@ -11,7 +11,7 @@ SIGNATE「AI ENGINEERING CHALLENGE」向けに検討している、質問非依�
 
 ```text
 design/   設計方針と実ファイルでの検証記録
-schemas/  Document・Evidence・Relation・SearchUnitのJSON Schema
+schemas/  中間レコード、検索単位、検索評価ケースのJSON Schema
 scripts/  抽出、検索単位生成、診断、整合性検証CLI
 ```
 
@@ -33,6 +33,10 @@ scripts/  抽出、検索単位生成、診断、整合性検証CLI
   - 日本語文字n-gramと英数字語を使って検索し、元Evidence参照を返します。
 - `scripts/validate_lexical_index.py`
   - SQLite内部整合性、件数、入力SearchUnitのSHA-256を検証します。
+- `scripts/build_self_retrieval_eval.py`
+  - 全形式共通規則で、検索配線確認用の自己検索評価セットを生成します。
+- `scripts/evaluate_lexical_retrieval.py`
+  - 正解IDを検索後に照合し、Recall@k、Hit@k、MRRを計算します。
 
 ## 実行例
 
@@ -67,6 +71,16 @@ python scripts/search_lexical_index.py \
   --index /path/to/new-index-directory \
   --query '検索したい内容' \
   --top-k 10
+
+python scripts/build_self_retrieval_eval.py \
+  --search-output /path/to/new-search-output-directory \
+  --out /path/to/new-evaluation-directory \
+  --max-cases 100
+
+python scripts/evaluate_lexical_retrieval.py \
+  --index /path/to/new-index-directory \
+  --evaluation-set /path/to/new-evaluation-directory/evaluation-set.jsonl \
+  --k 1 3 5 10
 ```
 
 出力先が空でない場合は上書きせず停止します。中間データの出力先は、再帰的な
