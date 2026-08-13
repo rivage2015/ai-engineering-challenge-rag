@@ -1,0 +1,151 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://local.ai-engineering-challenge/schemas/chart-table.schema.json",
+  "title": "ChartTable",
+  "description": "グラフを質問非依存の構造化表として保存する記録",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "record_type",
+    "chart_table_id",
+    "source",
+    "chart_type",
+    "axes",
+    "x_values",
+    "series",
+    "completeness",
+    "provenance"
+  ],
+  "properties": {
+    "schema_version": {"const": "0.1"},
+    "record_type": {"const": "chart_table"},
+    "chart_table_id": {"type": "string", "pattern": "^ct_[0-9a-f]{16,64}$"},
+    "source": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["chart_path", "chart_sha256", "source_type"],
+      "properties": {
+        "chart_path": {"type": "string", "minLength": 1},
+        "chart_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+        "source_type": {"enum": ["native_data", "image_derendered", "hybrid"]}
+      }
+    },
+    "chart_type": {"type": "string", "minLength": 1},
+    "title": {"type": ["string", "null"]},
+    "axes": {
+      "type": "array",
+      "minItems": 2,
+      "items": {"$ref": "#/$defs/axis"}
+    },
+    "x_values": {
+      "type": "array",
+      "minItems": 1,
+      "items": {"type": ["string", "number"]}
+    },
+    "series": {
+      "type": "array",
+      "minItems": 1,
+      "items": {"$ref": "#/$defs/series"}
+    },
+    "completeness": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status", "detected_series_count", "output_series_count", "checks", "warnings"],
+      "properties": {
+        "status": {"enum": ["verified", "partial", "unresolved"]},
+        "detected_series_count": {"type": "integer", "minimum": 1},
+        "output_series_count": {"type": "integer", "minimum": 1},
+        "expected_points_per_series": {"type": ["integer", "null"], "minimum": 1},
+        "checks": {
+          "type": "array",
+          "items": {"$ref": "#/$defs/check"}
+        },
+        "warnings": {"type": "array", "items": {"type": "string"}}
+      }
+    },
+    "provenance": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "extractor",
+        "extractor_version",
+        "method",
+        "code_path",
+        "code_sha256",
+        "data_paths",
+        "data_sha256",
+        "generated_at",
+        "question_independent"
+      ],
+      "properties": {
+        "extractor": {"type": "string", "minLength": 1},
+        "extractor_version": {"type": "string", "minLength": 1},
+        "method": {"enum": ["static_source_recovery", "visual_derendering", "hybrid_consensus"]},
+        "code_path": {"type": "string", "minLength": 1},
+        "code_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+        "code_location": {"type": ["string", "null"]},
+        "data_paths": {"type": "array", "minItems": 1, "items": {"type": "string", "minLength": 1}},
+        "data_sha256": {"type": "array", "minItems": 1, "items": {"type": "string", "pattern": "^[0-9a-f]{64}$"}},
+        "generated_at": {"type": "string", "format": "date-time"},
+        "question_independent": {"const": true}
+      }
+    }
+  },
+  "$defs": {
+    "axis": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["axis_id", "orientation", "label", "scale", "exactness", "source_refs"],
+      "properties": {
+        "axis_id": {"type": "string", "minLength": 1},
+        "orientation": {"enum": ["x", "y_left", "y_right", "other"]},
+        "label": {"type": ["string", "null"]},
+        "scale": {"enum": ["linear", "log", "categorical", "datetime", "unknown"]},
+        "exactness": {"enum": ["exact", "estimated", "unresolved"]},
+        "source_refs": {"type": "array", "items": {"type": "string"}}
+      }
+    },
+    "point": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["x", "y", "status", "source_refs"],
+      "properties": {
+        "x": {"type": ["string", "number"]},
+        "y": {"type": ["number", "null"]},
+        "status": {"enum": ["exact", "estimated", "unresolved"]},
+        "source_refs": {"type": "array", "items": {"type": "string"}}
+      }
+    },
+    "series": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["series_id", "label", "axis_id", "visual_encoding", "points"],
+      "properties": {
+        "series_id": {"type": "string", "minLength": 1},
+        "label": {"type": "string", "minLength": 1},
+        "axis_id": {"type": "string", "minLength": 1},
+        "visual_encoding": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "color": {"type": ["string", "null"]},
+            "marker": {"type": ["string", "null"]},
+            "line_style": {"type": ["string", "null"]}
+          }
+        },
+        "points": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/point"}}
+      }
+    },
+    "check": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "passed", "detail"],
+      "properties": {
+        "name": {"type": "string", "minLength": 1},
+        "passed": {"type": "boolean"},
+        "detail": {"type": "string"}
+      }
+    }
+  }
+}

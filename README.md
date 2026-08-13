@@ -39,6 +39,29 @@ scripts/  抽出、検索単位生成、診断、整合性検証CLI
   - ローカルコサイン検索と、BM25との適応型RRF統合を実行します。
 - `rag/main.py` / `rag/answer.py`
   - 既存の全資料キャッシュから、ローカルOllamaまたはOpenAIで回答CSV/ZIPを生成します。
+- `scripts/build_answer_diagnostic_report.py`
+  - 正解付き質問と回答実行ログから、検索順位・スコア・抽出本文・回答を問題ごとに確認できる診断レポートを生成します。
+
+## 画像理解の設計
+
+画像、グラフ、PivotTable、マーカーなどの表示上の情報は、
+`design/sequential-multimodal-orchestration.md`の方針で処理します。
+文字転記、視覚状態観測、意味統合を分離し、`gemma4:12b`を1件ずつ
+逐次実行します。
+
+```bash
+python scripts/run_visual_analysis.py \
+  --image /path/to/image.png \
+  --source-root /path/to/source-root \
+  --out /path/to/visual-analysis-output \
+  --model gemma4:12b
+
+python scripts/validate_visual_analysis.py \
+  /path/to/visual-analysis-output/analysis.json
+```
+
+工程ごとにモデルdigest、画像SHA-256、プロンプトversionを照合し、
+完了済みの工程を再利用します。
 - `scripts/validate_submission.py`
   - ヘッダーなし2列、全index、空欄、1000トークン上限、ZIP内部名を提出前に検証します。
 - `scripts/build_self_retrieval_eval.py`
@@ -131,7 +154,18 @@ python scripts/evaluate_lexical_retrieval.py \
   --evaluation-set /path/to/new-evaluation-directory/evaluation-set.jsonl \
   --semantic-index /path/to/new-semantic-index-directory \
   --k 1 3 5 10
+
+python scripts/build_answer_diagnostic_report.py \
+  --questions share/質問回答/questions_valid.csv \
+  --run-log rag/logs/run_YYYYMMDD_HHMMSS.json \
+  --reviews rag/logs/diagnostic_valid_reviews.json \
+  --out-jsonl rag/logs/diagnostic_valid.jsonl \
+  --out-md rag/logs/diagnostic_valid.md
 ```
+
+回答診断の自動分類は、正解文字列が抽出コーパスや検索上位にあるかを使う
+一次判定です。計算、比較、複数資料の列挙はMarkdown内の検索本文を目視し、
+`human_review`欄で最終分類を確定します。
 
 人手確認済み評価セットは、`query`、`relevant_search_unit_ids`、`category`、`review`を
 持つJSONL下書きを`finalize_human_retrieval_eval.py`へ渡して確定します。生成した評価
@@ -172,3 +206,28 @@ Pythonのメモリへ保持しません。検索用派生層は段落チャン�
 - PDF、Office原本、ZIPアーカイブ
 - 回答、提出ファイル、生成済み検索インデックス
 - APIキー、認証情報、ローカル設定
+### グラフの元データ優先復元（ChartTable）
+
+グラフ画像は、まず生成元コードとデータを探します。対応する `savefig`と制約済みの pandas `groupby` パターンが見つかれば、ノートブックは実行せずに同じ集計だけを再計算し、質問非依存の `ChartTable` を作成します。元データが回収できないグラフだけ、逐次マルチモーダル解析へ送る想定です。
+
+```bash
+python scripts/build_chart_source_candidates.py \
+  --root /path/to/analysis_project \
+  --image figure_06.png \
+  --out rag/chart-tables/figure_06/source-candidates.json
+
+python scripts/recover_groupby_chart_table.py \
+  --notebook /path/to/analysis_project/notebooks/01_eda.ipynb \
+  --image /path/to/analysis_project/reports/figures/figure_06.png \
+  --project-root /path/to/analysis_project \
+  --out rag/chart-tables/figure_06/chart-table.json
+
+python scripts/validate_chart_table.py \
+  rag/chart-tables/figure_06/chart-table.json
+
+python scripts/build_chart_views.py \
+  --image /path/to/chart.png \
+  --out rag/chart-views/chart-name
+```
+
+スキーマは `schemas/chart-table.schema.json` です。各値に `exact / estimated / unresolved` を持たせ、系列数・点数・軸との対応と、コードおよびデータの SHA-256 を検証可能な形で残します。質問文や正解は、候補探索にも表復元にも渡しません。

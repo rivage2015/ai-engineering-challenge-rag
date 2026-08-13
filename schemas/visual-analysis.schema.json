@@ -1,0 +1,112 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://local.ai-engineering-challenge/schemas/visual-analysis.schema.json",
+  "title": "VisualAnalysis",
+  "description": "独立した文字転記と視覚状態観測を統合した画像解析記録",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "record_type",
+    "analysis_id",
+    "source",
+    "model",
+    "transcription",
+    "visual_state",
+    "fusion",
+    "verification",
+    "provenance"
+  ],
+  "properties": {
+    "schema_version": {"const": "0.1"},
+    "record_type": {"const": "visual_analysis"},
+    "analysis_id": {"type": "string", "pattern": "^va_[0-9a-f]{16,64}$"},
+    "source": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "mime_type", "sha256", "bytes"],
+      "properties": {
+        "path": {"type": "string", "minLength": 1},
+        "mime_type": {"enum": ["image/png", "image/jpeg", "image/gif", "image/webp"]},
+        "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+        "bytes": {"type": "integer", "minimum": 1},
+        "width_px": {"type": "integer", "minimum": 1},
+        "height_px": {"type": "integer", "minimum": 1},
+        "origin": {
+          "type": "object",
+          "additionalProperties": true
+        }
+      }
+    },
+    "model": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["requested", "resolved", "digest"],
+      "properties": {
+        "requested": {"type": "string", "minLength": 1},
+        "resolved": {"type": "string", "minLength": 1},
+        "digest": {"type": "string", "minLength": 16}
+      }
+    },
+    "transcription": {"$ref": "#/$defs/stageResult"},
+    "visual_state": {"$ref": "#/$defs/stageResult"},
+    "fusion": {"$ref": "#/$defs/stageResult"},
+    "verification": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status", "checks", "warnings", "retry_count"],
+      "properties": {
+        "status": {"enum": ["verified", "needs_retry", "unresolved"]},
+        "checks": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["name", "passed", "detail"],
+            "properties": {
+              "name": {"type": "string", "minLength": 1},
+              "passed": {"type": "boolean"},
+              "detail": {"type": "string"}
+            }
+          }
+        },
+        "warnings": {"type": "array", "items": {"type": "string"}},
+        "retry_count": {"type": "integer", "minimum": 0, "maximum": 2}
+      }
+    },
+    "provenance": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["orchestrator", "orchestrator_version", "prompt_versions", "generated_at", "sequential"],
+      "properties": {
+        "orchestrator": {"const": "sequential-visual-orchestrator"},
+        "orchestrator_version": {"type": "string", "minLength": 1},
+        "prompt_versions": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["transcription", "visual_state", "fusion"],
+          "properties": {
+            "transcription": {"type": "string", "minLength": 1},
+            "visual_state": {"type": "string", "minLength": 1},
+            "fusion": {"type": "string", "minLength": 1}
+          }
+        },
+        "generated_at": {"type": "string", "format": "date-time"},
+        "sequential": {"const": true}
+      }
+    }
+  },
+  "$defs": {
+    "stageResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status", "prompt_version", "elapsed_seconds", "output"],
+      "properties": {
+        "status": {"enum": ["completed", "failed"]},
+        "prompt_version": {"type": "string", "minLength": 1},
+        "elapsed_seconds": {"type": "number", "minimum": 0},
+        "output": {"type": "object"}
+      }
+    }
+  }
+}

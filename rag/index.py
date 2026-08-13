@@ -157,7 +157,11 @@ class Index:
                     out = out.replace(token, " ")
         return out
 
-    def search(self, query: str, extra_terms=(), top_k: int = 12) -> list:
+    def search_with_scores(self, query: str, extra_terms=(), top_k: int = 12) -> list:
+        """再ランキング後のスコアとチャンクを返す.
+
+        回答経路と同じ検索処理を診断レポートから再利用できるようにする。
+        """
         targets = self._target_projects(query, extra_terms)
         terms = [t for t in extra_terms if t not in targets]
         expanded = self._strip_project_names(
@@ -189,7 +193,13 @@ class Index:
                     s *= 1.2    # 社内管理などの共通資料は少し優遇
             ranked.append((s, i))
         ranked.sort(reverse=True)
-        return [self.chunks[i] for _, i in ranked[:top_k]]
+        return [(score, self.chunks[i]) for score, i in ranked[:top_k]]
+
+    def search(self, query: str, extra_terms=(), top_k: int = 12) -> list:
+        return [
+            chunk
+            for _, chunk in self.search_with_scores(query, extra_terms, top_k)
+        ]
 
 
 def save_chunks(chunks, path: Path) -> None:
