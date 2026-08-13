@@ -26,7 +26,8 @@ LOCATOR_KEYS = {
 }
 CONTEXT_KEYS = {
     "heading_text", "header_labels", "header_evidence_ids", "header_method",
-    "is_header_candidate",
+    "is_header_candidate", "container_kind", "container_heading_text",
+    "container_heading_evidence_ids",
 }
 
 
@@ -115,6 +116,9 @@ def validate(search_output: Path, intermediate: Path) -> dict[str, Any]:
             for evidence_id in context.get("header_evidence_ids", []):
                 if evidence_id not in source_ids:
                     errors.append(f"{label}: header Evidence is absent from source_evidence_ids: {evidence_id}")
+            for evidence_id in context.get("container_heading_evidence_ids", []):
+                if evidence_id not in source_ids:
+                    errors.append(f"{label}: container heading Evidence is absent from source_evidence_ids: {evidence_id}")
             text = item.get("text", {})
             if set(text) != {"search_text", "sha256", "char_count"}:
                 errors.append(f"{label}: invalid text fields")

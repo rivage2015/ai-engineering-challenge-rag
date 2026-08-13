@@ -343,44 +343,77 @@ class Probe:
 
     def extract_docx(self, path: Path) -> None:
         from docx import Document
+        from docx.oxml.table import CT_Tbl
+        from docx.oxml.text.paragraph import CT_P
+        from docx.table import Table
+        from docx.text.paragraph import Paragraph
 
         parsed = Document(path)
         doc = self.add_document(path, "python-docx")
         doc_id = doc["document_id"]
         if not self.diagnostic:
             self.mark_partial(doc, "headers, footers, comments, and run-level style spans are not yet fully extracted")
-        for index, paragraph in enumerate(parsed.paragraphs, 1):
-            if not paragraph.text or not self.may_add_leaf(doc_id):
-                continue
-            style: dict[str, Any] = {}
-            if paragraph.style and paragraph.style.style_id:
-                style["source_style_id"] = paragraph.style.style_id
-            evidence_type = "heading" if paragraph.style and paragraph.style.name.lower().startswith("heading") else "paragraph"
-            ev = self.add_evidence(
-                doc_id, evidence_type, {"paragraph_index": index}, content(raw_text=paragraph.text),
-                ordinal=index, style=style or None,
-                native_properties={"paragraph_style_name": paragraph.style.name if paragraph.style else None},
-            )
-            self.contain_document(doc_id, ev["evidence_id"])
-        for table_index, table in enumerate(parsed.tables, 1):
-            table_ev = self.add_evidence(
-                doc_id, "table", {"table_index": table_index},
-                content(raw_value={"rows": len(table.rows), "columns": len(table.columns)}),
-                ordinal=table_index,
-            )
-            self.contain_document(doc_id, table_ev["evidence_id"])
-            for row_index, row in enumerate(table.rows, 1):
-                for column_index, cell in enumerate(row.cells, 1):
-                    if not self.may_add_leaf(doc_id):
-                        break
-                    self.add_evidence(
-                        doc_id, "table_cell",
-                        {"table_index": table_index, "row_index": row_index, "column_index": column_index},
-                        content(raw_text=cell.text), parent_id=table_ev["evidence_id"],
-                        ordinal=column_index,
+        paragraph_index = 0
+        table_index = 0
+        body_order = 0
+        preceding_heading: dict[str, str] | None = None
+        for child in parsed.element.body.iterchildren():
+            if isinstance(child, CT_P):
+                paragraph_index += 1
+                body_order += 1
+                paragraph = Paragraph(child, parsed)
+                if not paragraph.text or not self.may_add_leaf(doc_id):
+                    continue
+                style: dict[str, Any] = {}
+                if paragraph.style and paragraph.style.style_id:
+                    style["source_style_id"] = paragraph.style.style_id
+                evidence_type = "heading" if paragraph.style and paragraph.style.name.lower().startswith("heading") else "paragraph"
+                ev = self.add_evidence(
+                    doc_id, evidence_type, {"paragraph_index": paragraph_index}, content(raw_text=paragraph.text),
+                    ordinal=paragraph_index, style=style or None,
+                    native_properties={
+                        "paragraph_style_name": paragraph.style.name if paragraph.style else None,
+                        "body_order": body_order,
+                    },
+                )
+                self.contain_document(doc_id, ev["evidence_id"])
+                if evidence_type == "heading":
+                    preceding_heading = {"text": paragraph.text, "evidence_id": ev["evidence_id"]}
+            elif isinstance(child, CT_Tbl):
+                table_index += 1
+                body_order += 1
+                table = Table(child, parsed)
+                native_properties: dict[str, Any] = {"body_order": body_order}
+                if preceding_heading is not None:
+                    native_properties.update({
+                        "preceding_heading_text": preceding_heading["text"],
+                        "preceding_heading_evidence_id": preceding_heading["evidence_id"],
+                    })
+                table_ev = self.add_evidence(
+                    doc_id, "table", {"table_index": table_index},
+                    content(raw_value={"rows": len(table.rows), "columns": len(table.columns)}),
+                    ordinal=table_index,
+                    native_properties=native_properties,
+                )
+                self.contain_document(doc_id, table_ev["evidence_id"])
+                if preceding_heading is not None:
+                    self.add_relation(
+                        "structural", "section_contains",
+                        {"record_type": "evidence", "record_id": preceding_heading["evidence_id"]},
+                        {"record_type": "evidence", "record_id": table_ev["evidence_id"]},
                     )
-                if self.limit_reached(doc_id):
-                    break
+                for row_index, row in enumerate(table.rows, 1):
+                    for column_index, cell in enumerate(row.cells, 1):
+                        if not self.may_add_leaf(doc_id):
+                            break
+                        self.add_evidence(
+                            doc_id, "table_cell",
+                            {"table_index": table_index, "row_index": row_index, "column_index": column_index},
+                            content(raw_text=cell.text), parent_id=table_ev["evidence_id"],
+                            ordinal=column_index,
+                        )
+                    if self.limit_reached(doc_id):
+                        break
 
     def extract_xlsx(self, path: Path) -> None:
         from openpyxl import load_workbook

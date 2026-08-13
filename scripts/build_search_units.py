@@ -13,7 +13,7 @@ from typing import Any, Callable
 
 
 BUILDER = "search-unit-builder"
-BUILDER_VERSION = "0.1.0"
+BUILDER_VERSION = "0.2.0"
 SCHEMA_VERSION = "0.1"
 STATE_FILE = "search-build-state.json"
 CELL_PATTERN = re.compile(r"^([A-Z]{1,3})([1-9][0-9]*)$")
@@ -153,6 +153,7 @@ class DocumentDeriver:
         self.current_row_locator: dict[str, Any] = {}
         self.current_row_cells: list[tuple[int, str, str, str]] = []
         self.headers: dict[tuple[Any, ...], list[tuple[int, str, str, str]]] = {}
+        self.table_contexts: dict[tuple[Any, ...], dict[str, Any]] = {}
         self.current_slide: int | None = None
         self.slide_shapes: list[tuple[str, str]] = []
         self.counts: dict[str, int] = {}
@@ -211,23 +212,30 @@ class DocumentDeriver:
         if populated:
             container = self.current_row_key[:-1]
             header = self.headers.get(container)
-            context: dict[str, Any]
+            context: dict[str, Any] = dict(self.table_contexts.get(container, {}))
             if header is None:
                 self.headers[container] = cells
-                context = {"header_method": "first_non_empty_row_candidate", "is_header_candidate": True}
+                context.update({"header_method": "first_non_empty_row_candidate", "is_header_candidate": True})
                 lines = [f"{label}: {value}" for _, label, value, _ in populated]
             else:
                 labels = {column: value for column, _, value, _ in header if value}
                 header_ids = [evidence_id for _, _, value, evidence_id in header if value]
-                context = {
+                context.update({
                     "header_method": "first_non_empty_row_candidate",
                     "is_header_candidate": False,
                     "header_labels": [labels.get(column, label) for column, label, _, _ in cells],
                     "header_evidence_ids": header_ids,
-                }
+                })
                 lines = [f"{labels.get(column, label)}: {value}" for column, label, value, _ in populated]
+            heading_text = context.get("container_heading_text")
+            if heading_text:
+                lines.insert(0, f"セクション: {heading_text}")
             row_evidence_ids = [evidence_id for _, _, _, evidence_id in populated]
-            evidence_ids = list(dict.fromkeys(context.get("header_evidence_ids", []) + row_evidence_ids))
+            evidence_ids = list(dict.fromkeys(
+                context.get("container_heading_evidence_ids", [])
+                + context.get("header_evidence_ids", [])
+                + row_evidence_ids
+            ))
             self.write(make_unit(
                 self.document_id,
                 "table_row",
@@ -252,9 +260,27 @@ class DocumentDeriver:
             self.current_row_locator = locator
         self.current_row_cells.append((column, label, display_value(evidence), evidence["evidence_id"]))
 
+    def add_table(self, evidence: dict[str, Any]) -> None:
+        location = evidence.get("location", {})
+        if "table_index" in location:
+            container = ("table", location.get("slide_number"), location.get("shape_id"), location["table_index"])
+        elif "slide_number" in location and "shape_id" in location:
+            container = ("slide_table", location["slide_number"], location["shape_id"])
+        else:
+            return
+        native = evidence.get("native_properties", {})
+        context: dict[str, Any] = {"container_kind": "table"}
+        heading_text = native.get("preceding_heading_text")
+        heading_evidence_id = native.get("preceding_heading_evidence_id")
+        if heading_text and heading_evidence_id:
+            context["container_heading_text"] = heading_text
+            context["container_heading_evidence_ids"] = [heading_evidence_id]
+        self.table_contexts[container] = context
+
     def flush_slide(self) -> None:
         if self.current_slide is not None and self.slide_shapes:
-            text = "\n\n".join(value for _, value in self.slide_shapes if value).strip()
+            body = "\n\n".join(value for _, value in self.slide_shapes if value).strip()
+            text = f"コンテナ種別: スライド\n{body}" if body else ""
             if text:
                 self.write(make_unit(
                     self.document_id,
@@ -293,12 +319,21 @@ class DocumentDeriver:
     def consume(self, evidence: dict[str, Any]) -> None:
         evidence_type = evidence.get("evidence_type")
         if evidence_type in {"heading", "paragraph"}:
+            self.flush_row()
             self.add_paragraph(evidence)
+        elif evidence_type == "table":
+            self.flush_paragraphs()
+            self.add_table(evidence)
         elif evidence_type == "table_cell":
+            self.flush_paragraphs()
             self.add_cell(evidence)
         elif evidence_type == "shape":
+            self.flush_row()
             self.add_shape(evidence)
         elif evidence_type == "page":
+            self.flush_paragraphs()
+            self.flush_row()
+            self.flush_slide()
             self.add_page(evidence)
 
     def finish(self) -> dict[str, int]:

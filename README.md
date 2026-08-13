@@ -39,6 +39,8 @@ scripts/  抽出、検索単位生成、診断、整合性検証CLI
   - 正解IDを検索後に照合し、Recall@k、Hit@k、MRRを計算します。
 - `scripts/finalize_human_retrieval_eval.py`
   - 原本確認済みの質問案を検証し、人手確認済み評価セットとして確定します。
+- `scripts/remap_retrieval_eval_draft.py`
+  - SearchUnit更新時に文書・種別・位置が同じ正解だけを新IDへ安全に対応付けます。
 
 ## 実行例
 
@@ -84,6 +86,12 @@ python scripts/finalize_human_retrieval_eval.py \
   --draft /path/to/reviewed-draft.jsonl \
   --out /path/to/new-human-evaluation-directory
 
+python scripts/remap_retrieval_eval_draft.py \
+  --old-search-output /path/to/old-search-output-directory \
+  --new-search-output /path/to/new-search-output-directory \
+  --evaluation-set /path/to/old-evaluation-set.jsonl \
+  --out-draft /path/to/remapped-reviewed-draft.jsonl
+
 python scripts/evaluate_lexical_retrieval.py \
   --index /path/to/new-index-directory \
   --evaluation-set /path/to/new-evaluation-directory/evaluation-set.jsonl \
@@ -116,7 +124,7 @@ python scripts/build_intermediate_records.py \
 形式別の未対応情報が残っている間はDocumentを`partial`として記録します。
 EvidenceとRelationはファイル単位シャードへ逐次書き出すため、全レコードを
 Pythonのメモリへ保持しません。検索用派生層は段落チャンク、ヘッダー候補付き表行、
-スライド、PDFページを`SearchUnit`へ変換し、元Evidence IDを保持します。
+親見出し付きDOCX表行、スライド、PDFページを`SearchUnit`へ変換し、元Evidence IDを保持します。
 さらに、外部APIを使わないSQLite BM25索引を構築し、日本語文字n-gramによる
 検索結果から元Evidenceまで追跡できます。回答生成は検索評価後に接続します。
 

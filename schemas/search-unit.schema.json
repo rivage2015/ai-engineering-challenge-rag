@@ -59,6 +59,14 @@
       "additionalProperties": false,
       "properties": {
         "heading_text": {"type": "string", "minLength": 1},
+        "container_kind": {"enum": ["table", "slide"]},
+        "container_heading_text": {"type": "string", "minLength": 1},
+        "container_heading_evidence_ids": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {"type": "string", "pattern": "^ev_[0-9a-f]{16,64}$"}
+        },
         "header_labels": {
           "type": "array",
           "items": {"type": "string"}

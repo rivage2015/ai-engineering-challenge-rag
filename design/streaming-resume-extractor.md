@@ -1,4 +1,4 @@
-# ストリーミング抽出・再開機能 v0.3
+# ストリーミング抽出・再開機能 v0.4
 
 ## 目的
 
@@ -70,7 +70,7 @@ DOCX、XLSX、PPTX、PDF各1件、合計4件で確認した。
 3. 統合JSONLが存在しないことを確認した。
 4. `--resume`で再開した。
 5. 完了済み2件をスキップし、残り2件だけを処理した。
-6. 最終的に4 Document、436 Evidence、436 Relationを生成した。
+6. v0.3では4 Document、436 Evidence、436 Relationを生成した。
 7. ID、内容ハッシュ、原本ハッシュ、親子参照、Relation端点の検証に合格した。
 
 完了後に再度`--resume`した場合は4件すべてをスキップし、統合結果のSHA-256も
@@ -81,6 +81,17 @@ documents.jsonl  7d9e180392d3991555dfe7deb4b88fb7939368cddd263511cb064f6847d7e17
 evidence.jsonl   6aab5966cc85d44288b21fd464f22704ae85263726c2cbefde68724080b9bfaa
 relations.jsonl  4bad7fa1a607315c0dbdede669efc8be334252a4e1f157e3e975c09ea95089c0
 ```
+
+## DOCX文書順序と節文脈 v0.4
+
+DOCXの段落と表を別々に列挙せず、本文XMLの出現順で逐次抽出する。
+段落と表の`native_properties.body_order`を記録し、表には直前の見出し文字列と
+Evidence IDを保持する。見出しと表の間には、決定的な
+`structural/section_contains`関係を追加する。
+
+代表4形式では4 Document、436 Evidence、437 Relationを生成し、整合性検証に
+合格した。同一時刻・同一入力の再抽出で、統合JSONLとビルド状態が
+バイト一致した。Evidence IDは変更せず、検索層で親見出しを参照できる。
 
 ## 大規模XLSX検証
 

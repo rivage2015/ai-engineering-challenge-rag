@@ -23,7 +23,7 @@ from probe_intermediate_records import Probe, canonical_json, digest_file, nfc_p
 
 SUPPORTED_SUFFIXES = {".docx", ".xlsx", ".pptx", ".pdf"}
 EXTRACTOR = "intermediate-record-extractor"
-EXTRACTOR_VERSION = "0.3.0"
+EXTRACTOR_VERSION = "0.4.0"
 STATE_VERSION = "1"
 STATE_FILE = "build-state.json"
 LOCK_FILE = "build.lock"
