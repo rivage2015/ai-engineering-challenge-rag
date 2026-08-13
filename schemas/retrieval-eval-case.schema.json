@@ -28,6 +28,21 @@
     "category": {
       "enum": ["paragraph_chunk", "table_row", "slide_text", "page_text", "cross_format", "other"]
     },
+    "review": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["reviewed", "method", "source_locations"],
+      "properties": {
+        "reviewed": {"const": true},
+        "method": {"enum": ["structural", "visual_and_structural"]},
+        "source_locations": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {"type": "string", "minLength": 1}
+        }
+      }
+    },
     "provenance": {
       "type": "object",
       "additionalProperties": false,

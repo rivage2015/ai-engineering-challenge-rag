@@ -37,6 +37,8 @@ scripts/  抽出、検索単位生成、診断、整合性検証CLI
   - 全形式共通規則で、検索配線確認用の自己検索評価セットを生成します。
 - `scripts/evaluate_lexical_retrieval.py`
   - 正解IDを検索後に照合し、Recall@k、Hit@k、MRRを計算します。
+- `scripts/finalize_human_retrieval_eval.py`
+  - 原本確認済みの質問案を検証し、人手確認済み評価セットとして確定します。
 
 ## 実行例
 
@@ -77,11 +79,20 @@ python scripts/build_self_retrieval_eval.py \
   --out /path/to/new-evaluation-directory \
   --max-cases 100
 
+python scripts/finalize_human_retrieval_eval.py \
+  --search-output /path/to/new-search-output-directory \
+  --draft /path/to/reviewed-draft.jsonl \
+  --out /path/to/new-human-evaluation-directory
+
 python scripts/evaluate_lexical_retrieval.py \
   --index /path/to/new-index-directory \
   --evaluation-set /path/to/new-evaluation-directory/evaluation-set.jsonl \
   --k 1 3 5 10
 ```
+
+人手確認済み評価セットは、`query`、`relevant_search_unit_ids`、`category`、`review`を
+持つJSONL下書きを`finalize_human_retrieval_eval.py`へ渡して確定します。生成した評価
+セットとレポートは`artifacts/`へ保存できますが、大会データ由来のためGitには含めません。
 
 出力先が空でない場合は上書きせず停止します。中間データの出力先は、再帰的な
 自己取り込みを防ぐため原本ルートの外側へ指定してください。

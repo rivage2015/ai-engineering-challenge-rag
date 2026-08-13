@@ -57,6 +57,10 @@ def load_cases(path: Path) -> list[dict[str, Any]]:
             }
             if case_id != stable_id("qe", identity):
                 raise ValueError(f"{path}:{line_number}: unstable or modified eval_case_id")
+            if provenance.get("method") == "human_reviewed":
+                review = case.get("review", {})
+                if review.get("reviewed") is not True or not review.get("source_locations"):
+                    raise ValueError(f"{path}:{line_number}: human-reviewed case lacks review evidence")
             seen.add(case_id)
             cases.append(case)
     if not cases:
