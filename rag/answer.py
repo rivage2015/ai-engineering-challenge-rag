@@ -162,7 +162,14 @@ def answer_question(client: AnswerClient, question: str, chunks, glossary=None) 
         {"role": "system", "content": SYSTEM},
         {"role": "user", "content": user},
     ])
+    return normalize_answer(text)
+
+
+def normalize_answer(text: str) -> str:
+    """Apply question-independent plain-text normalization to one answer."""
     # Source documents can contain presentation/export markup.  Keep answer
     # cells plain text without changing their semantic content.
     text = re.sub(r"</?[A-Za-z][^>]{0,200}>", "", text).strip()
+    if re.fullmatch(r"(?:わかりません|わからない|不明)[。．.]*", text):
+        text = "わかりません"
     return text or "わかりません"

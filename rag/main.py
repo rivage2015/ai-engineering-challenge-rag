@@ -173,7 +173,7 @@ def main() -> int:
     ap.add_argument("--restart-answers", action="store_true")
     args = ap.parse_args()
 
-    from answer import BACKEND, MODEL, answer_question, make_client
+    from answer import BACKEND, MODEL, answer_question, make_client, normalize_answer
 
     args.backend = args.backend or BACKEND
     args.model = args.model or MODEL
@@ -233,6 +233,7 @@ def main() -> int:
         {} if args.restart_answers else _load_answer_checkpoint(signature)
     )
     if results:
+        results = {key: normalize_answer(value) for key, value in results.items()}
         print(f"途中保存から再開: {len(results)}/{len(questions)} 問")
     done = [len(results)]
     checkpoint_lock = Lock()

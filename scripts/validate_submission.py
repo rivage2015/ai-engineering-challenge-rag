@@ -40,7 +40,12 @@ def token_counts(answers: list[str], model: str) -> tuple[list[int] | None, str 
         except KeyError:
             encoding = tiktoken.get_encoding("cl100k_base")
     except Exception as exc:
-        return None, f"token limit was not checked: {type(exc).__name__}"
+        # A BPE token cannot require more entries than the UTF-8 bytes used to
+        # encode the same text.  This is conservative but lets short answers be
+        # verified safely when the tiktoken vocabulary is not cached offline.
+        return [len(answer.encode("utf-8")) for answer in answers], (
+            f"used conservative UTF-8 byte upper bound: {type(exc).__name__}"
+        )
     return [len(encoding.encode(answer)) for answer in answers], None
 
 
