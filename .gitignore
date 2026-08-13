@@ -13,6 +13,15 @@
 !scripts/
 !scripts/*.py
 
+# Reusable end-to-end runner. Runtime caches, answers, logs, assets and secrets
+# remain denied by the default rule above.
+!rag/
+rag/*
+!rag/*.py
+!rag/requirements.txt
+
+!実行.command
+
 **/__pycache__/
 **/*.py[cod]
 **/.DS_Store

@@ -37,6 +37,10 @@ scripts/  抽出、検索単位生成、診断、整合性検証CLI
   - ローカルOllamaで意味索引を生成し、モデルdigest、行列、元SearchUnitを検証します。
 - `scripts/search_semantic_index.py` / `scripts/search_hybrid.py`
   - ローカルコサイン検索と、BM25との適応型RRF統合を実行します。
+- `rag/main.py` / `rag/answer.py`
+  - 既存の全資料キャッシュから、ローカルOllamaまたはOpenAIで回答CSV/ZIPを生成します。
+- `scripts/validate_submission.py`
+  - ヘッダーなし2列、全index、空欄、1000トークン上限、ZIP内部名を提出前に検証します。
 - `scripts/build_self_retrieval_eval.py`
   - 全形式共通規則で、検索配線確認用の自己検索評価セットを生成します。
 - `scripts/evaluate_lexical_retrieval.py`
@@ -157,7 +161,8 @@ EvidenceとRelationはファイル単位シャードへ逐次書き出すため�
 Pythonのメモリへ保持しません。検索用派生層は段落チャンク、ヘッダー候補付き表行、
 親見出し付きDOCX表行、スライド、PDFページを`SearchUnit`へ変換し、元Evidence IDを保持します。
 さらに、外部APIを使わないSQLite BM25索引を構築し、日本語文字n-gramによる
-検索結果から元Evidenceまで追跡できます。回答生成は検索評価後に接続します。
+検索結果から元Evidenceまで追跡できます。提出までの先行経路として、既存の全資料
+抽出キャッシュとローカル`gemma4:12b`を接続したAPIキー不要の回答生成も利用できます。
 
 ## データ管理
 
