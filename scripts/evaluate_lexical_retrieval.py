@@ -83,6 +83,9 @@ def evaluate(
     cutoffs: list[int],
     field_value_weight: float = 0.5,
     parent_context_penalty: float = 2.0,
+    semantic_index: Path | None = None,
+    semantic_weight: float = 0.25,
+    base_url: str = "http://127.0.0.1:11434",
 ) -> dict[str, Any]:
     normalized_cutoffs = sorted(set(cutoffs))
     if not normalized_cutoffs or normalized_cutoffs[0] < 1:
@@ -104,11 +107,22 @@ def evaluate(
     outcomes: list[dict[str, Any]] = []
     grouped: dict[str, list[dict[str, Any]]] = defaultdict(list)
     for case in cases:
-        retrieval = search(
-            index, case["query"], maximum, snippet_chars=160,
-            field_value_weight=field_value_weight,
-            parent_context_penalty=parent_context_penalty,
-        )
+        if semantic_index is None:
+            retrieval = search(
+                index, case["query"], maximum, snippet_chars=160,
+                field_value_weight=field_value_weight,
+                parent_context_penalty=parent_context_penalty,
+            )
+        else:
+            from search_hybrid import search as search_hybrid
+
+            retrieval = search_hybrid(
+                index, semantic_index, case["query"], maximum,
+                base_url=base_url,
+                candidate_k=max(50, maximum),
+                semantic_weight=semantic_weight,
+                snippet_chars=160,
+            )
         retrieved = [item["search_unit_id"] for item in retrieval["results"]]
         relevant = set(case["relevant_search_unit_ids"])
         ranks = [rank for rank, search_unit_id in enumerate(retrieved, 1) if search_unit_id in relevant]
@@ -128,20 +142,31 @@ def evaluate(
         }
         outcomes.append(outcome)
         grouped[outcome["category"]].append(outcome)
+    inputs = {
+        "evaluation_set_sha256": digest_file(evaluation_set),
+        "lexical_index_state_sha256": digest_file(index / "lexical-index-state.json"),
+    }
+    semantic_model = None
+    if semantic_index is not None:
+        semantic_state_path = semantic_index / "semantic-index-state.json"
+        semantic_state = json.loads(semantic_state_path.read_text(encoding="utf-8"))
+        inputs["semantic_index_state_sha256"] = digest_file(semantic_state_path)
+        semantic_model = semantic_state.get("model")
     return {
         "evaluation_method": "post_retrieval_relevance_comparison",
         "retrieval_method": (
-            "BM25+field-aware-parent-child"
-            if field_value_weight or parent_context_penalty else "BM25"
+            "BM25-field-parent+local-semantic-RRF"
+            if semantic_index is not None else
+            ("BM25+field-aware-parent-child" if field_value_weight or parent_context_penalty else "BM25")
         ),
         "ranker": RANKER,
         "ranker_version": RANKER_VERSION,
         "field_value_weight": field_value_weight,
         "parent_context_penalty": parent_context_penalty,
-        "inputs": {
-            "evaluation_set_sha256": digest_file(evaluation_set),
-            "lexical_index_state_sha256": digest_file(index / "lexical-index-state.json"),
-        },
+        "semantic_weight": semantic_weight if semantic_index is not None else None,
+        "adaptive_semantic": semantic_index is not None,
+        "semantic_model": semantic_model,
+        "inputs": inputs,
         "cutoffs": normalized_cutoffs,
         "overall": metrics_for(outcomes, normalized_cutoffs),
         "by_category": {category: metrics_for(items, normalized_cutoffs) for category, items in sorted(grouped.items())},
@@ -157,11 +182,17 @@ def main() -> None:
     parser.add_argument("--out", type=Path)
     parser.add_argument("--field-value-weight", type=float, default=0.5)
     parser.add_argument("--parent-context-penalty", type=float, default=2.0)
+    parser.add_argument("--semantic-index", type=Path)
+    parser.add_argument("--semantic-weight", type=float, default=0.25)
+    parser.add_argument("--base-url", default="http://127.0.0.1:11434")
     args = parser.parse_args()
     report = evaluate(
         args.index.resolve(), args.evaluation_set.resolve(), args.k,
         field_value_weight=args.field_value_weight,
         parent_context_penalty=args.parent_context_penalty,
+        semantic_index=args.semantic_index.resolve() if args.semantic_index else None,
+        semantic_weight=args.semantic_weight,
+        base_url=args.base_url,
     )
     rendered = canonical_json(report) + "\n"
     if args.out:

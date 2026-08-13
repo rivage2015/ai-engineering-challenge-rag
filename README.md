@@ -33,6 +33,10 @@ scripts/  抽出、検索単位生成、診断、整合性検証CLI
   - 日本語n-gramのBM25に、表の列値一致と親子関係を使う汎用再ランキングを重ね、元Evidence参照を返します。
 - `scripts/validate_lexical_index.py`
   - SQLite内部整合性、件数、入力SearchUnitのSHA-256を検証します。
+- `scripts/build_semantic_index.py` / `scripts/validate_semantic_index.py`
+  - ローカルOllamaで意味索引を生成し、モデルdigest、行列、元SearchUnitを検証します。
+- `scripts/search_semantic_index.py` / `scripts/search_hybrid.py`
+  - ローカルコサイン検索と、BM25との適応型RRF統合を実行します。
 - `scripts/build_self_retrieval_eval.py`
   - 全形式共通規則で、検索配線確認用の自己検索評価セットを生成します。
 - `scripts/evaluate_lexical_retrieval.py`
@@ -45,6 +49,7 @@ scripts/  抽出、検索単位生成、診断、整合性検証CLI
 ## 実行例
 
 依存ライブラリとして`python-docx`、`openpyxl`、`python-pptx`、`pypdf`を使用します。
+意味索引にはNumPy、Ollama、ローカルの`embeddinggemma`が追加で必要です。
 
 ```bash
 python scripts/build_intermediate_records.py \
@@ -71,6 +76,17 @@ python scripts/validate_lexical_index.py \
   /path/to/new-index-directory \
   --search-output /path/to/new-search-output-directory
 
+ollama pull embeddinggemma
+
+python scripts/build_semantic_index.py \
+  --search-output /path/to/new-search-output-directory \
+  --out /path/to/new-semantic-index-directory \
+  --model embeddinggemma
+
+python scripts/validate_semantic_index.py \
+  /path/to/new-semantic-index-directory \
+  --search-output /path/to/new-search-output-directory
+
 python scripts/search_lexical_index.py \
   --index /path/to/new-index-directory \
   --query '検索したい内容' \
@@ -83,6 +99,12 @@ python scripts/search_lexical_index.py \
   --top-k 10 \
   --field-value-weight 0 \
   --parent-context-penalty 0
+
+python scripts/search_hybrid.py \
+  --lexical-index /path/to/new-index-directory \
+  --semantic-index /path/to/new-semantic-index-directory \
+  --query '検索したい内容' \
+  --top-k 10
 
 python scripts/build_self_retrieval_eval.py \
   --search-output /path/to/new-search-output-directory \
@@ -103,6 +125,7 @@ python scripts/remap_retrieval_eval_draft.py \
 python scripts/evaluate_lexical_retrieval.py \
   --index /path/to/new-index-directory \
   --evaluation-set /path/to/new-evaluation-directory/evaluation-set.jsonl \
+  --semantic-index /path/to/new-semantic-index-directory \
   --k 1 3 5 10
 ```
 
