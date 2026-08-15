@@ -22,7 +22,17 @@
     "search_unit_id": {"type": "string", "pattern": "^su_[0-9a-f]{16,64}$"},
     "document_id": {"type": "string", "pattern": "^doc_[0-9a-f]{16,64}$"},
     "unit_type": {
-      "enum": ["paragraph_chunk", "table_row", "slide_text", "page_text"]
+      "enum": [
+        "paragraph_chunk",
+        "table_row",
+        "slide_text",
+        "page_text",
+        "text_chunk",
+        "code_chunk",
+        "notebook_cell",
+        "chart_summary",
+        "chart_series"
+      ]
     },
     "source_evidence_ids": {
       "type": "array",
@@ -41,7 +51,14 @@
         "shape_id": {"type": "string", "minLength": 1},
         "row_index": {"type": "integer", "minimum": 1},
         "paragraph_start": {"type": "integer", "minimum": 1},
-        "paragraph_end": {"type": "integer", "minimum": 1}
+        "paragraph_end": {"type": "integer", "minimum": 1},
+        "notebook_cell_index": {"type": "integer", "minimum": 1},
+        "code_line_start": {"type": "integer", "minimum": 1},
+        "code_line_end": {"type": "integer", "minimum": 1},
+        "locator_text": {"type": "string", "minLength": 1},
+        "source_member": {"type": "string", "minLength": 1},
+        "object_index": {"type": "integer", "minimum": 1},
+        "series_index": {"type": "integer", "minimum": 1}
       }
     },
     "text": {
@@ -59,7 +76,7 @@
       "additionalProperties": false,
       "properties": {
         "heading_text": {"type": "string", "minLength": 1},
-        "container_kind": {"enum": ["table", "slide"]},
+        "container_kind": {"enum": ["table", "slide", "chart"]},
         "container_heading_text": {"type": "string", "minLength": 1},
         "container_heading_evidence_ids": {
           "type": "array",
@@ -76,7 +93,7 @@
           "uniqueItems": true,
           "items": {"type": "string", "pattern": "^ev_[0-9a-f]{16,64}$"}
         },
-        "header_method": {"const": "first_non_empty_row_candidate"},
+        "header_method": {"enum": ["first_non_empty_row_candidate", "source_header_row"]},
         "is_header_candidate": {"type": "boolean"}
       }
     },

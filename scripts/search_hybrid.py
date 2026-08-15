@@ -9,6 +9,7 @@ from typing import Any
 
 from lexical_search_common import canonical_json
 from ollama_embedding_common import DEFAULT_BASE_URL
+from retrieval_trace_common import enrich_retrieval, load_document_sources
 from search_lexical_index import search as search_lexical
 from search_semantic_index import search as search_semantic
 
@@ -32,6 +33,7 @@ def search(
     low_coverage_threshold: float = 0.25,
     low_margin_threshold: float = 1.4,
     low_confidence_semantic_weight: float = 1.0,
+    document_ids: set[str] | None = None,
 ) -> dict[str, Any]:
     if top_k < 1 or candidate_k < top_k:
         raise ValueError("candidate_k must be at least top_k and both must be positive")
@@ -44,8 +46,14 @@ def search(
         or low_margin_threshold <= 0
     ):
         raise ValueError("invalid RRF weight or adaptive confidence threshold")
-    lexical = search_lexical(lexical_index, query, candidate_k, snippet_chars=snippet_chars)
-    semantic = search_semantic(semantic_index, query, candidate_k, base_url, snippet_chars)
+    lexical = search_lexical(
+        lexical_index, query, candidate_k, snippet_chars=snippet_chars,
+        document_ids=document_ids,
+    )
+    semantic = search_semantic(
+        semantic_index, query, candidate_k, base_url, snippet_chars,
+        document_ids=document_ids,
+    )
     lexical_coverage = 0.0
     lexical_margin = float("inf")
     if lexical["results"]:
@@ -128,13 +136,21 @@ def main() -> None:
     parser.add_argument("--semantic-weight", type=float, default=0.25)
     parser.add_argument("--snippet-chars", type=int, default=500)
     parser.add_argument("--no-adaptive-semantic", action="store_true")
+    parser.add_argument(
+        "--intermediate", type=Path, nargs="+",
+        help="optional intermediate directories used to add source file paths to results",
+    )
     args = parser.parse_args()
-    print(canonical_json(search(
+    result = search(
         args.lexical_index.resolve(), args.semantic_index.resolve(), args.query,
         args.top_k, args.base_url, args.candidate_k, args.rrf_k,
         args.lexical_weight, args.semantic_weight, args.snippet_chars,
         not args.no_adaptive_semantic,
-    )))
+    )
+    if args.intermediate:
+        sources, _ = load_document_sources(args.intermediate)
+        enrich_retrieval(result, sources)
+    print(canonical_json(result))
 
 
 if __name__ == "__main__":

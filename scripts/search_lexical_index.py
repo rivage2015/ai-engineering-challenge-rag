@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import Any
 
 from lexical_search_common import TOKENIZER, TOKENIZER_VERSION, canonical_json, tokenize
+from retrieval_trace_common import enrich_retrieval, load_document_sources
 
 
 RANKER = "field-aware-parent-child-reranker"
@@ -54,6 +55,7 @@ def search(
     b: float = 0.75,
     field_value_weight: float = 0.5,
     parent_context_penalty: float = 2.0,
+    document_ids: set[str] | None = None,
 ) -> dict[str, Any]:
     if not query.strip():
         raise ValueError("query must not be empty")
@@ -106,6 +108,8 @@ def search(
         for doc_rowid in lexical_ranked_ids:
             row = connection.execute("SELECT * FROM documents WHERE doc_rowid = ?", (doc_rowid,)).fetchone()
             if unit_types and row["unit_type"] not in unit_types:
+                continue
+            if document_ids is not None and row["document_id"] not in document_ids:
                 continue
             rows_by_id[doc_rowid] = row
             candidate_ids.append(doc_rowid)
@@ -193,16 +197,31 @@ def main() -> None:
     parser.add_argument("--index", required=True, type=Path)
     parser.add_argument("--query", required=True)
     parser.add_argument("--top-k", type=int, default=10)
-    parser.add_argument("--unit-type", action="append", choices=["paragraph_chunk", "table_row", "slide_text", "page_text"])
+    parser.add_argument(
+        "--unit-type",
+        action="append",
+        choices=[
+            "paragraph_chunk", "table_row", "slide_text", "page_text",
+            "text_chunk", "code_chunk", "notebook_cell", "chart_summary", "chart_series",
+        ],
+    )
     parser.add_argument("--snippet-chars", type=int, default=500)
     parser.add_argument("--field-value-weight", type=float, default=0.5)
     parser.add_argument("--parent-context-penalty", type=float, default=2.0)
+    parser.add_argument(
+        "--intermediate", type=Path, nargs="+",
+        help="optional intermediate directories used to add source file paths to results",
+    )
     args = parser.parse_args()
-    print(canonical_json(search(
+    result = search(
         args.index.resolve(), args.query, args.top_k, args.unit_type, args.snippet_chars,
         field_value_weight=args.field_value_weight,
         parent_context_penalty=args.parent_context_penalty,
-    )))
+    )
+    if args.intermediate:
+        sources, _ = load_document_sources(args.intermediate)
+        enrich_retrieval(result, sources)
+    print(canonical_json(result))
 
 
 if __name__ == "__main__":

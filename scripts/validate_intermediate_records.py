@@ -10,6 +10,8 @@ import re
 from pathlib import Path
 from typing import Any
 
+from probe_intermediate_records import normalize_text
+
 
 PATTERNS = {
     "document": re.compile(r"^doc_[0-9a-f]{16,64}$"),
@@ -130,6 +132,12 @@ def validate(directory: Path, source_root: Path | None = None) -> dict[str, int]
             })
             if ev_id != expected:
                 errors.append(f"{ev_id}: unstable evidence id")
+            if "raw_text" in item_content:
+                expected_normalized = normalize_text(item_content["raw_text"])
+                if item_content.get("normalized_text") != expected_normalized:
+                    errors.append(f"{ev_id}: normalized_text is missing or inconsistent")
+            if "raw_value" in item_content and item_content.get("normalized_value") != item_content["raw_value"]:
+                errors.append(f"{ev_id}: normalized_value is missing or inconsistent")
         except ValueError as exc:
             errors.append(f"{ev_id}: {exc}")
 

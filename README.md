@@ -18,7 +18,7 @@ scripts/  抽出、検索単位生成、診断、整合性検証CLI
 ## 主なスクリプト
 
 - `scripts/build_intermediate_records.py`
-  - DOCX、XLSX、PPTX、PDFを再帰的に発見し、中間レコードを生成します。
+  - DOCX、XLSX、PPTX、PDF、CSV、JSON、JSONL、Markdown、Notebook、Python、テキストを再帰的に発見し、中間レコードを生成します。
 - `scripts/probe_intermediate_records.py`
   - 少量の代表データでSchemaと抽出結果を確認する診断用プローブです。
 - `scripts/validate_intermediate_records.py`
@@ -34,11 +34,11 @@ scripts/  抽出、検索単位生成、診断、整合性検証CLI
 - `scripts/validate_lexical_index.py`
   - SQLite内部整合性、件数、入力SearchUnitのSHA-256を検証します。
 - `scripts/build_semantic_index.py` / `scripts/validate_semantic_index.py`
-  - ローカルOllamaで意味索引を生成し、モデルdigest、行列、元SearchUnitを検証します。
+  - ローカルOllamaでディスク常駐・再開可能な意味索引を生成し、モデルdigest、行列、元SearchUnitをストリーミング検証します。
 - `scripts/search_semantic_index.py` / `scripts/search_hybrid.py`
   - ローカルコサイン検索と、BM25との適応型RRF統合を実行します。
-- `rag/main.py` / `rag/answer.py`
-  - 既存の全資料キャッシュから、ローカルOllamaまたはOpenAIで回答CSV/ZIPを生成します。
+- `rag/main.py` / `rag/answer.py` / `rag/layer1_index.py`
+  - 既存の全資料キャッシュを既定値のまま保ち、明示時だけ監査済みLayer 1／ChartTable索引へ切り替えて回答CSV/ZIPを生成します。
 - `scripts/build_answer_diagnostic_report.py`
   - 正解付き質問と回答実行ログから、検索順位・スコア・抽出本文・回答を問題ごとに確認できる診断レポートを生成します。
 
@@ -72,11 +72,16 @@ python scripts/validate_visual_analysis.py \
   - 原本確認済みの質問案を検証し、人手確認済み評価セットとして確定します。
 - `scripts/remap_retrieval_eval_draft.py`
   - SearchUnit更新時に文書・種別・位置が同じ正解だけを新IDへ安全に対応付けます。
+- `scripts/build_layer1_deliverables.py` / `scripts/validate_layer1_deliverables.py`
+  - 原本台帳、正規化文書、失敗一覧、チャンク、評価レポートをレイヤー1成果物として固定・検証します。
+- `scripts/build_chart_intermediate.py`
+  - 検証済みChartTableを、画像Document、グラフEvidence、系列Evidence、Relationへ変換します。
 
 ## 実行例
 
-依存ライブラリとして`python-docx`、`openpyxl`、`python-pptx`、`pypdf`を使用します。
-意味索引にはNumPy、Ollama、ローカルの`embeddinggemma`が追加で必要です。
+依存ライブラリとして`python-docx`、`openpyxl`、`python-pptx`、`pypdf`、
+NumPy、pandas、Pillowを使用します。意味索引にはOllamaとローカルの
+`embeddinggemma`が追加で必要です。
 
 ```bash
 python scripts/build_intermediate_records.py \
@@ -108,7 +113,15 @@ ollama pull embeddinggemma
 python scripts/build_semantic_index.py \
   --search-output /path/to/new-search-output-directory \
   --out /path/to/new-semantic-index-directory \
-  --model embeddinggemma
+  --model embeddinggemma \
+  --resume
+
+# 既存意味索引のSearchUnit列が完全なprefixなら、追加分だけを埋め込む場合
+python scripts/build_semantic_index.py \
+  --search-output /path/to/search-output-with-appended-units \
+  --out /path/to/new-semantic-index-directory \
+  --base-index /path/to/existing-semantic-index-directory \
+  --resume
 
 python scripts/validate_semantic_index.py \
   /path/to/new-semantic-index-directory \
@@ -116,6 +129,7 @@ python scripts/validate_semantic_index.py \
 
 python scripts/search_lexical_index.py \
   --index /path/to/new-index-directory \
+  --intermediate /path/to/new-output-directory \
   --query '検索したい内容' \
   --top-k 10
 
@@ -130,6 +144,7 @@ python scripts/search_lexical_index.py \
 python scripts/search_hybrid.py \
   --lexical-index /path/to/new-index-directory \
   --semantic-index /path/to/new-semantic-index-directory \
+  --intermediate /path/to/new-output-directory \
   --query '検索したい内容' \
   --top-k 10
 
@@ -152,8 +167,40 @@ python scripts/remap_retrieval_eval_draft.py \
 python scripts/evaluate_lexical_retrieval.py \
   --index /path/to/new-index-directory \
   --evaluation-set /path/to/new-evaluation-directory/evaluation-set.jsonl \
+  --intermediate /path/to/new-output-directory \
   --semantic-index /path/to/new-semantic-index-directory \
   --k 1 3 5 10
+
+# 同じ評価セットで意味検索だけを測定する場合
+python scripts/evaluate_lexical_retrieval.py \
+  --index /path/to/new-index-directory \
+  --evaluation-set /path/to/new-evaluation-directory/evaluation-set.jsonl \
+  --intermediate /path/to/new-output-directory \
+  --semantic-index /path/to/new-semantic-index-directory \
+  --semantic-only \
+  --k 1 3 5 10
+
+python scripts/build_layer1_deliverables.py \
+  --root /path/to/source-root \
+  --intermediate /path/to/new-output-directory \
+  --search-output /path/to/new-search-output-directory \
+  --evaluation-report /path/to/evaluation-bm25.json \
+  --evaluation-report /path/to/evaluation-semantic.json \
+  --evaluation-report /path/to/evaluation-hybrid.json \
+  --out /path/to/layer1-deliverables
+
+python scripts/validate_layer1_deliverables.py \
+  /path/to/layer1-deliverables
+
+python -m unittest discover -s tests -v
+
+# 既存提出経路を変えずに、監査済みLayer 1 + ChartTable索引を回答経路で確認
+# layer1-hybridは人手確認済み評価で最良だった固定weight RRFを使用
+python rag/main.py --valid --dry-run --limit 5 \
+  --retrieval-mode layer1-lexical
+
+python rag/main.py --valid --dry-run --limit 5 \
+  --retrieval-mode layer1-hybrid
 
 python scripts/build_answer_diagnostic_report.py \
   --questions share/質問回答/questions_valid.csv \
@@ -170,6 +217,13 @@ python scripts/build_answer_diagnostic_report.py \
 人手確認済み評価セットは、`query`、`relevant_search_unit_ids`、`category`、`review`を
 持つJSONL下書きを`finalize_human_retrieval_eval.py`へ渡して確定します。生成した評価
 セットとレポートは`artifacts/`へ保存できますが、大会データ由来のためGitには含めません。
+
+Layer 1成果物では原文と正規化後を別JSONLに保持します。原本台帳には各ファイルの
+SHA-256を記録し、`layer1-state.json`には中間層・SearchUnit・評価レポートの入力hashと
+チャンク設定を固定します。Unicode・空白・制御文字を
+決定的に正規化し、3ページ以上で完全一致するPDF先頭／末尾行だけを重複ヘッダー・
+フッター候補とします。初出は残し、以後を正規化側から除去して、その操作内容も
+各レコードへ残します。
 
 出力先が空でない場合は上書きせず停止します。中間データの出力先は、再帰的な
 自己取り込みを防ぐため原本ルートの外側へ指定してください。
@@ -193,7 +247,8 @@ python scripts/build_intermediate_records.py \
 形式別の未対応情報が残っている間はDocumentを`partial`として記録します。
 EvidenceとRelationはファイル単位シャードへ逐次書き出すため、全レコードを
 Pythonのメモリへ保持しません。検索用派生層は段落チャンク、ヘッダー候補付き表行、
-親見出し付きDOCX表行、スライド、PDFページを`SearchUnit`へ変換し、元Evidence IDを保持します。
+親見出し付きDOCX表行、スライド、PDFページ、Notebookセル、コードブロック、検証済み
+ChartTableの要約・系列を`SearchUnit`へ変換し、元Evidence IDを保持します。
 さらに、外部APIを使わないSQLite BM25索引を構築し、日本語文字n-gramによる
 検索結果から元Evidenceまで追跡できます。提出までの先行経路として、既存の全資料
 抽出キャッシュとローカル`gemma4:12b`を接続したAPIキー不要の回答生成も利用できます。
@@ -224,6 +279,16 @@ python scripts/recover_groupby_chart_table.py \
 
 python scripts/validate_chart_table.py \
   rag/chart-tables/figure_06/chart-table.json
+
+python scripts/build_chart_intermediate.py \
+  --chart-table rag/chart-tables/figure_06/chart-table.json \
+  --root /path/to/analysis_project \
+  --base-intermediate /path/to/base-intermediate \
+  --out /path/to/chart-intermediate
+
+python scripts/build_search_units.py \
+  --intermediate /path/to/base-intermediate /path/to/chart-intermediate \
+  --out /path/to/search-output-with-charts
 
 python scripts/build_chart_views.py \
   --image /path/to/chart.png \

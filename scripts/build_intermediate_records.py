@@ -18,12 +18,24 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from probe_intermediate_records import Probe, canonical_json, digest_file, nfc_path, stable_id
+from probe_intermediate_records import (
+    Probe,
+    canonical_json,
+    digest_file,
+    discover_password_candidates,
+    nfc_path,
+    stable_id,
+)
 
 
-SUPPORTED_SUFFIXES = {".docx", ".xlsx", ".pptx", ".pdf"}
+SUPPORTED_SUFFIXES = {
+    ".docx", ".xlsx", ".pptx", ".pdf",
+    ".csv", ".tsv", ".json", ".xml", ".ipynb",
+    ".md", ".txt", ".py", ".toml", ".yaml", ".yml", ".rst", ".sql", ".sh", ".command",
+}
+SKIP_DIRECTORY_NAMES = {".git", "__pycache__", ".ipynb_checkpoints", "node_modules"}
 EXTRACTOR = "intermediate-record-extractor"
-EXTRACTOR_VERSION = "0.4.0"
+EXTRACTOR_VERSION = "0.5.0"
 STATE_VERSION = "1"
 STATE_FILE = "build-state.json"
 LOCK_FILE = "build.lock"
@@ -42,6 +54,7 @@ def discover(root: Path) -> list[Path]:
             if path.is_file()
             and path.suffix.lower() in SUPPORTED_SUFFIXES
             and not path.name.startswith("~$")
+            and not any(part in SKIP_DIRECTORY_NAMES for part in path.parts)
         ),
         key=lambda path: nfc_path(path.relative_to(root)),
     )
@@ -150,6 +163,10 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--input", type=Path, nargs="*", help="optional explicit files; otherwise discover recursively")
     parser.add_argument("--run-at", help="ISO-8601 timestamp; a resumed build reuses the stored value")
     parser.add_argument("--resume", action="store_true", help="resume an existing build-state.json")
+    parser.add_argument(
+        "--force-input", type=Path, nargs="*", default=[],
+        help="with --resume, reprocess these original input files even when their shards are valid",
+    )
     parser.add_argument("--fail-fast", action="store_true", help="stop after recording the first failed document")
     parser.add_argument("--max-files", type=int, help="process at most this many pending files, then stop resumably")
     return parser.parse_args()
@@ -222,7 +239,14 @@ def can_skip(output: Path, entry: dict[str, Any] | None, source_sha256: str) -> 
     return set(shards) == set(RECORD_FILES) and all(shard_is_valid(output, shard) for shard in shards.values())
 
 
-def process_file(output: Path, root: Path, path: Path, run_at: str, source_sha256: str) -> tuple[dict[str, Any], Exception | None]:
+def process_file(
+    output: Path,
+    root: Path,
+    path: Path,
+    run_at: str,
+    source_sha256: str,
+    password_candidates: tuple[str, ...],
+) -> tuple[dict[str, Any], Exception | None]:
     relative_path = normalized_relative(root, path)
     document_id = stable_id("doc", {"relative_path": relative_path, "source_sha256": source_sha256})
     writer = ShardWriter(output, document_id)
@@ -235,6 +259,7 @@ def process_file(output: Path, root: Path, path: Path, run_at: str, source_sha25
         extractor_version=EXTRACTOR_VERSION,
         record_sink=writer.emit,
         retain_records=False,
+        password_candidates=password_candidates,
     )
     extraction_error: Exception | None = None
     try:
@@ -295,6 +320,8 @@ def main() -> None:
     args = parse_args()
     if args.max_files is not None and args.max_files < 1:
         raise SystemExit("--max-files must be at least 1")
+    if args.force_input and not args.resume:
+        raise SystemExit("--force-input requires --resume")
     root = args.root.resolve()
     output = args.out.resolve()
     if not root.is_dir():
@@ -332,16 +359,23 @@ def main() -> None:
 
         processed_now = 0
         skipped_now = 0
+        password_candidates = discover_password_candidates(root)
+        forced_paths = {normalized_relative(root, path) for path in args.force_input}
+        unknown_forced = forced_paths - set(state["input_paths"])
+        if unknown_forced:
+            raise SystemExit(f"--force-input was not part of the original build: {sorted(unknown_forced)}")
         for path in inputs:
             relative_path = normalized_relative(root, path)
             source_sha256 = digest_file(path)
             existing = state["entries"].get(relative_path)
-            if can_skip(output, existing, source_sha256):
+            if relative_path not in forced_paths and can_skip(output, existing, source_sha256):
                 skipped_now += 1
                 continue
             if args.max_files is not None and processed_now >= args.max_files:
                 break
-            entry, extraction_error = process_file(output, root, path, run_at, source_sha256)
+            entry, extraction_error = process_file(
+                output, root, path, run_at, source_sha256, password_candidates
+            )
             state["entries"][relative_path] = entry
             processed_now += 1
             atomic_json(output / STATE_FILE, state)

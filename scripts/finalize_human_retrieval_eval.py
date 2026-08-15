@@ -17,7 +17,10 @@ GENERATOR = "human-retrieval-eval-finalizer"
 GENERATOR_VERSION = "0.1.0"
 EVAL_FILE = "evaluation-set.jsonl"
 STATE_FILE = "evaluation-set-state.json"
-CATEGORIES = {"paragraph_chunk", "table_row", "slide_text", "page_text", "cross_format", "other"}
+CATEGORIES = {
+    "paragraph_chunk", "table_row", "slide_text", "page_text", "text_chunk",
+    "code_chunk", "notebook_cell", "chart_summary", "chart_series", "cross_format", "other",
+}
 REVIEW_METHODS = {"structural", "visual_and_structural"}
 
 
@@ -37,7 +40,7 @@ def load_search_units(search_output: Path) -> tuple[dict[str, dict[str, Any]], d
         for line in handle:
             if line.strip():
                 unit = json.loads(line)
-                units[unit["search_unit_id"]] = unit
+                units[unit["search_unit_id"]] = {"unit_type": unit["unit_type"]}
     return units, state, state_path
 
 
@@ -68,7 +71,10 @@ def load_drafts(path: Path, units: dict[str, dict[str, Any]]) -> list[dict[str, 
                 raise ValueError(f"{path}:{line_number}: relevant SearchUnits are missing: {missing}")
             if category not in CATEGORIES:
                 raise ValueError(f"{path}:{line_number}: invalid category {category!r}")
-            if category in {"paragraph_chunk", "table_row", "slide_text", "page_text"}:
+            if category in {
+                "paragraph_chunk", "table_row", "slide_text", "page_text", "text_chunk",
+                "code_chunk", "notebook_cell", "chart_summary", "chart_series",
+            }:
                 mismatched = [item for item in relevant if units[item]["unit_type"] != category]
                 if mismatched:
                     raise ValueError(f"{path}:{line_number}: category does not match relevant units: {mismatched}")

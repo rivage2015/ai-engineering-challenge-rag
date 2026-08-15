@@ -17,6 +17,12 @@ BUILDER_VERSION = "0.2.0"
 SCHEMA_VERSION = "0.1"
 STATE_FILE = "search-build-state.json"
 CELL_PATTERN = re.compile(r"^([A-Z]{1,3})([1-9][0-9]*)$")
+SEARCH_LOCATOR_KEYS = {
+    "page_number", "slide_number", "sheet_name", "table_index", "shape_id",
+    "row_index", "paragraph_start", "paragraph_end", "notebook_cell_index",
+    "code_line_start", "code_line_end", "locator_text", "source_member",
+    "object_index", "series_index",
+}
 
 
 def canonical_json(value: Any) -> str:
@@ -41,8 +47,17 @@ def stable_id(prefix: str, value: Any) -> str:
 
 def display_value(evidence: dict[str, Any]) -> str:
     content = evidence.get("content", {})
+    if "normalized_text" in content:
+        return str(content["normalized_text"]).strip()
     if "raw_text" in content:
         return str(content["raw_text"]).strip()
+    if "normalized_value" in content:
+        value = content["normalized_value"]
+        if value is None:
+            return ""
+        if isinstance(value, (dict, list)):
+            return canonical_json(value)
+        return str(value).strip()
     if "raw_value" in content:
         value = content["raw_value"]
         if value is None:
@@ -316,6 +331,57 @@ class DocumentDeriver:
                 self.generated_at,
             ))
 
+    def add_direct_table_row(self, evidence: dict[str, Any]) -> None:
+        value = display_value(evidence)
+        if not value:
+            return
+        location = evidence.get("location", {})
+        locator = {key: location[key] for key in SEARCH_LOCATOR_KEYS if key in location}
+        native = evidence.get("native_properties", {})
+        headers = [str(item) for item in native.get("headers", [])]
+        context = {
+            "header_labels": headers,
+            "header_method": "source_header_row",
+            "is_header_candidate": False,
+        } if headers else None
+        self.write(make_unit(
+            self.document_id,
+            "table_row",
+            [evidence["evidence_id"]],
+            locator,
+            value,
+            self.generated_at,
+            context,
+        ))
+
+    def add_direct_text(
+        self,
+        evidence: dict[str, Any],
+        unit_type: str,
+        context: dict[str, Any] | None = None,
+    ) -> None:
+        value = display_value(evidence)
+        if not value:
+            return
+        location = evidence.get("location", {})
+        locator = {key: location[key] for key in SEARCH_LOCATOR_KEYS if key in location}
+        evidence_type = evidence.get("evidence_type")
+        locator_text = location.get("locator_text")
+        if evidence_type in {"field", "defined_name", "filter", "data_validation", "metadata"} and locator_text:
+            value = f"階層: {locator_text}\n値: {value}"
+        if evidence_type == "style_span":
+            style = canonical_json(evidence.get("style", {}))
+            value = f"書式対象: {value}\n書式: {style}"
+        self.write(make_unit(
+            self.document_id,
+            unit_type,
+            [evidence["evidence_id"]],
+            locator,
+            value,
+            self.generated_at,
+            context,
+        ))
+
     def consume(self, evidence: dict[str, Any]) -> None:
         evidence_type = evidence.get("evidence_type")
         if evidence_type in {"heading", "paragraph"}:
@@ -327,6 +393,10 @@ class DocumentDeriver:
         elif evidence_type == "table_cell":
             self.flush_paragraphs()
             self.add_cell(evidence)
+        elif evidence_type == "table_row":
+            self.flush_paragraphs()
+            self.flush_row()
+            self.add_direct_table_row(evidence)
         elif evidence_type == "shape":
             self.flush_row()
             self.add_shape(evidence)
@@ -335,6 +405,40 @@ class DocumentDeriver:
             self.flush_row()
             self.flush_slide()
             self.add_page(evidence)
+        elif evidence_type == "code_block":
+            self.flush_paragraphs()
+            self.flush_row()
+            self.flush_slide()
+            self.add_direct_text(evidence, "code_chunk")
+        elif evidence_type == "notebook_cell":
+            self.flush_paragraphs()
+            self.flush_row()
+            self.flush_slide()
+            self.add_direct_text(evidence, "notebook_cell")
+        elif (
+            evidence_type == "chart"
+            and evidence.get("provenance", {}).get("extraction_method") == "verified_chart_table_adaptation"
+        ):
+            self.flush_paragraphs()
+            self.flush_row()
+            self.flush_slide()
+            self.add_direct_text(evidence, "chart_summary", {"container_kind": "chart"})
+        elif (
+            evidence_type == "chart_series"
+            and evidence.get("provenance", {}).get("extraction_method") == "verified_chart_table_adaptation"
+        ):
+            self.flush_paragraphs()
+            self.flush_row()
+            self.flush_slide()
+            self.add_direct_text(evidence, "chart_series", {"container_kind": "chart"})
+        elif evidence_type in {
+            "text_block", "field", "header", "footer", "speaker_note", "comment",
+            "style_span", "defined_name", "filter", "data_validation",
+        }:
+            self.flush_paragraphs()
+            self.flush_row()
+            self.flush_slide()
+            self.add_direct_text(evidence, "text_chunk")
 
     def finish(self) -> dict[str, int]:
         self.flush_paragraphs()
@@ -356,63 +460,92 @@ def prepare_output(output: Path) -> None:
     output.mkdir(parents=True, exist_ok=True)
 
 
-def build(intermediate: Path, output: Path, target_chars: int) -> dict[str, Any]:
+def build(intermediate: Path | list[Path], output: Path, target_chars: int) -> dict[str, Any]:
     if target_chars < 100:
         raise ValueError("--target-chars must be at least 100")
-    state_path = intermediate / "build-state.json"
-    state = load_json(state_path)
-    if state.get("build_status") != "complete":
-        raise ValueError("intermediate build must be complete")
+    intermediates = [intermediate] if isinstance(intermediate, Path) else intermediate
+    if not intermediates:
+        raise ValueError("at least one intermediate input is required")
+    loaded: list[tuple[Path, Path, dict[str, Any]]] = []
+    for directory in intermediates:
+        state_path = directory / "build-state.json"
+        state = load_json(state_path)
+        if state.get("build_status") != "complete":
+            raise ValueError(f"intermediate build must be complete: {directory}")
+        loaded.append((directory, state_path, state))
+    run_at_values = {state["run_at"] for _, _, state in loaded}
+    if len(run_at_values) != 1:
+        raise ValueError("all intermediate inputs must use the same run_at timestamp")
+    run_at = next(iter(run_at_values))
     prepare_output(output)
     final_path = output / "search_units.jsonl"
     temporary_path = output / ".search_units.jsonl.tmp"
     counts: dict[str, int] = {}
     document_counts: dict[str, int] = {}
+    seen_document_ids: set[str] = set()
     with temporary_path.open("w", encoding="utf-8", newline="\n") as destination:
-        for relative_path in state.get("input_paths", []):
-            entry = state["entries"].get(relative_path)
-            if entry is None:
-                raise ValueError(f"missing intermediate entry: {relative_path}")
-            shard = entry.get("shards", {}).get("evidence", {})
-            evidence_path = intermediate / shard.get("relative_path", "")
-            if not evidence_path.is_file() or digest_file(evidence_path) != shard.get("sha256"):
-                raise ValueError(f"invalid evidence shard: {evidence_path}")
-            emitted = 0
+        for directory, _, state in loaded:
+            for relative_path in state.get("input_paths", []):
+                entry = state["entries"].get(relative_path)
+                if entry is None:
+                    raise ValueError(f"missing intermediate entry: {relative_path}")
+                document_id = entry["document_id"]
+                if document_id in seen_document_ids:
+                    raise ValueError(f"duplicate document across intermediate inputs: {document_id}")
+                seen_document_ids.add(document_id)
+                shard = entry.get("shards", {}).get("evidence", {})
+                evidence_path = directory / shard.get("relative_path", "")
+                if not evidence_path.is_file() or digest_file(evidence_path) != shard.get("sha256"):
+                    raise ValueError(f"invalid evidence shard: {evidence_path}")
+                emitted = 0
 
-            def emit(record: dict[str, Any]) -> None:
-                nonlocal emitted
-                destination.write(canonical_json(record) + "\n")
-                emitted += 1
+                def emit(record: dict[str, Any]) -> None:
+                    nonlocal emitted
+                    destination.write(canonical_json(record) + "\n")
+                    emitted += 1
 
-            deriver = DocumentDeriver(entry["document_id"], state["run_at"], emit, target_chars)
-            with evidence_path.open(encoding="utf-8") as source:
-                for line_number, line in enumerate(source, 1):
-                    if not line.strip():
-                        continue
-                    evidence = json.loads(line)
-                    if evidence.get("document_id") != entry["document_id"]:
-                        raise ValueError(f"{evidence_path}:{line_number}: document_id mismatch")
-                    deriver.consume(evidence)
-            per_type = deriver.finish()
-            document_counts[entry["document_id"]] = emitted
-            for unit_type, count in per_type.items():
-                counts[unit_type] = counts.get(unit_type, 0) + count
+                deriver = DocumentDeriver(document_id, run_at, emit, target_chars)
+                with evidence_path.open(encoding="utf-8") as source:
+                    for line_number, line in enumerate(source, 1):
+                        if not line.strip():
+                            continue
+                        evidence = json.loads(line)
+                        if evidence.get("document_id") != document_id:
+                            raise ValueError(f"{evidence_path}:{line_number}: document_id mismatch")
+                        deriver.consume(evidence)
+                per_type = deriver.finish()
+                document_counts[document_id] = emitted
+                for unit_type, count in per_type.items():
+                    counts[unit_type] = counts.get(unit_type, 0) + count
         destination.flush()
         os.fsync(destination.fileno())
     os.replace(temporary_path, final_path)
+    source_state = {
+        "intermediate_states": [
+            {
+                "sha256": digest_file(state_path),
+                "extractor": state.get("extractor"),
+                "extractor_version": state.get("extractor_version"),
+            }
+            for _, state_path, state in loaded
+        ],
+    }
+    if len(loaded) == 1:
+        _, only_state_path, only_state = loaded[0]
+        source_state.update({
+            "intermediate_state_sha256": digest_file(only_state_path),
+            "extractor": only_state.get("extractor"),
+            "extractor_version": only_state.get("extractor_version"),
+        })
     result = {
         "state_version": "1",
         "build_status": "complete",
         "builder": BUILDER,
         "builder_version": BUILDER_VERSION,
-        "generated_at": state["run_at"],
+        "generated_at": run_at,
         "deterministic": True,
         "target_chars": target_chars,
-        "source": {
-            "intermediate_state_sha256": digest_file(state_path),
-            "extractor": state.get("extractor"),
-            "extractor_version": state.get("extractor_version"),
-        },
+        "source": source_state,
         "output": {
             "relative_path": final_path.name,
             "sha256": digest_file(final_path),
@@ -434,11 +567,15 @@ def build(intermediate: Path, output: Path, target_chars: int) -> dict[str, Any]
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--intermediate", required=True, type=Path)
+    parser.add_argument("--intermediate", required=True, type=Path, nargs="+")
     parser.add_argument("--out", required=True, type=Path)
     parser.add_argument("--target-chars", type=int, default=1200)
     args = parser.parse_args()
-    print(canonical_json(build(args.intermediate.resolve(), args.out.resolve(), args.target_chars)))
+    print(canonical_json(build(
+        [path.resolve() for path in args.intermediate],
+        args.out.resolve(),
+        args.target_chars,
+    )))
 
 
 if __name__ == "__main__":

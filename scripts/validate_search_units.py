@@ -14,7 +14,10 @@ from typing import Any
 ID_PATTERN = re.compile(r"^su_[0-9a-f]{16,64}$")
 DOCUMENT_PATTERN = re.compile(r"^doc_[0-9a-f]{16,64}$")
 EVIDENCE_PATTERN = re.compile(r"^ev_[0-9a-f]{16,64}$")
-UNIT_TYPES = {"paragraph_chunk", "table_row", "slide_text", "page_text"}
+UNIT_TYPES = {
+    "paragraph_chunk", "table_row", "slide_text", "page_text",
+    "text_chunk", "code_chunk", "notebook_cell", "chart_summary", "chart_series",
+}
 REQUIRED = {
     "schema_version", "record_type", "search_unit_id", "document_id", "unit_type",
     "source_evidence_ids", "locator", "text", "provenance",
@@ -22,7 +25,9 @@ REQUIRED = {
 ALLOWED = REQUIRED | {"context"}
 LOCATOR_KEYS = {
     "page_number", "slide_number", "sheet_name", "table_index", "shape_id",
-    "row_index", "paragraph_start", "paragraph_end",
+    "row_index", "paragraph_start", "paragraph_end", "notebook_cell_index",
+    "code_line_start", "code_line_end", "locator_text", "source_member",
+    "object_index", "series_index",
 }
 CONTEXT_KEYS = {
     "heading_text", "header_labels", "header_evidence_ids", "header_method",
@@ -51,25 +56,36 @@ def digest_file(path: Path, chunk_size: int = 1024 * 1024) -> str:
     return digest.hexdigest()
 
 
-def load_intermediate_ids(intermediate: Path) -> tuple[set[str], dict[str, str]]:
+def load_intermediate_ids(intermediate: Path | list[Path]) -> tuple[set[str], dict[str, str]]:
+    intermediates = [intermediate] if isinstance(intermediate, Path) else intermediate
     documents: set[str] = set()
     evidence: dict[str, str] = {}
-    with (intermediate / "documents.jsonl").open(encoding="utf-8") as handle:
-        for line in handle:
-            if line.strip():
-                documents.add(json.loads(line)["document_id"])
-    with (intermediate / "evidence.jsonl").open(encoding="utf-8") as handle:
-        for line in handle:
-            if line.strip():
-                item = json.loads(line)
-                evidence[item["evidence_id"]] = item["document_id"]
+    for directory in intermediates:
+        with (directory / "documents.jsonl").open(encoding="utf-8") as handle:
+            for line in handle:
+                if line.strip():
+                    document_id = json.loads(line)["document_id"]
+                    if document_id in documents:
+                        raise ValueError(f"duplicate intermediate document: {document_id}")
+                    documents.add(document_id)
+        with (directory / "evidence.jsonl").open(encoding="utf-8") as handle:
+            for line in handle:
+                if line.strip():
+                    item = json.loads(line)
+                    if item["evidence_id"] in evidence:
+                        raise ValueError(f"duplicate intermediate Evidence: {item['evidence_id']}")
+                    evidence[item["evidence_id"]] = item["document_id"]
     return documents, evidence
 
 
-def validate(search_output: Path, intermediate: Path) -> dict[str, Any]:
+def validate(search_output: Path, intermediate: Path | list[Path]) -> dict[str, Any]:
+    intermediates = [intermediate] if isinstance(intermediate, Path) else intermediate
     documents, evidence = load_intermediate_ids(intermediate)
     search_state = json.loads((search_output / "search-build-state.json").read_text(encoding="utf-8"))
-    intermediate_state_path = intermediate / "build-state.json"
+    source_states = [
+        (directory / "build-state.json", json.loads((directory / "build-state.json").read_text(encoding="utf-8")))
+        for directory in intermediates
+    ]
     errors: list[str] = []
     seen: set[str] = set()
     counts: dict[str, int] = {}
@@ -166,7 +182,17 @@ def validate(search_output: Path, intermediate: Path) -> dict[str, Any]:
         state_errors.append("search build state output hash mismatch")
     if search_state.get("counts_by_type") != dict(sorted(counts.items())):
         state_errors.append("search build state type counts mismatch")
-    if search_state.get("source", {}).get("intermediate_state_sha256") != digest_file(intermediate_state_path):
+    expected_sources = [
+        {
+            "sha256": digest_file(state_path),
+            "extractor": source_state.get("extractor"),
+            "extractor_version": source_state.get("extractor_version"),
+        }
+        for state_path, source_state in source_states
+    ]
+    if search_state.get("source", {}).get("intermediate_states") != expected_sources:
+        state_errors.append("intermediate build state list mismatch")
+    if len(source_states) == 1 and search_state.get("source", {}).get("intermediate_state_sha256") != expected_sources[0]["sha256"]:
         state_errors.append("intermediate build state hash mismatch")
     if state_errors:
         raise ValueError("validation failed:\n- " + "\n- ".join(state_errors))
@@ -176,7 +202,7 @@ def validate(search_output: Path, intermediate: Path) -> dict[str, Any]:
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("search_output", type=Path)
-    parser.add_argument("--intermediate", required=True, type=Path)
+    parser.add_argument("--intermediate", required=True, type=Path, nargs="+")
     args = parser.parse_args()
     print(canonical_json({"status": "ok", **validate(args.search_output, args.intermediate)}))
 

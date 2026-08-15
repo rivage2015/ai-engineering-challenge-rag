@@ -20,6 +20,15 @@ def request_json(base_url: str, path: str, payload: dict[str, Any] | None, timeo
     try:
         with urllib.request.urlopen(request, timeout=timeout) as response:
             return json.loads(response.read().decode("utf-8"))
+    except urllib.error.HTTPError as exc:
+        try:
+            detail = exc.read().decode("utf-8", errors="replace").strip()
+        except OSError:
+            detail = ""
+        suffix = f": {detail[:2000]}" if detail else ""
+        raise RuntimeError(
+            f"local Ollama request failed: {url}: HTTP {exc.code}{suffix}"
+        ) from exc
     except (urllib.error.URLError, TimeoutError, json.JSONDecodeError) as exc:
         raise RuntimeError(f"local Ollama request failed: {url}: {exc}") from exc
 

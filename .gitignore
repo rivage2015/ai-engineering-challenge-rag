@@ -13,6 +13,9 @@
 !scripts/
 !scripts/*.py
 
+!tests/
+!tests/*.py
+
 # Reusable end-to-end runner. Runtime caches, answers, logs, assets and secrets
 # remain denied by the default rule above.
 !rag/

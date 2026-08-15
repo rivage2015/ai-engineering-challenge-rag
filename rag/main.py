@@ -5,6 +5,8 @@
   python3 main.py --rebuild    # 抽出をやり直す（既定はキャッシュを再利用）
   python3 main.py --dry-run    # LLM を呼ばず、検索結果だけ確認する
   python3 main.py --valid --start 0 --limit 1  # 1問だけローカル動作確認
+  python3 main.py --valid --dry-run --retrieval-mode layer1-lexical
+  python3 main.py --valid --dry-run --retrieval-mode layer1-hybrid
 """
 
 from __future__ import annotations
@@ -39,6 +41,27 @@ sys.path.insert(0, str(HERE))
 
 from glossary import build_glossary          # noqa: E402
 from index import Index, load_chunks, make_chunks, save_chunks   # noqa: E402
+
+
+def _sha256(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        while chunk := handle.read(1024 * 1024):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def _layer1_state_hashes(args) -> dict[str, str]:
+    if args.retrieval_mode == "baseline":
+        return {}
+    base = args.layer1_base.resolve()
+    with_charts = (base / "chart-intermediate").is_dir()
+    lexical = base / ("lexical-index-with-charts" if with_charts else "lexical-index")
+    states = {"lexical": _sha256(lexical / "lexical-index-state.json")}
+    if args.retrieval_mode == "layer1-hybrid":
+        semantic = base / ("semantic-index-with-charts" if with_charts else "semantic-index")
+        states["semantic"] = _sha256(semantic / "semantic-index-state.json")
+    return states
 
 
 def load_questions(valid: bool, start: int = 0, limit: int | None = None):
@@ -80,6 +103,8 @@ def _write_run_log(args, questions, retrieved, results, model, t_start) -> Path:
         "バックエンド": args.backend,
         "パラメータ": {
             "top_k": args.top_k, "workers": args.workers,
+            "retrieval_mode": args.retrieval_mode,
+            "retrieval_state_sha256": _layer1_state_hashes(args),
             "temperature": 0, "seed": 42,
         },
         "実行環境": {
@@ -110,7 +135,7 @@ def _write_run_log(args, questions, retrieved, results, model, t_start) -> Path:
     hist = LOGS / "history.md"
     line = (
         f"| {record['実行日時']} | {record['モード']} | {model} | "
-        f"top_k={args.top_k} | {record['質問数']}問 | "
+        f"{args.retrieval_mode}, top_k={args.top_k} | {record['質問数']}問 | "
         f"わかりません {record['わかりません件数']} | {path.name} |\n"
     )
     if not hist.exists():
@@ -133,6 +158,16 @@ def _checkpoint_signature(args, questions) -> str:
         "model": args.model,
         "top_k": args.top_k,
     }, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+    if args.retrieval_mode != "baseline":
+        signature_data = json.loads(payload)
+        signature_data.update({
+            "retrieval_mode": args.retrieval_mode,
+            "layer1_base": str(args.layer1_base.resolve()),
+            "retrieval_state_sha256": _layer1_state_hashes(args),
+        })
+        payload = json.dumps(
+            signature_data, ensure_ascii=False, sort_keys=True, separators=(",", ":")
+        )
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
 
@@ -171,6 +206,13 @@ def main() -> int:
     ap.add_argument("--model")
     ap.add_argument("--answer-timeout", type=float, default=180.0)
     ap.add_argument("--restart-answers", action="store_true")
+    ap.add_argument(
+        "--retrieval-mode",
+        choices=["baseline", "layer1-lexical", "layer1-hybrid"],
+        default="baseline",
+        help="baseline remains the default; Layer-1 modes use the audited indexes without rebuilding them",
+    )
+    ap.add_argument("--layer1-base", type=Path, default=ROOT / "artifacts" / "layer1-v1")
     args = ap.parse_args()
 
     from answer import BACKEND, MODEL, answer_question, make_client, normalize_answer
@@ -195,15 +237,44 @@ def main() -> int:
     glossary = build_glossary(DOCS)
     print(f"  用語 {len(glossary)} 件")
 
-    chunks = build_or_load_chunks(args.rebuild, glossary)
-    index = Index(chunks)
-    questions = load_questions(args.valid, args.start, args.limit)
-    print(f"質問 {len(questions)} 件 / チャンク {len(chunks)} 件")
+    if args.retrieval_mode == "baseline":
+        chunks = build_or_load_chunks(args.rebuild, glossary)
+        index = Index(chunks)
+        chunk_count = len(chunks)
+    else:
+        if args.rebuild:
+            ap.error("--rebuild はbaseline検索でのみ使用できます")
+        from layer1_index import Layer1Index
 
-    retrieved = {
-        idx: index.search(q, glossary.aliases_in(q), top_k=args.top_k)
-        for idx, q in questions
-    }
+        layer1_base = args.layer1_base.resolve()
+        chart_intermediate = layer1_base / "chart-intermediate"
+        intermediates = [layer1_base / "intermediate"]
+        if chart_intermediate.is_dir():
+            intermediates.append(chart_intermediate)
+        lexical_name = "lexical-index-with-charts" if chart_intermediate.is_dir() else "lexical-index"
+        semantic_name = "semantic-index-with-charts" if chart_intermediate.is_dir() else "semantic-index"
+        try:
+            index = Layer1Index(
+                args.retrieval_mode,
+                layer1_base / lexical_name,
+                intermediates,
+                layer1_base / semantic_name if args.retrieval_mode == "layer1-hybrid" else None,
+            )
+        except (OSError, ValueError, json.JSONDecodeError) as exc:
+            print(f"Layer 1索引を読み込めませんでした: {exc}")
+            return 1
+        chunk_count = index.record_count
+    questions = load_questions(args.valid, args.start, args.limit)
+    print(f"質問 {len(questions)} 件 / チャンク {chunk_count} 件 / retrieval={args.retrieval_mode}")
+
+    try:
+        retrieved = {
+            idx: index.search(q, glossary.aliases_in(q), top_k=args.top_k)
+            for idx, q in questions
+        }
+    except Exception as exc:
+        print(f"検索に失敗しました: {type(exc).__name__}: {exc}")
+        return 1
 
     if args.dry_run:
         for idx, q in questions[:5]:

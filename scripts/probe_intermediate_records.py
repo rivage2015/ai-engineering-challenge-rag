@@ -8,19 +8,36 @@ arbitrary input paths and applies the same suffix-based dispatch to every file.
 from __future__ import annotations
 
 import argparse
+import base64
+import csv
 import hashlib
+import io
 import json
 import mimetypes
+import re
 import unicodedata
 import zipfile
 from datetime import date, datetime, timezone
 from pathlib import Path
 from typing import Any, Callable
+from xml.etree import ElementTree
 
 
 SCHEMA_VERSION = "0.1"
 EXTRACTOR = "intermediate-record-probe"
-EXTRACTOR_VERSION = "0.1.0"
+EXTRACTOR_VERSION = "0.2.0"
+
+PLAIN_TEXT_SUFFIXES = {
+    ".md", ".txt", ".py", ".toml", ".yaml", ".yml", ".rst", ".sql", ".sh", ".command",
+}
+CODE_SUFFIXES = {".py", ".toml", ".yaml", ".yml", ".sql", ".sh", ".command"}
+DATA_URI_PATTERN = re.compile(
+    r"data:(image/[A-Za-z0-9.+-]+);base64,([A-Za-z0-9+/=\r\n\t ]+)",
+    re.IGNORECASE,
+)
+CONTROL_PATTERN = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]")
+DATE_TOKEN_PATTERN = re.compile(r"(?<!\d)(20\d{6})(?!\d)")
+ALIAS_DATE_PATTERN = re.compile(r"([A-Za-z]{2,})[-_]?((?:20)\d{6})")
 
 
 def canonical_json(value: Any) -> str:
@@ -45,6 +62,69 @@ def digest_value(value: Any) -> str:
 
 def stable_id(prefix: str, value: Any) -> str:
     return f"{prefix}_{digest_value(value)[:32]}"
+
+
+def normalize_text(value: str) -> str:
+    """Normalize transport noise without changing names, numbers, symbols, or negation."""
+    normalized = unicodedata.normalize("NFC", value).replace("\r\n", "\n").replace("\r", "\n")
+    normalized = CONTROL_PATTERN.sub("", normalized)
+    lines = [re.sub(r"[\t\u00a0 ]+", " ", line).rstrip() for line in normalized.split("\n")]
+    compact: list[str] = []
+    blank = False
+    for line in lines:
+        if line:
+            compact.append(line)
+            blank = False
+        elif compact and not blank:
+            compact.append("")
+            blank = True
+    while compact and not compact[-1]:
+        compact.pop()
+    return "\n".join(compact)
+
+
+def read_text(path: Path) -> tuple[str, str]:
+    """Read common native-text encodings while reporting the selected encoding."""
+    raw = path.read_bytes()
+    if raw.startswith((b"\xff\xfe", b"\xfe\xff")):
+        return raw.decode("utf-16"), "utf-16"
+    if raw and raw.count(b"\x00") / len(raw) > 0.1:
+        odd_nuls = raw[1::2].count(0)
+        even_nuls = raw[0::2].count(0)
+        likely_utf16 = "utf-16-le" if odd_nuls >= even_nuls else "utf-16-be"
+        try:
+            return raw.decode(likely_utf16), likely_utf16
+        except UnicodeDecodeError:
+            pass
+    for encoding in ("utf-8-sig", "cp932"):
+        try:
+            return raw.decode(encoding), encoding
+        except UnicodeDecodeError:
+            continue
+    return raw.decode("utf-8", errors="replace"), "utf-8-replacement"
+
+
+def discover_password_candidates(root: Path) -> tuple[str, ...]:
+    """Derive generic Office password candidates from path-visible aliases and dates."""
+    aliases: set[str] = set()
+    dates: set[str] = set()
+    embedded: set[str] = set()
+    for path in root.rglob("*"):
+        if not path.is_file():
+            continue
+        visible = unicodedata.normalize("NFC", path.as_posix())
+        dates.update(DATE_TOKEN_PATTERN.findall(visible))
+        for alias, date_token in ALIAS_DATE_PATTERN.findall(visible):
+            aliases.add(alias)
+            dates.add(date_token)
+            embedded.add(f"{alias}{date_token}")
+    candidates = set(embedded)
+    for alias in aliases:
+        for date_token in dates:
+            for extension in ("docx", "xlsx", "pptx"):
+                candidates.add(f"DA-{alias}-{date_token}-{extension}")
+                candidates.add(f"DA-{alias.upper()}-{date_token}-{extension}")
+    return tuple(sorted(candidates))
 
 
 def json_value(value: Any) -> Any:
@@ -84,7 +164,7 @@ def value_type(value: Any) -> str:
 def content(*, raw_text: str | None = None, raw_value: Any = None,
             content_ref: str | None = None, mime_type: str | None = None) -> dict[str, Any]:
     if raw_text is not None:
-        payload: dict[str, Any] = {"raw_text": raw_text}
+        payload: dict[str, Any] = {"raw_text": raw_text, "normalized_text": normalize_text(raw_text)}
         hashed = {"raw_text": raw_text}
         kind = "text"
         original_length = len(raw_text)
@@ -95,7 +175,7 @@ def content(*, raw_text: str | None = None, raw_value: Any = None,
         original_length = None
     else:
         clean = json_value(raw_value)
-        payload = {"raw_value": clean}
+        payload = {"raw_value": clean, "normalized_value": clean}
         hashed = {"raw_value": clean}
         kind = value_type(raw_value)
         original_length = None
@@ -123,6 +203,7 @@ class Probe:
         extractor_version: str = EXTRACTOR_VERSION,
         record_sink: Callable[[str, dict[str, Any]], None] | None = None,
         retain_records: bool = True,
+        password_candidates: tuple[str, ...] = (),
     ) -> None:
         self.root = root.resolve()
         self.run_at = run_at
@@ -132,6 +213,7 @@ class Probe:
         self.extractor_version = extractor_version
         self.record_sink = record_sink
         self.retain_records = retain_records
+        self.password_candidates = password_candidates
         self.documents: list[dict[str, Any]] = []
         self.evidence: list[dict[str, Any]] = []
         self.relations: list[dict[str, Any]] = []
@@ -337,9 +419,39 @@ class Probe:
             self.extract_pptx(path)
         elif suffix == ".pdf":
             self.extract_pdf(path)
+        elif suffix in {".csv", ".tsv"}:
+            self.extract_delimited(path)
+        elif suffix == ".json":
+            self.extract_json(path)
+        elif suffix == ".xml":
+            self.extract_xml(path)
+        elif suffix == ".ipynb":
+            self.extract_notebook(path)
+        elif suffix in PLAIN_TEXT_SUFFIXES:
+            self.extract_plain_text(path)
         else:
             self.extract_other(path)
         self.finalize_document()
+
+    def office_source(self, path: Path) -> tuple[str | io.BytesIO, bool]:
+        if zipfile.is_zipfile(path):
+            return str(path), False
+        try:
+            import msoffcrypto
+        except ImportError as exc:
+            raise RuntimeError("msoffcrypto-tool is required for password-protected Office files") from exc
+        for candidate in self.password_candidates:
+            try:
+                output = io.BytesIO()
+                with path.open("rb") as handle:
+                    office = msoffcrypto.OfficeFile(handle)
+                    office.load_key(password=candidate)
+                    office.decrypt(output)
+                output.seek(0)
+                return output, True
+            except Exception:
+                continue
+        raise ValueError("password-protected Office file could not be decrypted with derived candidates")
 
     def extract_docx(self, path: Path) -> None:
         from docx import Document
@@ -348,11 +460,12 @@ class Probe:
         from docx.table import Table
         from docx.text.paragraph import Paragraph
 
-        parsed = Document(path)
+        source, decrypted = self.office_source(path)
+        parsed = Document(source)
         doc = self.add_document(path, "python-docx")
         doc_id = doc["document_id"]
-        if not self.diagnostic:
-            self.mark_partial(doc, "headers, footers, comments, and run-level style spans are not yet fully extracted")
+        if decrypted:
+            doc["extraction"]["warnings"].append("password-protected Office source decrypted in memory")
         paragraph_index = 0
         table_index = 0
         body_order = 0
@@ -377,6 +490,33 @@ class Probe:
                     },
                 )
                 self.contain_document(doc_id, ev["evidence_id"])
+                for run_index, run in enumerate(paragraph.runs, 1):
+                    if not run.text or not self.may_add_leaf(doc_id):
+                        continue
+                    run_style: dict[str, Any] = {}
+                    for key in ("bold", "italic", "underline"):
+                        value = getattr(run, key, None)
+                        if value is not None:
+                            run_style[key] = bool(value)
+                    if run.font.name:
+                        run_style["font_name"] = run.font.name
+                    if run.font.size:
+                        run_style["font_size_pt"] = float(run.font.size.pt)
+                    color = getattr(getattr(run.font, "color", None), "rgb", None)
+                    if color:
+                        run_style["font_color_argb"] = f"FF{color}"[-8:].upper()
+                    highlight = getattr(run.font, "highlight_color", None)
+                    if run_style or highlight is not None:
+                        self.add_evidence(
+                            doc_id,
+                            "style_span",
+                            {"paragraph_index": paragraph_index, "object_index": run_index},
+                            content(raw_text=run.text),
+                            parent_id=ev["evidence_id"],
+                            ordinal=run_index,
+                            style=run_style or None,
+                            native_properties={"highlight_color": str(highlight) if highlight is not None else None},
+                        )
                 if evidence_type == "heading":
                     preceding_heading = {"text": paragraph.text, "evidence_id": ev["evidence_id"]}
             elif isinstance(child, CT_Tbl):
@@ -415,14 +555,73 @@ class Probe:
                     if self.limit_reached(doc_id):
                         break
 
+        seen_parts: set[str] = set()
+        for section_index, section in enumerate(parsed.sections, 1):
+            for evidence_type, part in (("header", section.header), ("footer", section.footer)):
+                part_name = str(getattr(getattr(part, "part", None), "partname", f"{evidence_type}-{section_index}"))
+                if part_name in seen_parts:
+                    continue
+                seen_parts.add(part_name)
+                values = [paragraph.text for paragraph in part.paragraphs if paragraph.text]
+                for table in part.tables:
+                    values.extend(
+                        " | ".join(cell.text for cell in row.cells)
+                        for row in table.rows
+                        if any(cell.text for cell in row.cells)
+                    )
+                text_value = "\n".join(values).strip()
+                if text_value and self.may_add_leaf(doc_id):
+                    ev = self.add_evidence(
+                        doc_id,
+                        evidence_type,
+                        {"section": f"section-{section_index}", "source_member": part_name},
+                        content(raw_text=text_value),
+                        ordinal=section_index,
+                    )
+                    self.contain_document(doc_id, ev["evidence_id"])
+
+        comments = getattr(parsed, "comments", None)
+        if comments is not None:
+            for comment_index, comment in enumerate(comments, 1):
+                text_value = getattr(comment, "text", "")
+                if text_value and self.may_add_leaf(doc_id):
+                    ev = self.add_evidence(
+                        doc_id,
+                        "comment",
+                        {"object_index": comment_index, "locator_text": f"comment={comment_index}"},
+                        content(raw_text=text_value),
+                        ordinal=comment_index,
+                        native_properties={
+                            "author": getattr(comment, "author", None),
+                            "initials": getattr(comment, "initials", None),
+                        },
+                    )
+                    self.contain_document(doc_id, ev["evidence_id"])
+        if isinstance(source, io.BytesIO):
+            source.seek(0)
+        with zipfile.ZipFile(source) as archive:
+            media_members = sorted(name for name in archive.namelist() if name.startswith("word/media/") and not name.endswith("/"))
+            for image_index, member in enumerate(media_members, 1):
+                raw = archive.read(member)
+                ev = self.add_evidence(
+                    doc_id,
+                    "image",
+                    {"source_member": member, "object_index": image_index},
+                    content(content_ref=f"{doc['source']['relative_path']}::{member}", mime_type=mimetypes.guess_type(member)[0]),
+                    ordinal=image_index,
+                    native_properties={"embedded_sha256": digest_bytes(raw), "size_bytes": len(raw)},
+                )
+                self.contain_document(doc_id, ev["evidence_id"])
+
     def extract_xlsx(self, path: Path) -> None:
         from openpyxl import load_workbook
 
-        workbook = load_workbook(path, data_only=False, read_only=False)
+        source, decrypted = self.office_source(path)
+        workbook = load_workbook(source, data_only=False, read_only=False)
         doc = self.add_document(path, "openpyxl+ooxml")
         doc_id = doc["document_id"]
-        if not self.diagnostic:
-            self.mark_partial(doc, "advanced OOXML objects and chart source relations are not yet fully mapped")
+        if decrypted:
+            doc["extraction"]["warnings"].append("password-protected Office source decrypted in memory")
         sheet_ids: dict[str, str] = {}
         for sheet_index, sheet in enumerate(workbook.worksheets, 1):
             sheet_ev = self.add_evidence(
@@ -442,6 +641,17 @@ class Probe:
                         "source_style_id": str(cell_obj.style_id),
                         "number_format": cell_obj.number_format,
                     }
+                    if cell_obj.font:
+                        if cell_obj.font.bold is not None:
+                            style["bold"] = bool(cell_obj.font.bold)
+                        if cell_obj.font.italic is not None:
+                            style["italic"] = bool(cell_obj.font.italic)
+                        if cell_obj.font.underline:
+                            style["underline"] = True
+                        if cell_obj.font.name:
+                            style["font_name"] = cell_obj.font.name
+                        if cell_obj.font.sz:
+                            style["font_size_pt"] = float(cell_obj.font.sz)
                     if cell_obj.fill and cell_obj.fill.fill_type:
                         style["fill_type"] = cell_obj.fill.fill_type
                     cell_ev = self.add_evidence(
@@ -454,6 +664,15 @@ class Probe:
                         self.add_evidence(
                             doc_id, "formula", {"sheet_name": sheet.title, "cell": cell_obj.coordinate},
                             content(raw_text=str(cell_obj.value)), parent_id=cell_ev["evidence_id"],
+                        )
+                    if cell_obj.comment is not None:
+                        self.add_evidence(
+                            doc_id,
+                            "comment",
+                            {"sheet_name": sheet.title, "cell": cell_obj.coordinate},
+                            content(raw_text=cell_obj.comment.text),
+                            parent_id=cell_ev["evidence_id"],
+                            native_properties={"author": cell_obj.comment.author},
                         )
                 if self.limit_reached(doc_id):
                     break
@@ -470,26 +689,117 @@ class Probe:
                     {"sheet_name": sheet.title, "object_index": pivot_index, "object_id": str(name)},
                     content(raw_value={"name": str(name)}), parent_id=sheet_ev["evidence_id"], ordinal=pivot_index,
                 )
-        with zipfile.ZipFile(path) as archive:
+            auto_filter = getattr(sheet, "auto_filter", None)
+            if auto_filter is not None and getattr(auto_filter, "ref", None):
+                ev = self.add_evidence(
+                    doc_id,
+                    "filter",
+                    {"sheet_name": sheet.title, "range": str(auto_filter.ref)},
+                    content(raw_value={
+                        "ref": str(auto_filter.ref),
+                        "filter_columns": [json_value(item) for item in getattr(auto_filter, "filterColumn", [])],
+                    }),
+                    parent_id=sheet_ev["evidence_id"],
+                )
+            validations = getattr(getattr(sheet, "data_validations", None), "dataValidation", [])
+            for validation_index, validation in enumerate(validations, 1):
+                ev = self.add_evidence(
+                    doc_id,
+                    "data_validation",
+                    {"sheet_name": sheet.title, "object_index": validation_index,
+                     "range": str(getattr(validation, "sqref", "")) or "unknown"},
+                    content(raw_value={
+                        "type": getattr(validation, "type", None),
+                        "formula1": getattr(validation, "formula1", None),
+                        "formula2": getattr(validation, "formula2", None),
+                        "operator": getattr(validation, "operator", None),
+                    }),
+                    parent_id=sheet_ev["evidence_id"],
+                    ordinal=validation_index,
+                )
+
+        defined_names = getattr(workbook, "defined_names", None)
+        if defined_names is not None:
+            values = defined_names.values() if hasattr(defined_names, "values") else defined_names.definedName
+            for name_index, defined_name in enumerate(values, 1):
+                ev = self.add_evidence(
+                    doc_id,
+                    "defined_name",
+                    {"object_index": name_index, "object_id": str(getattr(defined_name, "name", name_index))},
+                    content(raw_value={
+                        "name": getattr(defined_name, "name", None),
+                        "attr_text": getattr(defined_name, "attr_text", None),
+                        "local_sheet_id": getattr(defined_name, "localSheetId", None),
+                    }),
+                    ordinal=name_index,
+                )
+                self.contain_document(doc_id, ev["evidence_id"])
+
+        if isinstance(source, io.BytesIO):
+            source.seek(0)
+        with zipfile.ZipFile(source) as archive:
             chart_members = sorted(name for name in archive.namelist() if name.startswith("xl/charts/") and name.endswith(".xml"))
             for chart_index, member in enumerate(chart_members, 1):
                 raw = archive.read(member)
+                try:
+                    root = ElementTree.fromstring(raw)
+                    formulas = [node.text.strip() for node in root.iter() if node.tag.endswith("}f") and node.text]
+                    labels = [node.text.strip() for node in root.iter() if node.tag.endswith("}v") and node.text]
+                except ElementTree.ParseError:
+                    formulas, labels = [], []
                 chart_ev = self.add_evidence(
                     doc_id, "chart", {"source_member": member, "object_index": chart_index},
-                    content(raw_value={"source_member": member, "xml_sha256": digest_bytes(raw)}),
+                    content(raw_value={
+                        "source_member": member,
+                        "xml_sha256": digest_bytes(raw),
+                        "formulas": formulas,
+                        "cached_labels": labels,
+                    }),
                     ordinal=chart_index,
                     native_properties={"ooxml_part": member, "extended_chart": "/chartEx" in member},
                 )
                 self.contain_document(doc_id, chart_ev["evidence_id"])
+                for series_index, formula in enumerate(formulas, 1):
+                    self.add_evidence(
+                        doc_id,
+                        "chart_series",
+                        {"source_member": member, "object_index": chart_index, "series_index": series_index},
+                        content(raw_text=formula),
+                        parent_id=chart_ev["evidence_id"],
+                        ordinal=series_index,
+                    )
+            media_members = sorted(name for name in archive.namelist() if name.startswith("xl/media/") and not name.endswith("/"))
+            for image_index, member in enumerate(media_members, 1):
+                raw = archive.read(member)
+                ev = self.add_evidence(
+                    doc_id,
+                    "image",
+                    {"source_member": member, "object_index": image_index},
+                    content(content_ref=f"{doc['source']['relative_path']}::{member}", mime_type=mimetypes.guess_type(member)[0]),
+                    ordinal=image_index,
+                    native_properties={"embedded_sha256": digest_bytes(raw), "size_bytes": len(raw)},
+                )
+                self.contain_document(doc_id, ev["evidence_id"])
+        workbook.close()
 
     def extract_pptx(self, path: Path) -> None:
         from pptx import Presentation
 
-        presentation = Presentation(path)
+        source, decrypted = self.office_source(path)
+        presentation = Presentation(source)
         doc = self.add_document(path, "python-pptx")
         doc_id = doc["document_id"]
-        if not self.diagnostic:
-            self.mark_partial(doc, "speaker notes and grouped-shape internals are not yet fully extracted")
+        if decrypted:
+            doc["extraction"]["warnings"].append("password-protected Office source decrypted in memory")
+
+        def walk_shapes(shapes: Any, prefix: str = "") -> Any:
+            for local_index, candidate in enumerate(shapes, 1):
+                key = f"{prefix}.{local_index}" if prefix else str(local_index)
+                yield key, candidate
+                nested = getattr(candidate, "shapes", None)
+                if nested is not None:
+                    yield from walk_shapes(nested, key)
+
         for slide_number, slide in enumerate(presentation.slides, 1):
             slide_ev = self.add_evidence(
                 doc_id, "slide", {"slide_number": slide_number},
@@ -497,9 +807,10 @@ class Probe:
                 ordinal=slide_number,
             )
             self.contain_document(doc_id, slide_ev["evidence_id"])
-            for shape_index, shape in enumerate(slide.shapes, 1):
+            for shape_index, (shape_path, shape) in enumerate(walk_shapes(slide.shapes), 1):
                 if not self.may_add_leaf(doc_id):
                     break
+                shape_locator_id = str(shape.shape_id) if "." not in shape_path else f"{shape.shape_id}:{shape_path}"
                 text_value = getattr(shape, "text", "")
                 shape_content = content(raw_text=text_value) if text_value else content(
                     raw_value={"shape_type": str(shape.shape_type), "name": shape.name}
@@ -510,15 +821,15 @@ class Probe:
                 }
                 shape_ev = self.add_evidence(
                     doc_id, "shape",
-                    {"slide_number": slide_number, "shape_id": str(shape.shape_id), "object_index": shape_index},
+                    {"slide_number": slide_number, "shape_id": shape_locator_id, "object_index": shape_index},
                     shape_content, parent_id=slide_ev["evidence_id"], ordinal=shape_index,
                     geometry=geometry,
-                    native_properties={"name": shape.name, "shape_type": str(shape.shape_type)},
+                    native_properties={"name": shape.name, "shape_type": str(shape.shape_type), "shape_path": shape_path},
                 )
                 if getattr(shape, "has_table", False):
                     table_ev = self.add_evidence(
                         doc_id, "table",
-                        {"slide_number": slide_number, "shape_id": str(shape.shape_id)},
+                        {"slide_number": slide_number, "shape_id": shape_locator_id},
                         content(raw_value={"rows": len(shape.table.rows), "columns": len(shape.table.columns)}),
                         parent_id=shape_ev["evidence_id"],
                     )
@@ -528,7 +839,7 @@ class Probe:
                                 break
                             self.add_evidence(
                                 doc_id, "table_cell",
-                                {"slide_number": slide_number, "shape_id": str(shape.shape_id),
+                                {"slide_number": slide_number, "shape_id": shape_locator_id,
                                  "row_index": row_index, "column_index": column_index},
                                 content(raw_text=cell_obj.text), parent_id=table_ev["evidence_id"],
                                 ordinal=column_index,
@@ -538,17 +849,46 @@ class Probe:
                 if getattr(shape, "has_chart", False):
                     chart_ev = self.add_evidence(
                         doc_id, "chart",
-                        {"slide_number": slide_number, "shape_id": str(shape.shape_id)},
+                        {"slide_number": slide_number, "shape_id": shape_locator_id},
                         content(raw_value={"series_count": len(shape.chart.series)}),
                         parent_id=shape_ev["evidence_id"],
                     )
                     for series_index, series in enumerate(shape.chart.series, 1):
                         self.add_evidence(
                             doc_id, "chart_series",
-                            {"slide_number": slide_number, "shape_id": str(shape.shape_id), "series_index": series_index},
+                            {"slide_number": slide_number, "shape_id": shape_locator_id, "series_index": series_index},
                             content(raw_value={"name": getattr(series, "name", None)}),
                             parent_id=chart_ev["evidence_id"], ordinal=series_index,
                         )
+                image = getattr(shape, "image", None)
+                if image is not None:
+                    blob = image.blob
+                    self.add_evidence(
+                        doc_id,
+                        "image",
+                        {"slide_number": slide_number, "shape_id": shape_locator_id},
+                        content(
+                            content_ref=f"{doc['source']['relative_path']}#slide={slide_number};shape={shape.shape_id}",
+                            mime_type=getattr(image, "content_type", None),
+                        ),
+                        parent_id=shape_ev["evidence_id"],
+                        native_properties={
+                            "embedded_sha256": digest_bytes(blob),
+                            "size_bytes": len(blob),
+                            "file_name": getattr(image, "filename", None),
+                        },
+                    )
+            if getattr(slide, "has_notes_slide", False):
+                notes_frame = getattr(slide.notes_slide, "notes_text_frame", None)
+                notes_text = getattr(notes_frame, "text", "") if notes_frame is not None else ""
+                if notes_text.strip() and self.may_add_leaf(doc_id):
+                    self.add_evidence(
+                        doc_id,
+                        "speaker_note",
+                        {"slide_number": slide_number, "locator_text": "speaker-notes"},
+                        content(raw_text=notes_text),
+                        parent_id=slide_ev["evidence_id"],
+                    )
 
     def extract_pdf(self, path: Path) -> None:
         from pypdf import PdfReader
@@ -557,7 +897,9 @@ class Probe:
         doc = self.add_document(path, "pypdf")
         doc_id = doc["document_id"]
         if not self.diagnostic:
-            self.mark_partial(doc, "page text blocks, images, and layout regions are not yet separately extracted")
+            doc["extraction"]["warnings"].append(
+                "PDF native text is preserved per page in reader order; image regions are routed to later layers"
+            )
         pages_without_text = 0
         for page_number, page in enumerate(reader.pages, 1):
             text_value = page.extract_text() or ""
@@ -582,6 +924,284 @@ class Probe:
             self.contain_document(doc_id, page_ev["evidence_id"])
         if pages_without_text:
             self.mark_partial(doc, f"OCR deferred for {pages_without_text} page(s) without a text layer")
+
+    def extract_delimited(self, path: Path) -> None:
+        text_value, encoding = read_text(path)
+        delimiter = "\t" if path.suffix.lower() == ".tsv" else ","
+        reader = csv.reader(io.StringIO(text_value, newline=""), delimiter=delimiter)
+        doc = self.add_document(path, "python-csv")
+        doc_id = doc["document_id"]
+        try:
+            raw_headers = next(reader)
+        except StopIteration:
+            self.mark_partial(doc, "delimited file is empty")
+            return
+        headers = [value.strip() or f"column_{index}" for index, value in enumerate(raw_headers, 1)]
+        table_ev = self.add_evidence(
+            doc_id,
+            "table",
+            {"table_index": 1, "locator_text": "delimited-table"},
+            content(raw_value={"delimiter": delimiter, "headers": raw_headers}),
+            ordinal=1,
+            native_properties={"encoding": encoding, "column_count": len(headers)},
+        )
+        self.contain_document(doc_id, table_ev["evidence_id"])
+        for source_row_number, row in enumerate(reader, 2):
+            if not any(value != "" for value in row):
+                continue
+            if not self.may_add_leaf(doc_id):
+                break
+            values = list(row)
+            if len(values) < len(headers):
+                values.extend([""] * (len(headers) - len(values)))
+            rendered = " / ".join(
+                f"{headers[index] if index < len(headers) else f'column_{index + 1}'}:{value}"
+                for index, value in enumerate(values)
+            )
+            self.add_evidence(
+                doc_id,
+                "table_row",
+                {"table_index": 1, "row_index": source_row_number, "locator_text": f"row={source_row_number}"},
+                content(raw_text=rendered),
+                parent_id=table_ev["evidence_id"],
+                ordinal=source_row_number,
+                native_properties={"headers": headers, "values": values, "source_row_number": source_row_number},
+            )
+        if encoding == "utf-8-replacement":
+            self.mark_partial(doc, "input required replacement characters during decoding")
+
+    def extract_json(self, path: Path) -> None:
+        text_value, encoding = read_text(path)
+        parsed = json.loads(text_value)
+        doc = self.add_document(path, "python-json")
+        doc_id = doc["document_id"]
+
+        def walk(value: Any, pointer: str, parent_id: str | None, ordinal: int) -> None:
+            if isinstance(value, (dict, list)):
+                container = self.add_evidence(
+                    doc_id,
+                    "metadata",
+                    {"locator_text": pointer or "/"},
+                    content(raw_value={
+                        "container_type": "object" if isinstance(value, dict) else "array",
+                        "item_count": len(value),
+                    }),
+                    parent_id=parent_id,
+                    ordinal=ordinal,
+                    native_properties={"json_pointer": pointer or "/"},
+                )
+                if parent_id is None:
+                    self.contain_document(doc_id, container["evidence_id"])
+                items = value.items() if isinstance(value, dict) else enumerate(value)
+                for child_ordinal, (key, child) in enumerate(items, 1):
+                    token = str(key).replace("~", "~0").replace("/", "~1")
+                    walk(child, f"{pointer}/{token}", container["evidence_id"], child_ordinal)
+                return
+            if not self.may_add_leaf(doc_id):
+                return
+            item_content = content(raw_text=value) if isinstance(value, str) else content(raw_value=value)
+            ev = self.add_evidence(
+                doc_id,
+                "field",
+                {"locator_text": pointer or "/"},
+                item_content,
+                parent_id=parent_id,
+                ordinal=ordinal,
+                native_properties={"json_pointer": pointer or "/", "encoding": encoding},
+            )
+            if parent_id is None:
+                self.contain_document(doc_id, ev["evidence_id"])
+
+        walk(parsed, "", None, 1)
+
+    def extract_xml(self, path: Path) -> None:
+        text_value, encoding = read_text(path)
+        root = ElementTree.fromstring(text_value)
+        doc = self.add_document(path, "xml.etree.ElementTree")
+        doc_id = doc["document_id"]
+
+        def walk(element: ElementTree.Element, parent_path: str, parent_id: str | None, ordinal: int) -> None:
+            element_path = f"{parent_path}/{element.tag}[{ordinal}]"
+            container = self.add_evidence(
+                doc_id,
+                "metadata",
+                {"locator_text": element_path},
+                content(raw_value={"tag": element.tag, "attribute_count": len(element.attrib), "child_count": len(element)}),
+                parent_id=parent_id,
+                ordinal=ordinal,
+                native_properties={"xml_path": element_path, "encoding": encoding},
+            )
+            if parent_id is None:
+                self.contain_document(doc_id, container["evidence_id"])
+            for attr_index, (name, value) in enumerate(sorted(element.attrib.items()), 1):
+                if self.may_add_leaf(doc_id):
+                    self.add_evidence(
+                        doc_id,
+                        "field",
+                        {"locator_text": f"{element_path}/@{name}"},
+                        content(raw_text=value),
+                        parent_id=container["evidence_id"],
+                        ordinal=attr_index,
+                        native_properties={"xml_path": f"{element_path}/@{name}"},
+                    )
+            if element.text and element.text.strip() and self.may_add_leaf(doc_id):
+                self.add_evidence(
+                    doc_id,
+                    "field",
+                    {"locator_text": f"{element_path}/text()"},
+                    content(raw_text=element.text),
+                    parent_id=container["evidence_id"],
+                    native_properties={"xml_path": f"{element_path}/text()"},
+                )
+            for child_index, child in enumerate(list(element), 1):
+                walk(child, element_path, container["evidence_id"], child_index)
+
+        walk(root, "", None, 1)
+
+    def extract_plain_text(self, path: Path) -> None:
+        text_value, encoding = read_text(path)
+        parser = "plain-code" if path.suffix.lower() in CODE_SUFFIXES else "plain-text"
+        doc = self.add_document(path, parser)
+        doc_id = doc["document_id"]
+        if not text_value:
+            self.mark_partial(doc, "text file is empty")
+            return
+        if path.suffix.lower() in CODE_SUFFIXES:
+            lines = text_value.splitlines(keepends=True)
+            for block_index, start in enumerate(range(0, len(lines), 80), 1):
+                if not self.may_add_leaf(doc_id):
+                    break
+                block = "".join(lines[start:start + 80])
+                ev = self.add_evidence(
+                    doc_id,
+                    "code_block",
+                    {"code_line_start": start + 1, "code_line_end": min(start + 80, len(lines)),
+                     "locator_text": f"lines={start + 1}-{min(start + 80, len(lines))}"},
+                    content(raw_text=block),
+                    ordinal=block_index,
+                    native_properties={"encoding": encoding, "language": path.suffix.lower().lstrip(".")},
+                )
+                self.contain_document(doc_id, ev["evidence_id"])
+            return
+
+        blocks = re.split(r"\n[\t ]*\n+", text_value)
+        paragraph_index = 0
+        for block in blocks:
+            if not block:
+                continue
+            if not self.may_add_leaf(doc_id):
+                break
+            paragraph_index += 1
+            stripped = block.strip()
+            evidence_type = "heading" if path.suffix.lower() == ".md" and re.match(r"^#{1,6}\s+", stripped) else "paragraph"
+            ev = self.add_evidence(
+                doc_id,
+                evidence_type,
+                {"paragraph_index": paragraph_index},
+                content(raw_text=block),
+                ordinal=paragraph_index,
+                native_properties={"encoding": encoding},
+            )
+            self.contain_document(doc_id, ev["evidence_id"])
+        if encoding == "utf-8-replacement":
+            self.mark_partial(doc, "input required replacement characters during decoding")
+
+    def extract_notebook(self, path: Path) -> None:
+        text_value, encoding = read_text(path)
+        notebook = json.loads(text_value)
+        doc = self.add_document(path, "nbformat-json")
+        doc_id = doc["document_id"]
+        image_count = 0
+
+        def strip_data_uri(source_text: str, cell_index: int) -> str:
+            nonlocal image_count
+
+            def replace(match: re.Match[str]) -> str:
+                nonlocal image_count
+                image_count += 1
+                try:
+                    blob = base64.b64decode(re.sub(r"\s", "", match.group(2)), validate=False)
+                    blob_sha = digest_bytes(blob)
+                    size_bytes = len(blob)
+                except Exception:
+                    blob_sha = digest_bytes(match.group(2).encode("ascii", errors="ignore"))
+                    size_bytes = 0
+                ev = self.add_evidence(
+                    doc_id,
+                    "image",
+                    {"notebook_cell_index": cell_index, "object_index": image_count,
+                     "locator_text": f"cell={cell_index};embedded-image={image_count}"},
+                    content(content_ref=f"{doc['source']['relative_path']}#cell={cell_index};image={image_count}",
+                            mime_type=match.group(1)),
+                    ordinal=image_count,
+                    native_properties={"embedded_sha256": blob_sha, "size_bytes": size_bytes},
+                )
+                self.contain_document(doc_id, ev["evidence_id"])
+                return f"[embedded image sha256={blob_sha}]"
+
+            return DATA_URI_PATTERN.sub(replace, source_text)
+
+        for cell_index, cell in enumerate(notebook.get("cells", []), 1):
+            source_text = "".join(cell.get("source", []))
+            source_text = strip_data_uri(source_text, cell_index)
+            if source_text and self.may_add_leaf(doc_id):
+                ev = self.add_evidence(
+                    doc_id,
+                    "notebook_cell",
+                    {"notebook_cell_index": cell_index, "locator_text": f"cell={cell_index}"},
+                    content(raw_text=source_text),
+                    ordinal=cell_index,
+                    native_properties={"cell_type": cell.get("cell_type"), "encoding": encoding},
+                )
+                self.contain_document(doc_id, ev["evidence_id"])
+            output_index = 0
+            for output in cell.get("outputs", []):
+                output_index += 1
+                data = output.get("data", {})
+                text_output = output.get("text", "")
+                if isinstance(text_output, list):
+                    text_output = "".join(text_output)
+                if not text_output:
+                    plain = data.get("text/plain", "")
+                    text_output = "".join(plain) if isinstance(plain, list) else plain
+                if text_output and self.may_add_leaf(doc_id):
+                    ev = self.add_evidence(
+                        doc_id,
+                        "text_block",
+                        {"notebook_cell_index": cell_index, "object_index": output_index,
+                         "locator_text": f"cell={cell_index};output={output_index}"},
+                        content(raw_text=str(text_output)),
+                        ordinal=output_index,
+                        native_properties={"output_type": output.get("output_type")},
+                    )
+                    self.contain_document(doc_id, ev["evidence_id"])
+                for mime_type, payload in data.items():
+                    if not mime_type.startswith("image/"):
+                        continue
+                    image_count += 1
+                    encoded = payload if isinstance(payload, str) else "".join(payload)
+                    try:
+                        blob = base64.b64decode(encoded, validate=False)
+                        blob_sha = digest_bytes(blob)
+                        size_bytes = len(blob)
+                    except Exception:
+                        blob_sha = digest_bytes(encoded.encode("ascii", errors="ignore"))
+                        size_bytes = 0
+                    ev = self.add_evidence(
+                        doc_id,
+                        "image",
+                        {"notebook_cell_index": cell_index, "object_index": image_count,
+                         "locator_text": f"cell={cell_index};output-image={image_count}"},
+                        content(content_ref=f"{doc['source']['relative_path']}#cell={cell_index};image={image_count}",
+                                mime_type=mime_type),
+                        ordinal=image_count,
+                        native_properties={"embedded_sha256": blob_sha, "size_bytes": size_bytes},
+                    )
+                    self.contain_document(doc_id, ev["evidence_id"])
+        if image_count:
+            doc["extraction"]["warnings"].append(
+                f"{image_count} embedded image(s) recorded for graph/OCR processing without image interpretation"
+            )
 
     def extract_other(self, path: Path) -> None:
         doc = self.add_document(path, "metadata-only")
@@ -629,7 +1249,12 @@ def main() -> None:
     args = parse_args()
     if args.max_items < 1:
         raise SystemExit("--max-items must be at least 1")
-    probe = Probe(args.root, args.run_at, args.max_items)
+    probe = Probe(
+        args.root,
+        args.run_at,
+        args.max_items,
+        password_candidates=discover_password_candidates(args.root.resolve()),
+    )
     for path in args.input:
         if not path.is_file():
             raise SystemExit(f"input is not a file: {path}")
