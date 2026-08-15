@@ -1,0 +1,195 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://local.ai-engineering-challenge/schemas/visual-classification.schema.json",
+  "title": "VisualClassification",
+  "description": "質問非依存の画像内容分類と後続処理ルーティング記録",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "record_type",
+    "classification_id",
+    "asset_id",
+    "asset",
+    "source",
+    "origin",
+    "primary_type",
+    "content_types",
+    "information_role",
+    "regions",
+    "routes",
+    "exactness",
+    "warnings",
+    "model",
+    "prompt",
+    "hashes",
+    "status",
+    "provenance"
+  ],
+  "properties": {
+    "schema_version": {"const": "0.1"},
+    "record_type": {"const": "visual_classification"},
+    "classification_id": {
+      "type": "string",
+      "pattern": "^vc_[0-9a-f]{16,64}$"
+    },
+    "asset_id": {"type": "string", "minLength": 1},
+    "asset": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["materialized_path", "sha256", "mime_type", "dimensions"],
+      "properties": {
+        "materialized_path": {"type": "string", "minLength": 1},
+        "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+        "mime_type": {"type": "string", "pattern": "^image/[A-Za-z0-9.+-]+$"},
+        "dimensions": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["width_px", "height_px"],
+          "properties": {
+            "width_px": {"type": "integer", "minimum": 1},
+            "height_px": {"type": "integer", "minimum": 1}
+          }
+        }
+      }
+    },
+    "source": {"type": "object"},
+    "origin": {"type": "object"},
+    "primary_type": {"$ref": "#/$defs/contentType"},
+    "content_types": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {"$ref": "#/$defs/contentType"}
+    },
+    "information_role": {
+      "enum": ["primary", "supporting", "decorative", "unknown"]
+    },
+    "regions": {
+      "type": "array",
+      "items": {"$ref": "#/$defs/region"}
+    },
+    "routes": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {"$ref": "#/$defs/route"}
+    },
+    "exactness": {
+      "description": "モデル単独分類ではexactを許可しない",
+      "enum": ["estimated", "unresolved"]
+    },
+    "warnings": {
+      "type": "array",
+      "items": {"type": "string", "minLength": 1}
+    },
+    "model": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["requested", "resolved", "digest"],
+      "properties": {
+        "requested": {"type": "string", "minLength": 1},
+        "resolved": {"type": "string", "minLength": 1},
+        "digest": {"type": "string", "pattern": "^[0-9a-f]{16,128}$"}
+      }
+    },
+    "prompt": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "version", "question_independent"],
+      "properties": {
+        "name": {"const": "visual-asset-classification"},
+        "version": {"const": "visual-asset-classification-v0.2"},
+        "question_independent": {"const": true}
+      }
+    },
+    "hashes": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["input_sha256", "output_sha256", "signature_sha256"],
+      "properties": {
+        "input_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+        "output_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+        "signature_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+      }
+    },
+    "status": {"enum": ["classified", "needs_review", "failed"]},
+    "provenance": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "classifier",
+        "classifier_version",
+        "method",
+        "generated_at",
+        "inference_generated_at",
+        "cache_hit",
+        "question_independent"
+      ],
+      "properties": {
+        "classifier": {"const": "local-gemma-visual-classifier"},
+        "classifier_version": {"const": "0.2"},
+        "method": {"const": "model_only_visual_classification"},
+        "generated_at": {"type": "string", "format": "date-time"},
+        "inference_generated_at": {"type": "string", "format": "date-time"},
+        "cache_hit": {"type": "boolean"},
+        "question_independent": {"const": true}
+      }
+    }
+  },
+  "$defs": {
+    "contentType": {
+      "enum": [
+        "text_document",
+        "table",
+        "chart",
+        "diagram",
+        "screenshot",
+        "formula",
+        "photo",
+        "illustration",
+        "decoration",
+        "unknown"
+      ]
+    },
+    "route": {
+      "enum": [
+        "ocr_text",
+        "table_structure",
+        "chart_source_recovery",
+        "diagram_relations",
+        "formula_ocr",
+        "image_description",
+        "skip",
+        "review"
+      ]
+    },
+    "bbox": {
+      "description": "画像左上を原点とする正規化 [x, y, width, height]",
+      "type": "array",
+      "prefixItems": [
+        {"type": "number", "minimum": 0, "maximum": 1},
+        {"type": "number", "minimum": 0, "maximum": 1},
+        {"type": "number", "exclusiveMinimum": 0, "maximum": 1},
+        {"type": "number", "exclusiveMinimum": 0, "maximum": 1}
+      ],
+      "minItems": 4,
+      "maxItems": 4
+    },
+    "region": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["region_id", "bbox", "types"],
+      "properties": {
+        "region_id": {"type": "string", "minLength": 1},
+        "bbox": {"$ref": "#/$defs/bbox"},
+        "types": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {"$ref": "#/$defs/contentType"}
+        }
+      }
+    }
+  }
+}

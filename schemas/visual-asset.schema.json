@@ -1,0 +1,307 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://local.ai-engineering-challenge/schemas/visual-asset.schema.json",
+  "title": "VisualAsset",
+  "description": "質問文に依存せず発見した、後段のOCR・表・グラフ・図解分類用ワークアイテム",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "record_type",
+    "asset_id",
+    "file_id",
+    "document_id",
+    "source",
+    "origin",
+    "candidate_layers",
+    "duplicate_of_asset_id",
+    "selection",
+    "status",
+    "materialized_path",
+    "materialization",
+    "error",
+    "provenance"
+  ],
+  "properties": {
+    "schema_version": {"const": "0.1"},
+    "record_type": {"const": "visual_asset"},
+    "asset_id": {"type": "string", "pattern": "^asset_[0-9a-f]{32}$"},
+    "file_id": {"type": "string", "pattern": "^file_[0-9a-f]{32}$"},
+    "document_id": {"type": "string", "pattern": "^doc_[0-9a-f]{32}$"},
+    "source": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "relative_path",
+        "sha256",
+        "size_bytes",
+        "extension",
+        "document_type",
+        "processing_layers"
+      ],
+      "properties": {
+        "relative_path": {"type": "string", "minLength": 1},
+        "sha256": {"$ref": "#/$defs/sha256"},
+        "size_bytes": {"type": "integer", "minimum": 0},
+        "extension": {"type": "string", "minLength": 1},
+        "document_type": {"type": "string", "minLength": 1},
+        "processing_layers": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "enum": ["native_text", "ocr_required", "graph_required", "unsupported"]
+          }
+        }
+      }
+    },
+    "origin": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "page_number",
+        "member_path",
+        "member_sha256",
+        "member_size_bytes",
+        "media_type"
+      ],
+      "properties": {
+        "kind": {
+          "enum": [
+            "pdf_page",
+            "office_embedded_image",
+            "notebook_embedded_image",
+            "standalone_image",
+            "visual_container"
+          ]
+        },
+        "page_number": {"type": ["integer", "null"], "minimum": 1},
+        "member_path": {"type": ["string", "null"], "minLength": 1},
+        "member_sha256": {
+          "oneOf": [
+            {"$ref": "#/$defs/sha256"},
+            {"type": "null"}
+          ]
+        },
+        "member_size_bytes": {"type": ["integer", "null"], "minimum": 1},
+        "media_type": {"type": ["string", "null"], "minLength": 1}
+      }
+    },
+    "candidate_layers": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {
+        "enum": [
+          "chart_source_recovery",
+          "text_ocr",
+          "layout_classification",
+          "table_structure",
+          "chart_table",
+          "diagram_relations",
+          "illustration_description"
+        ]
+      }
+    },
+    "duplicate_of_asset_id": {
+      "type": ["string", "null"],
+      "pattern": "^asset_[0-9a-f]{32}$"
+    },
+    "selection": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "stratum",
+        "selected_for_batch",
+        "batch_size",
+        "batch_rank",
+        "stratum_rank",
+        "method"
+      ],
+      "properties": {
+        "stratum": {
+          "enum": [
+            "scanned_pdf_page",
+            "office_embedded_image",
+            "standalone_graph",
+            "standalone_image",
+            "notebook_embedded_image",
+            "visual_container"
+          ]
+        },
+        "selected_for_batch": {"type": "boolean"},
+        "batch_size": {"type": "integer", "minimum": 0},
+        "batch_rank": {"type": ["integer", "null"], "minimum": 1},
+        "stratum_rank": {"type": ["integer", "null"], "minimum": 1},
+        "method": {"const": "deterministic-stratified-round-robin-v1"}
+      }
+    },
+    "status": {
+      "enum": [
+        "pending_materialization",
+        "materialized",
+        "pending_classification",
+        "materialization_error",
+        "unsupported_media"
+      ]
+    },
+    "materialized_path": {"type": ["string", "null"], "minLength": 1},
+    "materialization": {
+      "oneOf": [
+        {"type": "null"},
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "output_path",
+            "sha256",
+            "size_bytes",
+            "mime_type",
+            "width_px",
+            "height_px",
+            "renderer",
+            "renderer_version",
+            "dpi",
+            "signature",
+            "cache_hit",
+            "generated_at"
+          ],
+          "properties": {
+            "output_path": {"type": "string", "minLength": 1},
+            "sha256": {"$ref": "#/$defs/sha256"},
+            "size_bytes": {"type": "integer", "minimum": 1},
+            "mime_type": {"type": "string", "pattern": "^image/"},
+            "width_px": {"type": "integer", "minimum": 1},
+            "height_px": {"type": "integer", "minimum": 1},
+            "renderer": {"type": "string", "minLength": 1},
+            "renderer_version": {"type": "string", "minLength": 1},
+            "dpi": {"type": ["integer", "null"], "minimum": 1},
+            "signature": {"$ref": "#/$defs/sha256"},
+            "cache_hit": {"type": "boolean"},
+            "generated_at": {"type": "string", "format": "date-time"}
+          }
+        }
+      ]
+    },
+    "error": {"type": ["string", "null"], "minLength": 1},
+    "provenance": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "builder",
+        "builder_version",
+        "inventory_path",
+        "inventory_sha256",
+        "source_root",
+        "discovery_method",
+        "generated_at",
+        "question_independent",
+        "office_zip_limits"
+      ],
+      "properties": {
+        "builder": {"const": "visual-asset-manifest-builder"},
+        "builder_version": {"type": "string", "minLength": 1},
+        "inventory_path": {"type": "string", "minLength": 1},
+        "inventory_sha256": {"$ref": "#/$defs/sha256"},
+        "source_root": {"type": "string", "minLength": 1},
+        "discovery_method": {
+          "enum": [
+            "inventory_pdf_page_expansion",
+            "office_zip_media_scan",
+            "notebook_embedded_media_scan",
+            "inventory_standalone_image",
+            "inventory_visual_container"
+          ]
+        },
+        "generated_at": {"type": "string", "format": "date-time"},
+        "question_independent": {"const": true},
+        "office_zip_limits": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "max_archive_entries",
+            "max_member_uncompressed_bytes",
+            "max_total_uncompressed_bytes",
+            "max_compression_ratio"
+          ],
+          "properties": {
+            "max_archive_entries": {"type": "integer", "minimum": 1},
+            "max_member_uncompressed_bytes": {"type": "integer", "minimum": 1},
+            "max_total_uncompressed_bytes": {"type": "integer", "minimum": 1},
+            "max_compression_ratio": {"type": "number", "exclusiveMinimum": 0}
+          }
+        }
+      }
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {"status": {"const": "pending_materialization"}},
+        "required": ["status"]
+      },
+      "then": {
+        "properties": {
+          "materialized_path": {"type": "null"},
+          "materialization": {"type": "null"},
+          "error": {"type": "null"}
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "status": {"enum": ["materialized", "pending_classification"]}
+        },
+        "required": ["status"]
+      },
+      "then": {
+        "properties": {
+          "materialized_path": {"type": "string", "minLength": 1},
+          "materialization": {"type": "object"},
+          "error": {"type": "null"}
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "status": {"enum": ["materialization_error", "unsupported_media"]}
+        },
+        "required": ["status"]
+      },
+      "then": {
+        "properties": {
+          "materialized_path": {"type": "null"},
+          "materialization": {"type": "null"},
+          "error": {"type": "string", "minLength": 1}
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "selection": {
+            "properties": {"selected_for_batch": {"const": true}},
+            "required": ["selected_for_batch"]
+          }
+        },
+        "required": ["selection"]
+      },
+      "then": {
+        "properties": {
+          "selection": {
+            "properties": {
+              "batch_rank": {"type": "integer", "minimum": 1},
+              "stratum_rank": {"type": "integer", "minimum": 1}
+            }
+          }
+        }
+      }
+    }
+  ],
+  "$defs": {
+    "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+  }
+}

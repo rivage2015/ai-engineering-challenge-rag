@@ -1,0 +1,471 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://local.ai-engineering-challenge/schemas/ocr-observation.schema.json",
+  "title": "OCRObservation",
+  "description": "Apple VisionとTesseractの独立した質問非依存OCR観測を画像バイトに結び付けた、検索未接続の中間記録",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "record_type",
+    "observation_id",
+    "asset_id",
+    "asset",
+    "source",
+    "origin",
+    "classification_ref",
+    "engine_runs",
+    "consensus",
+    "exactness",
+    "warnings",
+    "status",
+    "hashes",
+    "provenance"
+  ],
+  "properties": {
+    "schema_version": {"const": "0.1"},
+    "record_type": {"const": "ocr_observation"},
+    "observation_id": {"type": "string", "pattern": "^ocr_[0-9a-f]{24}$"},
+    "asset_id": {"type": "string", "pattern": "^asset_[0-9a-f]{32}$"},
+    "asset": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["materialized_path", "sha256", "mime_type", "dimensions"],
+      "properties": {
+        "materialized_path": {"type": "string", "minLength": 1},
+        "sha256": {"$ref": "#/$defs/sha256"},
+        "mime_type": {"type": "string", "pattern": "^image/[A-Za-z0-9.+-]+$"},
+        "dimensions": {"$ref": "#/$defs/dimensions"}
+      }
+    },
+    "source": {"type": "object"},
+    "origin": {"type": "object"},
+    "classification_ref": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["classification_id", "output_sha256", "signature_sha256", "routes"],
+      "properties": {
+        "classification_id": {"type": "string", "pattern": "^vc_[0-9a-f]{16,64}$"},
+        "output_sha256": {"$ref": "#/$defs/sha256"},
+        "signature_sha256": {"$ref": "#/$defs/sha256"},
+        "routes": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "contains": {"const": "ocr_text"},
+          "items": {"$ref": "#/$defs/route"}
+        }
+      }
+    },
+    "engine_runs": {
+      "type": "array",
+      "minItems": 2,
+      "maxItems": 2,
+      "prefixItems": [
+        {"$ref": "#/$defs/appleVisionRun"},
+        {"$ref": "#/$defs/tesseractRun"}
+      ],
+      "items": false
+    },
+    "consensus": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["method", "version", "coordinate_system", "overlap_threshold", "lines", "unresolved_count"],
+      "properties": {
+        "method": {"const": "strict-spatial-nfc-exact"},
+        "version": {"const": "0.1"},
+        "coordinate_system": {"const": "top_left_normalized_1000"},
+        "overlap_threshold": {"const": 0.5},
+        "lines": {
+          "type": "array",
+          "maxItems": 4000,
+          "items": {"$ref": "#/$defs/consensusLine"}
+        },
+        "unresolved_count": {"type": "integer", "minimum": 0}
+      }
+    },
+    "exactness": {"enum": ["observed", "unresolved"]},
+    "warnings": {
+      "type": "array",
+      "maxItems": 100,
+      "uniqueItems": true,
+      "items": {"type": "string", "minLength": 1, "maxLength": 10000}
+    },
+    "status": {"enum": ["observed", "needs_review", "failed"]},
+    "hashes": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["input_sha256", "output_sha256", "signature_sha256"],
+      "properties": {
+        "input_sha256": {"$ref": "#/$defs/sha256"},
+        "output_sha256": {"$ref": "#/$defs/sha256"},
+        "signature_sha256": {"$ref": "#/$defs/sha256"}
+      }
+    },
+    "provenance": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "observer",
+        "observer_version",
+        "generated_at",
+        "cache_hit",
+        "question_independent",
+        "evidence_connected",
+        "search_unit_connected"
+      ],
+      "properties": {
+        "observer": {"const": "dual-local-ocr-observer"},
+        "observer_version": {"const": "0.1"},
+        "generated_at": {"type": "string", "format": "date-time"},
+        "cache_hit": {"type": "boolean"},
+        "question_independent": {"const": true},
+        "evidence_connected": {"const": false},
+        "search_unit_connected": {"const": false}
+      }
+    }
+  },
+  "$defs": {
+    "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "dimensions": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["width_px", "height_px"],
+      "properties": {
+        "width_px": {"type": "integer", "minimum": 1},
+        "height_px": {"type": "integer", "minimum": 1}
+      }
+    },
+    "route": {
+      "enum": [
+        "ocr_text",
+        "table_structure",
+        "chart_source_recovery",
+        "diagram_relations",
+        "formula_ocr",
+        "image_description",
+        "skip",
+        "review"
+      ]
+    },
+    "bbox": {
+      "description": "画像左上を[0,0]、右下を[1000,1000]とする[x,y,width,height]",
+      "type": "array",
+      "prefixItems": [
+        {"type": "integer", "minimum": 0, "maximum": 999},
+        {"type": "integer", "minimum": 0, "maximum": 999},
+        {"type": "integer", "minimum": 1, "maximum": 1000},
+        {"type": "integer", "minimum": 1, "maximum": 1000}
+      ],
+      "minItems": 4,
+      "maxItems": 4
+    },
+    "line": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["line_id", "sequence", "raw_text", "bbox", "confidence"],
+      "properties": {
+        "line_id": {"type": "string", "pattern": "^line_[0-9]+$"},
+        "sequence": {"type": "integer", "minimum": 1},
+        "raw_text": {"type": "string", "minLength": 1, "maxLength": 10000},
+        "bbox": {"$ref": "#/$defs/bbox"},
+        "confidence": {
+          "type": ["number", "null"],
+          "minimum": 0,
+          "maximum": 1
+        }
+      }
+    },
+    "engine": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "version", "digest", "independence_group", "runtime"],
+      "properties": {
+        "name": {"enum": ["apple_vision", "tesseract"]},
+        "version": {"type": "string", "minLength": 1},
+        "digest": {"$ref": "#/$defs/sha256"},
+        "independence_group": {"enum": ["apple_vision", "tesseract_lstm"]},
+        "runtime": {"type": "object"}
+      }
+    },
+    "appleVisionRuntime": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "os_version",
+        "os_build",
+        "architecture",
+        "compile_target",
+        "swiftc_version",
+        "wrapper_path",
+        "wrapper_sha256",
+        "build_signature_sha256"
+      ],
+      "properties": {
+        "os_version": {"type": "string", "minLength": 1},
+        "os_build": {"type": "string", "minLength": 1},
+        "architecture": {"enum": ["arm64", "x86_64"]},
+        "compile_target": {
+          "type": "string",
+          "pattern": "^(arm64|x86_64)-apple-macosx13\\.0$"
+        },
+        "swiftc_version": {"type": "string", "minLength": 1},
+        "wrapper_path": {"const": "scripts/apple_vision_ocr.swift"},
+        "wrapper_sha256": {"$ref": "#/$defs/sha256"},
+        "build_signature_sha256": {"$ref": "#/$defs/sha256"}
+      }
+    },
+    "tesseractRuntime": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["executable_path", "binary_sha256", "tessdata_path", "traineddata"],
+      "properties": {
+        "executable_path": {"type": "string", "minLength": 1},
+        "binary_sha256": {"$ref": "#/$defs/sha256"},
+        "tessdata_path": {"type": "string", "minLength": 1},
+        "traineddata": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["jpn", "eng"],
+          "properties": {
+            "jpn": {"$ref": "#/$defs/traineddataFile"},
+            "eng": {"$ref": "#/$defs/traineddataFile"}
+          }
+        }
+      }
+    },
+    "traineddataFile": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "sha256"],
+      "properties": {
+        "path": {"type": "string", "minLength": 1},
+        "sha256": {"$ref": "#/$defs/sha256"}
+      }
+    },
+    "runHashes": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["input_sha256", "output_sha256", "signature_sha256"],
+      "properties": {
+        "input_sha256": {"$ref": "#/$defs/sha256"},
+        "output_sha256": {"$ref": "#/$defs/sha256"},
+        "signature_sha256": {"$ref": "#/$defs/sha256"}
+      }
+    },
+    "runProvenance": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "runner",
+        "runner_version",
+        "generated_at",
+        "inference_generated_at",
+        "cache_hit",
+        "question_independent"
+      ],
+      "properties": {
+        "runner": {"enum": ["apple-vision-swift-ocr", "tesseract-tsv-ocr"]},
+        "runner_version": {"const": "0.1"},
+        "generated_at": {"type": "string", "format": "date-time"},
+        "inference_generated_at": {"type": "string", "format": "date-time"},
+        "cache_hit": {"type": "boolean"},
+        "question_independent": {"const": true}
+      }
+    },
+    "runBaseProperties": {
+      "run_id": {"type": "string", "pattern": "^ocr_run_[0-9a-f]{24}$"},
+      "engine": {"$ref": "#/$defs/engine"},
+      "status": {"enum": ["completed", "needs_review", "failed"]},
+      "lines": {
+        "type": "array",
+        "maxItems": 2000,
+        "items": {"$ref": "#/$defs/line"}
+      },
+      "warnings": {
+        "type": "array",
+        "maxItems": 100,
+        "uniqueItems": true,
+        "items": {"type": "string", "minLength": 1, "maxLength": 10000}
+      },
+      "error": {"type": ["string", "null"], "minLength": 1, "maxLength": 10000},
+      "hashes": {"$ref": "#/$defs/runHashes"},
+      "provenance": {"$ref": "#/$defs/runProvenance"}
+    },
+    "appleVisionConfig": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "coordinate_system",
+        "recognition_level",
+        "recognition_languages",
+        "uses_language_correction",
+        "automatically_detects_language",
+        "request_revision"
+      ],
+      "properties": {
+        "coordinate_system": {"const": "top_left_normalized_1000"},
+        "recognition_level": {"const": "accurate"},
+        "recognition_languages": {
+          "const": ["ja-JP", "en-US"]
+        },
+        "uses_language_correction": {"const": true},
+        "automatically_detects_language": {"const": false},
+        "request_revision": {"const": 3}
+      }
+    },
+    "tesseractConfig": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "coordinate_system",
+        "languages",
+        "oem",
+        "psm",
+        "preserve_interword_spaces",
+        "text_line_source",
+        "geometry_source",
+        "line_alignment",
+        "line_confidence_aggregation"
+      ],
+      "properties": {
+        "coordinate_system": {"const": "top_left_normalized_1000"},
+        "languages": {"const": ["jpn", "eng"]},
+        "oem": {"const": 1},
+        "psm": {"const": 3},
+        "preserve_interword_spaces": {"const": true},
+        "text_line_source": {"const": "tesseract_txt"},
+        "geometry_source": {"const": "tesseract_tsv_line_group"},
+        "line_alignment": {"const": "strict_one_to_one"},
+        "line_confidence_aggregation": {"const": "minimum_word_confidence"}
+      }
+    },
+    "runStateRules": {
+      "allOf": [
+        {
+          "if": {"properties": {"status": {"const": "completed"}}, "required": ["status"]},
+          "then": {
+            "properties": {
+              "warnings": {"maxItems": 0},
+              "error": {"type": "null"}
+            }
+          }
+        },
+        {
+          "if": {"properties": {"status": {"const": "needs_review"}}, "required": ["status"]},
+          "then": {
+            "anyOf": [
+              {"properties": {"warnings": {"minItems": 1}}},
+              {"properties": {"error": {"type": "string", "minLength": 1}}}
+            ]
+          }
+        },
+        {
+          "if": {"properties": {"status": {"const": "failed"}}, "required": ["status"]},
+          "then": {
+            "properties": {
+              "lines": {"maxItems": 0},
+              "error": {"type": "string", "minLength": 1}
+            }
+          }
+        }
+      ]
+    },
+    "appleVisionRun": {
+      "type": "object",
+      "additionalProperties": false,
+      "allOf": [{"$ref": "#/$defs/runStateRules"}],
+      "required": ["run_id", "engine", "config", "status", "lines", "warnings", "error", "hashes", "provenance"],
+      "properties": {
+        "run_id": {"$ref": "#/$defs/runBaseProperties/run_id"},
+        "engine": {
+          "allOf": [
+            {"$ref": "#/$defs/engine"},
+            {
+              "properties": {
+                "name": {"const": "apple_vision"},
+                "version": {"const": "vision-revision-3"},
+                "independence_group": {"const": "apple_vision"},
+                "runtime": {"$ref": "#/$defs/appleVisionRuntime"}
+              }
+            }
+          ]
+        },
+        "config": {"$ref": "#/$defs/appleVisionConfig"},
+        "status": {"$ref": "#/$defs/runBaseProperties/status"},
+        "lines": {"$ref": "#/$defs/runBaseProperties/lines"},
+        "warnings": {"$ref": "#/$defs/runBaseProperties/warnings"},
+        "error": {"$ref": "#/$defs/runBaseProperties/error"},
+        "hashes": {"$ref": "#/$defs/runBaseProperties/hashes"},
+        "provenance": {
+          "allOf": [
+            {"$ref": "#/$defs/runProvenance"},
+            {"properties": {"runner": {"const": "apple-vision-swift-ocr"}}}
+          ]
+        }
+      }
+    },
+    "tesseractRun": {
+      "type": "object",
+      "additionalProperties": false,
+      "allOf": [{"$ref": "#/$defs/runStateRules"}],
+      "required": ["run_id", "engine", "config", "status", "lines", "warnings", "error", "hashes", "provenance"],
+      "properties": {
+        "run_id": {"$ref": "#/$defs/runBaseProperties/run_id"},
+        "engine": {
+          "allOf": [
+            {"$ref": "#/$defs/engine"},
+            {
+              "properties": {
+                "name": {"const": "tesseract"},
+                "version": {"const": "tesseract-5.5.2"},
+                "independence_group": {"const": "tesseract_lstm"},
+                "runtime": {"$ref": "#/$defs/tesseractRuntime"}
+              }
+            }
+          ]
+        },
+        "config": {"$ref": "#/$defs/tesseractConfig"},
+        "status": {"$ref": "#/$defs/runBaseProperties/status"},
+        "lines": {"$ref": "#/$defs/runBaseProperties/lines"},
+        "warnings": {"$ref": "#/$defs/runBaseProperties/warnings"},
+        "error": {"$ref": "#/$defs/runBaseProperties/error"},
+        "hashes": {"$ref": "#/$defs/runBaseProperties/hashes"},
+        "provenance": {
+          "allOf": [
+            {"$ref": "#/$defs/runProvenance"},
+            {"properties": {"runner": {"const": "tesseract-tsv-ocr"}}}
+          ]
+        }
+      }
+    },
+    "reading": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["run_id", "line_id", "raw_text", "bbox"],
+      "properties": {
+        "run_id": {"type": "string", "pattern": "^ocr_run_[0-9a-f]{24}$"},
+        "line_id": {"type": "string", "pattern": "^line_[0-9]+$"},
+        "raw_text": {"type": "string", "minLength": 1, "maxLength": 10000},
+        "bbox": {"$ref": "#/$defs/bbox"}
+      }
+    },
+    "consensusLine": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["consensus_line_id", "bbox", "exactness", "text", "readings"],
+      "properties": {
+        "consensus_line_id": {"type": "string", "pattern": "^ocr_line_[0-9a-f]{16}$"},
+        "bbox": {"$ref": "#/$defs/bbox"},
+        "exactness": {"enum": ["observed", "unresolved"]},
+        "text": {"type": ["string", "null"], "minLength": 1, "maxLength": 10000},
+        "readings": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 2,
+          "items": {"$ref": "#/$defs/reading"}
+        }
+      }
+    }
+  }
+}

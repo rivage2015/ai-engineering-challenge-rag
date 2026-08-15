@@ -7,3 +7,4 @@ msoffcrypto-tool>=5.1.0
 numpy>=1.24.0
 pandas>=2.0.0
 Pillow>=10.0.0
+jsonschema>=4.18.0

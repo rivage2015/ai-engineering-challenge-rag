@@ -46,8 +46,27 @@ scripts/  抽出、検索単位生成、診断、整合性検証CLI
 
 画像、グラフ、PivotTable、マーカーなどの表示上の情報は、
 `design/sequential-multimodal-orchestration.md`の方針で処理します。
+その前段として、`design/visual-classification-v1.md`の方針でPDFページ、
+Office・Notebook埋め込み画像、単体画像を実体化し、文章、表、
+グラフ、図解などを複数ラベルで分類します。
 文字転記、視覚状態観測、意味統合を分離し、`gemma4:12b`を1件ずつ
 逐次実行します。
+分類層v1の出力は品質確認用であり、まだ検索経路には接続しません。
+直接画像化できる235件を全件分類し、`ocr_text`へ分類した154画像は、
+`design/ocr-observation-v1.md`の
+二重OCRで文字と位置を独立観測します。一致しない読みは統合せず、
+`unresolved`のまま両方を保存します。このOCR出力もまだ検索経路へ接続しません。
+
+```bash
+python scripts/build_visual_asset_manifest.py --help
+python scripts/materialize_visual_assets.py --help
+python scripts/classify_visual_assets.py --help
+python scripts/validate_visual_asset_manifest.py --help
+python scripts/validate_visual_classifications.py --help
+python scripts/extract_ocr_observations.py --help
+python scripts/validate_ocr_observations.py --help
+python scripts/validate_reading_coverage.py --help
+```
 
 ```bash
 python scripts/run_visual_analysis.py \
@@ -61,7 +80,9 @@ python scripts/validate_visual_analysis.py \
 ```
 
 工程ごとにモデルdigest、画像SHA-256、プロンプトversionを照合し、
-完了済みの工程を再利用します。
+完了済みの工程を再利用します。検証にはJSON Schema Draft 2020-12の
+FormatCheckerも使い、キャッシュ利用と初回推論時刻を別々に記録します。
+
 - `scripts/validate_submission.py`
   - ヘッダーなし2列、全index、空欄、1000トークン上限、ZIP内部名を提出前に検証します。
 - `scripts/build_self_retrieval_eval.py`
@@ -80,7 +101,7 @@ python scripts/validate_visual_analysis.py \
 ## 実行例
 
 依存ライブラリとして`python-docx`、`openpyxl`、`python-pptx`、`pypdf`、
-NumPy、pandas、Pillowを使用します。意味索引にはOllamaとローカルの
+NumPy、pandas、Pillow、jsonschemaを使用します。意味索引にはOllamaとローカルの
 `embeddinggemma`が追加で必要です。
 
 ```bash
