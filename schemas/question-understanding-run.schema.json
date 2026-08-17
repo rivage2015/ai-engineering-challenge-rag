@@ -1,0 +1,927 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://local.ai-engineering-challenge/schemas/question-understanding-run.schema.json",
+  "title": "QuestionUnderstandingRun",
+  "description": "生の質問をQuestionIntentContract、QueryContextGraph、検索前候補枝、IntentGateへ変換したPhase 2終端記録",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "record_type",
+    "question_understanding_run_id",
+    "question_id",
+    "original_question",
+    "stage_statuses",
+    "question_intent_contract",
+    "query_context_graph",
+    "branching",
+    "candidate_query_paths",
+    "intent_gate",
+    "forbidden_check_results",
+    "final_status",
+    "runtime_metadata",
+    "errors",
+    "provenance"
+  ],
+  "properties": {
+    "schema_version": {"const": "0.1"},
+    "record_type": {"const": "question_understanding_run"},
+    "question_understanding_run_id": {
+      "type": "string",
+      "pattern": "^qur_[0-9a-f]{16,64}$"
+    },
+    "question_id": {"$ref": "#/$defs/nullableText"},
+    "original_question": {
+      "type": "string",
+      "minLength": 1
+    },
+    "stage_statuses": {"$ref": "#/$defs/stageStatuses"},
+    "question_intent_contract": {
+      "allOf": [
+        {"$ref": "question-intent-contract.schema.json"},
+        {
+          "type": "object",
+          "properties": {
+            "ambiguity": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "required": ["ambiguity_id", "field_path"],
+                "properties": {
+                  "candidates": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "required": ["candidate_id", "basis_refs"],
+                      "properties": {
+                        "basis_refs": {"minItems": 1}
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      ]
+    },
+    "query_context_graph": {
+      "oneOf": [
+        {"type": "null"},
+        {"$ref": "#/$defs/queryContextGraph"}
+      ]
+    },
+    "branching": {"$ref": "#/$defs/branching"},
+    "candidate_query_paths": {
+      "type": "array",
+      "items": {"$ref": "#/$defs/candidateQueryPath"}
+    },
+    "intent_gate": {
+      "oneOf": [
+        {"type": "null"},
+        {"$ref": "#/$defs/intentGate"}
+      ]
+    },
+    "forbidden_check_results": {
+      "type": "array",
+      "items": {"$ref": "#/$defs/intentForbiddenCheckResult"}
+    },
+    "final_status": {
+      "enum": [
+        "ready_for_retrieval",
+        "clarification_required",
+        "abstained",
+        "failed"
+      ]
+    },
+    "runtime_metadata": {"$ref": "#/$defs/runtimeMetadata"},
+    "errors": {
+      "type": "array",
+      "items": {"$ref": "#/$defs/errorRecord"}
+    },
+    "provenance": {"$ref": "#/$defs/provenance"}
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "stage_statuses": {
+            "properties": {"context": {"const": "completed"}},
+            "required": ["context"]
+          }
+        },
+        "required": ["stage_statuses"]
+      },
+      "then": {
+        "properties": {"query_context_graph": {"type": "object"}}
+      },
+      "else": {
+        "properties": {"query_context_graph": {"type": "null"}}
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "stage_statuses": {
+            "properties": {"candidate_paths": {"const": "completed"}},
+            "required": ["candidate_paths"]
+          }
+        },
+        "required": ["stage_statuses"]
+      },
+      "else": {
+        "properties": {"candidate_query_paths": {"maxItems": 0}}
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "stage_statuses": {
+            "properties": {"intent_gate": {"const": "completed"}},
+            "required": ["intent_gate"]
+          }
+        },
+        "required": ["stage_statuses"]
+      },
+      "then": {
+        "properties": {"intent_gate": {"type": "object"}}
+      },
+      "else": {
+        "properties": {"intent_gate": {"type": "null"}}
+      }
+    },
+    {
+      "if": {
+        "properties": {"final_status": {"const": "ready_for_retrieval"}},
+        "required": ["final_status"]
+      },
+      "then": {
+        "properties": {
+          "stage_statuses": {"$ref": "#/$defs/completedStageStatuses"},
+          "query_context_graph": {"type": "object"},
+          "candidate_query_paths": {"minItems": 1},
+          "intent_gate": {
+            "type": "object",
+            "properties": {
+              "status": {"const": "pass"},
+              "action": {"const": "retrieve"}
+            }
+          },
+          "errors": {"maxItems": 0}
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {"final_status": {"const": "clarification_required"}},
+        "required": ["final_status"]
+      },
+      "then": {
+        "properties": {
+          "stage_statuses": {"$ref": "#/$defs/completedStageStatuses"},
+          "query_context_graph": {"type": "object"},
+          "intent_gate": {
+            "type": "object",
+            "properties": {
+              "status": {"const": "indeterminate"},
+              "action": {"const": "clarify"}
+            }
+          },
+          "errors": {"maxItems": 0}
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {"final_status": {"const": "abstained"}},
+        "required": ["final_status"]
+      },
+      "then": {
+        "properties": {
+          "stage_statuses": {"$ref": "#/$defs/completedStageStatuses"},
+          "query_context_graph": {"type": "object"},
+          "intent_gate": {
+            "type": "object",
+            "properties": {
+              "status": {"const": "fail"},
+              "action": {"const": "abstain"}
+            }
+          },
+          "errors": {"maxItems": 0}
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {"final_status": {"const": "failed"}},
+        "required": ["final_status"]
+      },
+      "then": {
+        "properties": {
+          "stage_statuses": {
+            "not": {"$ref": "#/$defs/completedStageStatuses"}
+          },
+          "errors": {"minItems": 1}
+        }
+      }
+    }
+  ],
+  "$defs": {
+    "identifier": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9_]{0,127}$"
+    },
+    "nullableText": {
+      "type": ["string", "null"],
+      "minLength": 1
+    },
+    "stageStatus": {
+      "enum": ["completed", "failed", "skipped"]
+    },
+    "stageStatuses": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "decompose",
+        "context",
+        "candidate_paths",
+        "intent_gate",
+        "validation"
+      ],
+      "properties": {
+        "decompose": {"$ref": "#/$defs/stageStatus"},
+        "context": {"$ref": "#/$defs/stageStatus"},
+        "candidate_paths": {"$ref": "#/$defs/stageStatus"},
+        "intent_gate": {"$ref": "#/$defs/stageStatus"},
+        "validation": {"$ref": "#/$defs/stageStatus"}
+      },
+      "oneOf": [
+        {
+          "properties": {
+            "decompose": {"const": "completed"},
+            "context": {"const": "completed"},
+            "candidate_paths": {"const": "completed"},
+            "intent_gate": {"const": "completed"},
+            "validation": {"const": "completed"}
+          }
+        },
+        {
+          "properties": {
+            "decompose": {"const": "failed"},
+            "context": {"const": "skipped"},
+            "candidate_paths": {"const": "skipped"},
+            "intent_gate": {"const": "skipped"},
+            "validation": {"const": "skipped"}
+          }
+        },
+        {
+          "properties": {
+            "decompose": {"const": "completed"},
+            "context": {"const": "failed"},
+            "candidate_paths": {"const": "skipped"},
+            "intent_gate": {"const": "skipped"},
+            "validation": {"const": "skipped"}
+          }
+        },
+        {
+          "properties": {
+            "decompose": {"const": "completed"},
+            "context": {"const": "completed"},
+            "candidate_paths": {"const": "failed"},
+            "intent_gate": {"const": "skipped"},
+            "validation": {"const": "skipped"}
+          }
+        },
+        {
+          "properties": {
+            "decompose": {"const": "completed"},
+            "context": {"const": "completed"},
+            "candidate_paths": {"const": "completed"},
+            "intent_gate": {"const": "failed"},
+            "validation": {"const": "skipped"}
+          }
+        },
+        {
+          "properties": {
+            "decompose": {"const": "completed"},
+            "context": {"const": "completed"},
+            "candidate_paths": {"const": "completed"},
+            "intent_gate": {"const": "completed"},
+            "validation": {"const": "failed"}
+          }
+        }
+      ]
+    },
+    "completedStageStatuses": {
+      "type": "object",
+      "properties": {
+        "decompose": {"const": "completed"},
+        "context": {"const": "completed"},
+        "candidate_paths": {"const": "completed"},
+        "intent_gate": {"const": "completed"},
+        "validation": {"const": "completed"}
+      },
+      "required": [
+        "decompose",
+        "context",
+        "candidate_paths",
+        "intent_gate",
+        "validation"
+      ]
+    },
+    "jsonValue": {
+      "oneOf": [
+        {"type": "null"},
+        {"type": "boolean"},
+        {"type": "string"},
+        {"type": "number"},
+        {
+          "type": "array",
+          "items": {"$ref": "#/$defs/jsonValue"}
+        },
+        {
+          "type": "object",
+          "propertyNames": {
+            "not": {
+              "enum": [
+                "evidence_id",
+                "evidence_ids",
+                "retrieval_plan",
+                "retrieval_hits",
+                "retrieved_evidence_bundles",
+                "primary_query_path",
+                "final_answer"
+              ]
+            }
+          },
+          "additionalProperties": {"$ref": "#/$defs/jsonValue"}
+        }
+      ]
+    },
+    "contextSource": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "source_id",
+        "source_type",
+        "source_ref",
+        "content_sha256",
+        "span"
+      ],
+      "properties": {
+        "source_id": {"$ref": "#/$defs/identifier"},
+        "source_type": {
+          "enum": [
+            "question_explicit",
+            "conversation_explicit",
+            "source_local",
+            "source_metadata",
+            "semantic_candidate"
+          ]
+        },
+        "source_ref": {
+          "type": "string",
+          "minLength": 1
+        },
+        "content_sha256": {
+          "type": ["string", "null"],
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "span": {
+          "oneOf": [
+            {"type": "null"},
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["start", "end", "text"],
+              "properties": {
+                "start": {"type": "integer", "minimum": 0},
+                "end": {"type": "integer", "minimum": 1},
+                "text": {"type": "string", "minLength": 1}
+              }
+            }
+          ]
+        }
+      }
+    },
+    "contextNode": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["node_id", "node_type", "surface", "canonical_value"],
+      "properties": {
+        "node_id": {"$ref": "#/$defs/identifier"},
+        "node_type": {
+          "enum": [
+            "question",
+            "entity",
+            "alias",
+            "scope",
+            "operation",
+            "requested_output",
+            "value",
+            "unknown"
+          ]
+        },
+        "surface": {"$ref": "#/$defs/nullableText"},
+        "canonical_value": {"$ref": "#/$defs/jsonValue"}
+      }
+    },
+    "contextEdge": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "edge_id",
+        "from_ref",
+        "to_ref",
+        "relation",
+        "source_type",
+        "source_ref",
+        "support_level",
+        "match_kind"
+      ],
+      "properties": {
+        "edge_id": {"$ref": "#/$defs/identifier"},
+        "from_ref": {"$ref": "#/$defs/identifier"},
+        "to_ref": {"$ref": "#/$defs/identifier"},
+        "relation": {"$ref": "#/$defs/identifier"},
+        "source_type": {
+          "enum": [
+            "question_explicit",
+            "conversation_explicit",
+            "source_local",
+            "source_metadata",
+            "semantic_candidate"
+          ]
+        },
+        "source_ref": {"$ref": "#/$defs/identifier"},
+        "support_level": {"enum": ["high", "medium", "low"]},
+        "match_kind": {
+          "enum": [
+            "explicit_full_name",
+            "exact_alias",
+            "ambiguous_partial_alias",
+            "exact_value",
+            "semantic_candidate",
+            "not_applicable"
+          ]
+        }
+      }
+    },
+    "rejectedContext": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "edge",
+        "reason_code",
+        "conflicts_with_edge_refs",
+        "detail"
+      ],
+      "properties": {
+        "edge": {"$ref": "#/$defs/contextEdge"},
+        "reason_code": {
+          "enum": [
+            "lower_priority_conflict",
+            "explicit_conflict",
+            "same_priority_conflict",
+            "unsupported",
+            "unresolvable_reference"
+          ]
+        },
+        "conflicts_with_edge_refs": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {"$ref": "#/$defs/identifier"}
+        },
+        "detail": {"$ref": "#/$defs/nullableText"}
+      }
+    },
+    "queryContextGraph": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["graph_id", "sources", "nodes", "edges", "rejected_context"],
+      "properties": {
+        "graph_id": {"$ref": "#/$defs/identifier"},
+        "sources": {
+          "type": "array",
+          "minItems": 1,
+          "items": {"$ref": "#/$defs/contextSource"}
+        },
+        "nodes": {
+          "type": "array",
+          "minItems": 1,
+          "items": {"$ref": "#/$defs/contextNode"}
+        },
+        "edges": {
+          "type": "array",
+          "items": {"$ref": "#/$defs/contextEdge"}
+        },
+        "rejected_context": {
+          "type": "array",
+          "items": {"$ref": "#/$defs/rejectedContext"}
+        }
+      }
+    },
+    "excludedCombination": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["exclusion_id", "candidate_refs", "reason_code", "basis_refs"],
+      "properties": {
+        "exclusion_id": {"$ref": "#/$defs/identifier"},
+        "candidate_refs": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {"$ref": "#/$defs/identifier"}
+        },
+        "reason_code": {
+          "enum": [
+            "incompatible_candidates",
+            "contradicts_explicit_question",
+            "duplicate_candidate_intent",
+            "branch_limit_exceeded"
+          ]
+        },
+        "basis_refs": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {"$ref": "#/$defs/identifier"}
+        }
+      }
+    },
+    "branching": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "strategy",
+        "source_ambiguity_refs",
+        "logical_branch_limit",
+        "excluded_combinations"
+      ],
+      "properties": {
+        "strategy": {"enum": ["single", "full_cartesian", "constrained"]},
+        "source_ambiguity_refs": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {"$ref": "#/$defs/identifier"}
+        },
+        "logical_branch_limit": {
+          "type": ["integer", "null"],
+          "minimum": 1
+        },
+        "excluded_combinations": {
+          "type": "array",
+          "items": {"$ref": "#/$defs/excludedCombination"}
+        }
+      }
+    },
+    "selectedCandidate": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["ambiguity_ref", "candidate_ref"],
+      "properties": {
+        "ambiguity_ref": {"$ref": "#/$defs/identifier"},
+        "candidate_ref": {"$ref": "#/$defs/identifier"}
+      }
+    },
+    "intentDiff": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "intent_diff_id",
+        "ambiguity_ref",
+        "candidate_ref",
+        "field_path",
+        "before",
+        "after"
+      ],
+      "properties": {
+        "intent_diff_id": {"$ref": "#/$defs/identifier"},
+        "ambiguity_ref": {"$ref": "#/$defs/identifier"},
+        "candidate_ref": {"$ref": "#/$defs/identifier"},
+        "field_path": {
+          "$ref": "question-intent-contract.schema.json#/$defs/fieldPath"
+        },
+        "before": {"$ref": "#/$defs/jsonValue"},
+        "after": {"$ref": "#/$defs/jsonValue"}
+      }
+    },
+    "assumption": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["assumption_id", "statement", "basis_refs", "impact"],
+      "properties": {
+        "assumption_id": {"$ref": "#/$defs/identifier"},
+        "statement": {"type": "string", "minLength": 1},
+        "basis_refs": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {"$ref": "#/$defs/identifier"}
+        },
+        "impact": {"enum": ["high", "medium", "low"]}
+      }
+    },
+    "candidateQueryPath": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "branch_id",
+        "parent_question_id",
+        "selected_candidates",
+        "intent_diffs",
+        "candidate_intent",
+        "assumptions",
+        "status"
+      ],
+      "properties": {
+        "branch_id": {"$ref": "#/$defs/identifier"},
+        "parent_question_id": {"$ref": "#/$defs/nullableText"},
+        "selected_candidates": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {"$ref": "#/$defs/selectedCandidate"}
+        },
+        "intent_diffs": {
+          "type": "array",
+          "items": {"$ref": "#/$defs/intentDiff"}
+        },
+        "candidate_intent": {
+          "$ref": "question-intent-contract.schema.json#/$defs/requested"
+        },
+        "assumptions": {
+          "type": "array",
+          "items": {"$ref": "#/$defs/assumption"}
+        },
+        "status": {"const": "pending"}
+      }
+    },
+    "intentGateCheck": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["check_id", "status", "subject_refs", "detail"],
+      "properties": {
+        "check_id": {
+          "enum": [
+            "operation_graph_compilable",
+            "target_resolved",
+            "requested_outputs_resolved",
+            "scope_resolved",
+            "explicit_consistency",
+            "pre_retrieval_type_safety",
+            "forbidden_precheck",
+            "ambiguity_branched"
+          ]
+        },
+        "status": {"enum": ["pass", "fail", "indeterminate"]},
+        "subject_refs": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {"type": "string", "minLength": 1}
+        },
+        "detail": {"$ref": "#/$defs/nullableText"}
+      }
+    },
+    "gateReasonCode": {
+      "enum": [
+        "operation_graph_uncompilable",
+        "target_unresolved",
+        "requested_outputs_unresolved",
+        "scope_unresolved",
+        "explicit_conflict",
+        "pre_retrieval_type_error",
+        "forbidden_violation",
+        "ambiguity_unbranched",
+        "branch_limit_exceeded",
+        "no_candidate_path",
+        "question_underspecified",
+        "question_equivalence_unproven",
+        "runtime_error"
+      ]
+    },
+    "branchGateResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["branch_id", "status", "checks", "reason_codes"],
+      "properties": {
+        "branch_id": {"$ref": "#/$defs/identifier"},
+        "status": {"enum": ["pass", "fail", "indeterminate"]},
+        "checks": {
+          "type": "array",
+          "minItems": 8,
+          "maxItems": 8,
+          "items": {"$ref": "#/$defs/intentGateCheck"}
+        },
+        "reason_codes": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {"$ref": "#/$defs/gateReasonCode"}
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {"status": {"const": "pass"}},
+            "required": ["status"]
+          },
+          "then": {
+            "properties": {"reason_codes": {"maxItems": 0}}
+          }
+        }
+      ]
+    },
+    "intentGate": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status", "action", "branch_results", "reason_codes"],
+      "properties": {
+        "status": {"enum": ["pass", "fail", "indeterminate"]},
+        "action": {"enum": ["retrieve", "clarify", "abstain"]},
+        "branch_results": {
+          "type": "array",
+          "items": {"$ref": "#/$defs/branchGateResult"}
+        },
+        "reason_codes": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {"$ref": "#/$defs/gateReasonCode"}
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {"status": {"const": "pass"}},
+            "required": ["status"]
+          },
+          "then": {
+            "properties": {
+              "action": {"const": "retrieve"},
+              "branch_results": {"minItems": 1},
+              "reason_codes": {"maxItems": 0}
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {"status": {"const": "indeterminate"}},
+            "required": ["status"]
+          },
+          "then": {
+            "properties": {"action": {"const": "clarify"}}
+          }
+        },
+        {
+          "if": {
+            "properties": {"status": {"const": "fail"}},
+            "required": ["status"]
+          },
+          "then": {
+            "properties": {"action": {"const": "abstain"}}
+          }
+        }
+      ]
+    },
+    "intentForbiddenCheckResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "rule_id",
+        "stage",
+        "validator_id",
+        "validator_version",
+        "status",
+        "subject_refs",
+        "details",
+        "action_taken"
+      ],
+      "properties": {
+        "rule_id": {"$ref": "#/$defs/identifier"},
+        "stage": {"const": "intent"},
+        "validator_id": {
+          "enum": [
+            "operator_preserved",
+            "hard_scope_not_expanded",
+            "output_contract_match"
+          ]
+        },
+        "validator_version": {"type": "string", "minLength": 1},
+        "status": {"enum": ["pass", "violation", "error"]},
+        "subject_refs": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {"type": "string", "minLength": 1}
+        },
+        "details": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["message", "field_paths"],
+          "properties": {
+            "message": {"$ref": "#/$defs/nullableText"},
+            "field_paths": {
+              "type": "array",
+              "uniqueItems": true,
+              "items": {
+                "oneOf": [
+                  {
+                    "$ref": "question-intent-contract.schema.json#/$defs/fieldPath"
+                  },
+                  {"const": "/not_requested"}
+                ]
+              }
+            }
+          }
+        },
+        "action_taken": {
+          "enum": ["none", "reject", "regenerate", "abstain"]
+        }
+      }
+    },
+    "runtimeMetadata": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "rule_version",
+        "started_at",
+        "completed_at",
+        "duration_ms",
+        "models",
+        "backend",
+        "parallel_config"
+      ],
+      "properties": {
+        "rule_version": {"const": "v0.2"},
+        "started_at": {"type": "string", "format": "date-time"},
+        "completed_at": {"type": "string", "format": "date-time"},
+        "duration_ms": {"type": "integer", "minimum": 0},
+        "models": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["role", "name", "digest"],
+            "properties": {
+              "role": {"enum": ["intent", "validation"]},
+              "name": {"type": "string", "minLength": 1},
+              "digest": {
+                "type": ["string", "null"],
+                "pattern": "^[0-9a-f]{16,128}$"
+              }
+            }
+          }
+        },
+        "backend": {"enum": ["local_sequential", "api_bounded_parallel"]},
+        "parallel_config": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["max_concurrency", "timeout_ms", "retry_limit"],
+          "properties": {
+            "max_concurrency": {"type": "integer", "minimum": 1},
+            "timeout_ms": {"type": ["integer", "null"], "minimum": 1},
+            "retry_limit": {"type": "integer", "minimum": 0}
+          }
+        }
+      }
+    },
+    "errorRecord": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["stage", "code", "message"],
+      "properties": {
+        "stage": {
+          "enum": [
+            "decompose",
+            "context",
+            "candidate_paths",
+            "intent_gate",
+            "validation",
+            "runtime"
+          ]
+        },
+        "code": {"$ref": "#/$defs/identifier"},
+        "message": {"type": "string", "minLength": 1}
+      }
+    },
+    "provenance": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "runner",
+        "runner_version",
+        "generated_at",
+        "question_independent",
+        "answer_data_used",
+        "past_answers_used"
+      ],
+      "properties": {
+        "runner": {"type": "string", "minLength": 1},
+        "runner_version": {"type": "string", "minLength": 1},
+        "generated_at": {"type": "string", "format": "date-time"},
+        "question_independent": {"const": false},
+        "answer_data_used": {"const": false},
+        "past_answers_used": {"const": false}
+      }
+    }
+  }
+}

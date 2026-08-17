@@ -1,0 +1,683 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://local.ai-engineering-challenge/schemas/question-intent-contract.schema.json",
+  "title": "QuestionIntentContract",
+  "description": "質問文を検索可能で検査可能な意図契約へ分解した質問依存の派生記録",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "record_type",
+    "question_intent_contract_id",
+    "question_id",
+    "original_question",
+    "requested",
+    "not_requested",
+    "forbidden",
+    "ambiguity",
+    "provenance"
+  ],
+  "properties": {
+    "schema_version": {"const": "0.1"},
+    "record_type": {"const": "question_intent_contract"},
+    "question_intent_contract_id": {
+      "type": "string",
+      "pattern": "^qic_[0-9a-f]{16,64}$"
+    },
+    "question_id": {
+      "type": ["string", "null"],
+      "minLength": 1
+    },
+    "original_question": {
+      "type": "string",
+      "minLength": 1
+    },
+    "requested": {"$ref": "#/$defs/requested"},
+    "not_requested": {
+      "type": "array",
+      "items": {"$ref": "#/$defs/notRequestedItem"}
+    },
+    "forbidden": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["global", "query", "evidence"],
+      "properties": {
+        "global": {
+          "type": "array",
+          "items": {"$ref": "#/$defs/globalForbiddenRule"}
+        },
+        "query": {
+          "type": "array",
+          "items": {"$ref": "#/$defs/queryForbiddenRule"}
+        },
+        "evidence": {
+          "type": "array",
+          "items": {"$ref": "#/$defs/evidenceForbiddenRule"}
+        }
+      }
+    },
+    "ambiguity": {
+      "type": "array",
+      "items": {"$ref": "#/$defs/ambiguityItem"}
+    },
+    "provenance": {"$ref": "#/$defs/provenance"}
+  },
+  "$defs": {
+    "identifier": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9_]{0,127}$"
+    },
+    "fieldPath": {
+      "type": "string",
+      "description": "QuestionIntentContractルートから見た、曖昧性が影響するrequested配下のJSON Pointer",
+      "pattern": "^/requested/(?:target|scope|operation_graph|requested_outputs)(?:/(?:[^~/]|~[01])+)*$"
+    },
+    "nullableText": {
+      "type": ["string", "null"],
+      "minLength": 1
+    },
+    "target": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["surface", "canonical_type", "instance"],
+      "properties": {
+        "surface": {"$ref": "#/$defs/nullableText"},
+        "canonical_type": {"$ref": "#/$defs/nullableText"},
+        "instance": {"$ref": "#/$defs/nullableText"}
+      }
+    },
+    "predicate": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["field", "operator", "value"],
+      "properties": {
+        "field": {
+          "type": "string",
+          "minLength": 1
+        },
+        "operator": {
+          "enum": [
+            "eq",
+            "ne",
+            "gt",
+            "gte",
+            "lt",
+            "lte",
+            "in",
+            "not_in",
+            "contains",
+            "starts_with",
+            "ends_with",
+            "matches",
+            "between",
+            "is_null",
+            "is_not_null"
+          ]
+        },
+        "value": {}
+      }
+    },
+    "scope": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "container",
+        "location",
+        "time_or_version",
+        "filters",
+        "source",
+        "match_mode"
+      ],
+      "properties": {
+        "container": {"$ref": "#/$defs/nullableText"},
+        "location": {"$ref": "#/$defs/nullableText"},
+        "time_or_version": {"$ref": "#/$defs/nullableText"},
+        "filters": {
+          "type": "array",
+          "items": {"$ref": "#/$defs/predicate"}
+        },
+        "source": {
+          "enum": ["explicit", "conversation", "unknown"]
+        },
+        "match_mode": {
+          "enum": [
+            "exact_normalized",
+            "exact",
+            "range",
+            "semantic_candidate",
+            "unknown"
+          ]
+        }
+      }
+    },
+    "externalInput": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["input_ref", "input_type", "source", "source_ref", "description"],
+      "properties": {
+        "input_ref": {"$ref": "#/$defs/identifier"},
+        "input_type": {
+          "enum": [
+            "document",
+            "record_set",
+            "value_set",
+            "scalar",
+            "claim",
+            "unknown"
+          ]
+        },
+        "source": {
+          "enum": ["question", "scope", "retrieval", "constant", "unknown"]
+        },
+        "source_ref": {"$ref": "#/$defs/nullableText"},
+        "description": {"$ref": "#/$defs/nullableText"}
+      }
+    },
+    "operationNode": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["operation_id", "operator", "input_refs", "output_ref"],
+      "properties": {
+        "operation_id": {"$ref": "#/$defs/identifier"},
+        "operator": {
+          "enum": [
+            "filter",
+            "project",
+            "count",
+            "list",
+            "retrieve",
+            "compare",
+            "calculate",
+            "sum",
+            "mean",
+            "min",
+            "max",
+            "absolute_distance",
+            "argmin_all",
+            "argmax_all",
+            "sort",
+            "deduplicate",
+            "group",
+            "explain",
+            "procedure",
+            "verify",
+            "boolean_test",
+            "unknown"
+          ]
+        },
+        "input_refs": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {"$ref": "#/$defs/identifier"}
+        },
+        "output_ref": {"$ref": "#/$defs/identifier"},
+        "predicate": {"$ref": "#/$defs/predicate"},
+        "fields": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {"type": "string", "minLength": 1}
+        },
+        "calculation_precision": {
+          "enum": ["exact_unrounded", "exact", "rounded", "unknown"]
+        },
+        "candidate_set_ref": {"$ref": "#/$defs/identifier"},
+        "distance": {
+          "enum": ["absolute", "squared", "custom"]
+        },
+        "field": {
+          "type": "string",
+          "minLength": 1
+        },
+        "tie_policy": {
+          "enum": ["all", "first", "error"]
+        },
+        "sort_order": {
+          "enum": ["ascending", "descending"]
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {"operator": {"const": "filter"}},
+            "required": ["operator"]
+          },
+          "then": {"required": ["predicate"]}
+        },
+        {
+          "if": {
+            "properties": {"operator": {"const": "project"}},
+            "required": ["operator"]
+          },
+          "then": {"required": ["fields"]}
+        },
+        {
+          "if": {
+            "properties": {"operator": {"const": "mean"}},
+            "required": ["operator"]
+          },
+          "then": {
+            "required": ["calculation_precision"],
+            "properties": {
+              "calculation_precision": {"const": "exact_unrounded"}
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "operator": {"enum": ["argmin_all", "argmax_all"]}
+            },
+            "required": ["operator"]
+          },
+          "then": {
+            "required": ["candidate_set_ref", "distance", "field", "tie_policy"]
+          }
+        }
+      ]
+    },
+    "operationEdge": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["from", "to"],
+      "properties": {
+        "from": {"$ref": "#/$defs/identifier"},
+        "to": {"$ref": "#/$defs/identifier"}
+      }
+    },
+    "scopeInheritance": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["default", "reset_requires"],
+      "properties": {
+        "default": {"const": "inherit_previous_output"},
+        "reset_requires": {"const": "explicit_instruction"}
+      }
+    },
+    "operationGraph": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "operation_graph_id",
+        "external_inputs",
+        "nodes",
+        "edges",
+        "scope_inheritance"
+      ],
+      "properties": {
+        "operation_graph_id": {"$ref": "#/$defs/identifier"},
+        "external_inputs": {
+          "type": "array",
+          "minItems": 1,
+          "items": {"$ref": "#/$defs/externalInput"}
+        },
+        "nodes": {
+          "type": "array",
+          "minItems": 1,
+          "items": {"$ref": "#/$defs/operationNode"}
+        },
+        "edges": {
+          "type": "array",
+          "items": {"$ref": "#/$defs/operationEdge"}
+        },
+        "scope_inheritance": {"$ref": "#/$defs/scopeInheritance"}
+      }
+    },
+    "cardinality": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["mode", "expected_count"],
+      "properties": {
+        "mode": {
+          "enum": ["single", "multiple", "all", "unknown"]
+        },
+        "expected_count": {
+          "type": ["integer", "null"],
+          "minimum": 0
+        }
+      }
+    },
+    "answerShape": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["container", "value_type", "unit", "precision"],
+      "properties": {
+        "container": {
+          "enum": ["scalar", "list", "key_value", "table", "prose", "yes_no", "unknown"]
+        },
+        "value_type": {
+          "enum": ["integer", "number", "string", "identifier", "boolean", "unknown"]
+        },
+        "unit": {"$ref": "#/$defs/nullableText"},
+        "precision": {
+          "enum": ["exact", "approximate", "unspecified"]
+        }
+      }
+    },
+    "displayPrecision": {
+      "oneOf": [
+        {"type": "null"},
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["mode", "digits"],
+          "properties": {
+            "mode": {
+              "enum": ["decimal_places", "significant_digits"]
+            },
+            "digits": {
+              "type": "integer",
+              "minimum": 0
+            }
+          }
+        }
+      ]
+    },
+    "requestedOutput": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "output_id",
+        "source_operation_ref",
+        "return_field",
+        "cardinality",
+        "answer_shape",
+        "display_precision"
+      ],
+      "properties": {
+        "output_id": {"$ref": "#/$defs/identifier"},
+        "source_operation_ref": {"$ref": "#/$defs/identifier"},
+        "return_field": {
+          "enum": [
+            "count",
+            "identifier",
+            "name",
+            "value",
+            "status",
+            "description",
+            "reason",
+            "procedure",
+            "comparison_result",
+            "boolean",
+            "unknown"
+          ]
+        },
+        "cardinality": {"$ref": "#/$defs/cardinality"},
+        "answer_shape": {"$ref": "#/$defs/answerShape"},
+        "display_precision": {"$ref": "#/$defs/displayPrecision"}
+      }
+    },
+    "derivedSummary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["operation", "return_fields", "cardinality"],
+      "properties": {
+        "operation": {
+          "enum": [
+            "count",
+            "list",
+            "retrieve",
+            "compare",
+            "calculate",
+            "explain",
+            "procedure",
+            "verify",
+            "unknown"
+          ]
+        },
+        "return_fields": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "enum": [
+              "count",
+              "identifier",
+              "name",
+              "value",
+              "status",
+              "description",
+              "reason",
+              "procedure",
+              "comparison_result",
+              "boolean",
+              "unknown"
+            ]
+          }
+        },
+        "cardinality": {
+          "enum": ["single", "multiple", "all", "mixed", "unknown"]
+        }
+      }
+    },
+    "requested": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["target", "scope", "operation_graph", "requested_outputs", "derived_summary"],
+      "properties": {
+        "target": {"$ref": "#/$defs/target"},
+        "scope": {"$ref": "#/$defs/scope"},
+        "operation_graph": {"$ref": "#/$defs/operationGraph"},
+        "requested_outputs": {
+          "type": "array",
+          "minItems": 1,
+          "items": {"$ref": "#/$defs/requestedOutput"}
+        },
+        "derived_summary": {"$ref": "#/$defs/derivedSummary"}
+      }
+    },
+    "notRequestedItem": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["item", "reason", "confidence", "handling"],
+      "properties": {
+        "item": {
+          "type": "string",
+          "minLength": 1
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 1
+        },
+        "confidence": {
+          "enum": ["high", "medium", "low"]
+        },
+        "handling": {
+          "enum": ["omit", "deprioritize", "include_only_if_needed"]
+        }
+      }
+    },
+    "validatorCheck": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["validator_id", "params"],
+      "properties": {
+        "validator_id": {"$ref": "#/$defs/identifier"},
+        "params": {
+          "type": "object",
+          "description": "validator_idごとの決定的検査パラメータ",
+          "additionalProperties": true
+        }
+      }
+    },
+    "forbiddenRule": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "rule_id",
+        "category",
+        "prohibition",
+        "basis",
+        "basis_ref",
+        "applies_to",
+        "check",
+        "on_violation"
+      ],
+      "properties": {
+        "rule_id": {"$ref": "#/$defs/identifier"},
+        "category": {
+          "enum": ["global", "query", "evidence"]
+        },
+        "prohibition": {
+          "type": "string",
+          "minLength": 1
+        },
+        "basis": {
+          "type": "string",
+          "minLength": 1
+        },
+        "basis_ref": {"$ref": "#/$defs/nullableText"},
+        "applies_to": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "enum": ["intent", "retrieval", "generation", "validation"]
+          }
+        },
+        "check": {"$ref": "#/$defs/validatorCheck"},
+        "on_violation": {
+          "enum": ["reject", "regenerate", "abstain"]
+        }
+      }
+    },
+    "globalForbiddenRule": {
+      "allOf": [
+        {"$ref": "#/$defs/forbiddenRule"},
+        {
+          "properties": {
+            "category": {"const": "global"}
+          }
+        }
+      ]
+    },
+    "queryForbiddenRule": {
+      "allOf": [
+        {"$ref": "#/$defs/forbiddenRule"},
+        {
+          "properties": {
+            "category": {"const": "query"}
+          }
+        }
+      ]
+    },
+    "evidenceForbiddenRule": {
+      "allOf": [
+        {"$ref": "#/$defs/forbiddenRule"},
+        {
+          "properties": {
+            "category": {"const": "evidence"}
+          }
+        }
+      ]
+    },
+    "ambiguityCandidate": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["value", "confidence", "basis"],
+      "properties": {
+        "candidate_id": {"$ref": "#/$defs/identifier"},
+        "value": {},
+        "confidence": {
+          "enum": ["high", "medium", "low"]
+        },
+        "basis": {
+          "type": "string",
+          "minLength": 1
+        },
+        "basis_refs": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {"$ref": "#/$defs/identifier"}
+        }
+      }
+    },
+    "ambiguityItem": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["field", "issue", "candidates", "impact", "resolution"],
+      "properties": {
+        "ambiguity_id": {"$ref": "#/$defs/identifier"},
+        "field": {
+          "enum": ["target", "operation", "return_field", "scope", "answer_shape"]
+        },
+        "field_path": {"$ref": "#/$defs/fieldPath"},
+        "issue": {
+          "type": "string",
+          "minLength": 1
+        },
+        "candidates": {
+          "type": "array",
+          "minItems": 1,
+          "items": {"$ref": "#/$defs/ambiguityCandidate"}
+        },
+        "impact": {
+          "enum": ["high", "medium", "low"]
+        },
+        "resolution": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "enum": [
+              "retrieve_parallel",
+              "resolve_from_evidence",
+              "answer_with_qualification",
+              "abstain"
+            ]
+          }
+        }
+      }
+    },
+    "provenance": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "analyzer",
+        "analyzer_version",
+        "rule_version",
+        "generated_at",
+        "deterministic",
+        "intent_origin",
+        "intent_input_sha256",
+        "question_independent",
+        "answer_data_used",
+        "past_answers_used"
+      ],
+      "properties": {
+        "analyzer": {
+          "type": "string",
+          "minLength": 1
+        },
+        "analyzer_version": {
+          "type": "string",
+          "minLength": 1
+        },
+        "rule_version": {
+          "const": "v0.2"
+        },
+        "generated_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "deterministic": {"type": "boolean"},
+        "intent_origin": {
+          "enum": [
+            "supported_lane",
+            "supplied_draft",
+            "structured_model",
+            "compiler_fallback"
+          ]
+        },
+        "intent_input_sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "question_independent": {"const": false},
+        "answer_data_used": {"const": false},
+        "past_answers_used": {"const": false}
+      }
+    }
+  }
+}

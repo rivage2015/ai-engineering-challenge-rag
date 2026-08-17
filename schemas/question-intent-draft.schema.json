@@ -1,0 +1,614 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://local.ai-engineering-challenge/schemas/question-intent-draft.schema.json",
+  "title": "QuestionIntentDraft",
+  "description": "Untrusted model output used as input to the deterministic question-intent compiler",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "requested",
+    "not_requested",
+    "ambiguities",
+    "explicit_mentions"
+  ],
+  "properties": {
+    "requested": {"$ref": "#/$defs/requested"},
+    "not_requested": {
+      "type": "array",
+      "items": {"$ref": "#/$defs/notRequestedItem"}
+    },
+    "ambiguities": {
+      "type": "array",
+      "items": {"$ref": "#/$defs/ambiguity"}
+    },
+    "explicit_mentions": {
+      "type": "array",
+      "items": {"$ref": "#/$defs/explicitMention"}
+    }
+  },
+  "$defs": {
+    "nullableText": {
+      "type": ["string", "null"],
+      "minLength": 1
+    },
+    "scalarValue": {
+      "type": ["null", "boolean", "string", "number"]
+    },
+    "predicateValue": {
+      "oneOf": [
+        {"$ref": "#/$defs/scalarValue"},
+        {
+          "type": "array",
+          "items": {"$ref": "#/$defs/scalarValue"}
+        }
+      ]
+    },
+    "target": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["surface", "canonical_type", "instance"],
+      "properties": {
+        "surface": {"$ref": "#/$defs/nullableText"},
+        "canonical_type": {
+          "enum": [
+            null,
+            "record",
+            "row",
+            "task",
+            "document",
+            "file",
+            "table",
+            "chart",
+            "person",
+            "organization",
+            "project",
+            "event",
+            "metric",
+            "status",
+            "procedure",
+            "claim",
+            "value",
+            "identifier",
+            "field",
+            "dataset",
+            "source"
+          ]
+        },
+        "instance": {"$ref": "#/$defs/nullableText"}
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {"canonical_type": {"type": "string"}},
+            "required": ["canonical_type"]
+          },
+          "then": {
+            "anyOf": [
+              {"$ref": "#/$defs/recordTarget"},
+              {"$ref": "#/$defs/rowTarget"},
+              {"$ref": "#/$defs/taskTarget"},
+              {"$ref": "#/$defs/documentTarget"},
+              {"$ref": "#/$defs/fileTarget"},
+              {"$ref": "#/$defs/tableTarget"},
+              {"$ref": "#/$defs/chartTarget"},
+              {"$ref": "#/$defs/personTarget"},
+              {"$ref": "#/$defs/organizationTarget"},
+              {"$ref": "#/$defs/projectTarget"},
+              {"$ref": "#/$defs/eventTarget"},
+              {"$ref": "#/$defs/metricTarget"},
+              {"$ref": "#/$defs/statusTarget"},
+              {"$ref": "#/$defs/procedureTarget"},
+              {"$ref": "#/$defs/claimTarget"},
+              {"$ref": "#/$defs/valueTarget"},
+              {"$ref": "#/$defs/identifierTarget"},
+              {"$ref": "#/$defs/fieldTarget"},
+              {"$ref": "#/$defs/datasetTarget"},
+              {"$ref": "#/$defs/sourceTarget"}
+            ]
+          }
+        }
+      ]
+    },
+    "recordTarget": {
+      "$ref": "#/$defs/typedTargetLexeme",
+      "type": "object",
+      "properties": {
+        "canonical_type": {"const": "record"},
+        "surface": {"pattern": "[Rr][Ee][Cc][Oo][Rr][Dd](?:[_ -]?[Ii][Dd])?|レコード(?:[_ -]?[Ii][Dd])?|データ"},
+        "instance": {}
+      }
+    },
+    "rowTarget": {
+      "$ref": "#/$defs/typedTargetLexeme",
+      "type": "object",
+      "properties": {
+        "canonical_type": {"const": "row"},
+        "surface": {"pattern": "[Rr][Oo][Ww](?:[_ -]?[Ii][Dd])?|^(?:行|行[_ -]?[Ii][Dd]|行番号)$"},
+        "instance": {}
+      }
+    },
+    "taskTarget": {
+      "$ref": "#/$defs/typedTargetLexeme",
+      "type": "object",
+      "properties": {
+        "canonical_type": {"const": "task"},
+        "surface": {"pattern": "[Tt][Aa][Ss][Kk](?:[_ -]?[Ii][Dd])?|タスク(?:[_ -]?[Ii][Dd])?"},
+        "instance": {}
+      }
+    },
+    "documentTarget": {
+      "$ref": "#/$defs/typedTargetLexeme",
+      "type": "object",
+      "properties": {
+        "canonical_type": {"const": "document"},
+        "surface": {"pattern": "[Dd][Oo][Cc](?:[Uu][Mm][Ee][Nn][Tt])?(?:[_ -]?[Ii][Dd])?|ドキュメント|文書"},
+        "instance": {}
+      }
+    },
+    "fileTarget": {
+      "$ref": "#/$defs/typedTargetLexeme",
+      "type": "object",
+      "properties": {"canonical_type": {"const": "file"}, "surface": {"pattern": "[Ff][Ii][Ll][Ee](?:[_ -]?[Ii][Dd])?|ファイル"}, "instance": {}}
+    },
+    "tableTarget": {
+      "$ref": "#/$defs/typedTargetLexeme",
+      "type": "object",
+      "properties": {"canonical_type": {"const": "table"}, "surface": {"pattern": "[Tt][Aa][Bb][Ll][Ee](?:[_ -]?[Ii][Dd])?|テーブル|^表$"}, "instance": {}}
+    },
+    "chartTarget": {
+      "$ref": "#/$defs/typedTargetLexeme",
+      "type": "object",
+      "properties": {"canonical_type": {"const": "chart"}, "surface": {"pattern": "[Cc][Hh][Aa][Rr][Tt](?:[_ -]?[Ii][Dd])?|[Gg][Rr][Aa][Pp][Hh]|チャート|グラフ|図表"}, "instance": {}}
+    },
+    "personTarget": {
+      "$ref": "#/$defs/typedTargetLexeme",
+      "type": "object",
+      "properties": {"canonical_type": {"const": "person"}, "surface": {"pattern": "[Ee][Mm][Pp][Ll][Oo][Yy][Ee][Ee](?:[_ -]?[Ii][Dd])?|[Pp][Ee][Rr][Ss][Oo][Nn](?:[_ -]?[Ii][Dd])?|[Ww][Oo][Rr][Kk][Ee][Rr]|[Ss][Tt][Aa][Ff][Ff]|従業員|社員|人物"}, "instance": {}}
+    },
+    "organizationTarget": {
+      "$ref": "#/$defs/typedTargetLexeme",
+      "type": "object",
+      "properties": {"canonical_type": {"const": "organization"}, "surface": {"pattern": "[Oo][Rr][Gg](?:[Aa][Nn][Ii][Zz][Aa][Tt][Ii][Oo][Nn])?(?:[_ -]?[Ii][Dd])?|組織|会社|法人|団体"}, "instance": {}}
+    },
+    "projectTarget": {
+      "$ref": "#/$defs/typedTargetLexeme",
+      "type": "object",
+      "properties": {"canonical_type": {"const": "project"}, "surface": {"pattern": "[Pp][Rr][Oo][Jj][Ee][Cc][Tt](?:[_ -]?[Ii][Dd])?|プロジェクト"}, "instance": {}}
+    },
+    "eventTarget": {
+      "$ref": "#/$defs/typedTargetLexeme",
+      "type": "object",
+      "properties": {"canonical_type": {"const": "event"}, "surface": {"pattern": "[Ee][Vv][Ee][Nn][Tt](?:[_ -]?[Ii][Dd])?|イベント"}, "instance": {}}
+    },
+    "metricTarget": {
+      "$ref": "#/$defs/typedTargetLexeme",
+      "type": "object",
+      "properties": {"canonical_type": {"const": "metric"}, "surface": {"pattern": "[Mm][Ee][Tt][Rr][Ii][Cc](?:[_ -]?[Ii][Dd])?|[Mm][Ee][Aa][Ss][Uu][Rr][Ee]|メトリック|指標"}, "instance": {}}
+    },
+    "statusTarget": {
+      "$ref": "#/$defs/typedTargetLexeme",
+      "type": "object",
+      "properties": {"canonical_type": {"const": "status"}, "surface": {"pattern": "[Ss][Tt][Aa][Tt][Uu][Ss]|ステータス|状態"}, "instance": {}}
+    },
+    "procedureTarget": {
+      "$ref": "#/$defs/typedTargetLexeme",
+      "type": "object",
+      "properties": {"canonical_type": {"const": "procedure"}, "surface": {"pattern": "[Pp][Rr][Oo][Cc][Ee][Dd][Uu][Rr][Ee]|プロセス|手順"}, "instance": {}}
+    },
+    "claimTarget": {
+      "$ref": "#/$defs/typedTargetLexeme",
+      "type": "object",
+      "properties": {"canonical_type": {"const": "claim"}, "surface": {"pattern": "[Cc][Ll][Aa][Ii][Mm]|主張"}, "instance": {}}
+    },
+    "valueTarget": {
+      "$ref": "#/$defs/typedTargetLexeme",
+      "type": "object",
+      "properties": {"canonical_type": {"const": "value"}, "surface": {"pattern": "[Vv][Aa][Ll][Uu][Ee]|^値$"}, "instance": {}}
+    },
+    "identifierTarget": {
+      "$ref": "#/$defs/typedTargetLexeme",
+      "type": "object",
+      "properties": {"canonical_type": {"const": "identifier"}, "surface": {"pattern": "[Ii][Dd][Ee][Nn][Tt][Ii][Ff][Ii][Ee][Rr]|(?:^|[^A-Za-z0-9_])[Ii][Dd](?:$|[^A-Za-z0-9_])|識別子"}, "instance": {}}
+    },
+    "fieldTarget": {
+      "$ref": "#/$defs/typedTargetLexeme",
+      "type": "object",
+      "properties": {"canonical_type": {"const": "field"}, "surface": {"pattern": "[Ff][Ii][Ee][Ll][Dd]|[Cc][Oo][Ll][Uu][Mm][Nn]|フィールド|カラム|^列$|項目"}, "instance": {}}
+    },
+    "datasetTarget": {
+      "$ref": "#/$defs/typedTargetLexeme",
+      "type": "object",
+      "properties": {"canonical_type": {"const": "dataset"}, "surface": {"pattern": "[Dd][Aa][Tt][Aa][Ss][Ee][Tt]|データセット"}, "instance": {}}
+    },
+    "sourceTarget": {
+      "$ref": "#/$defs/typedTargetLexeme",
+      "type": "object",
+      "properties": {"canonical_type": {"const": "source"}, "surface": {"pattern": "[Ss][Oo][Uu][Rr][Cc][Ee]|ソース|出典"}, "instance": {}}
+    },
+    "typedTargetLexeme": {
+      "anyOf": [
+        {"required": ["surface"], "properties": {"surface": {"type": "string"}}},
+        {"required": ["instance"], "properties": {"instance": {"type": "string"}}}
+      ]
+    },
+    "predicate": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["field", "operator", "value"],
+      "properties": {
+        "field": {"type": "string", "minLength": 1},
+        "operator": {
+          "enum": [
+            "eq",
+            "ne",
+            "gt",
+            "gte",
+            "lt",
+            "lte",
+            "in",
+            "not_in",
+            "contains",
+            "starts_with",
+            "ends_with",
+            "matches",
+            "between",
+            "is_null",
+            "is_not_null"
+          ]
+        },
+        "value": {"$ref": "#/$defs/predicateValue"}
+      }
+    },
+    "scope": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "container",
+        "location",
+        "time_or_version",
+        "filters",
+        "source",
+        "match_mode"
+      ],
+      "properties": {
+        "container": {"$ref": "#/$defs/nullableText"},
+        "location": {"$ref": "#/$defs/nullableText"},
+        "time_or_version": {"$ref": "#/$defs/nullableText"},
+        "filters": {
+          "type": "array",
+          "items": {"$ref": "#/$defs/predicate"}
+        },
+        "source": {"enum": ["explicit", "unknown"]},
+        "match_mode": {
+          "enum": [
+            "exact_normalized",
+            "exact",
+            "range",
+            "semantic_candidate",
+            "unknown"
+          ]
+        }
+      }
+    },
+    "valueRef": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "index"],
+      "properties": {
+        "kind": {"enum": ["external", "operation"]},
+        "index": {"type": "integer", "minimum": 0}
+      }
+    },
+    "externalInput": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["input_type", "source", "description"],
+      "properties": {
+        "input_type": {
+          "enum": [
+            "document",
+            "record_set",
+            "value_set",
+            "scalar",
+            "claim",
+            "unknown"
+          ]
+        },
+        "source": {"enum": ["question", "scope", "constant", "unknown"]},
+        "description": {
+          "type": ["string", "null"],
+          "minLength": 1,
+          "maxLength": 256
+        }
+      }
+    },
+    "operation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["operator", "input_refs"],
+      "properties": {
+        "operator": {
+          "enum": [
+            "filter",
+            "project",
+            "count",
+            "list",
+            "retrieve",
+            "compare",
+            "calculate",
+            "sum",
+            "mean",
+            "min",
+            "max",
+            "absolute_distance",
+            "argmin_all",
+            "argmax_all",
+            "sort",
+            "deduplicate",
+            "group",
+            "explain",
+            "procedure",
+            "verify",
+            "boolean_test",
+            "unknown"
+          ]
+        },
+        "input_refs": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {"$ref": "#/$defs/valueRef"}
+        },
+        "predicate": {"$ref": "#/$defs/predicate"},
+        "fields": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {"type": "string", "minLength": 1}
+        },
+        "calculation_precision": {
+          "enum": ["exact_unrounded", "exact", "rounded", "unknown"]
+        },
+        "candidate_set_ref": {"$ref": "#/$defs/valueRef"},
+        "distance": {"enum": ["absolute", "squared", "custom"]},
+        "field": {"type": "string", "minLength": 1},
+        "tie_policy": {"enum": ["all", "first", "error"]},
+        "sort_order": {"enum": ["ascending", "descending"]}
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {"operator": {"const": "filter"}},
+            "required": ["operator"]
+          },
+          "then": {"required": ["predicate"]}
+        },
+        {
+          "if": {
+            "properties": {"operator": {"const": "project"}},
+            "required": ["operator"]
+          },
+          "then": {"required": ["fields"]}
+        },
+        {
+          "if": {
+            "properties": {"operator": {"const": "mean"}},
+            "required": ["operator"]
+          },
+          "then": {
+            "required": ["calculation_precision"],
+            "properties": {
+              "calculation_precision": {"const": "exact_unrounded"}
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "operator": {"enum": ["argmin_all", "argmax_all"]}
+            },
+            "required": ["operator"]
+          },
+          "then": {
+            "required": ["candidate_set_ref", "distance", "field", "tie_policy"]
+          }
+        }
+      ]
+    },
+    "operationGraph": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["external_inputs", "operations"],
+      "properties": {
+        "external_inputs": {
+          "type": "array",
+          "minItems": 1,
+          "items": {"$ref": "#/$defs/externalInput"}
+        },
+        "operations": {
+          "type": "array",
+          "minItems": 1,
+          "items": {"$ref": "#/$defs/operation"}
+        }
+      }
+    },
+    "cardinality": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["mode", "expected_count"],
+      "properties": {
+        "mode": {"enum": ["single", "multiple", "all", "unknown"]},
+        "expected_count": {"type": ["integer", "null"], "minimum": 0}
+      }
+    },
+    "answerShape": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["container", "value_type", "unit", "precision"],
+      "properties": {
+        "container": {
+          "enum": ["scalar", "list", "key_value", "table", "prose", "yes_no", "unknown"]
+        },
+        "value_type": {
+          "enum": ["integer", "number", "string", "identifier", "boolean", "unknown"]
+        },
+        "unit": {"$ref": "#/$defs/nullableText"},
+        "precision": {"enum": ["exact", "approximate", "unspecified"]}
+      }
+    },
+    "displayPrecision": {
+      "oneOf": [
+        {"type": "null"},
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["mode", "digits"],
+          "properties": {
+            "mode": {"enum": ["decimal_places", "significant_digits"]},
+            "digits": {"type": "integer", "minimum": 0}
+          }
+        }
+      ]
+    },
+    "requestedOutput": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "source_operation_index",
+        "return_field",
+        "cardinality",
+        "answer_shape",
+        "display_precision"
+      ],
+      "properties": {
+        "source_operation_index": {"type": "integer", "minimum": 0},
+        "return_field": {
+          "enum": [
+            "count",
+            "identifier",
+            "name",
+            "value",
+            "status",
+            "description",
+            "reason",
+            "procedure",
+            "comparison_result",
+            "boolean",
+            "unknown"
+          ]
+        },
+        "cardinality": {"$ref": "#/$defs/cardinality"},
+        "answer_shape": {"$ref": "#/$defs/answerShape"},
+        "display_precision": {"$ref": "#/$defs/displayPrecision"}
+      }
+    },
+    "requested": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["target", "scope", "operation_graph", "requested_outputs"],
+      "properties": {
+        "target": {"$ref": "#/$defs/target"},
+        "scope": {"$ref": "#/$defs/scope"},
+        "operation_graph": {"$ref": "#/$defs/operationGraph"},
+        "requested_outputs": {
+          "type": "array",
+          "minItems": 1,
+          "items": {"$ref": "#/$defs/requestedOutput"}
+        }
+      }
+    },
+    "notRequestedItem": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["item", "reason", "confidence", "handling"],
+      "properties": {
+        "item": {"type": "string", "minLength": 1, "maxLength": 256},
+        "reason": {"type": "string", "minLength": 1, "maxLength": 256},
+        "confidence": {"enum": ["high", "medium", "low"]},
+        "handling": {"enum": ["omit", "deprioritize", "include_only_if_needed"]}
+      }
+    },
+    "ambiguityCandidate": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["candidate_requested", "confidence", "basis"],
+      "properties": {
+        "candidate_requested": {"$ref": "#/$defs/requested"},
+        "confidence": {"enum": ["high", "medium", "low"]},
+        "basis": {"type": "string", "minLength": 1, "maxLength": 256}
+      }
+    },
+    "ambiguity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "field",
+        "field_path",
+        "issue",
+        "candidates",
+        "impact",
+        "resolution"
+      ],
+      "properties": {
+        "field": {"enum": ["target", "operation", "return_field", "scope", "answer_shape"]},
+        "field_path": {
+          "enum": [
+            "/requested/target",
+            "/requested/scope",
+            "/requested/operation_graph",
+            "/requested/requested_outputs"
+          ]
+        },
+        "issue": {"type": "string", "minLength": 1, "maxLength": 256},
+        "candidates": {
+          "type": "array",
+          "minItems": 2,
+          "items": {"$ref": "#/$defs/ambiguityCandidate"}
+        },
+        "impact": {"enum": ["high", "medium", "low"]},
+        "resolution": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "enum": [
+              "retrieve_parallel",
+              "resolve_from_evidence",
+              "answer_with_qualification",
+              "abstain"
+            ]
+          }
+        }
+      }
+    },
+    "explicitMention": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["surface", "start", "end", "kind"],
+      "properties": {
+        "surface": {"type": "string", "minLength": 1},
+        "start": {"type": "integer", "minimum": 0},
+        "end": {"type": "integer", "minimum": 1},
+        "kind": {
+          "enum": [
+            "target_surface",
+            "target_instance",
+            "scope_container",
+            "scope_location",
+            "scope_time_or_version",
+            "filter_field",
+            "filter_value",
+            "operator",
+            "operation",
+            "return_field",
+            "answer_shape",
+            "unit",
+            "precision",
+            "cardinality",
+            "not_requested"
+          ]
+        }
+      }
+    }
+  }
+}

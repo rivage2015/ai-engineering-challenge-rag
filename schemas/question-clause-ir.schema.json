@@ -1,0 +1,563 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://local.ai-engineering-challenge/schemas/question-clause-ir.schema.json",
+  "title": "QuestionClauseIR",
+  "description": "Deterministic, question-only clause intermediate representation produced before QuestionIntentContract compilation. Schema validation closes the structural and vocabulary boundary; a later semantic validator must verify span text and ordering against original_question, recompute deterministic hashes and IDs, resolve every clause reference, and prove each qic_path is actually bound to the compiled QuestionIntentContract.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "record_type",
+    "question_clause_ir_id",
+    "question_id",
+    "original_question",
+    "grammar_profile",
+    "clauses",
+    "coverage",
+    "provenance"
+  ],
+  "properties": {
+    "schema_version": {"const": "0.1"},
+    "record_type": {"const": "question_clause_ir"},
+    "question_clause_ir_id": {
+      "type": "string",
+      "pattern": "^qcir_[0-9a-f]{16,64}$"
+    },
+    "question_id": {"$ref": "#/$defs/nullableText"},
+    "original_question": {
+      "type": "string",
+      "minLength": 1
+    },
+    "grammar_profile": {
+      "enum": [
+        "list_eq_id_all_v0_1",
+        "list_suffix_eq_id_all_v0_1",
+        "compound_eq_gt_mean_nearest_id_all_v0_1",
+        "unsupported_v0_1"
+      ]
+    },
+    "clauses": {
+      "type": "array",
+      "minItems": 1,
+      "items": {"$ref": "#/$defs/clause"}
+    },
+    "coverage": {"$ref": "#/$defs/coverage"},
+    "provenance": {"$ref": "#/$defs/provenance"}
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "grammar_profile": {"const": "unsupported_v0_1"}
+        },
+        "required": ["grammar_profile"]
+      },
+      "then": {
+        "properties": {
+          "coverage": {
+            "properties": {
+              "status": {"const": "incomplete"},
+              "unresolved_clause_refs": {"minItems": 1}
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "coverage": {
+            "properties": {"status": {"const": "complete"}},
+            "required": ["status"]
+          }
+        },
+        "required": ["coverage"]
+      },
+      "then": {
+        "properties": {
+          "grammar_profile": {"not": {"const": "unsupported_v0_1"}},
+          "clauses": {
+            "items": {
+              "properties": {
+                "disposition": {"enum": ["mapped", "syntax"]}
+              }
+            }
+          }
+        }
+      }
+    }
+  ],
+  "$defs": {
+    "nullableText": {
+      "type": ["string", "null"],
+      "minLength": 1
+    },
+    "deterministicId": {
+      "type": "string",
+      "pattern": "^qcl_[0-9a-f]{16,64}$",
+      "description": "Content-derived clause identifier; deterministic recomputation is enforced by the later semantic validator."
+    },
+    "sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "span": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Exact code-point span. Bounds, text equality, and cross-clause ordering are enforced by the later semantic validator.",
+      "required": ["start", "end", "text"],
+      "properties": {
+        "start": {"type": "integer", "minimum": 0},
+        "end": {"type": "integer", "minimum": 1},
+        "text": {"type": "string", "minLength": 1}
+      }
+    },
+    "scalarValue": {
+      "type": ["null", "boolean", "string", "number"]
+    },
+    "normalizedValue": {
+      "oneOf": [
+        {"$ref": "#/$defs/scalarValue"},
+        {
+          "type": "array",
+          "items": {"$ref": "#/$defs/scalarValue"}
+        }
+      ]
+    },
+    "qicPath": {
+      "type": "string",
+      "description": "Non-root JSON Pointer into an intent-bearing QIC domain. Existence and semantic binding are enforced by the later semantic validator.",
+      "pattern": "^(?:/requested/(?:target|scope|operation_graph|requested_outputs)(?:/(?:[^~/]|~[01])+)*|/not_requested/(?:0|[1-9][0-9]*)(?:/(?:[^~/]|~[01])+)*|/ambiguity/(?:0|[1-9][0-9]*)(?:/(?:[^~/]|~[01])+)*)$"
+    },
+    "filterOperatorValue": {
+      "enum": [
+        "eq",
+        "ne",
+        "gt",
+        "gte",
+        "lt",
+        "lte",
+        "in",
+        "not_in",
+        "contains",
+        "starts_with",
+        "ends_with",
+        "matches",
+        "between",
+        "is_null",
+        "is_not_null"
+      ]
+    },
+    "cardinalityValue": {
+      "enum": ["single", "multiple", "all", "unknown"]
+    },
+    "booleanConnectorValue": {
+      "enum": ["and", "or"]
+    },
+    "operationValue": {
+      "enum": [
+        "filter",
+        "project",
+        "count",
+        "list",
+        "retrieve",
+        "compare",
+        "calculate",
+        "sum",
+        "mean",
+        "min",
+        "max",
+        "absolute_distance",
+        "argmin_all",
+        "argmax_all",
+        "sort",
+        "deduplicate",
+        "group",
+        "explain",
+        "procedure",
+        "verify",
+        "boolean_test",
+        "unknown"
+      ]
+    },
+    "returnFieldValue": {
+      "enum": [
+        "count",
+        "identifier",
+        "name",
+        "value",
+        "status",
+        "description",
+        "reason",
+        "procedure",
+        "comparison_result",
+        "boolean",
+        "unknown"
+      ]
+    },
+    "answerContainerValue": {
+      "enum": [
+        "scalar",
+        "list",
+        "key_value",
+        "table",
+        "prose",
+        "yes_no",
+        "unknown"
+      ]
+    },
+    "answerValueTypeValue": {
+      "enum": [
+        "integer",
+        "number",
+        "string",
+        "identifier",
+        "boolean",
+        "unknown"
+      ]
+    },
+    "precisionValue": {
+      "enum": [
+        "exact_unrounded",
+        "exact",
+        "rounded",
+        "approximate",
+        "unspecified",
+        "decimal_places",
+        "significant_digits",
+        "unknown"
+      ]
+    },
+    "clause": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "clause_id",
+        "span",
+        "role",
+        "normalized_value",
+        "polarity",
+        "qic_paths",
+        "disposition"
+      ],
+      "properties": {
+        "clause_id": {"$ref": "#/$defs/deterministicId"},
+        "span": {"$ref": "#/$defs/span"},
+        "role": {
+          "enum": [
+            "scope_location",
+            "scope_container",
+            "scope_time_or_version",
+            "target_surface",
+            "target_instance",
+            "filter_field",
+            "filter_operator",
+            "filter_value",
+            "boolean_connector",
+            "operation",
+            "return_field",
+            "cardinality",
+            "answer_container",
+            "answer_value_type",
+            "unit",
+            "precision",
+            "exclusion",
+            "syntax",
+            "unresolved"
+          ]
+        },
+        "normalized_value": {"$ref": "#/$defs/normalizedValue"},
+        "polarity": {
+          "enum": ["positive", "negative", "not_applicable"]
+        },
+        "qic_paths": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {"$ref": "#/$defs/qicPath"}
+        },
+        "disposition": {
+          "enum": ["mapped", "syntax", "unresolved", "conflict"]
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {"disposition": {"const": "mapped"}},
+            "required": ["disposition"]
+          },
+          "then": {
+            "properties": {"qic_paths": {"minItems": 1}}
+          }
+        },
+        {
+          "if": {
+            "properties": {"role": {"const": "syntax"}},
+            "required": ["role"]
+          },
+          "then": {
+            "properties": {
+              "disposition": {"const": "syntax"},
+              "qic_paths": {"maxItems": 0},
+              "polarity": {"const": "not_applicable"}
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {"disposition": {"const": "syntax"}},
+            "required": ["disposition"]
+          },
+          "then": {
+            "properties": {
+              "role": {"const": "syntax"},
+              "qic_paths": {"maxItems": 0},
+              "polarity": {"const": "not_applicable"}
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {"role": {"const": "unresolved"}},
+            "required": ["role"]
+          },
+          "then": {
+            "properties": {
+              "disposition": {"const": "unresolved"},
+              "qic_paths": {"maxItems": 0},
+              "polarity": {"const": "not_applicable"}
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {"disposition": {"const": "unresolved"}},
+            "required": ["disposition"]
+          },
+          "then": {
+            "properties": {
+              "role": {"const": "unresolved"},
+              "qic_paths": {"maxItems": 0},
+              "polarity": {"const": "not_applicable"}
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {"disposition": {"const": "mapped"}},
+            "required": ["disposition"]
+          },
+          "then": {
+            "properties": {
+              "role": {"not": {"enum": ["syntax", "unresolved"]}}
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {"role": {"const": "filter_operator"}},
+            "required": ["role"]
+          },
+          "then": {
+            "properties": {
+              "normalized_value": {"$ref": "#/$defs/filterOperatorValue"}
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {"role": {"const": "cardinality"}},
+            "required": ["role"]
+          },
+          "then": {
+            "properties": {
+              "normalized_value": {"$ref": "#/$defs/cardinalityValue"}
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {"role": {"const": "boolean_connector"}},
+            "required": ["role"]
+          },
+          "then": {
+            "properties": {
+              "normalized_value": {"$ref": "#/$defs/booleanConnectorValue"}
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {"role": {"const": "operation"}},
+            "required": ["role"]
+          },
+          "then": {
+            "properties": {
+              "normalized_value": {"$ref": "#/$defs/operationValue"}
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {"role": {"const": "return_field"}},
+            "required": ["role"]
+          },
+          "then": {
+            "properties": {
+              "normalized_value": {"$ref": "#/$defs/returnFieldValue"}
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {"role": {"const": "answer_container"}},
+            "required": ["role"]
+          },
+          "then": {
+            "properties": {
+              "normalized_value": {"$ref": "#/$defs/answerContainerValue"}
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {"role": {"const": "answer_value_type"}},
+            "required": ["role"]
+          },
+          "then": {
+            "properties": {
+              "normalized_value": {"$ref": "#/$defs/answerValueTypeValue"}
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {"role": {"const": "precision"}},
+            "required": ["role"]
+          },
+          "then": {
+            "properties": {
+              "normalized_value": {"$ref": "#/$defs/precisionValue"}
+            }
+          }
+        }
+      ]
+    },
+    "coverage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "status",
+        "total_codepoints",
+        "covered_codepoints",
+        "unresolved_clause_refs",
+        "conflict_clause_refs",
+        "unbound_qic_paths"
+      ],
+      "properties": {
+        "status": {
+          "enum": ["complete", "incomplete", "conflict"]
+        },
+        "total_codepoints": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "covered_codepoints": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "unresolved_clause_refs": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {"$ref": "#/$defs/deterministicId"}
+        },
+        "conflict_clause_refs": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {"$ref": "#/$defs/deterministicId"}
+        },
+        "unbound_qic_paths": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {"$ref": "#/$defs/qicPath"}
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {"status": {"const": "complete"}},
+            "required": ["status"]
+          },
+          "then": {
+            "properties": {
+              "unresolved_clause_refs": {"maxItems": 0},
+              "conflict_clause_refs": {"maxItems": 0},
+              "unbound_qic_paths": {"maxItems": 0}
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {"status": {"const": "conflict"}},
+            "required": ["status"]
+          },
+          "then": {
+            "properties": {
+              "conflict_clause_refs": {"minItems": 1}
+            }
+          }
+        }
+      ]
+    },
+    "provenance": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "parser",
+        "parser_version",
+        "registry_name",
+        "registry_version",
+        "registry_sha256",
+        "rule_version",
+        "generated_at",
+        "input_question_sha256",
+        "deterministic",
+        "question_only",
+        "catalog_used",
+        "answer_data_used",
+        "past_answers_used"
+      ],
+      "properties": {
+        "parser": {
+          "type": "string",
+          "minLength": 1
+        },
+        "parser_version": {
+          "type": "string",
+          "pattern": "^[0-9]+\\.[0-9]+(?:\\.[0-9]+)?$"
+        },
+        "registry_name": {
+          "const": "question-language-registry"
+        },
+        "registry_version": {
+          "type": "string",
+          "pattern": "^[0-9]+\\.[0-9]+(?:\\.[0-9]+)?$"
+        },
+        "registry_sha256": {"$ref": "#/$defs/sha256"},
+        "rule_version": {
+          "type": "string",
+          "pattern": "^v[0-9]+\\.[0-9]+(?:\\.[0-9]+)?$"
+        },
+        "generated_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "input_question_sha256": {"$ref": "#/$defs/sha256"},
+        "deterministic": {"const": true},
+        "question_only": {"const": true},
+        "catalog_used": {"const": false},
+        "answer_data_used": {"const": false},
+        "past_answers_used": {"const": false}
+      }
+    }
+  }
+}

@@ -13,6 +13,13 @@ from typing import Any, Iterator
 
 from lexical_search_common import canonical_json, digest_file
 from probe_intermediate_records import digest_value, normalize_text, stable_id
+from validate_intermediate_records import (
+    ALLOWED,
+    published_schema_validators,
+    question_boundary_errors,
+    schema_record_errors,
+    strict_json_loads,
+)
 
 
 PATTERNS = {
@@ -27,14 +34,14 @@ REQUIRED = {
 }
 
 
-def records(path: Path) -> Iterator[tuple[int, dict[str, Any]]]:
+def records(path: Path) -> Iterator[tuple[int, object]]:
     with path.open(encoding="utf-8") as handle:
         for line_number, line in enumerate(handle, 1):
             if not line.strip():
                 continue
             try:
-                yield line_number, json.loads(line)
-            except json.JSONDecodeError as exc:
+                yield line_number, strict_json_loads(line)
+            except (json.JSONDecodeError, ValueError) as exc:
                 raise ValueError(f"{path}:{line_number}: invalid JSON: {exc}") from exc
 
 
@@ -63,6 +70,7 @@ def initialize(connection: sqlite3.Connection) -> None:
 
 
 def validate(directory: Path, source_root: Path | None = None) -> dict[str, int]:
+    schema_validators = published_schema_validators()
     errors: list[str] = []
     counts = {"document": 0, "evidence": 0, "relation": 0}
     with tempfile.TemporaryDirectory(prefix="aiec-intermediate-validation-") as temporary:
@@ -72,9 +80,24 @@ def validate(directory: Path, source_root: Path | None = None) -> dict[str, int]
         for line_number, record in records(directory / "documents.jsonl"):
             counts["document"] += 1
             label = f"document[{line_number}]"
+            record_schema_errors = schema_record_errors(
+                "document",
+                record,
+                label,
+                schema_validators["document"],
+            )
+            errors.extend(record_schema_errors)
+            if not isinstance(record, dict):
+                continue
             missing = REQUIRED["document"] - record.keys()
             if missing:
                 errors.append(f"{label}: missing {sorted(missing)}")
+            extra = record.keys() - ALLOWED["document"]
+            if extra:
+                errors.append(f"{label}: unexpected fields {sorted(extra)}")
+            errors.extend(question_boundary_errors("document", record, label))
+            if record_schema_errors:
+                continue
             record_id = record.get("document_id", "")
             if record.get("schema_version") != "0.1" or record.get("record_type") != "document":
                 errors.append(f"{label}: schema_version/record_type mismatch")
@@ -107,9 +130,24 @@ def validate(directory: Path, source_root: Path | None = None) -> dict[str, int]
         for line_number, record in records(directory / "evidence.jsonl"):
             counts["evidence"] += 1
             label = f"evidence[{line_number}]"
+            record_schema_errors = schema_record_errors(
+                "evidence",
+                record,
+                label,
+                schema_validators["evidence"],
+            )
+            errors.extend(record_schema_errors)
+            if not isinstance(record, dict):
+                continue
             missing = REQUIRED["evidence"] - record.keys()
             if missing:
                 errors.append(f"{label}: missing {sorted(missing)}")
+            extra = record.keys() - ALLOWED["evidence"]
+            if extra:
+                errors.append(f"{label}: unexpected fields {sorted(extra)}")
+            errors.extend(question_boundary_errors("evidence", record, label))
+            if record_schema_errors:
+                continue
             evidence_id = record.get("evidence_id", "")
             document_id = record.get("document_id", "")
             if record.get("schema_version") != "0.1" or record.get("record_type") != "evidence":
@@ -164,9 +202,24 @@ def validate(directory: Path, source_root: Path | None = None) -> dict[str, int]
         for line_number, record in records(directory / "relations.jsonl"):
             counts["relation"] += 1
             label = f"relation[{line_number}]"
+            record_schema_errors = schema_record_errors(
+                "relation",
+                record,
+                label,
+                schema_validators["relation"],
+            )
+            errors.extend(record_schema_errors)
+            if not isinstance(record, dict):
+                continue
             missing = REQUIRED["relation"] - record.keys()
             if missing:
                 errors.append(f"{label}: missing {sorted(missing)}")
+            extra = record.keys() - ALLOWED["relation"]
+            if extra:
+                errors.append(f"{label}: unexpected fields {sorted(extra)}")
+            errors.extend(question_boundary_errors("relation", record, label))
+            if record_schema_errors:
+                continue
             relation_id = record.get("relation_id", "")
             if record.get("schema_version") != "0.1" or record.get("record_type") != "relation":
                 errors.append(f"{label}: schema_version/record_type mismatch")

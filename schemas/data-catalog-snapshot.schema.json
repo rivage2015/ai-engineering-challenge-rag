@@ -1,0 +1,113 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://local.ai-engineering-challenge/schemas/data-catalog-snapshot.schema.json",
+  "title": "DataCatalogSnapshot",
+  "description": "Question-independent manifest binding one canonically ordered DataCatalogEntry JSONL stream to its source-only inputs. The deterministic snapshot ID excludes generated_at and the stream file path.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "record_type",
+    "data_catalog_snapshot_id",
+    "entry_schema_version",
+    "entry_stream",
+    "inputs",
+    "build_config_sha256",
+    "provenance"
+  ],
+  "properties": {
+    "schema_version": {"const": "0.1"},
+    "record_type": {"const": "data_catalog_snapshot"},
+    "data_catalog_snapshot_id": {
+      "type": "string",
+      "pattern": "^dcs_[0-9a-f]{16,64}$"
+    },
+    "entry_schema_version": {"const": "0.1"},
+    "entry_stream": {"$ref": "#/$defs/entryStream"},
+    "inputs": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {"$ref": "#/$defs/input"}
+    },
+    "build_config_sha256": {"$ref": "#/$defs/sha256"},
+    "provenance": {"$ref": "#/$defs/provenance"}
+  },
+  "$defs": {
+    "sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "entryStream": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "format",
+        "relative_path",
+        "sha256",
+        "record_count",
+        "sort_key",
+        "canonicalization"
+      ],
+      "properties": {
+        "format": {"const": "jsonl"},
+        "relative_path": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "\\.jsonl$"
+        },
+        "sha256": {"$ref": "#/$defs/sha256"},
+        "record_count": {"type": "integer", "minimum": 0},
+        "sort_key": {"const": "data_catalog_entry_id"},
+        "canonicalization": {"const": "utf8_nfc_canonical_json_per_line_lf"}
+      }
+    },
+    "input": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["record_type", "schema_version", "sha256", "record_count"],
+      "properties": {
+        "record_type": {
+          "enum": ["document", "evidence", "search_unit", "inventory"]
+        },
+        "schema_version": {
+          "type": "string",
+          "pattern": "^[0-9]+\\.[0-9]+(?:\\.[0-9]+)?$"
+        },
+        "sha256": {"$ref": "#/$defs/sha256"},
+        "record_count": {"type": "integer", "minimum": 0}
+      }
+    },
+    "provenance": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "builder",
+        "builder_version",
+        "generated_at",
+        "deterministic",
+        "question_independent",
+        "source_data_used",
+        "question_data_used",
+        "answer_data_used",
+        "past_answers_used",
+        "raw_values_embedded"
+      ],
+      "properties": {
+        "builder": {"const": "data-catalog-builder"},
+        "builder_version": {
+          "type": "string",
+          "pattern": "^[0-9]+\\.[0-9]+(?:\\.[0-9]+)?$"
+        },
+        "generated_at": {"type": "string", "format": "date-time"},
+        "deterministic": {"const": true},
+        "question_independent": {"const": true},
+        "source_data_used": {"const": true},
+        "question_data_used": {"const": false},
+        "answer_data_used": {"const": false},
+        "past_answers_used": {"const": false},
+        "raw_values_embedded": {"const": false}
+      }
+    }
+  }
+}

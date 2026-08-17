@@ -1,0 +1,810 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://local.ai-engineering-challenge/schemas/query-run.schema.json",
+  "title": "QueryRun",
+  "description": "質問意図の分解から検索、証明、回答、出力検査までを再現できる終端実行ログ",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "record_type",
+    "query_run_id",
+    "question_id",
+    "original_question",
+    "question_intent_contract",
+    "stage_statuses",
+    "query_context_graph",
+    "candidate_query_paths",
+    "intent_gate",
+    "retrieval_runs",
+    "retrieval_hits",
+    "retrieved_evidence_bundles",
+    "candidate_evaluations",
+    "primary_query_path",
+    "proof_obligation",
+    "forbidden_check_results",
+    "answerability_gate",
+    "answer_plan",
+    "output_validation",
+    "final_answer",
+    "final_status",
+    "runtime_metadata",
+    "errors",
+    "provenance"
+  ],
+  "properties": {
+    "schema_version": {"const": "0.1"},
+    "record_type": {"const": "query_run"},
+    "query_run_id": {"type": "string", "pattern": "^qr_[0-9a-f]{16,64}$"},
+    "question_id": {"type": ["string", "null"], "minLength": 1},
+    "original_question": {"type": "string", "minLength": 1},
+    "question_intent_contract": {"$ref": "question-intent-contract.schema.json"},
+    "stage_statuses": {"$ref": "#/$defs/stageStatuses"},
+    "query_context_graph": {
+      "oneOf": [
+        {"type": "null"},
+        {"$ref": "#/$defs/queryContextGraph"}
+      ]
+    },
+    "candidate_query_paths": {
+      "type": "array",
+      "items": {"$ref": "#/$defs/candidateQueryPath"}
+    },
+    "intent_gate": {
+      "oneOf": [
+        {"type": "null"},
+        {"$ref": "#/$defs/intentGate"}
+      ]
+    },
+    "retrieval_runs": {
+      "type": "array",
+      "items": {"$ref": "#/$defs/retrievalRun"}
+    },
+    "retrieval_hits": {
+      "type": "array",
+      "items": {"$ref": "#/$defs/retrievalHit"}
+    },
+    "retrieved_evidence_bundles": {
+      "type": "array",
+      "items": {"$ref": "#/$defs/retrievedEvidenceBundle"}
+    },
+    "candidate_evaluations": {
+      "type": "array",
+      "items": {"$ref": "#/$defs/candidateEvaluation"}
+    },
+    "primary_query_path": {
+      "oneOf": [
+        {"type": "null"},
+        {"$ref": "#/$defs/primaryQueryPath"}
+      ]
+    },
+    "proof_obligation": {
+      "oneOf": [
+        {"type": "null"},
+        {"$ref": "#/$defs/proofObligation"}
+      ]
+    },
+    "forbidden_check_results": {
+      "type": "array",
+      "items": {"$ref": "#/$defs/forbiddenCheckResult"}
+    },
+    "answerability_gate": {
+      "oneOf": [
+        {"type": "null"},
+        {"$ref": "#/$defs/answerabilityGate"}
+      ]
+    },
+    "answer_plan": {
+      "oneOf": [
+        {"type": "null"},
+        {"$ref": "#/$defs/answerPlan"}
+      ]
+    },
+    "output_validation": {
+      "oneOf": [
+        {"type": "null"},
+        {"$ref": "#/$defs/outputValidation"}
+      ]
+    },
+    "final_answer": {"type": ["string", "null"], "minLength": 1},
+    "final_status": {"enum": ["accepted", "abstained", "failed"]},
+    "runtime_metadata": {"$ref": "#/$defs/runtimeMetadata"},
+    "errors": {
+      "type": "array",
+      "items": {"$ref": "#/$defs/errorRecord"}
+    },
+    "provenance": {"$ref": "#/$defs/provenance"}
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {"final_status": {"const": "accepted"}},
+        "required": ["final_status"]
+      },
+      "then": {
+        "properties": {
+          "final_answer": {"type": "string", "minLength": 1},
+          "primary_query_path": {"type": "object"},
+          "proof_obligation": {
+            "type": "object",
+            "properties": {
+              "overall": {
+                "type": "object",
+                "properties": {"status": {"const": "satisfied"}}
+              }
+            }
+          },
+          "answerability_gate": {
+            "type": "object",
+            "properties": {
+              "status": {"const": "pass"},
+              "action": {"const": "answer"}
+            }
+          },
+          "answer_plan": {"type": "object"},
+          "output_validation": {
+            "type": "object",
+            "properties": {
+              "status": {"const": "pass"},
+              "action": {"const": "accept"}
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {"final_status": {"const": "abstained"}},
+        "required": ["final_status"]
+      },
+      "then": {
+        "properties": {
+          "final_answer": {"type": "string", "minLength": 1}
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {"final_status": {"const": "failed"}},
+        "required": ["final_status"]
+      },
+      "then": {
+        "properties": {
+          "final_answer": {"type": "null"},
+          "errors": {"minItems": 1}
+        }
+      }
+    }
+  ],
+  "$defs": {
+    "identifier": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9_]{0,127}$"
+    },
+    "evidenceId": {"type": "string", "pattern": "^ev_[0-9a-f]{16,64}$"},
+    "documentId": {"type": "string", "pattern": "^doc_[0-9a-f]{16,64}$"},
+    "searchUnitId": {"type": "string", "pattern": "^su_[0-9a-f]{16,64}$"},
+    "nullableText": {"type": ["string", "null"], "minLength": 1},
+    "stageStatus": {"enum": ["completed", "skipped", "failed"]},
+    "stageStatuses": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "intent",
+        "context",
+        "candidate_paths",
+        "intent_gate",
+        "retrieval",
+        "candidate_evaluation",
+        "proof",
+        "answerability",
+        "answer_planning",
+        "generation",
+        "output_validation"
+      ],
+      "properties": {
+        "intent": {"$ref": "#/$defs/stageStatus"},
+        "context": {"$ref": "#/$defs/stageStatus"},
+        "candidate_paths": {"$ref": "#/$defs/stageStatus"},
+        "intent_gate": {"$ref": "#/$defs/stageStatus"},
+        "retrieval": {"$ref": "#/$defs/stageStatus"},
+        "candidate_evaluation": {"$ref": "#/$defs/stageStatus"},
+        "proof": {"$ref": "#/$defs/stageStatus"},
+        "answerability": {"$ref": "#/$defs/stageStatus"},
+        "answer_planning": {"$ref": "#/$defs/stageStatus"},
+        "generation": {"$ref": "#/$defs/stageStatus"},
+        "output_validation": {"$ref": "#/$defs/stageStatus"}
+      }
+    },
+    "contextEdge": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["from", "to", "relation", "source_type", "source_ref", "support_level"],
+      "properties": {
+        "from": {"$ref": "#/$defs/identifier"},
+        "to": {"$ref": "#/$defs/identifier"},
+        "relation": {"$ref": "#/$defs/identifier"},
+        "source_type": {
+          "enum": [
+            "question_explicit",
+            "conversation_explicit",
+            "source_local",
+            "source_metadata",
+            "semantic_candidate"
+          ]
+        },
+        "source_ref": {"type": "string", "minLength": 1},
+        "support_level": {"enum": ["high", "medium", "low"]}
+      }
+    },
+    "queryContextGraph": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["edges", "rejected_context"],
+      "properties": {
+        "edges": {
+          "type": "array",
+          "items": {"$ref": "#/$defs/contextEdge"}
+        },
+        "rejected_context": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["edge", "reason"],
+            "properties": {
+              "edge": {"$ref": "#/$defs/contextEdge"},
+              "reason": {"type": "string", "minLength": 1}
+            }
+          }
+        }
+      }
+    },
+    "candidateQueryPath": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "branch_id",
+        "parent_question_id",
+        "candidate_intent",
+        "assumptions",
+        "status",
+        "evidence_ids",
+        "result",
+        "error"
+      ],
+      "properties": {
+        "branch_id": {"$ref": "#/$defs/identifier"},
+        "parent_question_id": {"$ref": "#/$defs/nullableText"},
+        "candidate_intent": {
+          "$ref": "question-intent-contract.schema.json#/$defs/requested"
+        },
+        "assumptions": {
+          "type": "array",
+          "items": {"type": "string", "minLength": 1}
+        },
+        "status": {"enum": ["pending", "completed", "failed"]},
+        "evidence_ids": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {"$ref": "#/$defs/evidenceId"}
+        },
+        "result": {
+          "type": ["string", "null"],
+          "minLength": 1
+        },
+        "error": {"$ref": "#/$defs/nullableText"}
+      }
+    },
+    "gateCheck": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["check_id", "status", "detail"],
+      "properties": {
+        "check_id": {"$ref": "#/$defs/identifier"},
+        "status": {"enum": ["pass", "fail", "indeterminate"]},
+        "detail": {"$ref": "#/$defs/nullableText"}
+      }
+    },
+    "intentGate": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status", "checks", "action", "reason_codes"],
+      "properties": {
+        "status": {"enum": ["pass", "fail", "indeterminate"]},
+        "checks": {
+          "type": "array",
+          "items": {"$ref": "#/$defs/gateCheck"}
+        },
+        "action": {"enum": ["retrieve", "branch", "clarify", "abstain"]},
+        "reason_codes": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {"type": "string", "minLength": 1}
+        }
+      }
+    },
+    "retrievalPlan": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["branch_id", "target_types", "return_fields", "scope_filters", "channels", "coverage_requirement", "scan_mode", "deprioritize", "exclude"],
+      "properties": {
+        "branch_id": {"$ref": "#/$defs/identifier"},
+        "target_types": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {"type": "string", "minLength": 1}
+        },
+        "return_fields": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {"type": "string", "minLength": 1}
+        },
+        "scope_filters": {
+          "type": "array",
+          "items": {"$ref": "question-intent-contract.schema.json#/$defs/predicate"}
+        },
+        "channels": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {"enum": ["lexical", "semantic", "hybrid", "relation_traversal", "structured"]}
+        },
+        "coverage_requirement": {"enum": ["none", "exhaustive", "authoritative_aggregate", "authoritative_enumeration"]},
+        "scan_mode": {"enum": ["top_k", "exhaustive"]},
+        "deprioritize": {
+          "type": "array",
+          "items": {"type": "string", "minLength": 1}
+        },
+        "exclude": {
+          "type": "array",
+          "items": {"type": "string", "minLength": 1}
+        }
+      }
+    },
+    "retrievalRun": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["retrieval_run_id", "branch_id", "plan", "status", "started_at", "completed_at", "error"],
+      "properties": {
+        "retrieval_run_id": {"$ref": "#/$defs/identifier"},
+        "branch_id": {"$ref": "#/$defs/identifier"},
+        "plan": {"$ref": "#/$defs/retrievalPlan"},
+        "status": {"enum": ["completed", "failed", "skipped"]},
+        "started_at": {"type": ["string", "null"], "format": "date-time"},
+        "completed_at": {"type": ["string", "null"], "format": "date-time"},
+        "error": {"$ref": "#/$defs/nullableText"}
+      }
+    },
+    "retrievalHit": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["branch_id", "channel", "rank", "score", "search_unit_id", "document_id", "source_evidence_ids", "locator_text", "evidence_text"],
+      "properties": {
+        "branch_id": {"$ref": "#/$defs/identifier"},
+        "channel": {"enum": ["lexical", "semantic", "hybrid", "relation_traversal", "structured"]},
+        "rank": {"type": "integer", "minimum": 1},
+        "score": {"type": ["number", "null"]},
+        "search_unit_id": {"$ref": "#/$defs/searchUnitId"},
+        "document_id": {"$ref": "#/$defs/documentId"},
+        "source_evidence_ids": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {"$ref": "#/$defs/evidenceId"}
+        },
+        "locator_text": {"$ref": "#/$defs/nullableText"},
+        "evidence_text": {"$ref": "#/$defs/nullableText"}
+      }
+    },
+    "evidenceNode": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["evidence_id", "discovered_by", "role", "target_match", "scope_match", "exactness", "document_id", "search_unit_ids", "locator_text"],
+      "properties": {
+        "evidence_id": {"$ref": "#/$defs/evidenceId"},
+        "discovered_by": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {"enum": ["lexical", "semantic", "hybrid", "relation_traversal", "structured"]}
+        },
+        "role": {"enum": ["supporting", "contradicting", "contextual", "rejected"]},
+        "target_match": {"enum": ["matched", "mismatched", "unknown"]},
+        "scope_match": {"enum": ["matched", "mismatched", "unknown"]},
+        "exactness": {"enum": ["exact", "observed", "estimated", "unresolved"]},
+        "document_id": {"$ref": "#/$defs/documentId"},
+        "search_unit_ids": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {"$ref": "#/$defs/searchUnitId"}
+        },
+        "locator_text": {"$ref": "#/$defs/nullableText"}
+      }
+    },
+    "evidenceEdge": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["from", "to", "relation"],
+      "properties": {
+        "from": {"$ref": "#/$defs/evidenceId"},
+        "to": {"$ref": "#/$defs/evidenceId"},
+        "relation": {"enum": ["supports", "contradicts", "duplicates", "derived_from"]}
+      }
+    },
+    "evidenceIssue": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["evidence_ids", "reason"],
+      "properties": {
+        "evidence_ids": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {"$ref": "#/$defs/evidenceId"}
+        },
+        "reason": {"type": "string", "minLength": 1}
+      }
+    },
+    "retrievedEvidenceBundle": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["query_branch_id", "evidence_nodes", "evidence_edges", "conflicts", "rejected_evidence"],
+      "properties": {
+        "query_branch_id": {"$ref": "#/$defs/identifier"},
+        "evidence_nodes": {
+          "type": "array",
+          "items": {"$ref": "#/$defs/evidenceNode"}
+        },
+        "evidence_edges": {
+          "type": "array",
+          "items": {"$ref": "#/$defs/evidenceEdge"}
+        },
+        "conflicts": {
+          "type": "array",
+          "items": {"$ref": "#/$defs/evidenceIssue"}
+        },
+        "rejected_evidence": {
+          "type": "array",
+          "items": {"$ref": "#/$defs/evidenceIssue"}
+        }
+      }
+    },
+    "candidateEvaluation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["branch_id", "status", "disqualifiers", "signals", "evidence_ids", "equivalence_class_id", "rationale"],
+      "properties": {
+        "branch_id": {"$ref": "#/$defs/identifier"},
+        "status": {"enum": ["resolved", "ambiguous", "unsupported", "disqualified", "equivalent_for_answer"]},
+        "disqualifiers": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {"enum": ["explicit_conflict", "forbidden_violation", "type_mismatch", "evidence_path_missing"]}
+        },
+        "signals": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["name", "level", "basis_refs"],
+            "properties": {
+              "name": {"enum": ["explicit_match", "context_support", "evidence_support", "provenance_quality", "exactness"]},
+              "level": {"enum": ["strong", "moderate", "weak", "none"]},
+              "basis_refs": {
+                "type": "array",
+                "items": {"type": "string", "minLength": 1}
+              }
+            }
+          }
+        },
+        "evidence_ids": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {"$ref": "#/$defs/evidenceId"}
+        },
+        "equivalence_class_id": {"$ref": "#/$defs/nullableText"},
+        "rationale": {"type": "string", "minLength": 1}
+      }
+    },
+    "primaryQueryPath": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["branch_id", "equivalent_branch_ids", "evidence_ids", "required_qualifiers", "rationale"],
+      "properties": {
+        "branch_id": {"$ref": "#/$defs/identifier"},
+        "equivalent_branch_ids": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {"$ref": "#/$defs/identifier"}
+        },
+        "evidence_ids": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {"$ref": "#/$defs/evidenceId"}
+        },
+        "required_qualifiers": {
+          "type": "array",
+          "items": {"type": "string", "minLength": 1}
+        },
+        "rationale": {"type": "string", "minLength": 1}
+      }
+    },
+    "proofRequirement": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["requirement_id", "operation_ref", "output_ref", "description", "required", "status", "evidence_ids"],
+      "properties": {
+        "requirement_id": {"$ref": "#/$defs/identifier"},
+        "operation_ref": {"$ref": "#/$defs/identifier"},
+        "output_ref": {"$ref": "#/$defs/identifier"},
+        "description": {"type": "string", "minLength": 1},
+        "required": {"type": "boolean"},
+        "status": {"enum": ["satisfied", "unsatisfied", "indeterminate"]},
+        "evidence_ids": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {"$ref": "#/$defs/evidenceId"}
+        }
+      }
+    },
+    "proofObligation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["operation_graph_ref", "requirements", "coverage", "overall"],
+      "properties": {
+        "operation_graph_ref": {"$ref": "#/$defs/identifier"},
+        "requirements": {
+          "type": "array",
+          "minItems": 1,
+          "items": {"$ref": "#/$defs/proofRequirement"}
+        },
+        "coverage": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["method", "scanned_count", "matched_count", "exhaustive", "evidence_ids"],
+          "properties": {
+            "method": {"enum": ["none", "full_scan", "authoritative_aggregate", "authoritative_enumeration"]},
+            "scanned_count": {"type": ["integer", "null"], "minimum": 0},
+            "matched_count": {"type": ["integer", "null"], "minimum": 0},
+            "exhaustive": {"type": "boolean"},
+            "evidence_ids": {
+              "type": "array",
+              "uniqueItems": true,
+              "items": {"$ref": "#/$defs/evidenceId"}
+            }
+          }
+        },
+        "overall": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["status"],
+          "properties": {
+            "status": {"enum": ["satisfied", "unsatisfied", "indeterminate"]}
+          }
+        }
+      }
+    },
+    "forbiddenCheckResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "rule_id",
+        "stage",
+        "validator_id",
+        "validator_version",
+        "status",
+        "subject_refs",
+        "evidence_ids",
+        "details",
+        "action_taken"
+      ],
+      "properties": {
+        "rule_id": {"$ref": "#/$defs/identifier"},
+        "stage": {"enum": ["intent", "retrieval", "generation", "validation"]},
+        "validator_id": {"$ref": "#/$defs/identifier"},
+        "validator_version": {"type": "string", "minLength": 1},
+        "status": {"enum": ["pass", "violation", "error"]},
+        "subject_refs": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {"type": "string", "minLength": 1}
+        },
+        "evidence_ids": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {"$ref": "#/$defs/evidenceId"}
+        },
+        "details": {
+          "type": "object",
+          "description": "validator_id固有の決定的な診断情報",
+          "additionalProperties": true
+        },
+        "action_taken": {"enum": ["none", "reject", "regenerate", "abstain"]}
+      }
+    },
+    "answerabilityGate": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status", "checks", "reason_codes", "action"],
+      "properties": {
+        "status": {"enum": ["pass", "fail", "indeterminate"]},
+        "checks": {
+          "type": "array",
+          "items": {"$ref": "#/$defs/gateCheck"}
+        },
+        "reason_codes": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "enum": [
+              "intent_ambiguous",
+              "target_unknown",
+              "scope_unknown",
+              "no_supporting_evidence",
+              "conflicting_evidence",
+              "extraction_unresolved",
+              "forbidden_conflict"
+            ]
+          }
+        },
+        "action": {"enum": ["answer", "abstain"]}
+      }
+    },
+    "allowedClaim": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["claim_id", "value", "unit", "exactness", "evidence_ids"],
+      "properties": {
+        "claim_id": {"$ref": "#/$defs/identifier"},
+        "value": {},
+        "unit": {"$ref": "#/$defs/nullableText"},
+        "exactness": {"enum": ["exact", "observed", "estimated", "unresolved"]},
+        "evidence_ids": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {"$ref": "#/$defs/evidenceId"}
+        }
+      }
+    },
+    "answerPlan": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["output_plans", "allowed_claims", "required_qualifiers", "forbidden_rule_ids"],
+      "properties": {
+        "output_plans": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["output_id", "answer_mode", "answer_shape", "allowed_claim_ids"],
+            "properties": {
+              "output_id": {"$ref": "#/$defs/identifier"},
+              "answer_mode": {"enum": ["deterministic", "grounded_generation"]},
+              "answer_shape": {"$ref": "question-intent-contract.schema.json#/$defs/answerShape"},
+              "allowed_claim_ids": {
+                "type": "array",
+                "uniqueItems": true,
+                "items": {"$ref": "#/$defs/identifier"}
+              }
+            }
+          }
+        },
+        "allowed_claims": {
+          "type": "array",
+          "items": {"$ref": "#/$defs/allowedClaim"}
+        },
+        "required_qualifiers": {
+          "type": "array",
+          "items": {"type": "string", "minLength": 1}
+        },
+        "forbidden_rule_ids": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {"$ref": "#/$defs/identifier"}
+        }
+      }
+    },
+    "outputValidation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["checks", "status", "action"],
+      "properties": {
+        "checks": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["operation_match", "target_match", "requested_outputs_match", "scope_match", "allowed_claims_only", "exactness_match", "forbidden_violations"],
+          "properties": {
+            "operation_match": {"enum": ["pass", "fail", "unknown"]},
+            "target_match": {"enum": ["pass", "fail", "unknown"]},
+            "requested_outputs_match": {"enum": ["pass", "fail", "unknown"]},
+            "scope_match": {"enum": ["pass", "fail", "unknown"]},
+            "allowed_claims_only": {"enum": ["pass", "fail", "unknown"]},
+            "exactness_match": {"enum": ["pass", "fail", "unknown"]},
+            "forbidden_violations": {
+              "type": "array",
+              "uniqueItems": true,
+              "items": {"$ref": "#/$defs/identifier"}
+            }
+          }
+        },
+        "status": {"enum": ["pass", "fail", "indeterminate"]},
+        "action": {"enum": ["accept", "regenerate", "abstain"]}
+      }
+    },
+    "runtimeMetadata": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["rule_version", "started_at", "completed_at", "duration_ms", "models", "indexes", "backend", "parallel_config"],
+      "properties": {
+        "rule_version": {"const": "v0.2"},
+        "started_at": {"type": "string", "format": "date-time"},
+        "completed_at": {"type": "string", "format": "date-time"},
+        "duration_ms": {"type": "integer", "minimum": 0},
+        "models": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["role", "name", "digest"],
+            "properties": {
+              "role": {"enum": ["intent", "embedding", "generation", "validation"]},
+              "name": {"type": "string", "minLength": 1},
+              "digest": {"type": ["string", "null"], "pattern": "^[0-9a-f]{16,128}$"}
+            }
+          }
+        },
+        "indexes": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["kind", "sha256"],
+            "properties": {
+              "kind": {"enum": ["lexical", "semantic", "relation", "structured"]},
+              "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+            }
+          }
+        },
+        "backend": {"enum": ["local_sequential", "api_bounded_parallel"]},
+        "parallel_config": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["max_concurrency", "timeout_ms", "retry_limit"],
+          "properties": {
+            "max_concurrency": {"type": "integer", "minimum": 1},
+            "timeout_ms": {"type": ["integer", "null"], "minimum": 1},
+            "retry_limit": {"type": "integer", "minimum": 0}
+          }
+        }
+      }
+    },
+    "errorRecord": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["stage", "code", "message"],
+      "properties": {
+        "stage": {"enum": ["intent", "context", "retrieval", "evaluation", "proof", "answerability", "generation", "validation", "runtime"]},
+        "code": {"$ref": "#/$defs/identifier"},
+        "message": {"type": "string", "minLength": 1}
+      }
+    },
+    "provenance": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["runner", "runner_version", "generated_at", "question_independent", "answer_data_used", "past_answers_used"],
+      "properties": {
+        "runner": {"type": "string", "minLength": 1},
+        "runner_version": {"type": "string", "minLength": 1},
+        "generated_at": {"type": "string", "format": "date-time"},
+        "question_independent": {"const": false},
+        "answer_data_used": {"const": false},
+        "past_answers_used": {"const": false}
+      }
+    }
+  }
+}

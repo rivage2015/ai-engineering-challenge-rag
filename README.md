@@ -22,7 +22,11 @@ scripts/  抽出、検索単位生成、診断、整合性検証CLI
 - `scripts/probe_intermediate_records.py`
   - 少量の代表データでSchemaと抽出結果を確認する診断用プローブです。
 - `scripts/validate_intermediate_records.py`
-  - ID、ハッシュ、親子関係、原本参照、Relation端点を検証します。
+  - ID、ハッシュ、親子関係、原本参照、Relation端点に加え、質問依存データがEvidence層へ混入していないことを検証します。
+- `scripts/validate_query_graph_records.py`
+  - `QuestionIntentContract`、検索前の`QuestionUnderstandingRun`、完了済み`QueryRun`を、JSON Schemaと決定的semantic検査の二層でfail-closedに検証します。
+- `scripts/build_question_understanding.py`
+  - 生の質問だけを閉じた`IntentDraft`へ分解し、決定的compilerでQuestionIntentContract、文脈グラフ、論理並列の候補枝、IntentGateへ変換します。質問中の根拠表現と結びつかない解釈は検索へ渡しません。全文一致で一意に読める標準list、有限接尾辞list、2条件からの平均・最近傍IDはモデルを呼ばず決定的に処理します。一意な質問ではモデル候補と決定的正本の意味構造が完全一致する場合だけ検索可能とし、証明できなければ`clarification_required`にします。明示的な曖昧性は全候補を論理枝として保持し、提案入力の由来とSHA-256も監査記録に残します。
 - `scripts/build_search_units.py`
   - 完了済み中間データから、質問非依存の検索単位を逐次生成します。
 - `scripts/validate_search_units.py`
@@ -112,6 +116,14 @@ python scripts/build_intermediate_records.py \
 python scripts/validate_intermediate_records.py \
   /path/to/new-output-directory \
   --root /path/to/source-root
+
+python scripts/validate_query_graph_records.py \
+  /path/to/question-intent-contract-understanding-run-or-query-run.json
+
+python scripts/build_question_understanding.py \
+  /path/to/question-only.jsonl \
+  --out /path/to/question-understanding-runs.jsonl \
+  --model gemma4:12b
 
 python scripts/build_search_units.py \
   --intermediate /path/to/new-output-directory \
@@ -238,6 +250,51 @@ python scripts/build_answer_diagnostic_report.py \
 人手確認済み評価セットは、`query`、`relevant_search_unit_ids`、`category`、`review`を
 持つJSONL下書きを`finalize_human_retrieval_eval.py`へ渡して確定します。生成した評価
 セットとレポートは`artifacts/`へ保存できますが、大会データ由来のためGitには含めません。
+
+## Phase 2.5 汎用質問・データ契約
+
+QuestionClauseIR、QuestionIntentContract、質問非依存DataCatalogを分離し、
+CatalogResolutionRunでのみ結合します。Catalogには行値、質問、回答、
+relevanceを保存しません。SearchUnitの各表行が完全ヘッダー、同一列構成、
+一意な`header: value`形式を満たす場合だけ、structured capabilityと列型を
+質問非依存で宣言します。
+
+```bash
+python scripts/build_data_catalog.py \
+  --documents artifacts/layer1-v1/intermediate/documents.jsonl \
+  --search-units artifacts/layer1-v1/search/search_units.jsonl \
+  --entries-out artifacts/phase2-5/data-catalog-entries.jsonl \
+  --snapshot-out artifacts/phase2-5/data-catalog-snapshot.json
+
+python scripts/validate_data_catalog.py \
+  --entries artifacts/phase2-5/data-catalog-entries.jsonl \
+  --snapshot artifacts/phase2-5/data-catalog-snapshot.json \
+  --documents artifacts/layer1-v1/intermediate/documents.jsonl \
+  --search-units artifacts/layer1-v1/search/search_units.jsonl
+
+# 現行RAGを起動せず、3条件gateの差分だけを記録
+python scripts/run_phase25_shadow.py \
+  --qur /path/to/question-understanding-run.jsonl \
+  --entries artifacts/phase2-5/data-catalog-entries.jsonl \
+  --snapshot artifacts/phase2-5/data-catalog-snapshot.json \
+  --clause-ir-out /path/to/question-clause-ir.jsonl \
+  --resolution-out /path/to/catalog-resolution-run.jsonl
+
+# resolvedの場合だけ再計算し、CLIは値を保存せず件数だけ表示
+python scripts/execute_structured_resolution.py \
+  --qur /path/to/question-understanding-run.jsonl \
+  --clause-ir /path/to/question-clause-ir.jsonl \
+  --resolution /path/to/catalog-resolution-run.jsonl \
+  --entries artifacts/phase2-5/data-catalog-entries.jsonl \
+  --snapshot artifacts/phase2-5/data-catalog-snapshot.json \
+  --search-units artifacts/layer1-v1/search/search_units.jsonl
+```
+
+現スナップショットは340 Document、412,744 SearchUnitから1,028 Entryを作り、
+136 Entryをstructured実行可能と認定します。この認定はCatalog作成時と
+実行時の両方で再計算され、SearchUnit stream SHAが変われば実行を拒否します。
+ただしPhase 2.5はまだshadow modeであり、現行`rag/main.py`の検索開始条件には
+接続していません。
 
 Layer 1成果物では原文と正規化後を別JSONLに保持します。原本台帳には各ファイルの
 SHA-256を記録し、`layer1-state.json`には中間層・SearchUnit・評価レポートの入力hashと
