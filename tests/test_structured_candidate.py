@@ -5,6 +5,7 @@ import json
 import sys
 import tempfile
 import unittest
+import zipfile
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
@@ -43,6 +44,96 @@ def write_marker_workbook(path: Path, marker: str) -> None:
     workbook.active["A1"] = marker
     workbook.save(path)
     workbook.close()
+
+
+def write_opaque_chart_ex_workbook(
+    path: Path,
+    series_label: str,
+    *,
+    duplicate_chart: bool = False,
+    second_series: bool = False,
+) -> None:
+    """Write the minimal OOXML parts needed for a chart-series fixture."""
+
+    path.parent.mkdir(parents=True, exist_ok=True)
+    duplicate_anchor = ""
+    if duplicate_chart:
+        duplicate_anchor = (
+            '<xdr:twoCellAnchor><xdr:graphicFrame><xdr:nvGraphicFramePr>'
+            '<xdr:cNvPr id="3" name="グラフ 7"/>'
+            '</xdr:nvGraphicFramePr><a:graphic><a:graphicData>'
+            '<cx:chart r:id="rId2"/>'
+            '</a:graphicData></a:graphic></xdr:graphicFrame></xdr:twoCellAnchor>'
+        )
+    extra_series = ""
+    if second_series:
+        extra_series = (
+            '<cx:series><cx:tx><cx:txData><cx:v>other_field</cx:v>'
+            '</cx:txData></cx:tx></cx:series>'
+        )
+    parts = {
+        "xl/workbook.xml": (
+            '<?xml version="1.0" encoding="UTF-8"?>'
+            '<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" '
+            'xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">'
+            '<sheets><sheet name="DataView" sheetId="42" r:id="rId5"/></sheets>'
+            '</workbook>'
+        ),
+        "xl/_rels/workbook.xml.rels": (
+            '<?xml version="1.0" encoding="UTF-8"?>'
+            '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'
+            '<Relationship Id="rId5" '
+            'Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" '
+            'Target="worksheets/sheet42.xml"/>'
+            '</Relationships>'
+        ),
+        "xl/worksheets/sheet42.xml": (
+            '<?xml version="1.0" encoding="UTF-8"?>'
+            '<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" '
+            'xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">'
+            '<sheetData/><drawing r:id="rId9"/></worksheet>'
+        ),
+        "xl/worksheets/_rels/sheet42.xml.rels": (
+            '<?xml version="1.0" encoding="UTF-8"?>'
+            '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'
+            '<Relationship Id="rId9" '
+            'Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/drawing" '
+            'Target="../drawings/drawingZ.xml"/>'
+            '</Relationships>'
+        ),
+        "xl/drawings/drawingZ.xml": (
+            '<?xml version="1.0" encoding="UTF-8"?>'
+            '<xdr:wsDr xmlns:xdr="http://schemas.openxmlformats.org/drawingml/2006/spreadsheetDrawing" '
+            'xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" '
+            'xmlns:cx="http://schemas.microsoft.com/office/drawing/2014/chartex" '
+            'xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">'
+            '<xdr:twoCellAnchor><xdr:graphicFrame><xdr:nvGraphicFramePr>'
+            '<xdr:cNvPr id="2" name="グラフ 7"/>'
+            '</xdr:nvGraphicFramePr><a:graphic><a:graphicData>'
+            '<cx:chart r:id="rId2"/>'
+            '</a:graphicData></a:graphic></xdr:graphicFrame></xdr:twoCellAnchor>'
+            f'{duplicate_anchor}</xdr:wsDr>'
+        ),
+        "xl/drawings/_rels/drawingZ.xml.rels": (
+            '<?xml version="1.0" encoding="UTF-8"?>'
+            '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'
+            '<Relationship Id="rId2" '
+            'Type="http://schemas.microsoft.com/office/2014/relationships/chartEx" '
+            'Target="../charts/chartExY.xml"/>'
+            '</Relationships>'
+        ),
+        "xl/charts/chartExY.xml": (
+            '<?xml version="1.0" encoding="UTF-8"?>'
+            '<cx:chartSpace xmlns:cx="http://schemas.microsoft.com/office/drawing/2014/chartex">'
+            '<cx:chart><cx:plotArea><cx:plotAreaRegion>'
+            f'<cx:series><cx:tx><cx:txData><cx:f>_xlchart.opaque</cx:f><cx:v>{series_label}</cx:v>'
+            f'</cx:txData></cx:tx></cx:series>{extra_series}'
+            '</cx:plotAreaRegion></cx:plotArea></cx:chart></cx:chartSpace>'
+        ),
+    }
+    with zipfile.ZipFile(path, "w", zipfile.ZIP_DEFLATED) as archive:
+        for name, value in parts.items():
+            archive.writestr(name, value)
 
 
 def synthetic_tabular_pivot_workbook(
@@ -575,6 +666,66 @@ class StructuredCandidateTest(unittest.TestCase):
         self.assertEqual(decision.status, "unsupported")
         self.assertIsNone(decision.result)
 
+    def test_xlsx_chart_series_column_uses_ooxml_relationships_and_fails_closed(self) -> None:
+        from question_graph_runtime import build_graph_plan
+
+        source = (
+            self.root
+            / "opaque_project"
+            / "03.データ"
+            / "opaque_book.xlsx"
+        )
+        write_opaque_chart_ex_workbook(source, "field_alpha")
+        question = (
+            "opaque_projectのopaque_book.xlsxのDataViewにあるグラフ7は"
+            "どのカラムを可視化したものですか。"
+        )
+        contract = graph_contract_for_question(question)
+        self.assertIsNotNone(contract)
+        self.assertEqual(contract["graph_rule_version"], "1.3")
+        self.assertEqual(contract["rule_id"], "xlsx_chart_series_column")
+        self.assertEqual(contract["scope"]["sheet"], "DataView")
+        self.assertEqual(contract["scope"]["chart_index"], 7)
+        self.assertEqual(
+            [node["operator"] for node in contract["operation_graph"]["nodes"]],
+            ["retrieve", "select", "select", "resolve", "verify", "project"],
+        )
+        self.assertEqual(
+            contract["requested_output"]["answer_shape"],
+            {"container": "scalar", "value_type": "identifier", "unit": None},
+        )
+        self.assertTrue(validate_graph_contract(question, contract))
+
+        plan = build_graph_plan("opaque-chart", question)
+        engine = StructuredCandidateEngine(self.root, self.glossary)
+        first = engine.decide_from_graph("opaque-chart", question, plan)
+        self.assertEqual(first.status, "resolved")
+        self.assertEqual(first.result.answer, "field_alpha")
+        self.assertEqual(first.result.operation_count, 6)
+        first_sha = first.result.source_sha256
+
+        write_opaque_chart_ex_workbook(source, "field_beta")
+        changed = engine.decide_from_graph("opaque-chart-changed", question, plan)
+        self.assertEqual(changed.status, "resolved")
+        self.assertEqual(changed.result.answer, "field_beta")
+        self.assertNotEqual(changed.result.source_sha256, first_sha)
+
+        write_opaque_chart_ex_workbook(
+            source,
+            "field_beta",
+            duplicate_chart=True,
+        )
+        duplicate = engine.decide_from_graph("opaque-chart-duplicate", question, plan)
+        self.assertEqual(duplicate.status, "hold")
+
+        write_opaque_chart_ex_workbook(
+            source,
+            "field_beta",
+            second_series=True,
+        )
+        multiple = engine.decide_from_graph("opaque-chart-multiple", question, plan)
+        self.assertEqual(multiple.status, "hold")
+
     def test_header_detection_allows_title_row_and_optional_unrelated_blanks(self) -> None:
         table = _table_from_matrix(
             self.root / "book.xlsx",
@@ -631,7 +782,7 @@ class StructuredCandidateTest(unittest.TestCase):
         absent_question = positive_question.replace("person_alpha", "person_missing")
         contract = graph_contract_for_question(positive_question)
         self.assertIsNotNone(contract)
-        self.assertEqual(contract["graph_rule_version"], "1.2")
+        self.assertEqual(contract["graph_rule_version"], "1.3")
         self.assertEqual(contract["rule_id"], "project_person_assignment_role")
         self.assertEqual(
             [node["operator"] for node in contract["operation_graph"]["nodes"]],
@@ -998,7 +1149,7 @@ class StructuredCandidateTest(unittest.TestCase):
         )
         contract = graph_contract_for_question(question)
         self.assertIsNotNone(contract)
-        self.assertEqual(contract["graph_rule_version"], "1.2")
+        self.assertEqual(contract["graph_rule_version"], "1.3")
         self.assertEqual(contract["rule_id"], "contract_hours_ratio_tax_delta")
         self.assertEqual(contract["scope"]["container"], "契約書.docx")
         self.assertEqual(
@@ -1104,7 +1255,7 @@ class StructuredCandidateTest(unittest.TestCase):
         )
         contract = graph_contract_for_question(question)
         self.assertIsNotNone(contract)
-        self.assertEqual(contract["graph_rule_version"], "1.2")
+        self.assertEqual(contract["graph_rule_version"], "1.3")
         self.assertEqual(contract["rule_id"], "excel_autofilter_conditions")
         self.assertEqual(contract["scope"]["sheet"], "records")
         self.assertEqual(
@@ -1163,7 +1314,7 @@ class StructuredCandidateTest(unittest.TestCase):
         conditions = graph_contract_for_question(conditions_question)
         self.assertIsNotNone(aggregate)
         self.assertIsNotNone(conditions)
-        self.assertEqual(aggregate["graph_rule_version"], "1.2")
+        self.assertEqual(aggregate["graph_rule_version"], "1.3")
         self.assertEqual(
             aggregate["rule_id"],
             "pivot_average_argmax_conditions_and_aggregate",
@@ -1327,7 +1478,7 @@ class StructuredCandidateTest(unittest.TestCase):
         dtype_contract = graph_contract_for_question(dtype_question)
         self.assertIsNotNone(diff_contract)
         self.assertIsNotNone(dtype_contract)
-        self.assertEqual(diff_contract["graph_rule_version"], "1.2")
+        self.assertEqual(diff_contract["graph_rule_version"], "1.3")
         self.assertEqual(
             diff_contract["rule_id"],
             "pptx_old_latest_visible_text_diff",
@@ -1583,7 +1734,7 @@ class StructuredCandidateTest(unittest.TestCase):
         )
         contract = graph_contract_for_question(question)
         self.assertIsNotNone(contract)
-        self.assertEqual(contract["graph_rule_version"], "1.2")
+        self.assertEqual(contract["graph_rule_version"], "1.3")
         self.assertEqual(contract["rule_id"], "docx_highlighted_text_projection")
         self.assertEqual(contract["scope"]["document_key"], "M73")
         self.assertEqual(contract["scope"]["color"], "yellow")
@@ -1674,7 +1825,7 @@ class StructuredCandidateTest(unittest.TestCase):
         )
         contract = graph_contract_for_question(question)
         self.assertIsNotNone(contract)
-        self.assertEqual(contract["graph_rule_version"], "1.2")
+        self.assertEqual(contract["graph_rule_version"], "1.3")
         self.assertEqual(contract["rule_id"], "pptx_shape_fill_text_projection")
         self.assertEqual(contract["scope"]["slide"], 3)
         self.assertEqual(contract["scope"]["color"], "red")
@@ -1998,7 +2149,7 @@ class StructuredCandidateTest(unittest.TestCase):
         )
         contract = graph_contract_for_question(question)
         self.assertIsNotNone(contract)
-        self.assertEqual(contract["graph_rule_version"], "1.2")
+        self.assertEqual(contract["graph_rule_version"], "1.3")
         self.assertEqual(contract["rule_id"], "all_project_paid_gross_tax_sum")
         self.assertEqual(
             [node["operator"] for node in contract["operation_graph"]["nodes"]],

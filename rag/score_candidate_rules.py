@@ -87,6 +87,11 @@ GB_PARAMS = re.compile(
     r"いくつですか。設定ファイルに明示されていない値がある場合も、実行時にコード上で"
     r"適用される値を含めて答えてください。?$"
 )
+XLSX_CHART_SERIES_COLUMN = re.compile(
+    r"^(?P<location>.+?)の(?P<container>[^,、。]+?\.xlsx)の"
+    r"(?P<sheet>[^,、。]+?)にあるグラフ"
+    r"(?P<chart>[0-9０-９]+)はどのカラムを可視化したものですか。?$"
+)
 REGRESSION_PREDICTION = re.compile(
     r"^(?P<location>.+?)の(?P<container>[^、]+?\.xlsx)にて算出された回帰係数を使って"
     r"(?P<id_field>id)=(?P<id_value>-?\d+)を予測した場合の予測値はいくらになりますか。"
@@ -260,7 +265,7 @@ _PPTX_HUE_CENTERS = {
     "magenta": 300.0,
 }
 
-GRAPH_RULE_VERSION = "1.2"
+GRAPH_RULE_VERSION = "1.3"
 _GRAPH_RULES = (
     (DATE_RANGE, "date_range_identifier_list", ("retrieve", "filter", "boolean_test", "project", "deduplicate", "list"), ("list", "identifier", "all", None)),
     (ASSIGNEE_COUNT, "assignee_task_count", ("retrieve", "filter", "project", "deduplicate", "count"), ("scalar", "integer", "single", None)),
@@ -284,6 +289,12 @@ _GRAPH_RULES = (
     (STANDARDIZED_SHARE, "standardized_conditional_share", ("retrieve", "mean", "calculate", "filter", "mean", "filter", "count", "calculate"), ("scalar", "number", "single", "%")),
     (INTERACTION_COLUMNS, "metrics_code_interaction_list", ("retrieve", "retrieve", "filter", "verify", "project", "list"), ("list", "string", "all", None)),
     (GB_PARAMS, "runtime_model_parameter_resolution", ("retrieve", "retrieve", "verify", "project"), ("key_value", "number", "multiple", None)),
+    (
+        XLSX_CHART_SERIES_COLUMN,
+        "xlsx_chart_series_column",
+        ("retrieve", "select", "select", "resolve", "verify", "project"),
+        ("scalar", "identifier", "single", None),
+    ),
     (REGRESSION_PREDICTION, "regression_standardize_predict", ("retrieve", "mean", "calculate", "sum"), ("scalar", "number", "single", None)),
     (NEGATIVE_CORRELATION, "strongest_negative_correlation", ("retrieve", "calculate", "filter", "argmin_all", "project"), ("scalar", "identifier", "single", None)),
     (HIGHLIGHT_ROWS, "highlighted_row_projection", ("retrieve", "filter", "project", "deduplicate", "list"), ("list", "identifier", "all", None)),
@@ -624,6 +635,15 @@ def graph_contract_for_question(question: str) -> dict[str, Any] | None:
             )
         if "sheet" in bindings:
             scope["sheet"] = bindings["sheet"]
+        if rule_id == "xlsx_chart_series_column":
+            scope.update(
+                {
+                    "chart_index": int(
+                        unicodedata.normalize("NFKC", bindings["chart"])
+                    ),
+                    "source_channel": "xlsx_ooxml_chart_series",
+                }
+            )
         core = {
             "graph_rule_version": GRAPH_RULE_VERSION,
             "rule_id": rule_id,
@@ -662,6 +682,25 @@ def graph_contract_for_question(question: str) -> dict[str, Any] | None:
             ).hexdigest()[:32],
             **core,
         }
+
+    # Analysis-artifact joins are isolated from row/table rules because they
+    # certify one selected run across leaderboard, JSON configuration, and
+    # Python constructor flow before exposing a scalar parameter.
+    from analysis_artifact_rules import (
+        graph_contract_for_question as analysis_artifact_contract,
+    )
+
+    contract = analysis_artifact_contract(question)
+    if contract is not None:
+        return contract
+
+    from excel_native_rules import (
+        graph_contract_for_question as excel_native_contract,
+    )
+
+    contract = excel_native_contract(question)
+    if contract is not None:
+        return contract
 
     # The proposal metric grammar is isolated because it audits authored PPTX
     # runs rather than tabular records.  It still participates in the same
@@ -2247,6 +2286,170 @@ def _gb_params(engine: Any, match: re.Match[str]) -> StructuredCandidateDecision
         f"random_state: {random_state}"
     )
     return _decision(answer, [configs[0], modeling[0], data_path], engine.source_root, 4)
+
+
+def _ooxml_relationship_target(
+    archive: zipfile.ZipFile,
+    owner_part: str,
+    relationship_id: str,
+    relationship_suffix: str,
+) -> str | None:
+    """Resolve one internal OOXML relationship without accepting path escape."""
+
+    owner = PurePosixPath(owner_part)
+    rels_part = str(owner.parent / "_rels" / f"{owner.name}.rels")
+    try:
+        relationships = ET.fromstring(archive.read(rels_part))
+    except (KeyError, ET.ParseError):
+        return None
+    matches = [
+        relation
+        for relation in relationships
+        if relation.tag.endswith("}Relationship")
+        and relation.get("Id") == relationship_id
+        and relation.get("TargetMode") != "External"
+        and str(relation.get("Type") or "").endswith(relationship_suffix)
+    ]
+    if len(matches) != 1:
+        return None
+    target = _package_target_part(owner_part, str(matches[0].get("Target") or ""))
+    if target is None or target not in archive.namelist():
+        return None
+    return target
+
+
+def _chart_series_label(chart_root: ET.Element) -> str | None:
+    series = [
+        element
+        for element in chart_root.iter()
+        if element.tag.rsplit("}", 1)[-1] == "series"
+    ]
+    if len(series) != 1:
+        return None
+    tx_nodes = [
+        child
+        for child in list(series[0])
+        if child.tag.rsplit("}", 1)[-1] == "tx"
+    ]
+    if len(tx_nodes) != 1:
+        return None
+    formulas = [
+        value.text.strip()
+        for value in tx_nodes[0].iter()
+        if value.tag.rsplit("}", 1)[-1] == "f"
+        and isinstance(value.text, str)
+        and value.text.strip()
+    ]
+    # ChartEx stores its internal data-schema field under the _xlchart
+    # namespace.  A conventional series title may be arbitrary display text,
+    # so it is not accepted as proof of a worksheet column here.
+    if len(formulas) != 1 or not formulas[0].startswith("_xlchart."):
+        return None
+    labels = []
+    for value in tx_nodes[0].iter():
+        if value.tag.rsplit("}", 1)[-1] != "v" or value.text is None:
+            continue
+        text = unicodedata.normalize("NFC", value.text).strip()
+        if text:
+            labels.append(text)
+    labels = list(dict.fromkeys(labels))
+    return labels[0] if len(labels) == 1 else None
+
+
+def _xlsx_chart_series_column(
+    engine: Any,
+    match: re.Match[str],
+) -> StructuredCandidateDecision | None:
+    paths = _named_paths(engine, match["location"], match["container"], {".xlsx"})
+    if len(paths) != 1 or paths[0].stat().st_size > _DIRECT_SOURCE_MAX_BYTES:
+        return None
+    workbook_path = paths[0]
+    office_rel = "http://schemas.openxmlformats.org/officeDocument/2006/relationships"
+    expected_sheet = _normalized(match["sheet"])
+    chart_number = int(unicodedata.normalize("NFKC", match["chart"]))
+    expected_chart = _normalized(f"グラフ {chart_number}").replace(" ", "")
+    try:
+        with zipfile.ZipFile(workbook_path) as archive:
+            infos = archive.infolist()
+            if len(infos) > 20_000 or sum(item.file_size for item in infos) > 1_024**3:
+                return None
+            workbook = ET.fromstring(archive.read("xl/workbook.xml"))
+            sheet_nodes = [
+                sheet
+                for sheet in workbook.iter()
+                if sheet.tag.rsplit("}", 1)[-1] == "sheet"
+                and _normalized(sheet.get("name")) == expected_sheet
+            ]
+            if len(sheet_nodes) != 1:
+                return None
+            sheet_relation = sheet_nodes[0].get("{" + office_rel + "}id")
+            if not sheet_relation:
+                return None
+            sheet_part = _ooxml_relationship_target(
+                archive,
+                "xl/workbook.xml",
+                sheet_relation,
+                "/worksheet",
+            )
+            if sheet_part is None:
+                return None
+            sheet_root = ET.fromstring(archive.read(sheet_part))
+            drawing_nodes = [
+                node
+                for node in sheet_root.iter()
+                if node.tag.rsplit("}", 1)[-1] == "drawing"
+            ]
+            if len(drawing_nodes) != 1:
+                return None
+            drawing_relation = drawing_nodes[0].get("{" + office_rel + "}id")
+            if not drawing_relation:
+                return None
+            drawing_part = _ooxml_relationship_target(
+                archive,
+                sheet_part,
+                drawing_relation,
+                "/drawing",
+            )
+            if drawing_part is None:
+                return None
+            drawing_root = ET.fromstring(archive.read(drawing_part))
+            anchors = []
+            for anchor in list(drawing_root):
+                names = [
+                    _normalized(node.get("name")).replace(" ", "")
+                    for node in anchor.iter()
+                    if node.tag.rsplit("}", 1)[-1] == "cNvPr"
+                    and node.get("name")
+                ]
+                if names == [expected_chart]:
+                    anchors.append(anchor)
+            if len(anchors) != 1:
+                return None
+            chart_nodes = [
+                node
+                for node in anchors[0].iter()
+                if node.tag.rsplit("}", 1)[-1] == "chart"
+                and node.get("{" + office_rel + "}id")
+            ]
+            if len(chart_nodes) != 1:
+                return None
+            chart_relation = chart_nodes[0].get("{" + office_rel + "}id")
+            chart_parts = [
+                _ooxml_relationship_target(
+                    archive, drawing_part, chart_relation, suffix
+                )
+                for suffix in ("/chartEx", "/chart")
+            ]
+            chart_parts = list(dict.fromkeys(part for part in chart_parts if part))
+            if len(chart_parts) != 1:
+                return None
+            chart_root = ET.fromstring(archive.read(chart_parts[0]))
+            label = _chart_series_label(chart_root)
+            if label is None:
+                return None
+    except (KeyError, OSError, ET.ParseError, zipfile.BadZipFile, ValueError):
+        return None
+    return _decision(label, [workbook_path], engine.source_root, 6)
 
 
 def _regression_prediction(engine: Any, match: re.Match[str]) -> StructuredCandidateDecision | None:
@@ -5611,6 +5814,9 @@ def decide_extended(engine: Any, question_id: str, question: str) -> StructuredC
     match = GB_PARAMS.fullmatch(question)
     if match:
         return _gb_params(engine, match)
+    match = XLSX_CHART_SERIES_COLUMN.fullmatch(question)
+    if match:
+        return _xlsx_chart_series_column(engine, match)
     match = REGRESSION_PREDICTION.fullmatch(question)
     if match:
         return _regression_prediction(engine, match)
@@ -5668,9 +5874,21 @@ def decide_extended(engine: Any, question_id: str, question: str) -> StructuredC
     if ALL_PROJECT_PAID_GROSS_TAX_SUM.fullmatch(question):
         return _all_project_paid_gross_tax_sum(engine)
 
-    # Existing extended rules retain precedence.  The authored-PPTX rule and
-    # raster/PDF rules remain independent executors, but both are reachable
-    # only after their deterministic graph contracts have been reconstructed.
+    from analysis_artifact_rules import decide_question as decide_analysis_artifact
+
+    analysis = decide_analysis_artifact(engine, question)
+    if analysis is not None:
+        return analysis
+
+    from excel_native_rules import decide_question as decide_excel_native
+
+    excel = decide_excel_native(engine, question)
+    if excel is not None:
+        return excel
+
+    # Existing extended rules retain precedence.  Independent source-specific
+    # executors are reachable only after their deterministic graph contracts
+    # have been reconstructed.
     from proposal_metric_rules import decide_extended as decide_proposal_metric
 
     proposal = decide_proposal_metric(engine, "graph-runtime", question)

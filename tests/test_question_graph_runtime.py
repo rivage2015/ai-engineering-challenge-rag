@@ -789,7 +789,7 @@ class QuestionGraphRuntimeTest(unittest.TestCase):
     ) -> None:
         canonical = "架空境界企画株式会社"
         glossary = Glossary()
-        glossary.add("BAD ALIAS", canonical, primary=True)
+        glossary.add("BAD ALIAS EXTRA", canonical, primary=True)
         plan = {
             "compact_contract": {
                 "requested_outputs": [
@@ -824,7 +824,7 @@ class QuestionGraphRuntimeTest(unittest.TestCase):
         self.assertEqual("fail", result.validation_status)
         self.assertEqual("わかりません", result.answer)
         self.assertIn("identifier_scalar_required", result.violations)
-        self.assertEqual("BAD ALIAS", client.calls[1][-2]["content"])
+        self.assertEqual("BAD ALIAS EXTRA", client.calls[1][-2]["content"])
 
     def test_question_parallel_facets_are_explicit_and_multiline_safe(self) -> None:
         plan = {
@@ -952,6 +952,95 @@ class QuestionGraphRuntimeTest(unittest.TestCase):
         self.assertIn(
             "single_line_required",
             validate_graph_answer(multiline, scalar_plan),
+        )
+
+    def test_identifier_shape_accepts_one_internal_space_but_rejects_prose(
+        self,
+    ) -> None:
+        list_plan = {
+            "compact_contract": {
+                "requested_outputs": [
+                    {
+                        "return_field": "identifier",
+                        "cardinality": {"mode": "all", "expected_count": None},
+                        "answer_shape": {
+                            "container": "list",
+                            "value_type": "identifier",
+                            "unit": None,
+                            "precision": "exact",
+                        },
+                    }
+                ]
+            }
+        }
+        for answer in (
+            "ZIP CODE",
+            "ZIP CODE、AI-05",
+            "ALPHA__x__ZIP CODE、BETA__x__GAMMA",
+            "ZIP CODE;AI-05",
+            "ＺＩＰ　ＣＯＤＥ、ＡＩ－０５",
+        ):
+            with self.subTest(answer=answer):
+                self.assertEqual((), validate_graph_answer(answer, list_plan))
+
+        for answer in (
+            "ZIP  CODE",
+            "ZIP CODE is explanatory prose",
+            "---、AI-05",
+            "AI-05。",
+        ):
+            with self.subTest(answer=answer):
+                self.assertIn(
+                    "identifier_list_items_required",
+                    validate_graph_answer(answer, list_plan),
+                )
+
+        scalar_plan = copy.deepcopy(list_plan)
+        scalar_output = scalar_plan["compact_contract"]["requested_outputs"][0]
+        scalar_output["cardinality"] = {"mode": "single", "expected_count": 1}
+        scalar_output["answer_shape"]["container"] = "scalar"
+        self.assertEqual((), validate_graph_answer("ZIP CODE", scalar_plan))
+        self.assertIn(
+            "identifier_scalar_required",
+            validate_graph_answer("ZIP CODE is prose", scalar_plan),
+        )
+
+    def test_identifier_list_separator_metamorphs_preserve_digit_suffix_ids(
+        self,
+    ) -> None:
+        identifier_plan = {
+            "compact_contract": {
+                "requested_outputs": [
+                    {
+                        "return_field": "identifier",
+                        "cardinality": {"mode": "all", "expected_count": 3},
+                        "answer_shape": {
+                            "container": "list",
+                            "value_type": "identifier",
+                            "unit": None,
+                            "precision": "exact",
+                        },
+                    }
+                ]
+            }
+        }
+        for answer in (
+            "AI-05、AI-09、AI-08",
+            "AI-05;AI-09;AI-08",
+            "AI-05, AI-09, AI-08",
+            "AI-05,AI-09,AI-08",
+        ):
+            with self.subTest(answer=answer):
+                self.assertEqual((), validate_graph_answer(answer, identifier_plan))
+
+        numeric_plan = copy.deepcopy(identifier_plan)
+        numeric_output = numeric_plan["compact_contract"]["requested_outputs"][0]
+        numeric_output["cardinality"] = {"mode": "single", "expected_count": 1}
+        numeric_output["answer_shape"]["value_type"] = "number"
+        self.assertEqual((), validate_graph_answer("1,234", numeric_plan))
+        self.assertIn(
+            "identifier_list_items_required",
+            validate_graph_answer("AI-05, 1,234", identifier_plan),
         )
 
 

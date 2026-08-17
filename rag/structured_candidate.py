@@ -530,6 +530,33 @@ class StructuredCandidateEngine:
 
         del question_id
         try:
+            # A complete extended grammar has already rebuilt and validated
+            # its own typed graph.  Execute that source-specific graph before
+            # the generic table reader: visual OOXML, nested JSON, and other
+            # certified sources are not necessarily row tables, and trying to
+            # coerce them first can either fail or resolve the wrong contract.
+            from score_candidate_rules import (
+                decide_extended,
+                graph_contract_for_question,
+                validate_graph_contract,
+            )
+
+            contract = graph_contract_for_question(question)
+            if contract is not None and not validate_graph_contract(question, contract):
+                return StructuredCandidateDecision("error", "extended_graph_invalid")
+            if contract is not None:
+                extended = decide_extended(self, "graph-runtime", question)
+                if extended is not None:
+                    return extended
+                # A question that matched a certified extended grammar must
+                # fail closed when its source-specific executor cannot prove
+                # a result.  Falling through to the generic row reader would
+                # let an unresolved chart/OOXML/JSON contract be answered from
+                # an unrelated tabular interpretation of the same workbook.
+                return StructuredCandidateDecision(
+                    "hold", "extended_source_not_resolved"
+                )
+
             raw_branches = getattr(graph_plan, "branch_intents", ())
             branches = [
                 branch
@@ -548,19 +575,6 @@ class StructuredCandidateEngine:
                     if decision.status == "resolved":
                         return decision
 
-            from score_candidate_rules import (
-                decide_extended,
-                graph_contract_for_question,
-                validate_graph_contract,
-            )
-
-            contract = graph_contract_for_question(question)
-            if contract is not None and not validate_graph_contract(question, contract):
-                return StructuredCandidateDecision("error", "extended_graph_invalid")
-            if contract is not None:
-                extended = decide_extended(self, "graph-runtime", question)
-                if extended is not None:
-                    return extended
             return StructuredCandidateDecision("hold", "graph_not_structured")
         except (OSError, UnicodeDecodeError, ValueError, StructuredRowError) as exc:
             return StructuredCandidateDecision(

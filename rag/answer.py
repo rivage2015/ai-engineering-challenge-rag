@@ -860,6 +860,36 @@ _INTEGER_ANSWER = re.compile(r"[+-]?(?:\d{1,3}(?:,\d{3})*|\d+)(?:\s*[^\d\s、,]+
 _NUMBER_ANSWER = re.compile(
     r"(?:約\s*)?[+-]?(?:\d{1,3}(?:,\d{3})*|\d+)(?:\.\d+)?(?:\s*[^\d\s、,]+)?\Z"
 )
+_IDENTIFIER_COMPONENT = r"(?=[\w./:+-]*\w)[\w./:+-]+"
+_IDENTIFIER_ANSWER = re.compile(
+    rf"{_IDENTIFIER_COMPONENT}(?: {_IDENTIFIER_COMPONENT})?",
+    flags=re.UNICODE,
+)
+
+
+def _list_items(text: str) -> list[str]:
+    """Split answer-only list syntax without breaking numeric group commas."""
+
+    # An ASCII comma is a separator whenever at least one adjacent character
+    # is non-numeric.  The older both-sides guard failed on identifiers ending
+    # in digits (for example ``AI-05, AI-09``), while this still preserves a
+    # grouped number such as ``1,234`` as one item.
+    return [
+        value.strip()
+        for value in re.split(r"、|;|(?<!\d),|,(?!\d)", text)
+        if value.strip()
+    ]
+
+
+def _is_identifier_answer(text: str) -> bool:
+    """Accept compact source identifiers, including one internal space."""
+
+    # Source-defined identifiers can be multiword column labels such as
+    # ``ZIP CODE``.  Keep the allowance narrow: at most two non-empty compact
+    # components, one literal internal space, and at least one word character
+    # in each component.  This excludes headings, sentences, repeated spaces,
+    # and punctuation-only values while retaining the existing punctuation set.
+    return _IDENTIFIER_ANSWER.fullmatch(text) is not None
 
 
 def _shape_violations(text: str, outputs: Sequence[Mapping[str, Any]]) -> list[str]:
@@ -904,17 +934,12 @@ def _shape_violations(text: str, outputs: Sequence[Mapping[str, Any]]) -> list[s
         violations.append("scalar_must_not_be_a_list")
     if container == "list":
         expected_count = cardinality.get("expected_count")
-        items = [
-            value.strip()
-            for value in re.split(r"、|;|(?<!\d),(?!\d)", normalized)
-            if value.strip()
-        ]
+        items = _list_items(normalized)
         if isinstance(expected_count, int) and expected_count > 0:
             if len(items) != expected_count:
                 violations.append(f"list_expected_count_{expected_count}")
         if value_type == "identifier" and any(
-            re.fullmatch(r"[\w./:+-]+", item, flags=re.UNICODE) is None
-            for item in items
+            not _is_identifier_answer(item) for item in items
         ):
             violations.append("identifier_list_items_required")
 
@@ -937,7 +962,7 @@ def _shape_violations(text: str, outputs: Sequence[Mapping[str, Any]]) -> list[s
         }:
             violations.append("boolean_scalar_required")
     elif container == "scalar" and value_type == "identifier":
-        if re.fullmatch(r"[\w./:+-]+", normalized, flags=re.UNICODE) is None:
+        if not _is_identifier_answer(normalized):
             violations.append("identifier_scalar_required")
     elif container == "key_value":
         required_keys = output.get("required_keys")
