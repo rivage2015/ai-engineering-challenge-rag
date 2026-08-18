@@ -854,6 +854,22 @@ def graph_contract_for_question(question: str) -> dict[str, Any] | None:
     if contract is not None:
         return contract
 
+    from pptx_scope_exclusion_rules import (
+        graph_contract_for_question as pptx_scope_exclusion_contract,
+    )
+
+    contract = pptx_scope_exclusion_contract(question)
+    if contract is not None:
+        return contract
+
+    from pptx_feature_legend_rules import (
+        graph_contract_for_question as pptx_feature_legend_contract,
+    )
+
+    contract = pptx_feature_legend_contract(question)
+    if contract is not None:
+        return contract
+
     from pptx_revision_summary_rules import (
         graph_contract_for_question as pptx_revision_summary_contract,
     )
@@ -6269,6 +6285,18 @@ def decide_extended(engine: Any, question_id: str, question: str) -> StructuredC
     pptx_schedule = decide_pptx_schedule(engine, question)
     if pptx_schedule is not None:
         return pptx_schedule
+
+    from pptx_scope_exclusion_rules import decide_question as decide_pptx_scope_exclusion
+
+    pptx_scope_exclusion = decide_pptx_scope_exclusion(engine, question)
+    if pptx_scope_exclusion is not None:
+        return pptx_scope_exclusion
+
+    from pptx_feature_legend_rules import decide_question as decide_pptx_feature_legend
+
+    pptx_feature_legend = decide_pptx_feature_legend(engine, question)
+    if pptx_feature_legend is not None:
+        return pptx_feature_legend
 
     from pptx_revision_summary_rules import decide_question as decide_pptx_revision_summary
 

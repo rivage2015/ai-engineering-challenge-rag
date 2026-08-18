@@ -70,6 +70,8 @@ _LIVE_GRAPH_CONTRACT_PREFIXES = (
     "pptx_version_diff_",
     "pptx_spatial_",
     "pptx_schedule_",
+    "pptx_scope_",
+    "pptx_feature_legend_",
     "pptx_revision_summary_",
     "pdfgraph_",
     "pdfrole_",
