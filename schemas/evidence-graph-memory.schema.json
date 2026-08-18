@@ -1,0 +1,144 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://local.ai-engineering-challenge/schemas/evidence-graph-memory.schema.json",
+  "title": "EvidenceGraphMemory",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version", "record_type", "graph_id", "question_id",
+    "question_sha256", "graph_plan_id", "state", "nodes", "edges",
+    "unresolved", "answer_projection", "provenance", "integrity_sha256"
+  ],
+  "properties": {
+    "schema_version": {"const": "0.1"},
+    "record_type": {"const": "evidence_graph_memory"},
+    "graph_id": {"type": "string", "pattern": "^egm_[0-9a-f]{32}$"},
+    "question_id": {"type": "string", "minLength": 1, "maxLength": 128},
+    "question_sha256": {"$ref": "#/$defs/sha256"},
+    "graph_plan_id": {"type": "string", "minLength": 1, "maxLength": 256},
+    "state": {"enum": ["building", "auditing", "ready", "blocked"]},
+    "nodes": {
+      "type": "array",
+      "items": {"$ref": "#/$defs/node"}
+    },
+    "edges": {
+      "type": "array",
+      "items": {"$ref": "#/$defs/edge"}
+    },
+    "unresolved": {
+      "type": "array",
+      "items": {"$ref": "#/$defs/unresolved"}
+    },
+    "answer_projection": {
+      "anyOf": [
+        {"type": "null"},
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["operation", "input_node_ids", "input_edge_ids", "status"],
+          "properties": {
+            "operation": {"type": "string", "minLength": 1},
+            "input_node_ids": {"type": "array", "uniqueItems": true, "items": {"$ref": "#/$defs/node_id"}},
+            "input_edge_ids": {"type": "array", "uniqueItems": true, "items": {"$ref": "#/$defs/edge_id"}},
+            "status": {"enum": ["draft", "verified", "blocked"]}
+          }
+        }
+      ]
+    },
+    "provenance": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["builder", "builder_version", "question_independent_evidence", "gold_used", "public_score_used"],
+      "properties": {
+        "builder": {"const": "evidence-graph-memory"},
+        "builder_version": {"const": "0.1.0"},
+        "question_independent_evidence": {"const": true},
+        "gold_used": {"const": false},
+        "public_score_used": {"const": false}
+      }
+    },
+    "integrity_sha256": {"$ref": "#/$defs/sha256"}
+  },
+  "$defs": {
+    "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "node_id": {"type": "string", "pattern": "^egn_[0-9a-f]{32}$"},
+    "edge_id": {"type": "string", "pattern": "^ege_[0-9a-f]{32}$"},
+    "node": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["node_id", "node_type", "value", "normalized_value", "status", "source", "content_sha256"],
+      "properties": {
+        "node_id": {"$ref": "#/$defs/node_id"},
+        "node_type": {"type": "string", "pattern": "^[a-z][a-z0-9_]{0,63}$"},
+        "value": {},
+        "normalized_value": {},
+        "status": {"enum": ["observed", "conflicted", "unresolved"]},
+        "source": {"$ref": "#/$defs/source"},
+        "content_sha256": {"$ref": "#/$defs/sha256"}
+      }
+    },
+    "source": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "sha256", "locator", "quote", "extraction_method"],
+      "properties": {
+        "path": {"type": "string", "minLength": 1},
+        "sha256": {"$ref": "#/$defs/sha256"},
+        "locator": {"type": "object"},
+        "quote": {"type": "string"},
+        "extraction_method": {"type": "string", "minLength": 1}
+      }
+    },
+    "edge": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["edge_id", "edge_type", "from_node_id", "to_node_id", "basis", "status", "audit", "content_sha256"],
+      "properties": {
+        "edge_id": {"$ref": "#/$defs/edge_id"},
+        "edge_type": {"type": "string", "pattern": "^[a-z][a-z0-9_]{0,63}$"},
+        "from_node_id": {"$ref": "#/$defs/node_id"},
+        "to_node_id": {"$ref": "#/$defs/node_id"},
+        "basis": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["claim", "comparison_fields", "evidence_node_ids"],
+          "properties": {
+            "claim": {"type": "string", "minLength": 1},
+            "comparison_fields": {"type": "array", "items": {"type": "string", "minLength": 1}},
+            "evidence_node_ids": {"type": "array", "uniqueItems": true, "items": {"$ref": "#/$defs/node_id"}}
+          }
+        },
+        "status": {"enum": ["proposed", "verified", "ambiguous", "contradicted", "insufficient_evidence"]},
+        "audit": {"anyOf": [{"type": "null"}, {"$ref": "#/$defs/audit"}]},
+        "content_sha256": {"$ref": "#/$defs/sha256"}
+      }
+    },
+    "audit": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["audit_version", "separation_mode", "decoy_node_ids", "machine", "blind", "falsifier", "final_status", "audit_sha256"],
+      "properties": {
+        "audit_version": {"const": "0.1"},
+        "separation_mode": {"const": "same_model_separate_context"},
+        "decoy_node_ids": {"type": "array", "uniqueItems": true, "items": {"$ref": "#/$defs/node_id"}},
+        "machine": {"type": "object"},
+        "blind": {"type": "object"},
+        "falsifier": {"type": "object"},
+        "final_status": {"enum": ["verified", "ambiguous", "contradicted", "insufficient_evidence"]},
+        "audit_sha256": {"$ref": "#/$defs/sha256"}
+      }
+    },
+    "unresolved": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["unresolved_id", "kind", "description", "required_checks", "status"],
+      "properties": {
+        "unresolved_id": {"type": "string", "pattern": "^egu_[0-9a-f]{32}$"},
+        "kind": {"type": "string", "pattern": "^[a-z][a-z0-9_]{0,63}$"},
+        "description": {"type": "string", "minLength": 1},
+        "required_checks": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "string", "minLength": 1}},
+        "status": {"enum": ["open", "resolved"]}
+      }
+    }
+  }
+}

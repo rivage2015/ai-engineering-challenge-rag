@@ -766,6 +766,38 @@ def graph_contract_for_question(question: str) -> dict[str, Any] | None:
     if contract is not None:
         return contract
 
+    from cross_project_personnel_graph_rules import (
+        graph_contract_for_question as cross_project_personnel_contract,
+    )
+
+    contract = cross_project_personnel_contract(question)
+    if contract is not None:
+        return contract
+
+    from document_answerability_rules import (
+        graph_contract_for_question as answerability_contract,
+    )
+
+    contract = answerability_contract(question)
+    if contract is not None:
+        return contract
+
+    from glossary_evidence_rules import (
+        graph_contract_for_question as glossary_evidence_contract,
+    )
+
+    contract = glossary_evidence_contract(question)
+    if contract is not None:
+        return contract
+
+    from notebook_correlation_rules import (
+        graph_contract_for_question as notebook_correlation_contract,
+    )
+
+    contract = notebook_correlation_contract(question)
+    if contract is not None:
+        return contract
+
     from xlsx_role_task_graph_rules import (
         graph_contract_for_question as xlsx_role_task_contract,
     )
@@ -6127,6 +6159,32 @@ def decide_extended(engine: Any, question_id: str, question: str) -> StructuredC
     cross_project_portfolio = decide_cross_project_portfolio(engine, question)
     if cross_project_portfolio is not None:
         return cross_project_portfolio
+
+    from cross_project_personnel_graph_rules import (
+        decide_question as decide_cross_project_personnel,
+    )
+
+    cross_project_personnel = decide_cross_project_personnel(engine, question)
+    if cross_project_personnel is not None:
+        return cross_project_personnel
+
+    from document_answerability_rules import decide_question as decide_answerability
+
+    answerability = decide_answerability(engine, question)
+    if answerability is not None:
+        return answerability
+
+    from glossary_evidence_rules import decide_question as decide_glossary_evidence
+
+    glossary_evidence = decide_glossary_evidence(engine, question)
+    if glossary_evidence is not None:
+        return glossary_evidence
+
+    from notebook_correlation_rules import decide_question as decide_notebook_correlation
+
+    notebook_correlation = decide_notebook_correlation(engine, question)
+    if notebook_correlation is not None:
+        return notebook_correlation
 
     from xlsx_role_task_graph_rules import decide_question as decide_xlsx_role_task
 
