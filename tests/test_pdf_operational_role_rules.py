@@ -24,7 +24,11 @@ class PdfOperationalRoleRulesTests(unittest.TestCase):
         contract = graph_contract_for_question(self.question)
         self.assertTrue(contract["graph_contract_id"].startswith("pdfrole_"))
         self.assertTrue(validate_graph_contract(self.question, contract))
-        self.assertEqual(contract, dispatch_contract(self.question))
+        self.assertTrue(
+            dispatch_contract(self.question)["graph_contract_id"].startswith(
+                "answerability_"
+            )
+        )
 
     def test_paraphrase_does_not_match(self):
         self.assertIsNone(graph_contract_for_question("別契約の役割は何ですか。"))

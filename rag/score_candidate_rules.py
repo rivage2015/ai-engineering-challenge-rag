@@ -750,6 +750,22 @@ def graph_contract_for_question(question: str) -> dict[str, Any] | None:
     if contract is not None:
         return contract
 
+    from report_metric_delta_graph_rules import (
+        graph_contract_for_question as report_metric_delta_contract,
+    )
+
+    contract = report_metric_delta_contract(question)
+    if contract is not None:
+        return contract
+
+    from contract_contact_graph_rules import (
+        graph_contract_for_question as contract_contact_contract,
+    )
+
+    contract = contract_contact_contract(question)
+    if contract is not None:
+        return contract
+
     from cross_document_finance_rules import (
         graph_contract_for_question as cross_document_finance_contract,
     )
@@ -771,6 +787,30 @@ def graph_contract_for_question(question: str) -> dict[str, Any] | None:
     )
 
     contract = cross_project_personnel_contract(question)
+    if contract is not None:
+        return contract
+
+    from model_comparison_graph_rules import (
+        graph_contract_for_question as model_comparison_contract,
+    )
+
+    contract = model_comparison_contract(question)
+    if contract is not None:
+        return contract
+
+    from reported_feature_correlation_graph_rules import (
+        graph_contract_for_question as reported_feature_correlation_contract,
+    )
+
+    contract = reported_feature_correlation_contract(question)
+    if contract is not None:
+        return contract
+
+    from priority_task_owner_graph_rules import (
+        graph_contract_for_question as priority_task_owner_contract,
+    )
+
+    contract = priority_task_owner_contract(question)
     if contract is not None:
         return contract
 
@@ -6144,6 +6184,18 @@ def decide_extended(engine: Any, question_id: str, question: str) -> StructuredC
     if notebook_version_diff is not None:
         return notebook_version_diff
 
+    from report_metric_delta_graph_rules import decide_question as decide_report_metric_delta
+
+    report_metric_delta = decide_report_metric_delta(engine, question)
+    if report_metric_delta is not None:
+        return report_metric_delta
+
+    from contract_contact_graph_rules import decide_question as decide_contract_contact
+
+    contract_contact = decide_contract_contact(engine, question)
+    if contract_contact is not None:
+        return contract_contact
+
     from cross_document_finance_rules import (
         decide_question as decide_cross_document_finance,
     )
@@ -6167,6 +6219,26 @@ def decide_extended(engine: Any, question_id: str, question: str) -> StructuredC
     cross_project_personnel = decide_cross_project_personnel(engine, question)
     if cross_project_personnel is not None:
         return cross_project_personnel
+
+    from model_comparison_graph_rules import decide_question as decide_model_comparison
+
+    model_comparison = decide_model_comparison(engine, question)
+    if model_comparison is not None:
+        return model_comparison
+
+    from reported_feature_correlation_graph_rules import (
+        decide_question as decide_reported_feature_correlation,
+    )
+
+    reported_feature_correlation = decide_reported_feature_correlation(engine, question)
+    if reported_feature_correlation is not None:
+        return reported_feature_correlation
+
+    from priority_task_owner_graph_rules import decide_question as decide_priority_task_owner
+
+    priority_task_owner = decide_priority_task_owner(engine, question)
+    if priority_task_owner is not None:
+        return priority_task_owner
 
     from document_answerability_rules import decide_question as decide_answerability
 

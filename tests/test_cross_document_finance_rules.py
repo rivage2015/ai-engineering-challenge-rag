@@ -35,7 +35,14 @@ class CrossDocumentFinanceRulesTests(unittest.TestCase):
             self.assertIsNotNone(contract)
             self.assertTrue(contract["graph_contract_id"].startswith("crossdoc_finance_"))
             self.assertTrue(validate_graph_contract(question, contract))
-            self.assertEqual(contract, dispatch_contract(question))
+            if qid == "36":
+                self.assertTrue(
+                    dispatch_contract(question)["graph_contract_id"].startswith(
+                        "report_metric_delta_graph_"
+                    )
+                )
+            else:
+                self.assertEqual(contract, dispatch_contract(question))
 
     def test_partial_or_paraphrased_questions_do_not_match(self):
         self.assertIsNone(graph_contract_for_question("RATEが変わったのはいつですか。"))

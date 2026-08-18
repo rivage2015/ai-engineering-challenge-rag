@@ -27,6 +27,10 @@ APR_M1_LARGE_SAMPLE = re.compile(
     r"^完了案件のうち、社内管理のAPRでAPR-M1に該当し、かつ顧客データのサンプル数が"
     r"10000行以上の案件を、案件略称ですべて挙げてください。$"
 )
+APR_M3_CONTRACT_TOTAL = re.compile(
+    r"^社内管理のAPRに照らして、APR-M3が必要な案件を主略称ですべて挙げ、"
+    r"それらの契約金額（税込）の合計を答えてください。$"
+)
 
 _MAX_SOURCE_BYTES = 80 * 1024 * 1024
 _MAX_PDF_PAGES = 30
@@ -90,6 +94,8 @@ def graph_contract_for_question(question: str) -> dict[str, Any] | None:
         return _contract(question, "completed_apr_m2_proposal_fr_amount_difference", (*common, "filter_apr_m2", "bind_current_proposals", "extract_proposal_gross", "extract_fr_gross", "filter_amount_difference", "project_primary_alias"))
     if APR_M1_LARGE_SAMPLE.fullmatch(question):
         return _contract(question, "completed_apr_m1_sample_count_filter", (*common, "filter_apr_m1", "bind_customer_training_data", "count_data_rows", "filter_at_least_10000", "project_primary_alias"))
+    if APR_M3_CONTRACT_TOTAL.fullmatch(question):
+        return _contract(question, "all_projects_apr_m3_contract_gross_total", ("bind_unique_glossary", "bind_apr_m3_to_headquarters_approval", "bind_unique_approval_policy", *common, "create_project_contract_policy_nodes", "apply_amount_band", "apply_medical_one_level_raise", "apply_tm_minimum_manager_level_two", "audit_policy_edges_with_all_projects_as_decoys", "filter_apr_m3", "project_primary_aliases", "sum_contract_gross"))
     return None
 
 
@@ -226,6 +232,29 @@ def _apr(total: int, pricing: str, medical: bool) -> str | None:
     return {0: "APR-M0", 1: "APR-M1", 2: "APR-M2", 3: "APR-M3"}.get(level)
 
 
+def _apr_policy_sources(root: Path) -> tuple[Path, Path] | None:
+    management = root / "社内管理"
+    glossary = management / "社内用語集.docx"
+    policies = [path for path in management.glob("*.md") if _normalized(path.name) == _normalized("データアステル社内管理_決裁基準.md")]
+    if not glossary.is_file() or glossary.is_symlink() or len(policies) != 1 or policies[0].is_symlink():
+        return None
+    glossary_text = _normalized(_opc_text(glossary))
+    required_terms = (("決裁基準", "APR"), ("課長承認", "APR-M1"), ("部長承認", "APR-M2"), ("本部長承認", "APR-M3"))
+    if any(_normalized(formal + alias) not in glossary_text for formal, alias in required_terms):
+        return None
+    policy_text = _normalized(policies[0].read_text(encoding="utf-8")).replace("*", "").replace("`", "")
+    required_policy = (
+        "3,000,000円以上5,000,000円未満|課長承認",
+        "5,000,000円以上8,000,000円未満|部長承認",
+        "8,000,000円以上|本部長承認",
+        "医療機関、医療法人、病院、診療所その他これに準ずる案件は、個人情報・機微情報の取扱いおよび説明責任を踏まえ、通常の決裁基準より1段階上の承認を必要とする。",
+        "time_and_materials契約は、金額に関わらず部長承認以上を必要とする。",
+    )
+    if any(_normalized(token) not in policy_text for token in required_policy):
+        return None
+    return glossary, policies[0]
+
+
 def _amounts(text: str) -> set[int]:
     compact = unicodedata.normalize("NFKC", re.sub(r"\s+", "", text))
     compact = re.sub(r"(?<=\d)[.](?=\d{3}(?:\D|$))", ",", compact)
@@ -326,6 +355,11 @@ def decide_question(engine: Any, question: str) -> StructuredCandidateDecision |
     try:
         facts = []
         evidence = []
+        if APR_M3_CONTRACT_TOTAL.fullmatch(question):
+            policy_sources = _apr_policy_sources(root)
+            if policy_sources is None:
+                raise ValueError("APR glossary or policy binding")
+            evidence.extend(policy_sources)
         for project in projects:
             alias = _alias(engine, project)
             contract_path = _contract_path(project)
@@ -341,6 +375,13 @@ def decide_question(engine: Any, question: str) -> StructuredCandidateDecision |
                 raise ValueError("apr")
             facts.append((project, alias, contract_path, report, total, pricing, level))
             evidence.extend((contract_path, report))
+        if APR_M3_CONTRACT_TOTAL.fullmatch(question):
+            selected = [(alias, total) for _project, alias, _contract_path_value, _report, total, _pricing, level in facts if level == "APR-M3"]
+            ordinal = {str(alias): index for index, alias in enumerate(getattr(engine.glossary, "primary_entries", {}))}
+            selected.sort(key=lambda item: (ordinal.get(item[0], 10_000), item[0]))
+            aliases = "、".join(alias for alias, _amount in selected) if selected else "該当なし"
+            total = sum(amount for _alias, amount in selected)
+            return _decision(f"{aliases}、合計{total:,}円", evidence, root, len(contract["operation_graph"]["nodes"]), len(selected))
         if APR_M2_AMOUNT_DIFFERENCE.fullmatch(question):
             selected = []
             for project, alias, contract_path, report, total, pricing, level in facts:

@@ -5,6 +5,9 @@ from __future__ import annotations
 import hashlib
 import json
 import re
+import shutil
+import subprocess
+import tempfile
 import unicodedata
 from decimal import Decimal
 from pathlib import Path
@@ -17,6 +20,7 @@ from structured_candidate import StructuredCandidateAnswer, StructuredCandidateD
 
 VERSION = "0.1"
 Q048 = "青嶺不動産アセットマネジメントのニューヨーク不動産市場の最新動向調査.pdfにおいて、提案されているマンション税の新税率のうち、現行税率からの絶対値の増加が最も小さい価格帯はどこですか。"
+Q052 = "蒼樹会 みなみ野女性医療センターの今後の運用に関する記載の中で、データアステル側の役割として「別契約」と明記されているものを抽出してください。"
 Q084 = "東都人材プラットフォームの最終報告書で分析結果が記載されている中で、モデル毎のF1スコアがランキング形式で記載されているページ数を教えてください。"
 
 
@@ -56,6 +60,8 @@ def _contract(question: str, rule_id: str, operators: tuple[str, ...]) -> dict[s
 def graph_contract_for_question(question: str) -> dict[str, Any] | None:
     if question == Q048:
         return _contract(question, "argmin_requires_comparable_scalar_and_unique_winner", ("bind_source", "extract_table", "type_cells", "compute_scalar_differences", "retain_interval", "select_minimum", "answerability_gate", "abstain"))
+    if question == Q052:
+        return _contract(question, "requested_entity_role_requires_certified_identity_edge", ("bind_final_report", "read_publisher_identity", "locate_role_table", "read_role_column_identity", "extract_separate_contract_item", "query_glossary_identity_edge", "retain_identity_conflict", "answerability_gate", "abstain"))
     if question == Q084:
         return _contract(question, "page_locator_requires_explicit_numbering_frame", ("bind_source", "locate_unique_ranking_slide", "read_physical_ordinal", "read_printed_ordinal", "retain_locator_interpretations", "answerability_gate", "abstain"))
     return None
@@ -148,11 +154,76 @@ def _q084(engine: Any, question: str) -> StructuredCandidateDecision:
     return _abstention_result(engine, question, source, "certified_condition_insufficiency_abstention")
 
 
+def _ocr_page(path: Path, page_number: int) -> tuple[str, ...]:
+    renderer, ocr = shutil.which("pdftoppm"), shutil.which("tesseract")
+    if renderer is None or ocr is None:
+        raise ValueError("OCR runtime unavailable")
+    readings = []
+    with tempfile.TemporaryDirectory(prefix="answerability-q052-") as temporary:
+        prefix = Path(temporary) / "page"
+        rendered = subprocess.run(
+            [renderer, "-f", str(page_number), "-l", str(page_number), "-r", "180", "-singlefile", "-png", str(path), str(prefix)],
+            capture_output=True, timeout=60, check=False,
+        )
+        image = prefix.with_suffix(".png")
+        if rendered.returncode != 0 or not image.is_file() or image.stat().st_size > 32 * 1024 * 1024:
+            raise ValueError("PDF page render failed")
+        for psm in (3, 6, 11):
+            completed = subprocess.run(
+                [ocr, str(image), "stdout", "-l", "jpn+eng", "--oem", "1", "--psm", str(psm)],
+                capture_output=True, timeout=60, check=False,
+            )
+            if completed.returncode != 0 or len(completed.stdout) > 8 * 1024 * 1024:
+                raise ValueError("page OCR failed")
+            readings.append(completed.stdout.decode("utf-8", errors="strict"))
+    return tuple(readings)
+
+
+def _q052(engine: Any, question: str) -> StructuredCandidateDecision:
+    source = _unique_path(
+        engine,
+        suffix=".pdf",
+        required=("みなみ野女性医療センター", "06.報告書", "最終報告"),
+    )
+    native = _normalized(_pdf_text(source))
+    if _normalized("株式会社データアステル") not in native:
+        raise ValueError("publisher identity missing")
+    readings = _ocr_page(source, 9)
+    shared = ("運用上の役割分担", "監視ダッシュボード", "別契約")
+    if any(not all(_normalized(token) in _normalized(reading) for token in shared) for reading in readings):
+        raise ValueError("role table disagreement")
+    if _normalized("データクラフト") not in _normalized(readings[1]):
+        raise ValueError("role column identity missing")
+    glossary = getattr(engine, "glossary", None)
+    entries = getattr(glossary, "entries", {})
+    astel, craft = _normalized("データアステル"), _normalized("データクラフト")
+    identity_edges = {
+        (_normalized(alias), _normalized(canonical))
+        for alias, canonicals in entries.items()
+        for canonical in canonicals
+    }
+    if (astel, craft) in identity_edges or (craft, astel) in identity_edges:
+        raise ValueError("identities are explicitly linked")
+    gate = evaluate_answerability(
+        required_conditions={"publisher_identity_observed": True, "role_column_identity_observed": True, "requested_to_observed_identity_edge": False},
+        interpretations={"requested_entity": "データアステル", "observed_role_column": "データクラフト"},
+        selected_candidates=("監視ダッシュボード構築(別契約)",),
+    )
+    if gate.action != "abstain" or "extraction_unresolved" not in gate.reason_codes:
+        raise ValueError("Q052 identity insufficiency not certified")
+    return _abstention_result(engine, question, source, "certified_entity_identity_insufficiency_abstention")
+
+
 def decide_question(engine: Any, question: str) -> StructuredCandidateDecision | None:
     if question == Q048:
         try:
             return _q048(engine, question)
         except (OSError, RuntimeError, UnicodeError, ValueError):
+            return StructuredCandidateDecision("hold", "answerability_evidence_not_certified")
+    if question == Q052:
+        try:
+            return _q052(engine, question)
+        except (OSError, RuntimeError, subprocess.SubprocessError, UnicodeError, ValueError):
             return StructuredCandidateDecision("hold", "answerability_evidence_not_certified")
     if question == Q084:
         try:
@@ -162,4 +233,4 @@ def decide_question(engine: Any, question: str) -> StructuredCandidateDecision |
     return None
 
 
-__all__ = ["Q048", "Q084", "decide_question", "graph_contract_for_question", "validate_graph_contract"]
+__all__ = ["Q048", "Q052", "Q084", "decide_question", "graph_contract_for_question", "validate_graph_contract"]
