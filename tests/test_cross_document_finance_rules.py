@@ -29,7 +29,7 @@ class CrossDocumentFinanceRulesTests(unittest.TestCase):
             cls.questions = dict(csv.reader(handle))
 
     def test_complete_grammars_build_stable_live_contracts(self):
-        for qid in ("6", "36", "40", "46", "55", "98"):
+        for qid in ("6", "23", "36", "40", "46", "55", "98"):
             question = self.questions[qid]
             contract = graph_contract_for_question(question)
             self.assertIsNotNone(contract)
@@ -80,8 +80,15 @@ class CrossDocumentFinanceRulesTests(unittest.TestCase):
         self.assertEqual("7201", decision.result.answer)
         self.assertEqual(11, len(decision.result.source_paths))
 
+    def test_actual_q023_connects_proposal_amount_to_contract_billing_terms(self):
+        decision = decide_question(self.engine, self.questions["23"])
+        self.assertEqual("resolved", decision.status)
+        self.assertEqual("398,750円", decision.result.answer)
+        self.assertEqual(2, len(decision.result.source_paths))
+        self.assertEqual(12, decision.result.operation_count)
+
     def test_live_contract_cannot_bypass_graph_plan(self):
-        for qid in ("6", "36", "40", "46", "55", "98"):
+        for qid in ("6", "23", "36", "40", "46", "55", "98"):
             decision = self.engine.decide(qid, self.questions[qid])
             self.assertEqual("hold", decision.status)
             self.assertEqual("extended_graph_plan_required", decision.reason)

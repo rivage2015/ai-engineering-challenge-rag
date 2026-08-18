@@ -42,6 +42,11 @@ INTERIM_FINAL_F1_DIFFERENCE = re.compile(
     r"^恒一会 かえで総合病院案件において、中間報告時点のF1スコア実測値と"
     r"最終報告時点のF1スコア実測値の差を絶対値で答えてください。$"
 )
+ACTUAL_HOURS_PROPOSAL_REDUCTION = re.compile(
+    r"^(?P<location>.+?)の案件において、案件終了後のACTHが"
+    r"(?P<hours>[0-9]+)時間(?P<minutes>[0-9]+)分だった場合の税込請求額は"
+    r"提案書内で記載の見込税込金額と比べて何円の減額になりますか。$"
+)
 
 _MAX_SOURCE_BYTES = 80 * 1024 * 1024
 _MAX_ZIP_MEMBERS = 20_000
@@ -128,6 +133,22 @@ def graph_contract_for_question(question: str) -> dict[str, Any] | None:
         return _contract(question, "interim_final_f1_absolute_difference", {}, (
             "bind_project", "bind_unique_interim_report", "extract_interim_measured_f1",
             "bind_unique_final_report", "extract_final_measured_f1", "subtract_absolute", "format_exact_decimal",
+        ))
+    match = ACTUAL_HOURS_PROPOSAL_REDUCTION.fullmatch(question)
+    if match:
+        return _contract(question, "actual_hours_proposal_reduction", match.groupdict(), (
+            "bind_project",
+            "bind_unique_proposal",
+            "extract_proposal_tax_inclusive_amount",
+            "bind_unique_contract",
+            "extract_hourly_rate",
+            "extract_time_rounding_rule",
+            "extract_tax_rate",
+            "convert_hours_and_minutes",
+            "round_up_to_billing_increment",
+            "calculate_actual_tax_inclusive_invoice",
+            "subtract_from_proposal_amount",
+            "format_jpy_reduction",
         ))
     return None
 
@@ -541,6 +562,91 @@ def _interim_final_f1_difference(root: Path, operations: int) -> StructuredCandi
     return _resolved(format(difference, "f"), (*interims, *finals), root, operations)
 
 
+def _actual_hours_proposal_reduction(
+    root: Path,
+    match: re.Match[str],
+    operations: int,
+) -> StructuredCandidateDecision:
+    location = _normalized(match.group("location"))
+    projects = [
+        path
+        for path in (root / "プロジェクト").iterdir()
+        if path.is_dir() and location in _normalized(path.name)
+    ]
+    if len(projects) != 1:
+        return _hold("crossdoc_project_not_unique")
+    project = projects[0]
+    proposals = [
+        path
+        for path in _safe_files(project / "00.提案", ".pptx")
+        if unicodedata.normalize("NFC", path.name) == "提案書.pptx"
+    ]
+    contracts = [
+        path
+        for path in _safe_files(project / "01.契約", ".docx")
+        if "契約書" in unicodedata.normalize("NFC", path.name)
+        and "draft" not in path.name.casefold()
+    ]
+    if len(proposals) != 1 or len(contracts) != 1:
+        return _hold("crossdoc_source_not_unique")
+
+    proposal = re.sub(r"\s+", "", _opc_text(proposals[0]))
+    contract = re.sub(r"\s+", "", _opc_text(contracts[0]))
+    proposed_values = set(
+        re.findall(r"見込金額（税込）[\uffe5¥]?([0-9,]+)", proposal)
+    )
+    if len(proposed_values) != 1:
+        return _hold("crossdoc_proposal_amount_not_unique")
+
+    rates = set(re.findall(r"時間単価は([0-9,]+)円（消費税別）", contract))
+    increments = set(re.findall(r"作業時間の計上単位は([0-9]+)分", contract))
+    roundings = re.findall(
+        r"([0-9]+)分未満の端数は([0-9]+)分単位に切り上げて計上する",
+        contract,
+    )
+    tax_pairs = set(
+        re.findall(
+            r"税抜([0-9,]+)円、消費税([0-9,]+)円、税込([0-9,]+)円",
+            contract,
+        )
+    )
+    if len(rates) != 1 or len(increments) != 1 or len(roundings) != 1 or len(tax_pairs) != 1:
+        return _hold("crossdoc_billing_terms_not_unique")
+    increment = int(next(iter(increments)))
+    if roundings[0] != (str(increment), str(increment)) or increment <= 0 or 60 % increment:
+        return _hold("crossdoc_rounding_rule_invalid")
+    tax_exclusive, tax_amount, tax_inclusive = (
+        int(value.replace(",", "")) for value in next(iter(tax_pairs))
+    )
+    if tax_exclusive <= 0 or tax_amount <= 0 or tax_inclusive != tax_exclusive + tax_amount:
+        return _hold("crossdoc_tax_amounts_invalid")
+    tax_rate = Decimal(tax_amount) / Decimal(tax_exclusive)
+    if tax_rate != Decimal("0.1"):
+        return _hold("crossdoc_tax_rate_not_exact")
+
+    hours = int(match.group("hours"))
+    minutes = int(match.group("minutes"))
+    if hours < 0 or not 0 <= minutes < 60:
+        return _hold("crossdoc_actual_time_invalid")
+    total_minutes = hours * 60 + minutes
+    billed_minutes = ((total_minutes + increment - 1) // increment) * increment
+    rate = int(next(iter(rates)).replace(",", ""))
+    actual_exclusive = Decimal(billed_minutes) / Decimal(60) * Decimal(rate)
+    actual_inclusive = actual_exclusive * (Decimal(1) + tax_rate)
+    if actual_inclusive != actual_inclusive.to_integral_value():
+        return _hold("crossdoc_invoice_not_integral_jpy")
+    proposed = int(next(iter(proposed_values)).replace(",", ""))
+    if proposed != tax_inclusive or actual_inclusive >= Decimal(proposed):
+        return _hold("crossdoc_reduction_relation_invalid")
+    reduction = Decimal(proposed) - actual_inclusive
+    return _resolved(
+        f"{int(reduction):,}円",
+        (*proposals, *contracts),
+        root,
+        operations,
+    )
+
+
 def decide_question(engine: Any, question: str) -> StructuredCandidateDecision | None:
     contract = graph_contract_for_question(question)
     if contract is None:
@@ -563,6 +669,11 @@ def decide_question(engine: Any, question: str) -> StructuredCandidateDecision |
             return _maximum_upfront_es_extension(root, len(contract["operation_graph"]["nodes"]))
         if INTERIM_FINAL_F1_DIFFERENCE.fullmatch(question):
             return _interim_final_f1_difference(root, len(contract["operation_graph"]["nodes"]))
+        match = ACTUAL_HOURS_PROPOSAL_REDUCTION.fullmatch(question)
+        if match:
+            return _actual_hours_proposal_reduction(
+                root, match, len(contract["operation_graph"]["nodes"])
+            )
     except (OSError, RuntimeError, subprocess.SubprocessError, UnicodeError, ValueError, zipfile.BadZipFile):
         return _hold("crossdoc_source_not_certified")
     return None

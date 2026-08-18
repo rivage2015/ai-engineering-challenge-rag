@@ -758,6 +758,22 @@ def graph_contract_for_question(question: str) -> dict[str, Any] | None:
     if contract is not None:
         return contract
 
+    from cross_project_portfolio_rules import (
+        graph_contract_for_question as cross_project_portfolio_contract,
+    )
+
+    contract = cross_project_portfolio_contract(question)
+    if contract is not None:
+        return contract
+
+    from xlsx_role_task_graph_rules import (
+        graph_contract_for_question as xlsx_role_task_contract,
+    )
+
+    contract = xlsx_role_task_contract(question)
+    if contract is not None:
+        return contract
+
     from pptx_schedule_rules import (
         graph_contract_for_question as pptx_schedule_contract,
     )
@@ -787,6 +803,38 @@ def graph_contract_for_question(question: str) -> dict[str, Any] | None:
     )
 
     contract = pdf_native_style_contract(question)
+    if contract is not None:
+        return contract
+
+    from pdf_investment_coefficient_rules import (
+        graph_contract_for_question as pdf_investment_coefficient_contract,
+    )
+
+    contract = pdf_investment_coefficient_contract(question)
+    if contract is not None:
+        return contract
+
+    from pdf_highlight_trend_rules import (
+        graph_contract_for_question as pdf_highlight_trend_contract,
+    )
+
+    contract = pdf_highlight_trend_contract(question)
+    if contract is not None:
+        return contract
+
+    from pdf_action_transition_rules import (
+        graph_contract_for_question as pdf_action_transition_contract,
+    )
+
+    contract = pdf_action_transition_contract(question)
+    if contract is not None:
+        return contract
+
+    from pdf_action_content_graph_rules import (
+        graph_contract_for_question as pdf_action_content_contract,
+    )
+
+    contract = pdf_action_content_contract(question)
     if contract is not None:
         return contract
 
@@ -6072,6 +6120,20 @@ def decide_extended(engine: Any, question_id: str, question: str) -> StructuredC
     if cross_document_finance is not None:
         return cross_document_finance
 
+    from cross_project_portfolio_rules import (
+        decide_question as decide_cross_project_portfolio,
+    )
+
+    cross_project_portfolio = decide_cross_project_portfolio(engine, question)
+    if cross_project_portfolio is not None:
+        return cross_project_portfolio
+
+    from xlsx_role_task_graph_rules import decide_question as decide_xlsx_role_task
+
+    xlsx_role_task = decide_xlsx_role_task(engine, question)
+    if xlsx_role_task is not None:
+        return xlsx_role_task
+
     from pptx_schedule_rules import decide_question as decide_pptx_schedule
 
     pptx_schedule = decide_pptx_schedule(engine, question)
@@ -6097,6 +6159,32 @@ def decide_extended(engine: Any, question_id: str, question: str) -> StructuredC
     pdf_native_style = decide_pdf_native_style(engine, question)
     if pdf_native_style is not None:
         return pdf_native_style
+
+    from pdf_investment_coefficient_rules import (
+        decide_question as decide_pdf_investment_coefficient,
+    )
+
+    pdf_investment_coefficient = decide_pdf_investment_coefficient(engine, question)
+    if pdf_investment_coefficient is not None:
+        return pdf_investment_coefficient
+
+    from pdf_highlight_trend_rules import decide_question as decide_pdf_highlight_trend
+
+    pdf_highlight_trend = decide_pdf_highlight_trend(engine, question)
+    if pdf_highlight_trend is not None:
+        return pdf_highlight_trend
+
+    from pdf_action_transition_rules import decide_question as decide_pdf_action_transition
+
+    pdf_action_transition = decide_pdf_action_transition(engine, question)
+    if pdf_action_transition is not None:
+        return pdf_action_transition
+
+    from pdf_action_content_graph_rules import decide_question as decide_pdf_action_content
+
+    pdf_action_content = decide_pdf_action_content(engine, question)
+    if pdf_action_content is not None:
+        return pdf_action_content
 
     from docx_page_structure_rules import decide_question as decide_docx_page_structure
 

@@ -53,8 +53,10 @@ _LIVE_GRAPH_CONTRACT_PREFIXES = (
     "xlsx_histogram_",
     "xlsx_formula_ml_",
     "xlsx_version_diff_",
+    "xlsx_role_task_",
     "notebook_version_diff_",
     "crossdoc_finance_",
+    "cross_project_",
     "pptx_mixed_",
     "pptx_version_diff_",
     "pptx_spatial_",
@@ -63,6 +65,10 @@ _LIVE_GRAPH_CONTRACT_PREFIXES = (
     "pdfgraph_",
     "pdfrole_",
     "pdf_native_style_",
+    "pdf_investment_coefficient_",
+    "pdf_highlight_trend_",
+    "pdf_action_transition_",
+    "pdf_action_content_",
     "docx_page_structure_",
 )
 LEGAL_FORMS = (
