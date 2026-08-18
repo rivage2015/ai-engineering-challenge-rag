@@ -49,12 +49,21 @@ MAX_HEADER_SCAN_ROWS = 100
 _LIVE_GRAPH_CONTRACT_PREFIXES = (
     "docx_mixed_",
     "xlsx_highlight_",
+    "xlsx_pivot_highlight_",
     "xlsx_histogram_",
     "xlsx_formula_ml_",
     "xlsx_version_diff_",
+    "notebook_version_diff_",
+    "crossdoc_finance_",
     "pptx_mixed_",
     "pptx_version_diff_",
     "pptx_spatial_",
+    "pptx_schedule_",
+    "pptx_revision_summary_",
+    "pdfgraph_",
+    "pdfrole_",
+    "pdf_native_style_",
+    "docx_page_structure_",
 )
 LEGAL_FORMS = (
     "株式会社",

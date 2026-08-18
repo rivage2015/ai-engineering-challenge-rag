@@ -2590,6 +2590,10 @@ class StructuredCandidateTest(unittest.TestCase):
             "案件遂行に関連する変更を挙げてください。",
             "folder_alphaにあるmap_alphaにおいて、person_alphaさんから見て"
             "右側に座っている人の名前をすべて挙げてください。",
+            "site_alphaのreview_old.ipynbからreview.ipynbへの変更内容のうち、"
+            "内容として変わっている点は何ですか。",
+            "site_alphaの会議ID：M04の会議録にて、"
+            "進捗サマリが記載されているページ番号を答えてください。",
         )
         for question in questions:
             with self.subTest(question=question):
@@ -2611,6 +2615,10 @@ class StructuredCandidateTest(unittest.TestCase):
             "案件遂行に関連する変更を挙げてください。",
             "folder_alphaにあるmap_alphaにおいて、person_alphaさんから見て"
             "右側に座っている人の名前をすべて挙げてください。",
+            "site_alphaのreview_old.ipynbからreview.ipynbへの変更内容のうち、"
+            "内容として変わっている点は何ですか。",
+            "site_alphaの会議ID：M04の会議録にて、"
+            "進捗サマリが記載されているページ番号を答えてください。",
         )
         for question in questions:
             with self.subTest(question=question):

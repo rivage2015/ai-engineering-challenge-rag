@@ -64,6 +64,23 @@ def _word(
     )
 
 
+def _line(text: str, bbox: rules._BBox, sequence: int) -> rules._OCRLine:
+    return rules._OCRLine(text=text, bbox=bbox, sequence=sequence)
+
+
+def _text_page(
+    page_number: int,
+    *runs: tuple[rules._OCRLine, ...],
+    width: int = 1000,
+    height: int = 1000,
+) -> rules._PageEvidence:
+    from PIL import Image
+
+    page = _page_from_image(Image.new("RGB", (width, height), "white"), page_number)
+    page.hint_runs = tuple(runs)
+    return page
+
+
 def _three_row_grid_page(
     *,
     omit_middle_ocr: bool,
@@ -145,6 +162,41 @@ class PDFVisualGrammarTest(unittest.TestCase):
             list(rules._TABLE_OPERATORS),
         )
 
+    def test_meeting_section_page_full_grammar_compiles_typed_graph(self) -> None:
+        question = (
+            "Opaque Worksの会議ID：M04の会議録にて、"
+            "進捗サマリが記載されているページ番号を答えてください。"
+        )
+        graph = rules.graph_contract_for_pdf_question(question)
+        self.assertIsNotNone(graph)
+        assert graph is not None
+        self.assertEqual(graph["rule_id"], "pdf_meeting_section_page_number")
+        self.assertEqual(graph["scope"]["meeting_id"], "M04")
+        self.assertEqual(graph["scope"]["section_heading"], "進捗サマリ")
+        self.assertEqual(
+            graph["requested_output"]["answer_shape"]["value_type"], "integer"
+        )
+        self.assertEqual(
+            [node["operator"] for node in graph["operation_graph"]["nodes"]],
+            list(rules._MEETING_SECTION_PAGE_OPERATORS),
+        )
+
+    def test_phase_effort_sum_full_grammar_compiles_typed_graph(self) -> None:
+        question = (
+            "Opaque Worksの最終報告PDFにおいて、将来のフェーズAとフェーズBを"
+            "実施した場合の想定工数は合計で何時間ですか。"
+        )
+        graph = rules.graph_contract_for_pdf_question(question)
+        self.assertIsNotNone(graph)
+        assert graph is not None
+        self.assertEqual(graph["rule_id"], "pdf_phase_effort_range_sum")
+        self.assertEqual(graph["scope"]["phases"], ["フェーズA", "フェーズB"])
+        self.assertEqual(graph["requested_output"]["answer_shape"]["unit"], "時間")
+        self.assertEqual(
+            [node["operator"] for node in graph["operation_graph"]["nodes"]],
+            list(rules._PHASE_EFFORT_SUM_OPERATORS),
+        )
+
     def test_near_match_and_trailing_instruction_are_rejected(self) -> None:
         missing_quantifier = (
             "Opaque Worksの最終報告における、Signal Factorsのページで、"
@@ -156,6 +208,18 @@ class PDFVisualGrammarTest(unittest.TestCase):
         )
         self.assertIsNone(rules.graph_contract_for_pdf_question(missing_quantifier))
         self.assertIsNone(rules.graph_contract_for_pdf_question(appended))
+        self.assertIsNone(
+            rules.graph_contract_for_pdf_question(
+                "Opaque Worksの最終報告PDFにおいて、将来のフェーズAとフェーズAを"
+                "実施した場合の想定工数は合計で何時間ですか。"
+            )
+        )
+        self.assertIsNone(
+            rules.graph_contract_for_pdf_question(
+                "Opaque Worksの会議ID：M04の会議録にて、"
+                "進捗サマリが記載されているページ番号を答えてください。推測可。"
+            )
+        )
         self.assertIsNone(rules.graph_contract_for_pdf_question(""))
 
 
@@ -186,6 +250,19 @@ class PDFVisualSourceAndArtifactTest(unittest.TestCase):
         )
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_bytes(b"%PDF-1.4\nopaque-source\n")
+        return path
+
+    def _meeting_pdf(self, name: str, location: str = "Opaque Works") -> Path:
+        path = (
+            self.source_root
+            / "プロジェクト"
+            / location
+            / "05.会議"
+            / "会議録"
+            / name
+        )
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(b"%PDF-1.4\nopaque-meeting\n")
         return path
 
     def _write_materialized_record(
@@ -264,6 +341,25 @@ class PDFVisualSourceAndArtifactTest(unittest.TestCase):
             rules._matching_report_paths(
                 self.engine, "Opaque Works", "最終報告"
             ),
+        )
+
+    def test_meeting_candidates_are_project_and_folder_bound_not_id_named(self) -> None:
+        first = self._meeting_pdf("会議録_2025-01-10.pdf")
+        second = self._meeting_pdf("会議録_2025-02-10.pdf")
+        self._meeting_pdf("会議録_2025-03-10_旧版.pdf")
+        unrelated = (
+            self.source_root
+            / "プロジェクト"
+            / "Opaque Works"
+            / "06.報告書"
+            / "会議録_2025-04-10.pdf"
+        )
+        unrelated.parent.mkdir(parents=True, exist_ok=True)
+        unrelated.write_bytes(b"%PDF-1.4\nunrelated\n")
+
+        self.assertEqual(
+            rules._matching_meeting_paths(self.engine, "Opaque Works"),
+            (first.resolve(), second.resolve()),
         )
 
     def test_materialized_sha_bind_and_missing_page_render_cover_all_pages(self) -> None:
@@ -427,6 +523,165 @@ class PDFVisualSourceAndArtifactTest(unittest.TestCase):
             return_value=_png_bytes(801, 450),
         ):
             self.assertFalse(rules._selected_page_matches_source(page, source))
+
+
+class PDFVisualMeetingSectionTest(unittest.TestCase):
+    @staticmethod
+    def _pages() -> tuple[rules._PageEvidence, ...]:
+        first = _text_page(
+            1,
+            (_line("会議ID: M04", rules._BBox(60, 90, 220, 120), 1),),
+            (_line("議ID: M04", rules._BBox(60, 90, 210, 120), 1),),
+        )
+        second = _text_page(
+            2,
+            (_line("4. 進捗サマリ", rules._BBox(60, 250, 260, 290), 1),),
+            (_line("4. 進捗けサマリ", rules._BBox(60, 250, 280, 290), 1),),
+        )
+        third = _text_page(
+            3,
+            (_line("6. アクション", rules._BBox(60, 200, 260, 240), 1),),
+            (_line("6. アクション", rules._BBox(60, 200, 260, 240), 1),),
+        )
+        return first, second, third
+
+    def test_meeting_id_and_heading_preserve_run_differences(self) -> None:
+        pages = self._pages()
+        self.assertEqual(rules._meeting_id_binding_state(pages[0], "M04"), "match")
+        selected = rules._meeting_section_page(pages, "進捗サマリ")
+        self.assertIsNotNone(selected)
+        assert selected is not None
+        self.assertEqual(selected.page_number, 2)
+
+    def test_meeting_id_or_heading_run_disagreement_fails_closed(self) -> None:
+        pages = list(self._pages())
+        pages[0].hint_runs = (
+            pages[0].hint_runs[0],
+            (_line("議ID: M03", rules._BBox(60, 90, 210, 120), 1),),
+        )
+        self.assertEqual(
+            rules._meeting_id_binding_state(pages[0], "M04"), "ambiguous"
+        )
+
+        non_target = _text_page(
+            1,
+            (_line("会議ID: M01", rules._BBox(60, 90, 220, 120), 1),),
+            (_line("会議情報", rules._BBox(60, 90, 220, 120), 1),),
+        )
+        self.assertEqual(
+            rules._meeting_id_binding_state(non_target, "M04"), "mismatch"
+        )
+        missing_positive_run = _text_page(
+            1,
+            (_line("会議ID: M04", rules._BBox(60, 90, 220, 120), 1),),
+            (_line("会議情報", rules._BBox(60, 90, 220, 120), 1),),
+        )
+        self.assertEqual(
+            rules._meeting_id_binding_state(missing_positive_run, "M04"),
+            "ambiguous",
+        )
+
+        pages = list(self._pages())
+        pages[1].hint_runs = (
+            pages[1].hint_runs[0],
+            (_line("5. 進捗けサマリ", rules._BBox(60, 250, 280, 290), 1),),
+        )
+        self.assertIsNone(rules._meeting_section_page(pages, "進捗サマリ"))
+
+    def test_duplicate_section_page_fails_closed(self) -> None:
+        pages = list(self._pages())
+        pages[2].hint_runs = (
+            (_line("4. 進捗サマリ", rules._BBox(60, 200, 260, 240), 1),),
+            (_line("4. 進捗けサマリ", rules._BBox(60, 200, 280, 240), 1),),
+        )
+        self.assertIsNone(rules._meeting_section_page(pages, "進捗サマリ"))
+
+
+class PDFVisualPhaseEffortTest(unittest.TestCase):
+    @staticmethod
+    def _page(
+        *,
+        second_b: str = "期間/工数: 4-8週間 / 60-100h想定",
+        a_bbox: rules._BBox = rules._BBox(100, 580, 400, 630),
+    ) -> rules._PageEvidence:
+        first_run = (
+            _line("フェーズB (最小バッチ運用)", rules._BBox(500, 250, 800, 300), 1),
+            _line("期間/工数: 4-8週間 / 60-100h想定", rules._BBox(500, 330, 820, 380), 2),
+            _line("フェーズA (運用前準備)", rules._BBox(100, 500, 380, 550), 3),
+            _line("期間/工数: 2-4週間 / 20-30h想定", a_bbox, 4),
+        )
+        second_run = (
+            _line("フ ェ ー ズ B (最小バッチ運用)", rules._BBox(500, 250, 800, 300), 1),
+            _line(second_b, rules._BBox(500, 330, 820, 380), 2),
+            _line("フ ェ ー ズ A (運用前準備)", rules._BBox(100, 500, 380, 550), 3),
+            _line("上 noise: 2-30s / 20-30h 下", a_bbox, 4),
+        )
+        return _text_page(8, first_run, second_run)
+
+    def test_phase_ranges_are_spatially_bound_and_run_agreed(self) -> None:
+        page = self._page()
+        state, pair = rules._phase_efforts_for_page(
+            page, "フェーズA", "フェーズB"
+        )
+        self.assertEqual(state, "resolved")
+        assert pair is not None
+        self.assertEqual((pair[0].lower, pair[0].upper), (20, 30))
+        self.assertEqual((pair[1].lower, pair[1].upper), (60, 100))
+
+    def test_week_ranges_and_spatially_wrong_ranges_do_not_bind(self) -> None:
+        self.assertEqual(rules._effort_ranges("期間: 2-4週間"), ())
+        state, _ = rules._phase_efforts_for_page(
+            self._page(a_bbox=rules._BBox(600, 580, 900, 630)),
+            "フェーズA",
+            "フェーズB",
+        )
+        self.assertEqual(state, "ambiguous")
+
+        concatenated = _text_page(
+            9,
+            (
+                _line(
+                    "中期 / 拡張フェーズ API、イベント",
+                    rules._BBox(100, 200, 700, 250),
+                    1,
+                ),
+            ),
+        )
+        state, _ = rules._phase_efforts_for_page(
+            concatenated, "フェーズA", "フェーズB"
+        )
+        self.assertEqual(state, "absent")
+
+    def test_run_range_disagreement_fails_closed(self) -> None:
+        state, _ = rules._phase_efforts_for_page(
+            self._page(second_b="期間/工数: 4-8週間 / 70-110h想定"),
+            "フェーズA",
+            "フェーズB",
+        )
+        self.assertEqual(state, "ambiguous")
+
+    def test_fresh_crop_requires_every_psm_to_preserve_the_range(self) -> None:
+        page = self._page()
+        evidence = rules._EffortRangeEvidence(
+            20, 30, 4, rules._BBox(100, 580, 400, 630)
+        )
+        with mock.patch.object(
+            rules,
+            "_ocr_crop_once",
+            side_effect=(
+                "期間/工数: 2-4週間 / 20-30h想定",
+                "noise 20-30h",
+                "20-30h / assumed",
+            ),
+        ):
+            self.assertTrue(rules._fresh_effort_range_agrees(page, evidence))
+        with mock.patch.object(
+            rules,
+            "_ocr_crop_once",
+            side_effect=("20-30h", "20-30h", "25-35h"),
+        ):
+            self.assertFalse(rules._fresh_effort_range_agrees(page, evidence))
+
 
 class PDFVisualMarkerTest(unittest.TestCase):
     @staticmethod
@@ -684,6 +939,17 @@ class PDFVisualDecisionTest(unittest.TestCase):
         source.parent.mkdir(parents=True)
         source.write_bytes(b"%PDF-1.4\nopaque\n")
         self.source = source
+        meeting = (
+            self.source_root
+            / "プロジェクト"
+            / "Opaque Works"
+            / "05.会議"
+            / "会議録"
+            / "会議録_2025-01-10.pdf"
+        )
+        meeting.parent.mkdir(parents=True)
+        meeting.write_bytes(b"%PDF-1.4\nopaque-meeting\n")
+        self.meeting = meeting
         self.engine = SimpleNamespace(
             source_root=self.source_root,
             glossary=SimpleNamespace(entries={}),
@@ -718,6 +984,71 @@ class PDFVisualDecisionTest(unittest.TestCase):
             decision.result.source_paths,
             (self.source.relative_to(self.source_root).as_posix(),),
         )
+
+    def test_meeting_section_decision_projects_only_source_page_number(self) -> None:
+        question = (
+            "Opaque Worksの会議ID：M04の会議録にて、"
+            "進捗サマリが記載されているページ番号を答えてください。"
+        )
+        selected = _text_page(
+            2,
+            (_line("4. 進捗サマリ", rules._BBox(20, 20, 180, 50), 1),),
+            (_line("4. 進捗けサマリ", rules._BBox(20, 20, 190, 50), 1),),
+        )
+        with mock.patch.object(
+            rules,
+            "_bound_meeting_source",
+            return_value=(self.meeting.resolve(), (selected,)),
+        ), mock.patch.object(
+            rules, "_meeting_section_page", return_value=selected
+        ):
+            decision = rules.decide_pdf_visual(self.engine, question)
+        self.assertIsNotNone(decision)
+        assert decision is not None and decision.result is not None
+        self.assertEqual(decision.result.answer, "2")
+        self.assertEqual(
+            decision.result.source_paths,
+            (self.meeting.relative_to(self.source_root).as_posix(),),
+        )
+
+    def test_phase_effort_decision_sums_source_ranges_not_question_values(self) -> None:
+        question = (
+            "Opaque Worksの最終報告PDFにおいて、将来のフェーズAとフェーズBを"
+            "実施した場合の想定工数は合計で何時間ですか。"
+        )
+        left = rules._EffortRangeEvidence(
+            20, 30, 1, rules._BBox(20, 20, 100, 50)
+        )
+        right = rules._EffortRangeEvidence(
+            60, 100, 2, rules._BBox(120, 20, 200, 50)
+        )
+        with mock.patch.object(
+            rules, "_all_pdf_pages", return_value=(self.page,)
+        ), mock.patch.object(
+            rules, "_phase_effort_page", return_value=(self.page, left, right)
+        ), mock.patch.object(
+            rules, "_fresh_effort_range_agrees", return_value=True
+        ):
+            decision = rules.decide_pdf_visual(self.engine, question)
+        self.assertIsNotNone(decision)
+        assert decision is not None and decision.result is not None
+        self.assertEqual(decision.result.answer, "80〜130時間")
+
+        changed_left = rules._EffortRangeEvidence(
+            30, 40, 1, rules._BBox(20, 20, 100, 50)
+        )
+        with mock.patch.object(
+            rules, "_all_pdf_pages", return_value=(self.page,)
+        ), mock.patch.object(
+            rules,
+            "_phase_effort_page",
+            return_value=(self.page, changed_left, right),
+        ), mock.patch.object(
+            rules, "_fresh_effort_range_agrees", return_value=True
+        ):
+            changed = rules.decide_pdf_visual(self.engine, question)
+        assert changed is not None and changed.result is not None
+        self.assertEqual(changed.result.answer, "90〜140時間")
 
     def test_nonunique_source_and_nonunique_page_fail_closed(self) -> None:
         question = (
@@ -820,6 +1151,20 @@ class PDFVisualLiveGraphIntegrationTest(unittest.TestCase):
                 "Risk Qを抜き出してください。",
                 "pdf_table_ordinal_argextreme_projection",
                 "opaque_risk",
+            ),
+            (
+                "opaque-meeting-page-graph",
+                "Opaque Worksの会議ID：M04の会議録にて、"
+                "進捗サマリが記載されているページ番号を答えてください。",
+                "pdf_meeting_section_page_number",
+                "2",
+            ),
+            (
+                "opaque-phase-effort-graph",
+                "Opaque Worksの最終報告PDFにおいて、将来のフェーズAとフェーズBを"
+                "実施した場合の想定工数は合計で何時間ですか。",
+                "pdf_phase_effort_range_sum",
+                "80〜130時間",
             ),
         )
         for question_id, question, rule_id, answer in cases:

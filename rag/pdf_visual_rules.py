@@ -61,6 +61,22 @@ _TABLE_EXTREME_QUESTION = re.compile(
     r"(?P<target>[^,、。]+?)を抜き出してください。?$"
 )
 
+_MEETING_SECTION_PAGE_QUESTION = re.compile(
+    r"^(?P<location>.+?)の会議ID\s*[:：]\s*"
+    r"(?P<meeting_id>[A-Za-zＡ-Ｚａ-ｚ0-9０-９_-]+)の"
+    r"(?P<report_kind>会議録)にて、"
+    r"(?P<section>[^,、。]+?)が記載されている"
+    r"(?P<target>ページ番号)を答えてください。?$"
+)
+
+_PHASE_EFFORT_SUM_QUESTION = re.compile(
+    r"^(?P<location>.+?)の(?P<report_kind>最終報告)PDFにおいて、将来の"
+    r"(?P<phase_left>フェーズ[A-Za-zＡ-Ｚａ-ｚ0-9０-９]+)と"
+    r"(?P<phase_right>フェーズ[A-Za-zＡ-Ｚａ-ｚ0-9０-９]+)"
+    r"を実施した場合の(?P<metric>想定工数)は"
+    r"(?P<aggregate>合計)で何(?P<unit>時間)ですか。?$"
+)
+
 _MARKER_OPERATORS = (
     "retrieve",
     "bind_unique_source",
@@ -88,6 +104,35 @@ _TABLE_OPERATORS = (
     "parse_ordinal",
     "argextreme_all",
     "verify_unique",
+    "project",
+)
+
+_MEETING_SECTION_PAGE_OPERATORS = (
+    "retrieve",
+    "enumerate_candidate_documents",
+    "enumerate_pages",
+    "verify_or_render",
+    "ocr",
+    "bind_meeting_id_header",
+    "verify_ocr_run_agreement",
+    "match_section_heading",
+    "verify_unique_page",
+    "bind_page_to_source",
+    "project",
+    "page_number",
+)
+
+_PHASE_EFFORT_SUM_OPERATORS = (
+    "retrieve",
+    "bind_unique_source",
+    "enumerate_pages",
+    "verify_or_render",
+    "ocr",
+    "match_phase_headers",
+    "associate_effort_ranges_spatially",
+    "verify_ocr_run_agreement",
+    "sum_range_endpoints",
+    "bind_page_to_source",
     "project",
 )
 
@@ -152,7 +197,7 @@ def _graph_contract(
                 "target": bindings["target"],
             }
         )
-    else:
+    elif rule_id == "pdf_table_ordinal_argextreme_projection":
         scope.update(
             {
                 "metric_header": bindings["metric"],
@@ -163,6 +208,28 @@ def _graph_contract(
                 "style_channel": "raster_table_cell",
             }
         )
+    elif rule_id == "pdf_meeting_section_page_number":
+        scope.update(
+            {
+                "container": "05.会議/会議録/*.pdf",
+                "meeting_id": bindings["meeting_id"],
+                "section_heading": bindings["section"],
+                "target": bindings["target"],
+                "style_channel": "raster_heading_text",
+            }
+        )
+    elif rule_id == "pdf_phase_effort_range_sum":
+        scope.update(
+            {
+                "phases": [bindings["phase_left"], bindings["phase_right"]],
+                "metric": bindings["metric"],
+                "aggregate": bindings["aggregate"],
+                "unit": bindings["unit"],
+                "style_channel": "raster_spatial_text",
+            }
+        )
+    else:
+        raise ValueError(f"unsupported PDF visual rule: {rule_id}")
     core = {
         "pdf_visual_rule_version": PDF_VISUAL_RULE_VERSION,
         "rule_id": rule_id,
@@ -232,6 +299,42 @@ def graph_contract_for_pdf_question(question: str) -> dict[str, Any] | None:
                     "container": "scalar",
                     "value_type": "string",
                     "unit": None,
+                },
+            },
+        )
+    meeting = _MEETING_SECTION_PAGE_QUESTION.fullmatch(question)
+    if meeting is not None:
+        return _graph_contract(
+            question,
+            meeting,
+            "pdf_meeting_section_page_number",
+            _MEETING_SECTION_PAGE_OPERATORS,
+            {
+                "cardinality": "single",
+                "answer_shape": {
+                    "container": "scalar",
+                    "value_type": "integer",
+                    "unit": None,
+                },
+            },
+        )
+    phase_effort = _PHASE_EFFORT_SUM_QUESTION.fullmatch(question)
+    if phase_effort is not None:
+        if _compact(phase_effort["phase_left"]) == _compact(
+            phase_effort["phase_right"]
+        ):
+            return None
+        return _graph_contract(
+            question,
+            phase_effort,
+            "pdf_phase_effort_range_sum",
+            _PHASE_EFFORT_SUM_OPERATORS,
+            {
+                "cardinality": "single",
+                "answer_shape": {
+                    "container": "scalar",
+                    "value_type": "string",
+                    "unit": phase_effort["unit"],
                 },
             },
         )
@@ -313,6 +416,14 @@ class _TableRowEvidence:
     metric_text: str
     metric_family: str
     metric_rank: Decimal
+
+
+@dataclass(frozen=True)
+class _EffortRangeEvidence:
+    lower: int
+    upper: int
+    line_sequence: int
+    bbox: _BBox
 
 
 def _sha256_bytes(value: bytes) -> str:
@@ -420,6 +531,70 @@ def _matching_report_paths(
         ):
             continue
         if not any("報告" in _normalized(part) for part in relative.parts):
+            continue
+        matches.append(path)
+    return tuple(
+        sorted(
+            matches,
+            key=lambda item: _nfc(item.relative_to(root).as_posix()),
+        )
+    )
+
+
+def _matching_meeting_paths(engine: Any, location: str) -> tuple[Path, ...]:
+    """Enumerate current meeting-minute PDFs without guessing an ID from names."""
+
+    try:
+        from structured_candidate import _candidate_values, _location_matches
+    except Exception:
+        return ()
+    try:
+        root = Path(getattr(engine, "source_root", "")).resolve()
+    except (OSError, TypeError, ValueError):
+        return ()
+    if not root.is_dir() or root.is_symlink():
+        return ()
+    candidates = _candidate_values(location, getattr(engine, "glossary", None))
+    matches: list[Path] = []
+    for path in root.rglob("*"):
+        if (
+            not path.is_file()
+            or path.is_symlink()
+            or path.name.startswith("~$")
+            or path.suffix.casefold() != ".pdf"
+        ):
+            continue
+        relative = path.relative_to(root)
+        if not _location_matches(relative.parts[:-1], candidates):
+            continue
+        if _compact(path.parent.name) != "会議録" or not _compact(path.stem).startswith(
+            "会議録"
+        ):
+            continue
+        if not any(_compact(part).startswith("05.会議") for part in relative.parts):
+            continue
+        compact_stem = _compact(path.stem)
+        if any(
+            marker in compact_stem
+            for marker in (
+                "旧版",
+                "旧稿",
+                "_old",
+                "-old",
+                "_backup",
+                "-backup",
+                "_bak",
+                "-bak",
+                "_archive",
+                "-archive",
+                "_archived",
+                "-archived",
+                "_previous",
+                "-previous",
+                "_prev",
+                "-prev",
+            )
+        ):
             continue
         matches.append(path)
     return tuple(
@@ -954,6 +1129,318 @@ def _selected_page_matches_source(page: _PageEvidence, source_path: Path) -> boo
         return False
     dimensions = _image_dimensions(rendered)
     return dimensions == (page.width, page.height)
+
+
+_MEETING_ID_HEADER = re.compile(
+    r"(?:会)?議id[:：](?P<meeting_id>[a-z0-9_-]{2,32})"
+)
+_NUMBERED_HEADING = re.compile(
+    r"^(?P<ordinal>[0-9]{1,3})[.:、・)）](?P<label>.+)$"
+)
+_EFFORT_RANGE = re.compile(
+    r"(?<![0-9])(?P<lower>[0-9]{1,5})"
+    r"[-‐‑‒–—―−〜~]"
+    r"(?P<upper>[0-9]{1,5})(?:hours?|hrs?|h|時間)(?![a-z])"
+)
+
+
+def _meeting_id_binding_state(
+    page: _PageEvidence,
+    requested_meeting_id: str,
+) -> str:
+    """Classify a candidate while requiring stronger evidence for a positive bind."""
+
+    if page.page_number != 1:
+        return "ambiguous"
+    runs = _page_runs(page)
+    if not runs:
+        return "ambiguous"
+    observed: list[str] = []
+    for run in runs:
+        values = {
+            match["meeting_id"]
+            for line in run
+            if line.bbox.top < page.height * 0.25
+            for match in [_MEETING_ID_HEADER.search(_compact(line.text))]
+            if match is not None
+        }
+        if len(values) > 1:
+            return "ambiguous"
+        if values:
+            observed.append(next(iter(values)))
+    if not observed or len(set(observed)) != 1:
+        return "ambiguous"
+    requested = _compact(requested_meeting_id)
+    if observed[0] != requested:
+        # One clear, source-bound non-target reading is sufficient to exclude a
+        # document.  A positive bind is stricter: every available run must read
+        # the requested ID, so a dropped/conflicting run can never select it.
+        return "mismatch"
+    return "match" if len(observed) == len(runs) else "ambiguous"
+
+
+def _script_group(character: str) -> str:
+    code = ord(character)
+    if (
+        0x3400 <= code <= 0x4DBF
+        or 0x4E00 <= code <= 0x9FFF
+        or 0xF900 <= code <= 0xFAFF
+    ):
+        return "han"
+    if 0x3040 <= code <= 0x309F:
+        return "hiragana"
+    if 0x30A0 <= code <= 0x30FF:
+        return "katakana"
+    if character.isalnum():
+        return "alnum"
+    return "other"
+
+
+def _section_anchors(section: str) -> tuple[str, ...]:
+    compact = _compact(section)
+    if not compact:
+        return ()
+    parts: list[str] = []
+    active_group: str | None = None
+    active: list[str] = []
+    for character in compact:
+        group = _script_group(character)
+        if group == "other":
+            if active:
+                parts.append("".join(active))
+                active = []
+                active_group = None
+            continue
+        if active and group != active_group:
+            parts.append("".join(active))
+            active = []
+        active.append(character)
+        active_group = group
+    if active:
+        parts.append("".join(active))
+    return tuple(part for part in parts if part)
+
+
+def _section_heading_ordinal(line_text: str, section: str) -> int | None:
+    match = _NUMBERED_HEADING.fullmatch(_compact(line_text))
+    if match is None:
+        return None
+    label = match["label"]
+    requested = _compact(section)
+    if not requested:
+        return None
+    if label != requested:
+        anchors = _section_anchors(section)
+        # OCR runs remain separate.  The tolerant path only accepts one inserted
+        # glyph between stable script-boundary anchors; it never rewrites either
+        # run into a preferred reading.
+        if len(anchors) < 2 or len(label) != len(requested) + 1:
+            return None
+        cursor = 0
+        for index, anchor in enumerate(anchors):
+            position = label.find(anchor, cursor)
+            if position < 0 or (index == 0 and position != 0) or position - cursor > 1:
+                return None
+            cursor = position + len(anchor)
+        if cursor != len(label):
+            return None
+    ordinal = int(match["ordinal"])
+    return ordinal if 1 <= ordinal <= 999 else None
+
+
+def _meeting_section_page(
+    pages: Sequence[_PageEvidence],
+    section: str,
+) -> _PageEvidence | None:
+    candidates: list[_PageEvidence] = []
+    for page in pages:
+        runs = _page_runs(page)
+        if not runs:
+            return None
+        run_ordinals: list[int | None] = []
+        for run in runs:
+            ordinals = {
+                ordinal
+                for line in run
+                for ordinal in [_section_heading_ordinal(line.text, section)]
+                if ordinal is not None
+            }
+            if len(ordinals) > 1:
+                return None
+            run_ordinals.append(next(iter(ordinals)) if ordinals else None)
+        present = [ordinal for ordinal in run_ordinals if ordinal is not None]
+        if present and len(present) != len(run_ordinals):
+            return None
+        if present:
+            if len(set(present)) != 1:
+                return None
+            candidates.append(page)
+    return candidates[0] if len(candidates) == 1 else None
+
+
+def _bound_meeting_source(
+    engine: Any,
+    location: str,
+    requested_meeting_id: str,
+) -> tuple[Path, tuple[_PageEvidence, ...]] | None:
+    paths = _matching_meeting_paths(engine, location)
+    if not paths:
+        return None
+    requested = _compact(requested_meeting_id)
+    if not requested:
+        return None
+    matches: list[tuple[Path, tuple[_PageEvidence, ...]]] = []
+    for path in paths:
+        source_sha = _source_sha256(path)
+        if source_sha is None:
+            return None
+        pages = _all_pdf_pages(engine, path, source_sha)
+        if not pages:
+            return None
+        first_pages = [page for page in pages if page.page_number == 1]
+        if len(first_pages) != 1 or not _selected_page_matches_source(first_pages[0], path):
+            return None
+        state = _meeting_id_binding_state(first_pages[0], requested)
+        if state == "ambiguous":
+            return None
+        if state == "match":
+            matches.append((path, pages))
+    return matches[0] if len(matches) == 1 else None
+
+
+def _effort_ranges(value: str) -> tuple[tuple[int, int], ...]:
+    ranges: set[tuple[int, int]] = set()
+    for match in _EFFORT_RANGE.finditer(_compact(value)):
+        lower = int(match["lower"])
+        upper = int(match["upper"])
+        if 0 < lower <= upper <= 100_000:
+            ranges.add((lower, upper))
+    return tuple(sorted(ranges))
+
+
+def _line_belongs_to_phase(
+    page: _PageEvidence,
+    header: _OCRLine,
+    candidate: _OCRLine,
+) -> bool:
+    vertical_distance = candidate.bbox.center_y - header.bbox.center_y
+    if not 0 <= vertical_distance <= page.height * 0.25:
+        return False
+    overlap = max(
+        0,
+        min(header.bbox.right, candidate.bbox.right)
+        - max(header.bbox.left, candidate.bbox.left),
+    )
+    minimum_width = min(header.bbox.width, candidate.bbox.width)
+    return minimum_width > 0 and overlap >= minimum_width * 0.25
+
+
+def _phase_effort_for_run(
+    page: _PageEvidence,
+    run: Sequence[_OCRLine],
+    phase: str,
+) -> tuple[str, _EffortRangeEvidence | None]:
+    requested = _compact(phase)
+    phase_pattern = re.compile(re.escape(requested) + r"(?![a-z0-9])")
+    headers = [
+        line for line in run if phase_pattern.search(_compact(line.text)) is not None
+    ]
+    if not headers:
+        return "absent", None
+    if len(headers) != 1:
+        return "ambiguous", None
+    header = headers[0]
+    candidates: list[_EffortRangeEvidence] = []
+    for line in run:
+        if not _line_belongs_to_phase(page, header, line):
+            continue
+        ranges = _effort_ranges(line.text)
+        if len(ranges) > 1:
+            return "ambiguous", None
+        if len(ranges) == 1:
+            lower, upper = ranges[0]
+            candidates.append(
+                _EffortRangeEvidence(lower, upper, line.sequence, line.bbox)
+            )
+    if len(candidates) != 1:
+        return "ambiguous", None
+    return "resolved", candidates[0]
+
+
+def _phase_efforts_for_page(
+    page: _PageEvidence,
+    phase_left: str,
+    phase_right: str,
+) -> tuple[str, tuple[_EffortRangeEvidence, _EffortRangeEvidence] | None]:
+    runs = _page_runs(page)
+    if not runs:
+        return "ambiguous", None
+    resolved: list[tuple[_EffortRangeEvidence, _EffortRangeEvidence]] = []
+    absent_runs = 0
+    for run in runs:
+        left_state, left = _phase_effort_for_run(page, run, phase_left)
+        right_state, right = _phase_effort_for_run(page, run, phase_right)
+        if left_state == right_state == "absent":
+            absent_runs += 1
+            continue
+        if (
+            left_state != "resolved"
+            or right_state != "resolved"
+            or left is None
+            or right is None
+            or left.line_sequence == right.line_sequence
+        ):
+            return "ambiguous", None
+        resolved.append((left, right))
+    if absent_runs == len(runs):
+        return "absent", None
+    if absent_runs or not resolved:
+        return "ambiguous", None
+    values = {
+        (left.lower, left.upper, right.lower, right.upper)
+        for left, right in resolved
+    }
+    if len(values) != 1:
+        return "ambiguous", None
+    return "resolved", resolved[0]
+
+
+def _fresh_effort_range_agrees(
+    page: _PageEvidence,
+    evidence: _EffortRangeEvidence,
+) -> bool:
+    crop = _crop_image(
+        page,
+        evidence.bbox,
+        padding=max(4, round(evidence.bbox.height * 0.16)),
+    )
+    if crop is None:
+        return False
+    readings = [_ocr_crop_once(crop, psm, "jpn+eng") for psm in (3, 6, 7)]
+    if any(reading is None or len(reading) > 512 for reading in readings):
+        return False
+    parsed = [_effort_ranges(reading or "") for reading in readings]
+    return all(
+        values == ((evidence.lower, evidence.upper),)
+        for values in parsed
+    )
+
+
+def _phase_effort_page(
+    pages: Sequence[_PageEvidence],
+    phase_left: str,
+    phase_right: str,
+) -> tuple[_PageEvidence, _EffortRangeEvidence, _EffortRangeEvidence] | None:
+    candidates: list[
+        tuple[_PageEvidence, _EffortRangeEvidence, _EffortRangeEvidence]
+    ] = []
+    for page in pages:
+        state, evidence = _phase_efforts_for_page(page, phase_left, phase_right)
+        if state == "ambiguous":
+            return None
+        if state == "resolved" and evidence is not None:
+            candidates.append((page, evidence[0], evidence[1]))
+    return candidates[0] if len(candidates) == 1 else None
 
 
 def _runs_contain_headers(
@@ -1802,6 +2289,26 @@ def decide_pdf_visual(engine: Any, question: str) -> StructuredCandidateDecision
         source_root = Path(getattr(engine, "source_root", "")).resolve()
     except (OSError, TypeError, ValueError):
         return None
+    if contract["rule_id"] == "pdf_meeting_section_page_number":
+        bound = _bound_meeting_source(
+            engine,
+            bindings["location"],
+            bindings["meeting_id"],
+        )
+        if bound is None:
+            return None
+        source, pages = bound
+        selected_page = _meeting_section_page(pages, bindings["section"])
+        if selected_page is None or not _selected_page_matches_source(
+            selected_page, source
+        ):
+            return None
+        return _decision(
+            str(selected_page.page_number),
+            source,
+            source_root,
+            len(_MEETING_SECTION_PAGE_OPERATORS),
+        )
     paths = _matching_report_paths(
         engine,
         bindings["location"],
@@ -1845,6 +2352,34 @@ def decide_pdf_visual(engine: Any, question: str) -> StructuredCandidateDecision
             source_root,
             len(_MARKER_OPERATORS),
         )
+    if contract["rule_id"] == "pdf_phase_effort_range_sum":
+        selected = _phase_effort_page(
+            pages,
+            bindings["phase_left"],
+            bindings["phase_right"],
+        )
+        if selected is None:
+            return None
+        selected_page, left, right = selected
+        if not _selected_page_matches_source(selected_page, source):
+            return None
+        if not _fresh_effort_range_agrees(
+            selected_page, left
+        ) or not _fresh_effort_range_agrees(selected_page, right):
+            return None
+        lower = left.lower + right.lower
+        upper = left.upper + right.upper
+        if not 0 < lower <= upper <= 100_000:
+            return None
+        answer = f"{lower}時間" if lower == upper else f"{lower}〜{upper}時間"
+        return _decision(
+            answer,
+            source,
+            source_root,
+            len(_PHASE_EFFORT_SUM_OPERATORS),
+        )
+    if contract["rule_id"] != "pdf_table_ordinal_argextreme_projection":
+        return None
     candidate_pages: list[_PageEvidence] = []
     for page in pages:
         state = _runs_contain_headers(

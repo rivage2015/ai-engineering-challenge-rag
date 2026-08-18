@@ -710,6 +710,14 @@ def graph_contract_for_question(question: str) -> dict[str, Any] | None:
     if contract is not None:
         return contract
 
+    from xlsx_pivot_highlight_rules import (
+        graph_contract_for_question as xlsx_pivot_highlight_contract,
+    )
+
+    contract = xlsx_pivot_highlight_contract(question)
+    if contract is not None:
+        return contract
+
     from xlsx_histogram_rules import (
         graph_contract_for_question as xlsx_histogram_contract,
     )
@@ -731,6 +739,62 @@ def graph_contract_for_question(question: str) -> dict[str, Any] | None:
     )
 
     contract = xlsx_version_diff_contract(question)
+    if contract is not None:
+        return contract
+
+    from notebook_version_diff_rules import (
+        graph_contract_for_question as notebook_version_diff_contract,
+    )
+
+    contract = notebook_version_diff_contract(question)
+    if contract is not None:
+        return contract
+
+    from cross_document_finance_rules import (
+        graph_contract_for_question as cross_document_finance_contract,
+    )
+
+    contract = cross_document_finance_contract(question)
+    if contract is not None:
+        return contract
+
+    from pptx_schedule_rules import (
+        graph_contract_for_question as pptx_schedule_contract,
+    )
+
+    contract = pptx_schedule_contract(question)
+    if contract is not None:
+        return contract
+
+    from pptx_revision_summary_rules import (
+        graph_contract_for_question as pptx_revision_summary_contract,
+    )
+
+    contract = pptx_revision_summary_contract(question)
+    if contract is not None:
+        return contract
+
+    from pdf_operational_role_rules import (
+        graph_contract_for_question as pdf_operational_role_contract,
+    )
+
+    contract = pdf_operational_role_contract(question)
+    if contract is not None:
+        return contract
+
+    from pdf_native_style_rules import (
+        graph_contract_for_question as pdf_native_style_contract,
+    )
+
+    contract = pdf_native_style_contract(question)
+    if contract is not None:
+        return contract
+
+    from docx_page_structure_rules import (
+        graph_contract_for_question as docx_page_structure_contract,
+    )
+
+    contract = docx_page_structure_contract(question)
     if contract is not None:
         return contract
 
@@ -5966,6 +6030,14 @@ def decide_extended(engine: Any, question_id: str, question: str) -> StructuredC
     if xlsx_highlight is not None:
         return xlsx_highlight
 
+    from xlsx_pivot_highlight_rules import (
+        decide_question as decide_xlsx_pivot_highlight,
+    )
+
+    xlsx_pivot_highlight = decide_xlsx_pivot_highlight(engine, question)
+    if xlsx_pivot_highlight is not None:
+        return xlsx_pivot_highlight
+
     from xlsx_histogram_rules import decide_question as decide_xlsx_histogram
 
     xlsx_histogram = decide_xlsx_histogram(engine, question)
@@ -5983,6 +6055,54 @@ def decide_extended(engine: Any, question_id: str, question: str) -> StructuredC
     xlsx_version_diff = decide_xlsx_version_diff(engine, question)
     if xlsx_version_diff is not None:
         return xlsx_version_diff
+
+    from notebook_version_diff_rules import (
+        decide_question as decide_notebook_version_diff,
+    )
+
+    notebook_version_diff = decide_notebook_version_diff(engine, question)
+    if notebook_version_diff is not None:
+        return notebook_version_diff
+
+    from cross_document_finance_rules import (
+        decide_question as decide_cross_document_finance,
+    )
+
+    cross_document_finance = decide_cross_document_finance(engine, question)
+    if cross_document_finance is not None:
+        return cross_document_finance
+
+    from pptx_schedule_rules import decide_question as decide_pptx_schedule
+
+    pptx_schedule = decide_pptx_schedule(engine, question)
+    if pptx_schedule is not None:
+        return pptx_schedule
+
+    from pptx_revision_summary_rules import decide_question as decide_pptx_revision_summary
+
+    pptx_revision_summary = decide_pptx_revision_summary(engine, question)
+    if pptx_revision_summary is not None:
+        return pptx_revision_summary
+
+    from pdf_operational_role_rules import (
+        decide_question as decide_pdf_operational_role,
+    )
+
+    pdf_operational_role = decide_pdf_operational_role(engine, question)
+    if pdf_operational_role is not None:
+        return pdf_operational_role
+
+    from pdf_native_style_rules import decide_question as decide_pdf_native_style
+
+    pdf_native_style = decide_pdf_native_style(engine, question)
+    if pdf_native_style is not None:
+        return pdf_native_style
+
+    from docx_page_structure_rules import decide_question as decide_docx_page_structure
+
+    docx_page_structure = decide_docx_page_structure(engine, question)
+    if docx_page_structure is not None:
+        return docx_page_structure
 
     from docx_native_style_rules import (
         decide_question as decide_docx_native_style,

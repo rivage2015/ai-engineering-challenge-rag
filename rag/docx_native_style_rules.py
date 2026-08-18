@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import colorsys
 import hashlib
+import io
 import json
 import posixpath
 import re
@@ -29,7 +30,7 @@ from structured_candidate import (
 )
 
 
-DOCX_NATIVE_STYLE_RULE_VERSION = "0.2"
+DOCX_NATIVE_STYLE_RULE_VERSION = "0.3"
 
 HIGHLIGHT_AND_FONT = re.compile(
     r"^(?P<location>.+?)の(?P<document_role>中間報告資料)にて、"
@@ -40,6 +41,17 @@ HIGHLIGHT_AND_FONT = re.compile(
 EFFECTIVE_BOLD = re.compile(
     r"^(?P<location>.+?)との(?P<document_role>契約書)において、"
     r"(?P<style>太字)で記載されている部分を"
+    r"抽出してください。?$"
+)
+EFFECTIVE_BOLD_EXCLUDING_DATES = re.compile(
+    r"^(?P<location>.+?)の(?P<document_role>契約書)において、"
+    r"(?P<style>太字)で記載されている箇所のうち、"
+    r"日付以外のものをすべて抽出してください。$"
+)
+MEETING_STYLE_INTERSECTION = re.compile(
+    r"^(?P<location>.+?)の(?P<document_role>会議録)の中で、"
+    r"(?P<style_1>太字)、(?P<style_2>下線)、"
+    r"(?P<style_3>イタリック)のすべてに該当する箇所を"
     r"抽出してください。?$"
 )
 
@@ -92,7 +104,9 @@ _ARCHIVE_WORDS = (
     "旧版",
     "履歴",
 )
-_STYLE_PROPERTIES = frozenset({"b", "bCs", "vanish", "highlight", "color"})
+_STYLE_PROPERTIES = frozenset(
+    {"b", "bCs", "i", "iCs", "u", "vanish", "highlight", "color"}
+)
 _SKIP_CONTENT = frozenset({_W + "del", _W + "moveFrom"})
 _OFFICE_REL_PREFIXES = (
     "http://schemas.openxmlformats.org/officeDocument/2006/relationships/",
@@ -116,6 +130,9 @@ class _ColorSpec:
 class _RunDelta:
     bold: bool | None = None
     bold_cs: bool | None = None
+    italic: bool | None = None
+    italic_cs: bool | None = None
+    underline: bool | None = None
     vanish: bool | None = None
     highlight_present: bool = False
     highlight: str | None = None
@@ -127,6 +144,9 @@ class _RunDelta:
 class _RunState:
     bold: bool = False
     bold_cs: bool = False
+    italic: bool = False
+    italic_cs: bool = False
+    underline: bool = False
     vanish: bool = False
     highlight: str | None = None
     color_rgb: str | None = None
@@ -346,6 +366,74 @@ def graph_contract_for_question(question: str) -> dict[str, Any] | None:
                 "project_exact_text",
             ),
         )
+    match = EFFECTIVE_BOLD_EXCLUDING_DATES.fullmatch(question)
+    if match:
+        bindings = {key: match[key] for key in ("location", "document_role", "style")}
+        contract = _contract(
+            question,
+            "docx_effective_bold_text_excluding_dates",
+            bindings,
+            {
+                "location": bindings["location"],
+                "container": "01.契約/契約書*.docx",
+                "source_channel": "decrypted_in_memory_wordprocessingml_effective_run_style",
+                "style_predicates": [{"property": "bold", "operator": "eq", "value": True}],
+                "exclusion_predicate": "complete_date_expression",
+                "projection": "all_authored_non_date_text",
+            },
+            (
+                "retrieve", "derive_filename_password_candidate", "decrypt_docx_in_memory",
+                "validate_docx_package", "parse_style_cascade", "compute_effective_run_style",
+                "filter_effective_bold", "exclude_complete_date_expressions",
+                "coalesce_contiguous_runs", "verify_all_matches", "project_exact_text",
+            ),
+        )
+        contract["requested_output"]["cardinality"] = "multiple"
+        contract["requested_output"]["answer_shape"]["container"] = "list"
+        core = {key: value for key, value in contract.items() if key != "graph_contract_id"}
+        contract["graph_contract_id"] = "docx_native_style_" + hashlib.sha256(_canonical_json(core).encode("utf-8")).hexdigest()[:32]
+        return contract
+    match = MEETING_STYLE_INTERSECTION.fullmatch(question)
+    if match:
+        bindings = {
+            key: match[key]
+            for key in (
+                "location",
+                "document_role",
+                "style_1",
+                "style_2",
+                "style_3",
+            )
+        }
+        return _contract(
+            question,
+            "docx_effective_bold_underline_italic_intersection",
+            bindings,
+            {
+                "location": bindings["location"],
+                "container": "05.会議/会議録/*.docx",
+                "document_role": "meeting_minutes_set",
+                "source_channel": "wordprocessingml_effective_run_style",
+                "style_predicates": [
+                    {"property": "bold", "operator": "eq", "value": True},
+                    {"property": "underline", "operator": "eq", "value": True},
+                    {"property": "italic", "operator": "eq", "value": True},
+                ],
+                "projection": "authored_text_exact",
+            },
+            (
+                "retrieve",
+                "bind_all_meeting_minutes",
+                "validate_docx_packages",
+                "parse_style_cascade",
+                "compute_effective_run_style",
+                "filter_bold_underline_italic_intersection",
+                "coalesce_contiguous_runs",
+                "verify_complete_source_set",
+                "verify_unique",
+                "project_exact_text",
+            ),
+        )
     return None
 
 
@@ -427,6 +515,11 @@ def _source_candidates(
             elif kind == "contract":
                 if stem != "契約書" or not any(
                     "契約" in part for part in compact_parts
+                ):
+                    continue
+            elif kind == "meeting_minutes":
+                if "会議録" not in stem or not any(
+                    "会議録" in part for part in compact_parts
                 ):
                     continue
             else:  # pragma: no cover - private caller invariant
@@ -961,6 +1054,13 @@ def _contract_source(engine: Any, location: str) -> Path:
     return matches[0]
 
 
+def _meeting_minutes_sources(engine: Any, location: str) -> tuple[Path, ...]:
+    matches = _source_candidates(engine, location, kind="meeting_minutes")
+    if not matches:
+        raise _DocxStyleError("docx_source_not_found")
+    return matches
+
+
 def _single_child(parent: ET.Element | None, tag: str) -> ET.Element | None:
     if parent is None:
         return None
@@ -983,6 +1083,40 @@ def _on_off_value(value: str) -> bool:
         return True
     if normalized in {"0", "false", "off", "no"}:
         return False
+    raise _DocxStyleError("docx_style_value_invalid")
+
+
+def _underline_on(node: ET.Element) -> bool:
+    value = node.get(_W + "val")
+    if value is None:
+        return True
+    normalized = _normalized(value)
+    if normalized in {"0", "false", "off", "no", "none", "nil"}:
+        return False
+    if normalized in {
+        "1",
+        "true",
+        "on",
+        "yes",
+        "single",
+        "words",
+        "double",
+        "thick",
+        "dotted",
+        "dottedheavy",
+        "dash",
+        "dashedheavy",
+        "dashlong",
+        "dashlongheavy",
+        "dotdash",
+        "dashdotheavy",
+        "dotdotdash",
+        "dashdotdotheavy",
+        "wave",
+        "wavyheavy",
+        "wavydouble",
+    }:
+        return True
     raise _DocxStyleError("docx_style_value_invalid")
 
 
@@ -1039,6 +1173,9 @@ def _run_delta(rpr: ET.Element | None) -> _RunDelta:
     return _RunDelta(
         bold=_on_off(relevant["b"]) if "b" in relevant else None,
         bold_cs=_on_off(relevant["bCs"]) if "bCs" in relevant else None,
+        italic=_on_off(relevant["i"]) if "i" in relevant else None,
+        italic_cs=_on_off(relevant["iCs"]) if "iCs" in relevant else None,
+        underline=_underline_on(relevant["u"]) if "u" in relevant else None,
         vanish=_on_off(relevant["vanish"]) if "vanish" in relevant else None,
         highlight_present=highlight_present,
         highlight=highlight,
@@ -1132,6 +1269,9 @@ def _apply_delta(
 ) -> _RunState:
     bold = state.bold
     bold_cs = state.bold_cs
+    italic = state.italic
+    italic_cs = state.italic_cs
+    underline = state.underline
     vanish = state.vanish
     if delta.bold is not None:
         if style_toggle:
@@ -1145,6 +1285,20 @@ def _apply_delta(
                 bold_cs = not bold_cs
         else:
             bold_cs = delta.bold_cs
+    if delta.italic is not None:
+        if style_toggle:
+            if delta.italic:
+                italic = not italic
+        else:
+            italic = delta.italic
+    if delta.italic_cs is not None:
+        if style_toggle:
+            if delta.italic_cs:
+                italic_cs = not italic_cs
+        else:
+            italic_cs = delta.italic_cs
+    if delta.underline is not None:
+        underline = delta.underline
     if delta.vanish is not None:
         if style_toggle:
             if delta.vanish:
@@ -1161,6 +1315,9 @@ def _apply_delta(
     return _RunState(
         bold=bold,
         bold_cs=bold_cs,
+        italic=italic,
+        italic_cs=italic_cs,
+        underline=underline,
         vanish=vanish,
         highlight=highlight,
         color_rgb=color_rgb,
@@ -1424,6 +1581,26 @@ def _read_styled_document(path: Path) -> tuple[str, tuple[_StyledRun, ...]]:
         raise _DocxStyleError("docx_archive_invalid") from exc
 
 
+def _read_styled_bytes(data: bytes) -> tuple[_StyledRun, ...]:
+    if not 0 < len(data) <= _MAX_DOCX_BYTES:
+        raise _DocxStyleError("docx_source_resource_limit")
+    try:
+        with zipfile.ZipFile(io.BytesIO(data)) as archive:
+            _validate_archive(archive)
+            graph = _package_graph(archive)
+            stories = _stories(archive, graph)
+            sheet = _style_sheet(archive, graph.styles_name, graph.theme_name)
+            _validate_contextual_styles(archive, stories, sheet, graph.numbering_name)
+            result: list[_StyledRun] = []
+            for story in stories:
+                result.extend(_effective_runs(story, sheet))
+                if len(result) > _MAX_STYLED_RUNS:
+                    raise _DocxStyleError("docx_xml_resource_limit")
+            return tuple(result)
+    except (OSError, RuntimeError, zipfile.BadZipFile) as exc:
+        raise _DocxStyleError("docx_archive_invalid") from exc
+
+
 def _read_styled_runs(path: Path) -> tuple[_StyledRun, ...]:
     return _read_styled_document(path)[1]
 
@@ -1443,9 +1620,14 @@ def _is_red(rgb: str) -> bool:
     )
 
 
-def _run_is_effectively_bold(run: _StyledRun) -> bool:
-    if run.state.bold == run.state.bold_cs:
-        return run.state.bold
+def _script_specific_value(
+    run: _StyledRun,
+    primary: bool,
+    complex_script: bool,
+    ambiguity_reason: str,
+) -> bool:
+    if primary == complex_script:
+        return primary
     script_values = [
         unicodedata.bidirectional(character)
         for character in run.text
@@ -1454,8 +1636,26 @@ def _run_is_effectively_bold(run: _StyledRun) -> bool:
     has_complex = any(value in {"R", "AL", "AN"} for value in script_values)
     has_non_complex = any(value not in {"R", "AL", "AN"} for value in script_values)
     if not script_values or (has_complex and has_non_complex):
-        raise _DocxStyleError("docx_bold_script_ambiguous")
-    return run.state.bold_cs if has_complex else run.state.bold
+        raise _DocxStyleError(ambiguity_reason)
+    return complex_script if has_complex else primary
+
+
+def _run_is_effectively_bold(run: _StyledRun) -> bool:
+    return _script_specific_value(
+        run,
+        run.state.bold,
+        run.state.bold_cs,
+        "docx_bold_script_ambiguous",
+    )
+
+
+def _run_is_effectively_italic(run: _StyledRun) -> bool:
+    return _script_specific_value(
+        run,
+        run.state.italic,
+        run.state.italic_cs,
+        "docx_italic_script_ambiguous",
+    )
 
 
 def _coalesced_matches(
@@ -1511,6 +1711,55 @@ def _decision(
             answer=answer,
             source_paths=(relative,),
             source_sha256=hashlib.sha256(path.read_bytes()).hexdigest(),
+            operation_count=operations,
+            output_count=1,
+        ),
+    )
+
+
+def _source_fingerprint(path: Path) -> tuple[int, str]:
+    size = path.stat().st_size
+    if not 0 < size <= _MAX_DOCX_BYTES:
+        raise _DocxStyleError("docx_source_resource_limit")
+    data = path.read_bytes()
+    if len(data) != size:
+        raise _DocxStyleError("docx_source_changed_during_read")
+    return size, hashlib.sha256(data).hexdigest()
+
+
+def _source_set_decision(
+    answer: str,
+    source_records: Sequence[tuple[Path, int, str]],
+    root: Path,
+    operations: int,
+) -> StructuredCandidateDecision:
+    ordered = tuple(
+        sorted(
+            source_records,
+            key=lambda record: unicodedata.normalize(
+                "NFC", record[0].relative_to(root).as_posix()
+            ),
+        )
+    )
+    provenance = [
+        {
+            "relative_path": unicodedata.normalize(
+                "NFC", path.relative_to(root).as_posix()
+            ),
+            "size_bytes": size,
+            "sha256": digest,
+        }
+        for path, size, digest in ordered
+    ]
+    return StructuredCandidateDecision(
+        "resolved",
+        "certified_docx_native_style",
+        StructuredCandidateAnswer(
+            answer=answer,
+            source_paths=tuple(record["relative_path"] for record in provenance),
+            source_sha256=hashlib.sha256(
+                _canonical_json(provenance).encode("utf-8")
+            ).hexdigest(),
             operation_count=operations,
             output_count=1,
         ),
@@ -1576,6 +1825,89 @@ def _effective_bold(
         return _hold("docx_source_read_error")
 
 
+def _effective_bold_excluding_dates(engine: Any, match: re.Match[str]) -> StructuredCandidateDecision:
+    root = _safe_root(engine)
+    if root is None:
+        return _hold("source_root_invalid")
+    try:
+        locations = _candidate_values(match["location"], getattr(engine, "glossary", None))
+        paths = []
+        for path in root.rglob("*.docx"):
+            if not path.is_file() or path.is_symlink() or _has_symlink_component(path, root):
+                continue
+            relative = path.relative_to(root)
+            if not _location_matches(relative.parts[:-1], locations):
+                continue
+            if not any("契約" in _compact(part) for part in relative.parts[:-1]):
+                continue
+            if not _compact(path.stem).startswith("契約書"):
+                continue
+            paths.append(path.resolve())
+        if len(paths) != 1:
+            return _hold("docx_contract_source_not_unique")
+        path = paths[0]
+        original = path.read_bytes()
+        from extract import password_candidates, try_decrypt
+        decrypted = try_decrypt(path, password_candidates(path, [], []))
+        if decrypted is None:
+            decrypted = original if zipfile.is_zipfile(io.BytesIO(original)) else None
+        if decrypted is None:
+            return _hold("docx_decryption_failed")
+        runs = _read_styled_bytes(decrypted)
+        values = _coalesced_matches(runs, lambda run: not run.state.vanish and _run_is_effectively_bold(run))
+        date_expression = re.compile(r"^(?:\d{4}[-/.]年?\d{1,2}[-/.]月?\d{1,2}日?|令和\d{1,2}年\d{1,2}月\d{1,2}日)$")
+        values = [value for value in values if date_expression.fullmatch(re.sub(r"\s+", "", unicodedata.normalize("NFKC", value))) is None]
+        if not values or len(values) != len(set(values)):
+            return _hold("docx_non_date_bold_set_not_unique")
+        answer = "、".join(f"「{value}」" for value in values)
+        return _decision(answer, path, root, 11)
+    except _DocxStyleError as exc:
+        return _hold(str(exc))
+    except (OSError, RuntimeError, zipfile.BadZipFile):
+        return _hold("docx_source_read_error")
+
+
+def _meeting_style_intersection(
+    engine: Any, match: re.Match[str]
+) -> StructuredCandidateDecision:
+    root = _safe_root(engine)
+    if root is None:
+        return _hold("source_root_invalid")
+    try:
+        paths = _meeting_minutes_sources(engine, match["location"])
+        values: list[str] = []
+        source_records: list[tuple[Path, int, str]] = []
+        total_size = 0
+        for path in paths:
+            before = _source_fingerprint(path)
+            total_size += before[0]
+            if total_size > _MAX_TOTAL_BYTES:
+                raise _DocxStyleError("docx_source_resource_limit")
+            runs = _read_styled_runs(path)
+            after = _source_fingerprint(path)
+            if before != after:
+                raise _DocxStyleError("docx_source_changed_during_read")
+            source_records.append((path, before[0], before[1]))
+            values.extend(
+                _coalesced_matches(
+                    runs,
+                    lambda run: (
+                        not run.state.vanish
+                        and _run_is_effectively_bold(run)
+                        and run.state.underline
+                        and _run_is_effectively_italic(run)
+                    ),
+                )
+            )
+        if len(values) != 1:
+            return _hold("docx_style_match_not_unique")
+        return _source_set_decision(values[0], source_records, root, 10)
+    except _DocxStyleError as exc:
+        return _hold(str(exc))
+    except OSError:
+        return _hold("docx_source_read_error")
+
+
 def decide_question(engine: Any, question: str) -> StructuredCandidateDecision | None:
     """Execute a supported style contract without consulting answer history."""
 
@@ -1589,6 +1921,14 @@ def decide_question(engine: Any, question: str) -> StructuredCandidateDecision |
     match = EFFECTIVE_BOLD.fullmatch(question)
     if match:
         return _effective_bold(engine, match)
+    match = EFFECTIVE_BOLD_EXCLUDING_DATES.fullmatch(question)
+    if match:
+        return _effective_bold_excluding_dates(engine, match)
+    match = MEETING_STYLE_INTERSECTION.fullmatch(question)
+    if match:
+        if graph_contract_for_question(question) is None:
+            return None
+        return _meeting_style_intersection(engine, match)
     return None
 
 

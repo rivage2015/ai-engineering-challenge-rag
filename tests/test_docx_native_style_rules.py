@@ -26,6 +26,7 @@ from docx_native_style_rules import (  # noqa: E402
 )
 from question_graph_runtime import build_graph_plan  # noqa: E402
 from structured_candidate import StructuredCandidateEngine  # noqa: E402
+from glossary import build_glossary  # noqa: E402
 
 
 W_NS = "http://schemas.openxmlformats.org/wordprocessingml/2006/main"
@@ -44,6 +45,19 @@ HIGHLIGHT_QUESTION = (
 BOLD_QUESTION = (
     "架空契約との契約書において、"
     "太字で記載されている部分を抽出してください。"
+)
+MEETING_STYLE_QUESTION = (
+    "架空資産の会議録の中で、"
+    "太字、下線、イタリックのすべてに該当する箇所を"
+    "抽出してください。"
+)
+Q003_VARIANT = (
+    "架空契約の契約書において、"
+    "太字で記載されている箇所のうち、"
+    "日付以外のものをすべて抽出してください。"
+)
+TRIPLE_STYLE = (
+    '<w:b/><w:bCs/><w:i/><w:iCs/><w:u w:val="single"/>'
 )
 
 
@@ -224,6 +238,31 @@ def contract_path(
     )
 
 
+def meeting_minutes_path(
+    root: Path,
+    name: str = "会議録_2030-01-01.docx",
+) -> Path:
+    return (
+        root
+        / "プロジェクト"
+        / "架空資産株式会社"
+        / "05.会議"
+        / "会議録"
+        / name
+    )
+
+
+def write_meeting_minutes(
+    root: Path,
+    name: str,
+    *paragraphs: str,
+    styles: str | None = None,
+) -> Path:
+    path = meeting_minutes_path(root, name)
+    write_package(path, document_xml(*paragraphs), styles or styles_xml())
+    return path
+
+
 def direct_highlight_run(value: str) -> str:
     return run(
         value,
@@ -292,11 +331,16 @@ class DocxNativeStyleRulesTest(unittest.TestCase):
     def test_contract_uses_full_question_and_typed_style_scope(self) -> None:
         highlight = graph_contract_for_question(HIGHLIGHT_QUESTION)
         bold = graph_contract_for_question(BOLD_QUESTION)
+        meeting = graph_contract_for_question(MEETING_STYLE_QUESTION)
         self.assertIsNotNone(highlight)
         self.assertIsNotNone(bold)
-        assert highlight is not None and bold is not None
+        self.assertIsNotNone(meeting)
+        assert highlight is not None and bold is not None and meeting is not None
         self.assertTrue(validate_graph_contract(HIGHLIGHT_QUESTION, highlight))
         self.assertTrue(validate_graph_contract(BOLD_QUESTION, bold))
+        self.assertTrue(
+            validate_graph_contract(MEETING_STYLE_QUESTION, meeting)
+        )
         self.assertTrue(
             highlight["graph_contract_id"].startswith("docx_mixed_native_style_")
         )
@@ -311,6 +355,27 @@ class DocxNativeStyleRulesTest(unittest.TestCase):
             {"container": "scalar", "value_type": "string", "unit": None},
             bold["requested_output"]["answer_shape"],
         )
+        self.assertEqual(
+            "docx_effective_bold_underline_italic_intersection",
+            meeting["rule_id"],
+        )
+        self.assertEqual(
+            [
+                {"property": "bold", "operator": "eq", "value": True},
+                {"property": "underline", "operator": "eq", "value": True},
+                {"property": "italic", "operator": "eq", "value": True},
+            ],
+            meeting["scope"]["style_predicates"],
+        )
+        self.assertEqual(
+            "05.会議/会議録/*.docx",
+            meeting["scope"]["container"],
+        )
+        excluding_dates = graph_contract_for_question(Q003_VARIANT)
+        self.assertIsNotNone(excluding_dates)
+        self.assertEqual(
+            "multiple", excluding_dates["requested_output"]["cardinality"]
+        )
 
         tampered = copy.deepcopy(highlight)
         tampered["scope"]["style_predicates"][0]["value"] = "green"
@@ -320,6 +385,8 @@ class DocxNativeStyleRulesTest(unittest.TestCase):
             HIGHLIGHT_QUESTION.replace("の中間報告", "を中間報告"),
             HIGHLIGHT_QUESTION.replace("黄色", "緑色"),
             BOLD_QUESTION.replace("太字", "斜体"),
+            MEETING_STYLE_QUESTION + "追記",
+            MEETING_STYLE_QUESTION.replace("太字、下線", "下線、太字"),
         ):
             self.assertIsNone(graph_contract_for_question(changed))
 
@@ -464,6 +531,201 @@ class DocxNativeStyleRulesTest(unittest.TestCase):
             self.assertIsNotNone(bold)
             assert bold is not None and bold.result is not None
             self.assertEqual("締結日：2030-04-05", bold.result.answer)
+
+    def test_meeting_minutes_scan_is_complete_and_excludes_hidden_and_deleted_runs(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary) / "共有ドライブ"
+            write_meeting_minutes(
+                root,
+                "会議録_2030-01-01.docx",
+                paragraph(run("4,250,000円", properties=TRIPLE_STYLE)),
+            )
+            write_meeting_minutes(
+                root,
+                "会議録_2030-01-15.docx",
+                paragraph(
+                    run(
+                        "下線なし",
+                        properties="<w:b/><w:bCs/><w:i/><w:iCs/>",
+                    )
+                ),
+            )
+            third = write_meeting_minutes(
+                root,
+                "会議録_2030-02-01.docx",
+                paragraph(
+                    run(
+                        "非表示の三重一致",
+                        properties=TRIPLE_STYLE + "<w:vanish/>",
+                    )
+                    + "<w:del>"
+                    + run("削除済みの三重一致", properties=TRIPLE_STYLE)
+                    + "</w:del>"
+                ),
+            )
+
+            decision = decide_question(engine_for(root), MEETING_STYLE_QUESTION)
+            self.assertIsNotNone(decision)
+            assert decision is not None and decision.result is not None
+            self.assertEqual(
+                ("resolved", "4,250,000円"),
+                (decision.status, decision.result.answer),
+            )
+            self.assertEqual(3, len(decision.result.source_paths))
+            self.assertEqual(
+                [
+                    "会議録_2030-01-01.docx",
+                    "会議録_2030-01-15.docx",
+                    "会議録_2030-02-01.docx",
+                ],
+                [Path(path).name for path in decision.result.source_paths],
+            )
+            first_digest = decision.result.source_sha256
+
+            write_package(
+                third,
+                document_xml(paragraph(run("非対象資料の更新"))),
+                styles_xml(),
+            )
+            mutated = decide_question(engine_for(root), MEETING_STYLE_QUESTION)
+            self.assertIsNotNone(mutated)
+            assert mutated is not None and mutated.result is not None
+            self.assertEqual("4,250,000円", mutated.result.answer)
+            self.assertNotEqual(first_digest, mutated.result.source_sha256)
+
+    def test_meeting_minutes_effective_italic_underline_cascade_and_overrides(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary) / "共有ドライブ"
+            inherited = styles_xml(
+                doc_defaults='<w:u w:val="single"/>',
+                definitions="""
+<w:style w:type="paragraph" w:styleId="TripleBase">
+  <w:rPr><w:b/><w:bCs/><w:i/><w:iCs/></w:rPr>
+</w:style>
+<w:style w:type="paragraph" w:styleId="TripleChild">
+  <w:basedOn w:val="TripleBase"/>
+</w:style>""",
+            )
+            write_meeting_minutes(
+                root,
+                "会議録_2030-01-01.docx",
+                paragraph(run("継承三重一致"), paragraph_style="TripleChild"),
+                paragraph(
+                    run("下線解除", properties='<w:u w:val="none"/>'),
+                    paragraph_style="TripleChild",
+                ),
+                paragraph(
+                    run(
+                        "斜体解除",
+                        properties='<w:i w:val="0"/><w:iCs w:val="0"/>',
+                    ),
+                    paragraph_style="TripleChild",
+                ),
+                styles=inherited,
+            )
+            resolved = decide_question(engine_for(root), MEETING_STYLE_QUESTION)
+            self.assertIsNotNone(resolved)
+            assert resolved is not None and resolved.result is not None
+            self.assertEqual("継承三重一致", resolved.result.answer)
+
+    def test_meeting_minutes_zero_multiple_and_invalid_sources_hold(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary) / "共有ドライブ"
+            write_meeting_minutes(
+                root,
+                "会議録_2030-01-01.docx",
+                paragraph(run("下線なし", properties="<w:b/><w:i/>")),
+            )
+            zero = decide_question(engine_for(root), MEETING_STYLE_QUESTION)
+            self.assertIsNotNone(zero)
+            assert zero is not None
+            self.assertEqual(
+                ("hold", "docx_style_match_not_unique"),
+                (zero.status, zero.reason),
+            )
+
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary) / "共有ドライブ"
+            for index in (1, 2):
+                write_meeting_minutes(
+                    root,
+                    f"会議録_2030-01-0{index}.docx",
+                    paragraph(run(f"三重一致{index}", properties=TRIPLE_STYLE)),
+                )
+            multiple = decide_question(engine_for(root), MEETING_STYLE_QUESTION)
+            self.assertIsNotNone(multiple)
+            assert multiple is not None
+            self.assertEqual(
+                ("hold", "docx_style_match_not_unique"),
+                (multiple.status, multiple.reason),
+            )
+
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary) / "共有ドライブ"
+            write_meeting_minutes(
+                root,
+                "会議録_2030-01-01.docx",
+                paragraph(run("三重一致", properties=TRIPLE_STYLE)),
+            )
+            write_package(
+                meeting_minutes_path(root, "会議録_2030-01-02.docx"),
+                "<broken",
+                styles_xml(),
+            )
+            invalid = decide_question(engine_for(root), MEETING_STYLE_QUESTION)
+            self.assertIsNotNone(invalid)
+            assert invalid is not None
+            self.assertEqual(
+                ("hold", "docx_xml_malformed"),
+                (invalid.status, invalid.reason),
+            )
+
+    def test_meeting_minutes_style_ambiguity_and_invalid_underline_hold(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary) / "共有ドライブ"
+            write_meeting_minutes(
+                root,
+                "会議録_2030-01-01.docx",
+                paragraph(
+                    run(
+                        "Latinعربي",
+                        properties=(
+                            '<w:b/><w:bCs/><w:i/><w:iCs w:val="0"/>'
+                            '<w:u w:val="single"/>'
+                        ),
+                    )
+                ),
+            )
+            ambiguous = decide_question(engine_for(root), MEETING_STYLE_QUESTION)
+            self.assertIsNotNone(ambiguous)
+            assert ambiguous is not None
+            self.assertEqual(
+                ("hold", "docx_italic_script_ambiguous"),
+                (ambiguous.status, ambiguous.reason),
+            )
+
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary) / "共有ドライブ"
+            write_meeting_minutes(
+                root,
+                "会議録_2030-01-01.docx",
+                paragraph(
+                    run(
+                        "不明な下線",
+                        properties=(
+                            '<w:b/><w:bCs/><w:i/><w:iCs/>'
+                            '<w:u w:val="sparkle"/>'
+                        ),
+                    )
+                ),
+            )
+            invalid = decide_question(engine_for(root), MEETING_STYLE_QUESTION)
+            self.assertIsNotNone(invalid)
+            assert invalid is not None
+            self.assertEqual(
+                ("hold", "docx_style_value_invalid"),
+                (invalid.status, invalid.reason),
+            )
 
     def test_duplicate_sources_multiple_matches_and_style_conflicts_hold(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
@@ -821,6 +1083,30 @@ class DocxNativeStyleRulesTest(unittest.TestCase):
             self.assertEqual("締結日：2030-04-05", decision.result.answer)
             self.assertEqual((), validate_graph_answer(decision.result.answer, plan))
 
+            write_meeting_minutes(
+                root,
+                "会議録_2030-01-01.docx",
+                paragraph(run("4,250,000円", properties=TRIPLE_STYLE)),
+            )
+            meeting_plan = build_graph_plan(
+                "opaque-meeting-style",
+                MEETING_STYLE_QUESTION,
+                fast_advisory=True,
+            )
+            self.assertEqual("pass", meeting_plan.strict_status)
+            meeting = engine.decide_from_graph(
+                "opaque-meeting-style",
+                MEETING_STYLE_QUESTION,
+                meeting_plan,
+            )
+            self.assertEqual("resolved", meeting.status)
+            assert meeting.result is not None
+            self.assertEqual("4,250,000円", meeting.result.answer)
+            self.assertEqual(
+                (),
+                validate_graph_answer(meeting.result.answer, meeting_plan),
+            )
+
             missing = engine.decide_from_graph("opaque-style", BOLD_QUESTION, None)
             self.assertEqual(
                 ("hold", "extended_graph_plan_not_certified"),
@@ -839,6 +1125,26 @@ class DocxNativeStyleRulesTest(unittest.TestCase):
                 ("hold", "extended_graph_plan_contract_mismatch"),
                 (mismatched.status, mismatched.reason),
             )
+
+    def test_actual_q003_decrypts_in_memory_and_excludes_dates(self) -> None:
+        source_root = ROOT / "share" / "共有ドライブ"
+        engine = StructuredCandidateEngine(
+            source_root, build_glossary(source_root)
+        )
+        question = (
+            "恒一会 かえで総合病院の契約書において、"
+            "太字で記載されている箇所のうち、"
+            "日付以外のものをすべて抽出してください。"
+        )
+        decision = decide_question(engine, question)
+        self.assertEqual("resolved", decision.status)
+        self.assertEqual(
+            "「time_and_materials」、"
+            "「実績工数に基づき、案件完了後に最終成果物の検収を経て一括精算する。」、"
+            "「30分単位」、「25,000円／時間」",
+            decision.result.answer,
+        )
+        self.assertEqual(1, len(decision.result.source_paths))
 
 
 if __name__ == "__main__":
