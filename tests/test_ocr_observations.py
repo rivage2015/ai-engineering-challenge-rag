@@ -92,6 +92,8 @@ class OCRObservationTest(unittest.TestCase):
         *,
         routes: list[str] | None = None,
         materialized_path: str | None = None,
+        origin_kind: str = "standalone_image",
+        processing_layers: list[str] | None = None,
     ) -> tuple[dict[str, object], dict[str, object], dict[str, object]]:
         path = self.images / filename
         if not path.exists() and materialized_path is None:
@@ -101,33 +103,59 @@ class OCRObservationTest(unittest.TestCase):
         with Image.open(io.BytesIO(data)) as image:
             width, height = int(image.width), int(image.height)
             mime_type = Image.MIME[str(image.format).upper()]
+        source: dict[str, object] = {
+            "relative_path": f"fixtures/{filename}",
+            "sha256": hashlib.sha256(data).hexdigest(),
+        }
+        if origin_kind == "pdf_page":
+            source["document_type"] = "pdf"
+        if processing_layers is not None:
+            source["processing_layers"] = processing_layers
         raw_asset: dict[str, object] = {
             "asset_id": "asset_" + hex_id,
             "materialized_path": materialized_path,
             "sha256": hashlib.sha256(data).hexdigest(),
             "mime_type": mime_type,
             "dimensions": {"width_px": width, "height_px": height},
-            "source": {
-                "relative_path": f"fixtures/{filename}",
-                "sha256": hashlib.sha256(data).hexdigest(),
+            "source": source,
+            "origin": {
+                "kind": origin_kind,
+                "page_number": 1 if origin_kind == "pdf_page" else None,
             },
-            "origin": {"kind": "standalone_image", "page_number": None},
         }
         asset = classifier.normalize_asset(raw_asset, self.root)
         route_values = routes or ["ocr_text"]
-        content_types = ["text_document"] if "ocr_text" in route_values else ["chart"]
-        classification_payload = {
-            "primary_type": content_types[0],
-            "content_types": content_types,
-            "information_role": "primary",
-            "regions": [
-                {"region_id": "r1", "bbox": [0.0, 0.0, 1.0, 1.0], "types": content_types}
-            ],
-            "routes": route_values,
-            "exactness": "estimated",
-            "warnings": [],
-            "status": "classified",
-        }
+        if route_values == ["review"]:
+            classification_payload = {
+                "primary_type": "unknown",
+                "content_types": ["unknown"],
+                "information_role": "unknown",
+                "regions": [],
+                "routes": route_values,
+                "exactness": "unresolved",
+                "warnings": ["classification requires review"],
+                "status": "needs_review",
+            }
+        else:
+            content_types = (
+                ["text_document"] if "ocr_text" in route_values else ["chart"]
+            )
+            classification_payload = {
+                "primary_type": content_types[0],
+                "content_types": content_types,
+                "information_role": "primary",
+                "regions": [
+                    {
+                        "region_id": "r1",
+                        "bbox": [0.0, 0.0, 1.0, 1.0],
+                        "types": content_types,
+                    }
+                ],
+                "routes": route_values,
+                "exactness": "estimated",
+                "warnings": [],
+                "status": "classified",
+            }
         signature = classifier.signature_for_asset(asset, MODEL["digest"])
         classification = classifier._record_envelope(
             asset, MODEL, signature, classification_payload
@@ -889,6 +917,126 @@ class OCRObservationTest(unittest.TestCase):
             extractor.eligible_inputs(
                 [self.asset, asset2], [classification2, self.classification]
             )
+
+    def test_pdf_ocr_required_review_fallback_is_guarded_and_valid_end_to_end(self) -> None:
+        fallback_raw, fallback_asset, fallback_classification = self._make_upstream(
+            "2" * 32,
+            "pdf-page.png",
+            make_png((70, 50)),
+            routes=["review"],
+            origin_kind="pdf_page",
+            processing_layers=["native_text", "ocr_required"],
+        )
+        fallback_record = self._record(
+            asset=fallback_asset, classification=fallback_classification
+        )
+
+        self.assertEqual(
+            fallback_record["classification_ref"]["routes"], ["review"]
+        )
+        self.assertEqual(
+            fallback_record["hashes"]["input_sha256"],
+            validator.sha256_json(
+                validator.observation_input_payload(
+                    fallback_asset, fallback_classification
+                )
+            ),
+        )
+        self.assertTrue(
+            validator.is_ocr_eligible(
+                fallback_asset["source"],
+                fallback_asset["origin"],
+                fallback_classification["routes"],
+            )
+        )
+        self.assertEqual(validator.validate(fallback_record), [])
+        schema = validator._load_published_schema()
+        schema_validator, mode = validator._compile_published_schema(schema)
+        self.assertEqual(mode, "jsonschema_draft202012_format")
+        self.assertEqual(
+            validator._schema_errors(fallback_record, schema_validator), []
+        )
+
+        write_jsonl(self.assets_path, [fallback_raw])
+        write_jsonl(self.classifications_path, [fallback_classification])
+        write_jsonl(self.observations_path, [fallback_record])
+        stats = validator.validate_jsonl(
+            self.observations_path,
+            self.assets_path,
+            self.classifications_path,
+            asset_root=self.root,
+            expected_count=1,
+        )
+        self.assertEqual(stats["eligible"], 1)
+        self.assertEqual(stats["records"], 1)
+
+        guarded_cases = [
+            (
+                {"document_type": "pdf", "processing_layers": ["ocr_required"]},
+                {"kind": "standalone_image", "page_number": None},
+            ),
+            (
+                {"document_type": "pdf", "processing_layers": ["native_text"]},
+                {"kind": "pdf_page", "page_number": 1},
+            ),
+            (
+                {"document_type": "pdf", "processing_layers": "ocr_required"},
+                {"kind": "pdf_page", "page_number": 1},
+            ),
+            (
+                {"processing_layers": ["ocr_required"]},
+                {"kind": "pdf_page", "page_number": 1},
+            ),
+            (
+                {"document_type": "pdf", "processing_layers": ["ocr_required"]},
+                {"kind": "pdf_page", "page_number": None},
+            ),
+        ]
+        for source, origin in guarded_cases:
+            with self.subTest(source=source, origin=origin):
+                self.assertFalse(
+                    validator.is_ocr_eligible(source, origin, ["review"])
+                )
+        self.assertFalse(
+            validator.is_ocr_eligible(
+                {"document_type": "pdf", "processing_layers": ["ocr_required"]},
+                {"kind": "pdf_page", "page_number": 1},
+                ["review", "chart_source_recovery"],
+            )
+        )
+
+    def test_extractor_includes_only_guarded_review_fallback(self) -> None:
+        _fallback_raw, fallback_asset, fallback_classification = self._make_upstream(
+            "2" * 32,
+            "fallback.png",
+            make_png((70, 50)),
+            routes=["review"],
+            origin_kind="pdf_page",
+            processing_layers=["ocr_required"],
+        )
+        _plain_raw, plain_asset, plain_classification = self._make_upstream(
+            "3" * 32,
+            "plain-review.png",
+            make_png((75, 55)),
+            routes=["review"],
+        )
+        eligible = extractor.eligible_inputs(
+            [self.asset, fallback_asset, plain_asset],
+            [self.classification, fallback_classification, plain_classification],
+        )
+        self.assertEqual(
+            [asset["asset_id"] for asset, _classification in eligible],
+            [self.asset["asset_id"], fallback_asset["asset_id"]],
+        )
+        plain_record = self._record(
+            asset=plain_asset, classification=plain_classification
+        )
+        self.assertTrue(
+            any("ocr_required" in error for error in validator.validate(plain_record))
+        )
+        schema = validator._load_published_schema()
+        schema_validator, _mode = validator._compile_published_schema(schema)
+        self.assertTrue(validator._schema_errors(plain_record, schema_validator))
 
     def test_production_extractor_rejects_engine_source_and_binary_overrides(self) -> None:
         output = self.root / "output.jsonl"

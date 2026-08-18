@@ -288,6 +288,38 @@ def expected_classification_ref(classification: dict[str, Any]) -> dict[str, Any
     }
 
 
+def is_ocr_eligible(source: object, origin: object, routes: object) -> bool:
+    """Return whether an asset has an explicit, provenance-bound OCR route.
+
+    The normal route remains ``ocr_text``.  A review-only classification may
+    fall back to OCR only when the upstream document pipeline independently
+    marked the source as an OCR-required PDF page.  Keeping ``routes`` as
+    ``["review"]`` preserves the classifier's unresolved result instead of
+    rewriting it as a successful text classification.
+    """
+    if not isinstance(routes, list) or any(
+        not isinstance(item, str) for item in routes
+    ):
+        return False
+    if "ocr_text" in routes:
+        return True
+    if routes != ["review"]:
+        return False
+    if not isinstance(source, dict) or not isinstance(origin, dict):
+        return False
+    processing_layers = source.get("processing_layers")
+    page_number = origin.get("page_number")
+    return (
+        source.get("document_type") == "pdf"
+        and origin.get("kind") == "pdf_page"
+        and isinstance(page_number, int)
+        and not isinstance(page_number, bool)
+        and page_number >= 1
+        and isinstance(processing_layers, list)
+        and "ocr_required" in processing_layers
+    )
+
+
 def observation_input_payload(
     asset: dict[str, Any], classification: dict[str, Any]
 ) -> dict[str, Any]:
@@ -950,8 +982,11 @@ def validate(record: object) -> list[str]:
         )
         if any(route not in ROUTES for route in routes):
             errors.append("classification_ref.routes contains an invalid route")
-        if "ocr_text" not in routes:
-            errors.append("classification_ref.routes must include ocr_text")
+        if not is_ocr_eligible(record.get("source"), record.get("origin"), routes):
+            errors.append(
+                "classification_ref.routes must include ocr_text, or be review-only "
+                "for a PDF page whose source processing_layers include ocr_required"
+            )
     runs = record.get("engine_runs")
     if not isinstance(runs, list) or len(runs) != 2:
         errors.append("engine_runs must contain exactly Apple Vision then Tesseract")
@@ -1268,7 +1303,7 @@ def validate_jsonl(
     for asset in assets:
         _verify_actual_asset(asset, root)
     # Then prove that the complete classification batch is still exactly bound
-    # to the complete materialized batch before selecting the OCR route.
+    # to the complete materialized batch before selecting explicit OCR inputs.
     classification_validator.validate_jsonl(
         classifications_path, assets_path, asset_root=root
     )
@@ -1283,7 +1318,7 @@ def validate_jsonl(
                 f"upstream record {position}: asset/classification order mismatch"
             )
         routes = classification.get("routes")
-        if isinstance(routes, list) and "ocr_text" in routes:
+        if is_ocr_eligible(asset.get("source"), asset.get("origin"), routes):
             eligible.append((asset, classification))
     if expected_count is not None and len(eligible) != expected_count:
         raise ValueError(
@@ -1352,7 +1387,10 @@ def main() -> int:
     )
     parser.add_argument(
         "--expected-count", type=int,
-        help="optional required ocr_text asset count (otherwise derive it from classifications)",
+        help=(
+            "optional required OCR-eligible asset count, including the guarded PDF "
+            "ocr_required fallback (otherwise derive it from classifications)"
+        ),
     )
     args = parser.parse_args()
     try:

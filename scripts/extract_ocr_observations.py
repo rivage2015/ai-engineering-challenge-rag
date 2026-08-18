@@ -188,10 +188,15 @@ def eligible_inputs(
                 f"classification record {position} is invalid: " + "; ".join(errors)
             )
         routes = classification.get("routes")
-        if isinstance(routes, list) and "ocr_text" in routes:
+        if contract.is_ocr_eligible(
+            asset.get("source"), asset.get("origin"), routes
+        ):
             eligible.append((asset, classification))
     if not eligible:
-        raise ValueError("no classification record is routed to ocr_text")
+        raise ValueError(
+            "no input is routed to ocr_text or qualifies for the PDF "
+            "ocr_required review fallback"
+        )
     return eligible
 
 
@@ -912,7 +917,7 @@ def extract_file(
     assets = normalize_assets(raw_assets, root)
     preflight_asset_files(assets, root.resolve(strict=True))
 
-    # Prove the complete upstream binding before filtering the ocr_text route.
+    # Prove the complete upstream binding before selecting explicit OCR routes.
     classification_validator.validate_jsonl(
         classifications_path, assets_path, asset_root=root
     )
@@ -986,7 +991,8 @@ def main() -> int:
     parser = argparse.ArgumentParser(
         description=(
             "Extract image-bound, question-independent Apple Vision and Tesseract "
-            "OCR observations for assets routed to ocr_text."
+            "OCR observations for assets routed to ocr_text, plus review-only "
+            "PDF pages independently marked ocr_required."
         )
     )
     parser.add_argument("--assets", type=Path, required=True)
