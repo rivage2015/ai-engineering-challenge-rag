@@ -46,6 +46,16 @@ SUPPORTED_SUFFIXES = frozenset({".csv", ".tsv", ".xlsx"})
 MAX_SOURCE_BYTES = 256 * 1024 * 1024
 MAX_ROWS = 1_000_000
 MAX_HEADER_SCAN_ROWS = 100
+_LIVE_GRAPH_CONTRACT_PREFIXES = (
+    "docx_mixed_",
+    "xlsx_highlight_",
+    "xlsx_histogram_",
+    "xlsx_formula_ml_",
+    "xlsx_version_diff_",
+    "pptx_mixed_",
+    "pptx_version_diff_",
+    "pptx_spatial_",
+)
 LEGAL_FORMS = (
     "株式会社",
     "有限会社",
@@ -545,6 +555,52 @@ class StructuredCandidateEngine:
             if contract is not None and not validate_graph_contract(question, contract):
                 return StructuredCandidateDecision("error", "extended_graph_invalid")
             if contract is not None:
+                # Newly introduced native Office lanes require the exact live
+                # GraphPlan that certified the complete question.  Do not let
+                # their executors be called through a dummy or mismatched
+                # plan.  Older extended lanes retain their legacy direct-test
+                # compatibility until their fixtures are migrated.
+                if str(contract.get("graph_contract_id", "")).startswith(
+                    _LIVE_GRAPH_CONTRACT_PREFIXES
+                ):
+                    if (
+                        graph_plan is None
+                        or getattr(graph_plan, "original_question", None) != question
+                        or getattr(graph_plan, "strict_status", None) != "pass"
+                    ):
+                        return StructuredCandidateDecision(
+                            "hold", "extended_graph_plan_not_certified"
+                        )
+                    supplied_branches = getattr(graph_plan, "branch_intents", ())
+                    if (
+                        not isinstance(supplied_branches, tuple)
+                        or len(supplied_branches) != 1
+                    ):
+                        return StructuredCandidateDecision(
+                            "hold", "extended_graph_plan_not_certified"
+                        )
+                    supplied_branch = supplied_branches[0]
+                    if (
+                        not isinstance(supplied_branch, Mapping)
+                        or supplied_branch.get("status") != "resolved"
+                    ):
+                        return StructuredCandidateDecision(
+                            "hold", "extended_graph_plan_not_certified"
+                        )
+                    supplied_intent = (
+                        supplied_branch.get("intent")
+                        if isinstance(supplied_branch, Mapping)
+                        else None
+                    )
+                    supplied_contract = (
+                        supplied_intent.get("extended_graph_contract")
+                        if isinstance(supplied_intent, Mapping)
+                        else None
+                    )
+                    if supplied_contract != contract:
+                        return StructuredCandidateDecision(
+                            "hold", "extended_graph_plan_contract_mismatch"
+                        )
                 extended = decide_extended(self, "graph-runtime", question)
                 if extended is not None:
                     return extended
@@ -592,7 +648,21 @@ class StructuredCandidateEngine:
                 # module reuses the immutable decision/result records here,
                 # while this core engine remains usable without a cycle at
                 # module-import time.
-                from score_candidate_rules import decide_extended
+                from score_candidate_rules import (
+                    decide_extended,
+                    graph_contract_for_question,
+                )
+
+                contract = graph_contract_for_question(question)
+                if (
+                    contract is not None
+                    and str(contract.get("graph_contract_id", "")).startswith(
+                        _LIVE_GRAPH_CONTRACT_PREFIXES
+                    )
+                ):
+                    return StructuredCandidateDecision(
+                        "hold", "extended_graph_plan_required"
+                    )
 
                 extended = decide_extended(self, str(question_id), question)
                 if extended is not None:

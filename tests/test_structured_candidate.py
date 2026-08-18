@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 import csv
+import copy
 import json
 import sys
 import tempfile
 import unittest
 import zipfile
+from dataclasses import replace
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
@@ -682,7 +684,7 @@ class StructuredCandidateTest(unittest.TestCase):
         )
         contract = graph_contract_for_question(question)
         self.assertIsNotNone(contract)
-        self.assertEqual(contract["graph_rule_version"], "1.3")
+        self.assertEqual(contract["graph_rule_version"], "1.4")
         self.assertEqual(contract["rule_id"], "xlsx_chart_series_column")
         self.assertEqual(contract["scope"]["sheet"], "DataView")
         self.assertEqual(contract["scope"]["chart_index"], 7)
@@ -782,7 +784,7 @@ class StructuredCandidateTest(unittest.TestCase):
         absent_question = positive_question.replace("person_alpha", "person_missing")
         contract = graph_contract_for_question(positive_question)
         self.assertIsNotNone(contract)
-        self.assertEqual(contract["graph_rule_version"], "1.3")
+        self.assertEqual(contract["graph_rule_version"], "1.4")
         self.assertEqual(contract["rule_id"], "project_person_assignment_role")
         self.assertEqual(
             [node["operator"] for node in contract["operation_graph"]["nodes"]],
@@ -1149,7 +1151,7 @@ class StructuredCandidateTest(unittest.TestCase):
         )
         contract = graph_contract_for_question(question)
         self.assertIsNotNone(contract)
-        self.assertEqual(contract["graph_rule_version"], "1.3")
+        self.assertEqual(contract["graph_rule_version"], "1.4")
         self.assertEqual(contract["rule_id"], "contract_hours_ratio_tax_delta")
         self.assertEqual(contract["scope"]["container"], "契約書.docx")
         self.assertEqual(
@@ -1255,7 +1257,7 @@ class StructuredCandidateTest(unittest.TestCase):
         )
         contract = graph_contract_for_question(question)
         self.assertIsNotNone(contract)
-        self.assertEqual(contract["graph_rule_version"], "1.3")
+        self.assertEqual(contract["graph_rule_version"], "1.4")
         self.assertEqual(contract["rule_id"], "excel_autofilter_conditions")
         self.assertEqual(contract["scope"]["sheet"], "records")
         self.assertEqual(
@@ -1314,7 +1316,7 @@ class StructuredCandidateTest(unittest.TestCase):
         conditions = graph_contract_for_question(conditions_question)
         self.assertIsNotNone(aggregate)
         self.assertIsNotNone(conditions)
-        self.assertEqual(aggregate["graph_rule_version"], "1.3")
+        self.assertEqual(aggregate["graph_rule_version"], "1.4")
         self.assertEqual(
             aggregate["rule_id"],
             "pivot_average_argmax_conditions_and_aggregate",
@@ -1478,7 +1480,7 @@ class StructuredCandidateTest(unittest.TestCase):
         dtype_contract = graph_contract_for_question(dtype_question)
         self.assertIsNotNone(diff_contract)
         self.assertIsNotNone(dtype_contract)
-        self.assertEqual(diff_contract["graph_rule_version"], "1.3")
+        self.assertEqual(diff_contract["graph_rule_version"], "1.4")
         self.assertEqual(
             diff_contract["rule_id"],
             "pptx_old_latest_visible_text_diff",
@@ -1734,7 +1736,7 @@ class StructuredCandidateTest(unittest.TestCase):
         )
         contract = graph_contract_for_question(question)
         self.assertIsNotNone(contract)
-        self.assertEqual(contract["graph_rule_version"], "1.3")
+        self.assertEqual(contract["graph_rule_version"], "1.4")
         self.assertEqual(contract["rule_id"], "docx_highlighted_text_projection")
         self.assertEqual(contract["scope"]["document_key"], "M73")
         self.assertEqual(contract["scope"]["color"], "yellow")
@@ -1825,7 +1827,7 @@ class StructuredCandidateTest(unittest.TestCase):
         )
         contract = graph_contract_for_question(question)
         self.assertIsNotNone(contract)
-        self.assertEqual(contract["graph_rule_version"], "1.3")
+        self.assertEqual(contract["graph_rule_version"], "1.4")
         self.assertEqual(contract["rule_id"], "pptx_shape_fill_text_projection")
         self.assertEqual(contract["scope"]["slide"], 3)
         self.assertEqual(contract["scope"]["color"], "red")
@@ -2149,7 +2151,7 @@ class StructuredCandidateTest(unittest.TestCase):
         )
         contract = graph_contract_for_question(question)
         self.assertIsNotNone(contract)
-        self.assertEqual(contract["graph_rule_version"], "1.3")
+        self.assertEqual(contract["graph_rule_version"], "1.4")
         self.assertEqual(contract["rule_id"], "all_project_paid_gross_tax_sum")
         self.assertEqual(
             [node["operator"] for node in contract["operation_graph"]["nodes"]],
@@ -2575,6 +2577,54 @@ class StructuredCandidateTest(unittest.TestCase):
             duplicate_report=True,
         )
         self.assertIsNone(decide_extended(duplicate, "ignored-duplicate-tm", question))
+
+    def test_native_office_extended_rules_cannot_bypass_live_graph_plan(self) -> None:
+        engine = StructuredCandidateEngine(self.root, self.glossary)
+        questions = (
+            "site_alphaとの契約書において、太字で記載されている部分を抽出してください。",
+            "site_alphaのdata_alpha.xlsxにおいて、Sheet1の黄色にハイライトされたセルの"
+            "抽出条件と集計内容を答えてください。",
+            "site_alphaのdeck_alpha.pptxにおいて、この案件にかかる金額の提示が"
+            "まとまっているのは何ページですか。",
+            "site_alphaのdeck_v1.pptxからdeck_v2.pptxに修正されたもののうち、"
+            "案件遂行に関連する変更を挙げてください。",
+            "folder_alphaにあるmap_alphaにおいて、person_alphaさんから見て"
+            "右側に座っている人の名前をすべて挙げてください。",
+        )
+        for question in questions:
+            with self.subTest(question=question):
+                decision = engine.decide("legacy-direct", question)
+                self.assertEqual(decision.status, "hold")
+                self.assertEqual(decision.reason, "extended_graph_plan_required")
+
+    def test_native_office_extended_rules_require_resolved_graph_branch(self) -> None:
+        from question_graph_runtime import build_graph_plan
+
+        engine = StructuredCandidateEngine(self.root, self.glossary)
+        questions = (
+            "site_alphaとの契約書において、太字で記載されている部分を抽出してください。",
+            "site_alphaのdata_alpha.xlsxにおいて、Sheet1の黄色にハイライトされたセルの"
+            "抽出条件と集計内容を答えてください。",
+            "site_alphaのdeck_alpha.pptxにおいて、この案件にかかる金額の提示が"
+            "まとまっているのは何ページですか。",
+            "site_alphaのdeck_v1.pptxからdeck_v2.pptxに修正されたもののうち、"
+            "案件遂行に関連する変更を挙げてください。",
+            "folder_alphaにあるmap_alphaにおいて、person_alphaさんから見て"
+            "右側に座っている人の名前をすべて挙げてください。",
+        )
+        for question in questions:
+            with self.subTest(question=question):
+                plan = build_graph_plan("branch-status", question)
+                branches = copy.deepcopy(plan.branch_intents)
+                branches[0]["status"] = "hold"
+                tampered = replace(plan, branch_intents=branches)
+                decision = engine.decide_from_graph(
+                    "branch-status", question, tampered
+                )
+                self.assertEqual(decision.status, "hold")
+                self.assertEqual(
+                    decision.reason, "extended_graph_plan_not_certified"
+                )
 
 
 if __name__ == "__main__":

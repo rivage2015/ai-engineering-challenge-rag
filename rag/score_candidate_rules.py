@@ -265,7 +265,7 @@ _PPTX_HUE_CENTERS = {
     "magenta": 300.0,
 }
 
-GRAPH_RULE_VERSION = "1.3"
+GRAPH_RULE_VERSION = "1.4"
 _GRAPH_RULES = (
     (DATE_RANGE, "date_range_identifier_list", ("retrieve", "filter", "boolean_test", "project", "deduplicate", "list"), ("list", "identifier", "all", None)),
     (ASSIGNEE_COUNT, "assignee_task_count", ("retrieve", "filter", "project", "deduplicate", "count"), ("scalar", "integer", "single", None)),
@@ -699,6 +699,78 @@ def graph_contract_for_question(question: str) -> dict[str, Any] | None:
     )
 
     contract = excel_native_contract(question)
+    if contract is not None:
+        return contract
+
+    from xlsx_highlight_projection_rules import (
+        graph_contract_for_question as xlsx_highlight_contract,
+    )
+
+    contract = xlsx_highlight_contract(question)
+    if contract is not None:
+        return contract
+
+    from xlsx_histogram_rules import (
+        graph_contract_for_question as xlsx_histogram_contract,
+    )
+
+    contract = xlsx_histogram_contract(question)
+    if contract is not None:
+        return contract
+
+    from xlsx_formula_ml_rules import (
+        graph_contract_for_question as xlsx_formula_ml_contract,
+    )
+
+    contract = xlsx_formula_ml_contract(question)
+    if contract is not None:
+        return contract
+
+    from xlsx_version_diff_rules import (
+        graph_contract_for_question as xlsx_version_diff_contract,
+    )
+
+    contract = xlsx_version_diff_contract(question)
+    if contract is not None:
+        return contract
+
+    from docx_native_style_rules import (
+        graph_contract_for_question as docx_native_style_contract,
+    )
+
+    contract = docx_native_style_contract(question)
+    if contract is not None:
+        return contract
+
+    from docx_mixed_content_rules import (
+        graph_contract_for_question as docx_mixed_contract,
+    )
+
+    contract = docx_mixed_contract(question)
+    if contract is not None:
+        return contract
+
+    from pptx_mixed_content_rules import (
+        graph_contract_for_question as pptx_mixed_contract,
+    )
+
+    contract = pptx_mixed_contract(question)
+    if contract is not None:
+        return contract
+
+    from pptx_version_diff_rules import (
+        graph_contract_for_question as pptx_version_diff_contract,
+    )
+
+    contract = pptx_version_diff_contract(question)
+    if contract is not None:
+        return contract
+
+    from pptx_spatial_rules import (
+        graph_contract_for_question as pptx_spatial_contract,
+    )
+
+    contract = pptx_spatial_contract(question)
     if contract is not None:
         return contract
 
@@ -5885,6 +5957,64 @@ def decide_extended(engine: Any, question_id: str, question: str) -> StructuredC
     excel = decide_excel_native(engine, question)
     if excel is not None:
         return excel
+
+    from xlsx_highlight_projection_rules import (
+        decide_question as decide_xlsx_highlight,
+    )
+
+    xlsx_highlight = decide_xlsx_highlight(engine, question)
+    if xlsx_highlight is not None:
+        return xlsx_highlight
+
+    from xlsx_histogram_rules import decide_question as decide_xlsx_histogram
+
+    xlsx_histogram = decide_xlsx_histogram(engine, question)
+    if xlsx_histogram is not None:
+        return xlsx_histogram
+
+    from xlsx_formula_ml_rules import decide_question as decide_xlsx_formula_ml
+
+    xlsx_formula_ml = decide_xlsx_formula_ml(engine, question)
+    if xlsx_formula_ml is not None:
+        return xlsx_formula_ml
+
+    from xlsx_version_diff_rules import decide_question as decide_xlsx_version_diff
+
+    xlsx_version_diff = decide_xlsx_version_diff(engine, question)
+    if xlsx_version_diff is not None:
+        return xlsx_version_diff
+
+    from docx_native_style_rules import (
+        decide_question as decide_docx_native_style,
+    )
+
+    docx_native_style = decide_docx_native_style(engine, question)
+    if docx_native_style is not None:
+        return docx_native_style
+
+    from docx_mixed_content_rules import decide_question as decide_docx_mixed
+
+    docx_mixed = decide_docx_mixed(engine, question)
+    if docx_mixed is not None:
+        return docx_mixed
+
+    from pptx_mixed_content_rules import decide_question as decide_pptx_mixed
+
+    pptx_mixed = decide_pptx_mixed(engine, question)
+    if pptx_mixed is not None:
+        return pptx_mixed
+
+    from pptx_version_diff_rules import decide_question as decide_pptx_version_diff
+
+    pptx_version_diff = decide_pptx_version_diff(engine, question)
+    if pptx_version_diff is not None:
+        return pptx_version_diff
+
+    from pptx_spatial_rules import decide_question as decide_pptx_spatial
+
+    pptx_spatial = decide_pptx_spatial(engine, question)
+    if pptx_spatial is not None:
+        return pptx_spatial
 
     # Existing extended rules retain precedence.  Independent source-specific
     # executors are reachable only after their deterministic graph contracts
