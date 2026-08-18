@@ -1,0 +1,530 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://local.ai-engineering-challenge/schemas/pdf-page-observation.schema.json",
+  "title": "PDFPageObservation",
+  "description": "PDFの各ページをnative bboxまたは既存OCR raw観測のどちらか一方に結び付ける、質問非依存・検索未接続のshadow記録",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "record_type",
+    "observation_id",
+    "document_id",
+    "source",
+    "page",
+    "extraction",
+    "native",
+    "ocr",
+    "conflicts",
+    "unresolved",
+    "status",
+    "hashes",
+    "provenance"
+  ],
+  "properties": {
+    "schema_version": {"const": "0.1"},
+    "record_type": {"const": "pdf_page_observation"},
+    "observation_id": {"type": "string", "pattern": "^pdfpage_[0-9a-f]{24}$"},
+    "document_id": {"type": "string", "pattern": "^doc_[0-9a-f]{32}$"},
+    "source": {"$ref": "#/$defs/source"},
+    "page": {"$ref": "#/$defs/page"},
+    "extraction": {"$ref": "#/$defs/extraction"},
+    "native": {
+      "oneOf": [
+        {"type": "null"},
+        {"$ref": "#/$defs/nativeObservation"}
+      ]
+    },
+    "ocr": {
+      "oneOf": [
+        {"type": "null"},
+        {"$ref": "#/$defs/ocrObservation"}
+      ]
+    },
+    "conflicts": {
+      "type": "array",
+      "maxItems": 4000,
+      "items": {"$ref": "#/$defs/conflict"}
+    },
+    "unresolved": {
+      "type": "array",
+      "maxItems": 4000,
+      "items": {"$ref": "#/$defs/unresolved"}
+    },
+    "status": {"enum": ["observed", "needs_review"]},
+    "hashes": {"$ref": "#/$defs/hashes"},
+    "provenance": {"$ref": "#/$defs/provenance"}
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "extraction": {
+            "properties": {"route": {"const": "native_bbox"}},
+            "required": ["route"]
+          }
+        },
+        "required": ["extraction"]
+      },
+      "then": {
+        "properties": {
+          "native": {"$ref": "#/$defs/nativeObservation"},
+          "ocr": {"type": "null"},
+          "conflicts": {"maxItems": 0},
+          "unresolved": {"maxItems": 0},
+          "status": {"const": "observed"},
+          "extraction": {
+            "properties": {
+              "route_reason": {"const": "pdftotext_words_present"},
+              "native_probe": {
+                "properties": {"word_count": {"minimum": 1}}
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "extraction": {
+            "properties": {"route": {"const": "ocr_raw"}},
+            "required": ["route"]
+          }
+        },
+        "required": ["extraction"]
+      },
+      "then": {
+        "properties": {
+          "native": {"type": "null"},
+          "ocr": {"$ref": "#/$defs/ocrObservation"},
+          "extraction": {
+            "properties": {
+              "route_reason": {"const": "pdftotext_page_has_no_words_and_ocr_is_bound"},
+              "native_probe": {
+                "properties": {"word_count": {"const": 0}}
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "extraction": {
+            "properties": {"route": {"const": "unresolved"}},
+            "required": ["route"]
+          }
+        },
+        "required": ["extraction"]
+      },
+      "then": {
+        "properties": {
+          "native": {"type": "null"},
+          "ocr": {"type": "null"},
+          "conflicts": {"maxItems": 0},
+          "unresolved": {"minItems": 1},
+          "status": {"const": "needs_review"},
+          "extraction": {
+            "properties": {
+              "native_probe": {
+                "properties": {"word_count": {"const": 0}}
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "anyOf": [
+          {"properties": {"conflicts": {"minItems": 1}}, "required": ["conflicts"]},
+          {"properties": {"unresolved": {"minItems": 1}}, "required": ["unresolved"]}
+        ]
+      },
+      "then": {"properties": {"status": {"const": "needs_review"}}}
+    }
+  ],
+  "$defs": {
+    "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "source": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["relative_path", "sha256", "size_bytes", "mime_type"],
+      "properties": {
+        "relative_path": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4096,
+          "pattern": "^(?!/)(?!.*(?:^|/)\\.\\.(?:/|$)).+\\.pdf$"
+        },
+        "sha256": {"$ref": "#/$defs/sha256"},
+        "size_bytes": {"type": "integer", "minimum": 1, "maximum": 268435456},
+        "mime_type": {"const": "application/pdf"}
+      }
+    },
+    "page": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "page_number",
+        "page_count",
+        "width_pt",
+        "height_pt",
+        "rotation_degrees",
+        "coordinate_system",
+        "pdfinfo_output_sha256"
+      ],
+      "properties": {
+        "page_number": {"type": "integer", "minimum": 1, "maximum": 1000},
+        "page_count": {"type": "integer", "minimum": 1, "maximum": 1000},
+        "width_pt": {"type": "number", "exclusiveMinimum": 0, "maximum": 20000},
+        "height_pt": {"type": "number", "exclusiveMinimum": 0, "maximum": 20000},
+        "rotation_degrees": {"enum": [0, 90, 180, 270]},
+        "coordinate_system": {"const": "top_left_pdf_points"},
+        "pdfinfo_output_sha256": {"$ref": "#/$defs/sha256"}
+      }
+    },
+    "extraction": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["route", "route_reason", "selector", "native_probe"],
+      "properties": {
+        "route": {"enum": ["native_bbox", "ocr_raw", "unresolved"]},
+        "route_reason": {
+          "enum": [
+            "pdftotext_words_present",
+            "pdftotext_page_has_no_words_and_ocr_is_bound",
+            "missing_materialized_page",
+            "ambiguous_materialized_page",
+            "missing_ocr_observation",
+            "ambiguous_ocr_observation",
+            "upstream_binding_mismatch",
+            "upstream_ocr_has_no_raw_runs"
+          ]
+        },
+        "selector": {"const": "native-first-no-mixing-v0.1"},
+        "native_probe": {"$ref": "#/$defs/nativeProbe"}
+      }
+    },
+    "nativeProbe": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "backend",
+        "backend_version",
+        "binary_sha256",
+        "document_output_sha256",
+        "page_output_sha256",
+        "word_count"
+      ],
+      "properties": {
+        "backend": {"const": "poppler-pdftotext-bbox-layout"},
+        "backend_version": {"type": "string", "minLength": 1, "maxLength": 1000},
+        "binary_sha256": {"$ref": "#/$defs/sha256"},
+        "document_output_sha256": {"$ref": "#/$defs/sha256"},
+        "page_output_sha256": {"$ref": "#/$defs/sha256"},
+        "word_count": {"type": "integer", "minimum": 0, "maximum": 1000000}
+      }
+    },
+    "nativeObservation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["granularity", "raw_text_modified", "words"],
+      "properties": {
+        "granularity": {"const": "word"},
+        "raw_text_modified": {"const": false},
+        "words": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 1000000,
+          "items": {"$ref": "#/$defs/nativeWord"}
+        }
+      }
+    },
+    "nativeWord": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "word_id",
+        "reading_order",
+        "block_index",
+        "line_index",
+        "word_index",
+        "raw_text",
+        "bbox"
+      ],
+      "properties": {
+        "word_id": {"type": "string", "pattern": "^word_[0-9]{6}$"},
+        "reading_order": {"type": "integer", "minimum": 1, "maximum": 1000000},
+        "block_index": {"type": "integer", "minimum": 1, "maximum": 1000000},
+        "line_index": {"type": "integer", "minimum": 1, "maximum": 1000000},
+        "word_index": {"type": "integer", "minimum": 1, "maximum": 1000000},
+        "raw_text": {"type": "string", "minLength": 1, "maxLength": 10000},
+        "bbox": {"$ref": "#/$defs/pdfBBox"}
+      }
+    },
+    "pdfBBox": {
+      "description": "PDFページ左上原点の[x,y,width,height]。ページ境界との和は決定的validatorが検証する",
+      "type": "array",
+      "prefixItems": [
+        {"type": "number", "minimum": 0, "maximum": 20000},
+        {"type": "number", "minimum": 0, "maximum": 20000},
+        {"type": "number", "exclusiveMinimum": 0, "maximum": 20000},
+        {"type": "number", "exclusiveMinimum": 0, "maximum": 20000}
+      ],
+      "minItems": 4,
+      "maxItems": 4
+    },
+    "normalizedBBox": {
+      "description": "画像左上を[0,0]、右下を[1000,1000]とする[x,y,width,height]",
+      "type": "array",
+      "prefixItems": [
+        {"type": "integer", "minimum": 0, "maximum": 999},
+        {"type": "integer", "minimum": 0, "maximum": 999},
+        {"type": "integer", "minimum": 1, "maximum": 1000},
+        {"type": "integer", "minimum": 1, "maximum": 1000}
+      ],
+      "minItems": 4,
+      "maxItems": 4
+    },
+    "dimensions": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["width_px", "height_px"],
+      "properties": {
+        "width_px": {"type": "integer", "minimum": 1, "maximum": 50000},
+        "height_px": {"type": "integer", "minimum": 1, "maximum": 50000}
+      }
+    },
+    "ocrObservation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "asset_id",
+        "upstream_observation_id",
+        "asset",
+        "manifest_record_sha256",
+        "upstream_record_sha256",
+        "upstream_signature_sha256",
+        "upstream_status",
+        "upstream_exactness",
+        "coordinate_system",
+        "raw_text_modified",
+        "raw_runs"
+      ],
+      "properties": {
+        "asset_id": {"type": "string", "pattern": "^asset_[0-9a-f]{32}$"},
+        "upstream_observation_id": {"type": "string", "pattern": "^ocr_[0-9a-f]{24}$"},
+        "asset": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["materialized_path", "sha256", "mime_type", "dimensions"],
+          "properties": {
+            "materialized_path": {"type": "string", "minLength": 1, "maxLength": 8192},
+            "sha256": {"$ref": "#/$defs/sha256"},
+            "mime_type": {"type": "string", "pattern": "^image/[A-Za-z0-9.+-]+$"},
+            "dimensions": {"$ref": "#/$defs/dimensions"}
+          }
+        },
+        "manifest_record_sha256": {"$ref": "#/$defs/sha256"},
+        "upstream_record_sha256": {"$ref": "#/$defs/sha256"},
+        "upstream_signature_sha256": {"$ref": "#/$defs/sha256"},
+        "upstream_status": {"enum": ["observed", "needs_review", "failed"]},
+        "upstream_exactness": {"enum": ["observed", "unresolved"]},
+        "coordinate_system": {"const": "top_left_normalized_1000"},
+        "raw_text_modified": {"const": false},
+        "raw_runs": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 16,
+          "items": {"$ref": "#/$defs/rawRun"}
+        }
+      }
+    },
+    "rawRun": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "run_id",
+        "engine",
+        "status",
+        "lines",
+        "warnings",
+        "error",
+        "output_sha256"
+      ],
+      "properties": {
+        "run_id": {"type": "string", "pattern": "^ocr_run_[0-9a-f]{24}$"},
+        "engine": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["name", "version", "digest", "independence_group"],
+          "properties": {
+            "name": {"type": "string", "minLength": 1, "maxLength": 200},
+            "version": {"type": "string", "minLength": 1, "maxLength": 1000},
+            "digest": {"$ref": "#/$defs/sha256"},
+            "independence_group": {"type": "string", "minLength": 1, "maxLength": 200}
+          }
+        },
+        "status": {"enum": ["completed", "needs_review", "failed"]},
+        "lines": {
+          "type": "array",
+          "maxItems": 2000,
+          "items": {"$ref": "#/$defs/rawLine"}
+        },
+        "warnings": {
+          "type": "array",
+          "maxItems": 100,
+          "uniqueItems": true,
+          "items": {"type": "string", "minLength": 1, "maxLength": 10000}
+        },
+        "error": {"type": ["string", "null"], "minLength": 1, "maxLength": 10000},
+        "output_sha256": {"$ref": "#/$defs/sha256"}
+      }
+    },
+    "rawLine": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["line_id", "reading_order", "raw_text", "bbox", "confidence"],
+      "properties": {
+        "line_id": {"type": "string", "pattern": "^line_[0-9]+$"},
+        "reading_order": {"type": "integer", "minimum": 1, "maximum": 2000},
+        "raw_text": {"type": "string", "minLength": 1, "maxLength": 10000},
+        "bbox": {"$ref": "#/$defs/normalizedBBox"},
+        "confidence": {"type": ["number", "null"], "minimum": 0, "maximum": 1}
+      }
+    },
+    "readingRef": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["run_id", "line_id", "raw_text"],
+      "properties": {
+        "run_id": {"type": "string", "pattern": "^ocr_run_[0-9a-f]{24}$"},
+        "line_id": {"type": "string", "pattern": "^line_[0-9]+$"},
+        "raw_text": {"type": "string", "minLength": 1, "maxLength": 10000}
+      }
+    },
+    "conflict": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["conflict_id", "reason", "bbox", "readings"],
+      "properties": {
+        "conflict_id": {"type": "string", "pattern": "^pdfconf_[0-9a-f]{16}$"},
+        "reason": {"const": "ocr_text_disagreement"},
+        "bbox": {"$ref": "#/$defs/normalizedBBox"},
+        "readings": {
+          "type": "array",
+          "minItems": 2,
+          "maxItems": 16,
+          "items": {"$ref": "#/$defs/readingRef"}
+        }
+      }
+    },
+    "unresolved": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["unresolved_id", "reason", "bbox", "readings"],
+      "properties": {
+        "unresolved_id": {"type": "string", "pattern": "^pdfunres_[0-9a-f]{16}$"},
+        "reason": {
+          "enum": [
+            "ocr_consensus_unresolved",
+            "upstream_record_unresolved",
+            "missing_materialized_page",
+            "ambiguous_materialized_page",
+            "missing_ocr_observation",
+            "ambiguous_ocr_observation",
+            "upstream_binding_mismatch",
+            "upstream_ocr_has_no_raw_runs"
+          ]
+        },
+        "bbox": {
+          "oneOf": [
+            {"type": "null"},
+            {"$ref": "#/$defs/normalizedBBox"}
+          ]
+        },
+        "readings": {
+          "type": "array",
+          "maxItems": 16,
+          "items": {"$ref": "#/$defs/readingRef"}
+        }
+      }
+    },
+    "hashes": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "input_sha256",
+        "content_sha256",
+        "signature_sha256",
+        "record_integrity_sha256"
+      ],
+      "properties": {
+        "input_sha256": {"$ref": "#/$defs/sha256"},
+        "content_sha256": {"$ref": "#/$defs/sha256"},
+        "signature_sha256": {"$ref": "#/$defs/sha256"},
+        "record_integrity_sha256": {"$ref": "#/$defs/sha256"}
+      }
+    },
+    "provenance": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "builder",
+        "builder_version",
+        "inventory_sha256",
+        "visual_assets_sha256",
+        "ocr_observations_sha256",
+        "pdfinfo",
+        "question_independent",
+        "question_data_used",
+        "gold_data_used",
+        "prediction_data_used",
+        "answer_data_used",
+        "shadow_only",
+        "evidence_connected",
+        "search_unit_connected",
+        "production_index_connected"
+      ],
+      "properties": {
+        "builder": {"const": "pdf-page-observation-builder"},
+        "builder_version": {"const": "0.1.0"},
+        "inventory_sha256": {"$ref": "#/$defs/sha256"},
+        "visual_assets_sha256": {
+          "oneOf": [
+            {"type": "null"},
+            {"$ref": "#/$defs/sha256"}
+          ]
+        },
+        "ocr_observations_sha256": {
+          "oneOf": [
+            {"type": "null"},
+            {"$ref": "#/$defs/sha256"}
+          ]
+        },
+        "pdfinfo": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["backend", "backend_version", "binary_sha256"],
+          "properties": {
+            "backend": {"const": "poppler-pdfinfo"},
+            "backend_version": {"type": "string", "minLength": 1, "maxLength": 1000},
+            "binary_sha256": {"$ref": "#/$defs/sha256"}
+          }
+        },
+        "question_independent": {"const": true},
+        "question_data_used": {"const": false},
+        "gold_data_used": {"const": false},
+        "prediction_data_used": {"const": false},
+        "answer_data_used": {"const": false},
+        "shadow_only": {"const": true},
+        "evidence_connected": {"const": false},
+        "search_unit_connected": {"const": false},
+        "production_index_connected": {"const": false}
+      }
+    }
+  }
+}
