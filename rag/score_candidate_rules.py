@@ -846,6 +846,14 @@ def graph_contract_for_question(question: str) -> dict[str, Any] | None:
     if contract is not None:
         return contract
 
+    from notebook_date_chart_rules import (
+        graph_contract_for_question as notebook_date_chart_contract,
+    )
+
+    contract = notebook_date_chart_contract(question)
+    if contract is not None:
+        return contract
+
     from xlsx_role_task_graph_rules import (
         graph_contract_for_question as xlsx_role_task_contract,
     )
@@ -6287,6 +6295,12 @@ def decide_extended(engine: Any, question_id: str, question: str) -> StructuredC
     notebook_axis_tick = decide_notebook_axis_tick(engine, question)
     if notebook_axis_tick is not None:
         return notebook_axis_tick
+
+    from notebook_date_chart_rules import decide_question as decide_notebook_date_chart
+
+    notebook_date_chart = decide_notebook_date_chart(engine, question)
+    if notebook_date_chart is not None:
+        return notebook_date_chart
 
     from xlsx_role_task_graph_rules import decide_question as decide_xlsx_role_task
 
