@@ -31,7 +31,7 @@ class CrossProjectPortfolioRulesTests(unittest.TestCase):
             cls.questions = dict(csv.reader(handle))
 
     def test_exact_contracts_are_dispatched(self):
-        for index in ("38", "67", "87"):
+        for index in ("31", "38", "67", "87"):
             with self.subTest(index=index):
                 question = self.questions[index]
                 contract = graph_contract_for_question(question)
@@ -44,6 +44,14 @@ class CrossProjectPortfolioRulesTests(unittest.TestCase):
         self.assertIsNone(graph_contract_for_question(self.questions["67"] + " AOSHIO、AOMINE、AOBM"))
         self.assertIsNone(graph_contract_for_question(self.questions["87"] + " AYM"))
         self.assertIsNone(graph_contract_for_question(self.questions["38"] + " APR-M3は0件"))
+        self.assertIsNone(graph_contract_for_question(self.questions["31"].replace("切り上げ", "四捨五入")))
+
+    def test_actual_fixed_price_gross_per_training_row_has_unique_maximum(self):
+        decision = decide_question(self.engine, self.questions["31"])
+        self.assertEqual(("resolved", "certified_cross_project_portfolio"), (decision.status, decision.reason))
+        self.assertEqual("MINAMINO、1,320円", decision.result.answer)
+        self.assertEqual(11, decision.result.operation_count)
+        self.assertEqual(21, len(decision.result.source_paths))
 
     def test_actual_apr_m3_policy_and_all_ten_contracts_produce_empty_set(self):
         self.assertIsNotNone(_apr_policy_sources(self.root))
@@ -78,7 +86,7 @@ class CrossProjectPortfolioRulesTests(unittest.TestCase):
         self.assertEqual(1, decision.result.output_count)
 
     def test_live_contract_requires_graph_plan(self):
-        for index in ("38", "67", "87"):
+        for index in ("31", "38", "67", "87"):
             with self.subTest(index=index):
                 decision = self.engine.decide(index, self.questions[index])
                 self.assertEqual(("hold", "extended_graph_plan_required"), (decision.status, decision.reason))

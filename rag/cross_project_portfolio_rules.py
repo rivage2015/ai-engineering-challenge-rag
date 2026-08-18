@@ -31,6 +31,10 @@ APR_M3_CONTRACT_TOTAL = re.compile(
     r"^社内管理のAPRに照らして、APR-M3が必要な案件を主略称ですべて挙げ、"
     r"それらの契約金額（税込）の合計を答えてください。$"
 )
+FIXED_PRICE_PER_ROW = re.compile(
+    r"^固定金額契約の中で、分析データ1行あたりの契約金額（税込）が最も高い案件を、"
+    r"主略称と1行あたりの金額で答えてください。1行あたりの金額は円単位で切り上げてください。$"
+)
 
 _MAX_SOURCE_BYTES = 80 * 1024 * 1024
 _MAX_PDF_PAGES = 30
@@ -96,6 +100,25 @@ def graph_contract_for_question(question: str) -> dict[str, Any] | None:
         return _contract(question, "completed_apr_m1_sample_count_filter", (*common, "filter_apr_m1", "bind_customer_training_data", "count_data_rows", "filter_at_least_10000", "project_primary_alias"))
     if APR_M3_CONTRACT_TOTAL.fullmatch(question):
         return _contract(question, "all_projects_apr_m3_contract_gross_total", ("bind_unique_glossary", "bind_apr_m3_to_headquarters_approval", "bind_unique_approval_policy", *common, "create_project_contract_policy_nodes", "apply_amount_band", "apply_medical_one_level_raise", "apply_tm_minimum_manager_level_two", "audit_policy_edges_with_all_projects_as_decoys", "filter_apr_m3", "project_primary_aliases", "sum_contract_gross"))
+    if FIXED_PRICE_PER_ROW.fullmatch(question):
+        return _contract(
+            question,
+            "fixed_price_contract_unique_maximum_gross_per_training_row",
+            (
+                "enumerate_all_projects",
+                "bind_primary_aliases",
+                "bind_current_contracts",
+                "extract_contract_gross_and_pricing",
+                "filter_fixed_price_contracts",
+                "bind_customer_training_data",
+                "count_data_rows_excluding_header",
+                "divide_gross_by_row_count",
+                "ceil_each_per_row_amount_to_yen",
+                "verify_unique_maximum",
+                "project_primary_alias_and_amount",
+            ),
+            multiple=False,
+        )
     return None
 
 
@@ -353,6 +376,40 @@ def decide_question(engine: Any, question: str) -> StructuredCandidateDecision |
     if root is None or projects is None:
         return StructuredCandidateDecision("hold", "cross_project_set_not_complete")
     try:
+        if FIXED_PRICE_PER_ROW.fullmatch(question):
+            glossary = root / "社内管理" / "社内用語集.docx"
+            if not glossary.is_file() or glossary.is_symlink():
+                raise ValueError("glossary")
+            ranked = []
+            evidence = [glossary]
+            for project in projects:
+                alias = _alias(engine, project)
+                contract_path = _contract_path(project)
+                if alias is None or contract_path is None:
+                    raise ValueError("binding")
+                extracted = _contract_facts(contract_path, project)
+                training = _train_rows(project)
+                if extracted is None or training is None:
+                    raise ValueError("facts")
+                total, pricing, _medical = extracted
+                rows, training_path = training
+                evidence.extend((contract_path, training_path))
+                if pricing == "fixed":
+                    ranked.append((alias, (total + rows - 1) // rows, total, rows))
+            if not ranked:
+                raise ValueError("no fixed contracts")
+            maximum = max(value for _alias_value, value, _total, _rows in ranked)
+            winners = [item for item in ranked if item[1] == maximum]
+            if len(winners) != 1:
+                raise ValueError("maximum not unique")
+            alias, amount, _total, _rows = winners[0]
+            return _decision(
+                f"{alias}、{amount:,}円",
+                evidence,
+                root,
+                len(contract["operation_graph"]["nodes"]),
+                1,
+            )
         facts = []
         evidence = []
         if APR_M3_CONTRACT_TOTAL.fullmatch(question):

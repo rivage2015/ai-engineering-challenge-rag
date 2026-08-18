@@ -56,6 +56,7 @@ _LIVE_GRAPH_CONTRACT_PREFIXES = (
     "xlsx_role_task_",
     "notebook_version_diff_",
     "notebook_corr_",
+    "notebook_axis_tick_",
     "crossdoc_finance_",
     "cross_project_",
     "personnel_graph_",
