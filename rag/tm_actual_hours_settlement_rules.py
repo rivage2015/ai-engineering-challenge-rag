@@ -112,7 +112,7 @@ def decide_question(engine: Any, question: str) -> StructuredCandidateDecision |
         threshold = contract["bindings"]["hypothetical_hours_lower_bound"]
         if not isinstance(threshold, int) or threshold <= estimate:
             raise ValueError("hypothetical does not exceed estimate")
-        answer = f"{threshold}時間を超えた場合の特別な上限・定額規定はなく、見込工数{estimate}時間は固定上限ではない。月次タイムシートの実績工数を30分単位（30分未満切り上げ）で計上し、時間単価{rate:,}円を乗じて消費税を加算した金額を月次精算する。"
+        answer = f"{threshold}時間を超えた場合の特別な上限・定額規定はない。見込工数{estimate}時間は固定上限ではない。月次タイムシートの実績工数を30分単位（30分未満切り上げ）で計上する。時間単価{rate:,}円を乗じて消費税を加算した金額を月次精算する。"
         paths, digest = _fingerprint((glossary, contract_path), root)
         result = StructuredCandidateAnswer(answer, paths, digest, len(contract["operation_graph"]["nodes"]), 1)
         return StructuredCandidateDecision("resolved", "certified_tm_actual_hours_settlement_method", result)

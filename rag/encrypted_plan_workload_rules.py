@@ -59,7 +59,7 @@ def graph_contract_for_question(question: str) -> dict[str, Any] | None:
         "bindings": {"metric": "planned_hours / assigned_task_count", "decimal_places": 2, "zero_task_policy": "exclude"},
         "scope": {"source_channel": "glossary_password_rule_and_decrypted_native_xlsx", "question_independent": True, "ambiguity_policy": "hold", "decryption": "memory_only"},
         "operation_graph": {"external_inputs": [{"input_ref": "input_question", "input_type": "encrypted_plan_workload_ranking", "source": "question_scope"}], "nodes": nodes, "edges": [{"from": nodes[i - 1]["output_ref"], "to": nodes[i]["operation_id"]} for i in range(1, len(nodes))]},
-        "requested_output": {"source_operation_ref": nodes[-1]["operation_id"], "cardinality": "one", "answer_shape": {"container": "tuple", "value_type": "person_and_decimal_hours", "unit": "hours/task"}, "display_precision": 2, "required_keys": ["full_name", "hours_per_task"]},
+        "requested_output": {"source_operation_ref": nodes[-1]["operation_id"], "cardinality": "one", "answer_shape": {"container": "tuple", "value_type": "person_and_decimal_hours", "unit": None}, "display_precision": 2, "required_keys": ["full_name", "hours_per_task"]},
     }
     return {"graph_contract_id": "encrypted_plan_workload_" + hashlib.sha256(_canonical(core).encode()).hexdigest()[:32], **core}
 

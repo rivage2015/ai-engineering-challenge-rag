@@ -61,7 +61,7 @@ def _normalized(value: object) -> str:
     return "".join(c for c in unicodedata.normalize("NFKC", str(value)).casefold() if not c.isspace())
 
 
-def _contract(question: str, rule_id: str, operators: Sequence[str], multiple: bool = True) -> dict[str, Any]:
+def _contract(question: str, rule_id: str, operators: Sequence[str], multiple: bool = True, container: str | None = None) -> dict[str, Any]:
     nodes = []
     previous = "input_question"
     for index, operator in enumerate(operators, 1):
@@ -82,7 +82,7 @@ def _contract(question: str, rule_id: str, operators: Sequence[str], multiple: b
         "requested_output": {
             "source_operation_ref": nodes[-1]["operation_id"],
             "cardinality": "multiple" if multiple else "single",
-            "answer_shape": {"container": "list" if multiple else "scalar", "value_type": "string", "unit": None},
+            "answer_shape": {"container": container or ("list" if multiple else "scalar"), "value_type": "string", "unit": None},
             "display_precision": None,
             "required_keys": None,
         },
@@ -118,6 +118,7 @@ def graph_contract_for_question(question: str) -> dict[str, Any] | None:
                 "project_primary_alias_and_amount",
             ),
             multiple=False,
+            container="tuple",
         )
     return None
 

@@ -54,7 +54,7 @@ def graph_contract_for_question(question: str) -> dict[str, Any] | None:
         "bindings": {"id_namespaces": ["milestone", "task", "action"]},
         "scope": {"source_channel": "encrypted_xlsx_and_docx", "question_independent": True, "ambiguity_policy": "hold", "excluded_extensions": [".md"]},
         "operation_graph": {"external_inputs": [{"input_ref": "input_question", "input_type": "project_id_inventory", "source": "question_scope"}], "nodes": nodes, "edges": [{"from": nodes[i - 1]["output_ref"], "to": nodes[i]["operation_id"]} for i in range(1, len(nodes))]},
-        "requested_output": {"source_operation_ref": nodes[-1]["operation_id"], "cardinality": "one", "answer_shape": {"container": "scalar", "value_type": "integer", "unit": "IDs"}, "display_precision": 0, "required_keys": None},
+        "requested_output": {"source_operation_ref": nodes[-1]["operation_id"], "cardinality": "one", "answer_shape": {"container": "scalar", "value_type": "integer", "unit": None}, "display_precision": 0, "required_keys": None},
     }
     return {"graph_contract_id": "project_id_inventory_" + hashlib.sha256(_canonical(core).encode()).hexdigest()[:32], **core}
 
