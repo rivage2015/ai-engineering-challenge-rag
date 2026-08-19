@@ -23,6 +23,9 @@ FINAL_SCHEDULE = re.compile(
 MINAMINO_MODEL_WEEK = re.compile(
     r"^MINAMINOのPP内のPL案において、モデル構築は第何週に実施することになっていますか。$"
 )
+MINAMINO_WEEK_FIVE_ITEMS = re.compile(
+    r"^蒼樹会 みなみ野女性医療センターの提案書内のスケジュール案において、第5週目に実施することになっている項目は何ですか。$"
+)
 
 _A = "{http://schemas.openxmlformats.org/drawingml/2006/main}"
 _P = "{http://schemas.openxmlformats.org/presentationml/2006/main}"
@@ -69,6 +72,8 @@ def graph_contract_for_question(question: str) -> dict[str, Any] | None:
         return _contract(question, "final_pilot_operation_week_span")
     if MINAMINO_MODEL_WEEK.fullmatch(question):
         return _contract(question, "proposal_model_build_single_week")
+    if MINAMINO_WEEK_FIVE_ITEMS.fullmatch(question):
+        return _contract(question, "proposal_week_items")
     return None
 
 
@@ -108,6 +113,11 @@ def _shape_records(raw: bytes) -> list[dict[str, Any]]:
             "kind": element.tag.rsplit("}", 1)[-1],
             "name": name_node.get("name", "") if name_node is not None else "",
             "text": "".join(node.text or "" for node in element.iter(_A + "t")).strip(),
+            "paragraphs": tuple(
+                "".join(node.text or "" for node in paragraph.iter(_A + "t")).strip()
+                for paragraph in element.iter(_A + "p")
+                if "".join(node.text or "" for node in paragraph.iter(_A + "t")).strip()
+            ),
             "x": int(off.get("x")), "y": int(off.get("y")),
             "cx": int(ext.get("cx")), "cy": int(ext.get("cy")),
             "head": (element.find(".//" + _A + "headEnd").get("type", "") if element.find(".//" + _A + "headEnd") is not None else ""),
@@ -212,21 +222,67 @@ def _single_week(path: Path) -> int:
     return matched_weeks[0]
 
 
+def _week_items(path: Path, target_week: int) -> tuple[str, ...]:
+    data = path.read_bytes()
+    if not data or len(data) != path.stat().st_size or not zipfile.is_zipfile(path):
+        raise _InvalidSource("presentation bytes invalid")
+    with zipfile.ZipFile(path) as archive:
+        names = sorted((name for name in archive.namelist() if re.fullmatch(r"ppt/slides/slide\d+\.xml", name)), key=lambda value: int(re.search(r"\d+", value).group()))
+        slides = [(_shape_records(archive.read(name)), int(re.search(r"\d+", name).group())) for name in names]
+    matches = [(records, number) for records, number in slides if any(record["text"] == "6. スケジュール案（6週間）" for record in records)]
+    if len(matches) != 1 or matches[0][1] != 9:
+        raise _InvalidSource("MINAMINO schedule slide not unique")
+    records = matches[0][0]
+    weeks = []
+    for record in records:
+        match = re.fullmatch(r"(\d+)週目", record["text"])
+        if match:
+            weeks.append((int(match.group(1)), record["x"], record["cx"]))
+    weeks.sort()
+    if [number for number, _, _ in weeks] != list(range(1, 7)) or target_week not in range(1, 7):
+        raise _InvalidSource("MINAMINO week headers incomplete")
+    week = next(item for item in weeks if item[0] == target_week)
+    phases = {match.group(1): record for record in records if (match := re.fullmatch(r"Phase(\d+)", record["name"]))}
+    bars = {match.group(1): record for record in records if record["filled"] and (match := re.fullmatch(r"Bar(\d+)", record["name"]))}
+    if set(phases) != {str(number) for number in range(6)} or set(bars) != set(phases):
+        raise _InvalidSource("phase/bar pairs incomplete")
+    items = []
+    for key in sorted(phases, key=int):
+        phase, bar = phases[key], bars[key]
+        center = bar["x"] + bar["cx"] // 2
+        located = [number for number, x, cx in weeks if x <= center <= x + cx and bar["cx"] < cx]
+        if len(located) != 1 or not (phase["y"] <= bar["y"] <= phase["y"] + phase["cy"]):
+            raise _InvalidSource("phase/bar geometry ambiguous")
+        if located[0] == target_week:
+            if len(phase["paragraphs"]) != 2 or not phase["paragraphs"][0] or not phase["paragraphs"][1]:
+                raise _InvalidSource("phase label/owner paragraphs ambiguous")
+            items.append(phase["paragraphs"][0])
+    if not items or len(items) != len(set(items)):
+        raise _InvalidSource("target week items ambiguous")
+    return tuple(items)
+
+
 def decide_question(engine: Any, question: str) -> StructuredCandidateDecision | None:
     contract = graph_contract_for_question(question)
     if contract is None:
         return None
     final = FINAL_SCHEDULE.fullmatch(question) is not None
     minamino = MINAMINO_MODEL_WEEK.fullmatch(question) is not None
+    minamino_week_items = MINAMINO_WEEK_FIVE_ITEMS.fullmatch(question) is not None
     try:
         root = _root(engine)
-        if minamino:
+        if minamino or minamino_week_items:
             from cross_document_finance_rules import _fingerprint
 
             glossary, path = _minamino_source(engine, root)
-            week = _single_week(path)
+            if minamino_week_items:
+                items = _week_items(path, 5)
+                answer = "、".join(items)
+            else:
+                week = _single_week(path)
+                answer = f"{week}週目"
             paths, digest = _fingerprint((glossary, path), root)
-            result = StructuredCandidateAnswer(f"{week}週目", paths, digest, len(contract["operation_graph"]["nodes"]), 1)
+            result = StructuredCandidateAnswer(answer, paths, digest, len(contract["operation_graph"]["nodes"]), len(items) if minamino_week_items else 1)
             return StructuredCandidateDecision("resolved", "certified_pptx_schedule_geometry", result)
         path = _source(root, final=final)
         start, end = _week_span(path, final=final)

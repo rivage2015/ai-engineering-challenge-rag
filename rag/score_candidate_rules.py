@@ -894,6 +894,22 @@ def graph_contract_for_question(question: str) -> dict[str, Any] | None:
     if contract is not None:
         return contract
 
+    from docx_rank_ratio_rules import (
+        graph_contract_for_question as docx_rank_ratio_contract,
+    )
+
+    contract = docx_rank_ratio_contract(question)
+    if contract is not None:
+        return contract
+
+    from encrypted_plan_workload_rules import (
+        graph_contract_for_question as encrypted_plan_workload_contract,
+    )
+
+    contract = encrypted_plan_workload_contract(question)
+    if contract is not None:
+        return contract
+
     from xlsx_role_task_graph_rules import (
         graph_contract_for_question as xlsx_role_task_contract,
     )
@@ -6379,6 +6395,18 @@ def decide_extended(engine: Any, question_id: str, question: str) -> StructuredC
     tm_actual_hours_settlement = decide_tm_actual_hours_settlement(engine, question)
     if tm_actual_hours_settlement is not None:
         return tm_actual_hours_settlement
+
+    from docx_rank_ratio_rules import decide_question as decide_docx_rank_ratio
+
+    docx_rank_ratio = decide_docx_rank_ratio(engine, question)
+    if docx_rank_ratio is not None:
+        return docx_rank_ratio
+
+    from encrypted_plan_workload_rules import decide_question as decide_encrypted_plan_workload
+
+    encrypted_plan_workload = decide_encrypted_plan_workload(engine, question)
+    if encrypted_plan_workload is not None:
+        return encrypted_plan_workload
 
     from xlsx_role_task_graph_rules import decide_question as decide_xlsx_role_task
 

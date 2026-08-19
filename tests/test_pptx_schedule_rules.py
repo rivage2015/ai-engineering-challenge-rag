@@ -21,7 +21,7 @@ class PptxScheduleRulesTests(unittest.TestCase):
             cls.questions = dict(csv.reader(handle))
 
     def test_exact_grammars_build_live_contracts(self):
-        for qid in ("51", "69", "75"):
+        for qid in ("51", "69", "75", "88"):
             contract = graph_contract_for_question(self.questions[qid])
             self.assertIsNotNone(contract)
             self.assertTrue(validate_graph_contract(self.questions[qid], contract))
@@ -48,8 +48,15 @@ class PptxScheduleRulesTests(unittest.TestCase):
         self.assertEqual("4週目", decision.result.answer)
         self.assertEqual(2, len(decision.result.source_paths))
 
+    def test_actual_minamino_week_five_items(self):
+        decision = decide_question(self.engine, self.questions["88"])
+        self.assertEqual("resolved", decision.status)
+        self.assertEqual("解釈・業務示唆整理", decision.result.answer)
+        self.assertEqual(1, decision.result.output_count)
+        self.assertEqual(2, len(decision.result.source_paths))
+
     def test_live_contract_requires_graph_plan(self):
-        for qid in ("51", "69", "75"):
+        for qid in ("51", "69", "75", "88"):
             decision = self.engine.decide(qid, self.questions[qid])
             self.assertEqual("hold", decision.status)
             self.assertEqual("extended_graph_plan_required", decision.reason)

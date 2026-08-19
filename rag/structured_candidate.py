@@ -63,6 +63,8 @@ _LIVE_GRAPH_CONTRACT_PREFIXES = (
     "milestone_role_task_",
     "pptx_unfinished_action_",
     "tm_actual_hours_settlement_",
+    "docx_rank_ratio_",
+    "encrypted_plan_workload_",
     "crossdoc_finance_",
     "cross_project_",
     "personnel_graph_",
