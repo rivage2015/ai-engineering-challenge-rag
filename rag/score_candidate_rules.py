@@ -854,6 +854,46 @@ def graph_contract_for_question(question: str) -> dict[str, Any] | None:
     if contract is not None:
         return contract
 
+    from one_hot_eligibility_rules import (
+        graph_contract_for_question as one_hot_eligibility_contract,
+    )
+
+    contract = one_hot_eligibility_contract(question)
+    if contract is not None:
+        return contract
+
+    from project_id_inventory_rules import (
+        graph_contract_for_question as project_id_inventory_contract,
+    )
+
+    contract = project_id_inventory_contract(question)
+    if contract is not None:
+        return contract
+
+    from milestone_role_task_rules import (
+        graph_contract_for_question as milestone_role_task_contract,
+    )
+
+    contract = milestone_role_task_contract(question)
+    if contract is not None:
+        return contract
+
+    from pptx_unfinished_action_rules import (
+        graph_contract_for_question as pptx_unfinished_action_contract,
+    )
+
+    contract = pptx_unfinished_action_contract(question)
+    if contract is not None:
+        return contract
+
+    from tm_actual_hours_settlement_rules import (
+        graph_contract_for_question as tm_actual_hours_settlement_contract,
+    )
+
+    contract = tm_actual_hours_settlement_contract(question)
+    if contract is not None:
+        return contract
+
     from xlsx_role_task_graph_rules import (
         graph_contract_for_question as xlsx_role_task_contract,
     )
@@ -883,6 +923,14 @@ def graph_contract_for_question(question: str) -> dict[str, Any] | None:
     )
 
     contract = pptx_feature_legend_contract(question)
+    if contract is not None:
+        return contract
+
+    from pptx_kpi_status_rules import (
+        graph_contract_for_question as pptx_kpi_status_contract,
+    )
+
+    contract = pptx_kpi_status_contract(question)
     if contract is not None:
         return contract
 
@@ -6302,6 +6350,36 @@ def decide_extended(engine: Any, question_id: str, question: str) -> StructuredC
     if notebook_date_chart is not None:
         return notebook_date_chart
 
+    from one_hot_eligibility_rules import decide_question as decide_one_hot_eligibility
+
+    one_hot_eligibility = decide_one_hot_eligibility(engine, question)
+    if one_hot_eligibility is not None:
+        return one_hot_eligibility
+
+    from project_id_inventory_rules import decide_question as decide_project_id_inventory
+
+    project_id_inventory = decide_project_id_inventory(engine, question)
+    if project_id_inventory is not None:
+        return project_id_inventory
+
+    from milestone_role_task_rules import decide_question as decide_milestone_role_task
+
+    milestone_role_task = decide_milestone_role_task(engine, question)
+    if milestone_role_task is not None:
+        return milestone_role_task
+
+    from pptx_unfinished_action_rules import decide_question as decide_pptx_unfinished_action
+
+    pptx_unfinished_action = decide_pptx_unfinished_action(engine, question)
+    if pptx_unfinished_action is not None:
+        return pptx_unfinished_action
+
+    from tm_actual_hours_settlement_rules import decide_question as decide_tm_actual_hours_settlement
+
+    tm_actual_hours_settlement = decide_tm_actual_hours_settlement(engine, question)
+    if tm_actual_hours_settlement is not None:
+        return tm_actual_hours_settlement
+
     from xlsx_role_task_graph_rules import decide_question as decide_xlsx_role_task
 
     xlsx_role_task = decide_xlsx_role_task(engine, question)
@@ -6325,6 +6403,12 @@ def decide_extended(engine: Any, question_id: str, question: str) -> StructuredC
     pptx_feature_legend = decide_pptx_feature_legend(engine, question)
     if pptx_feature_legend is not None:
         return pptx_feature_legend
+
+    from pptx_kpi_status_rules import decide_question as decide_pptx_kpi_status
+
+    pptx_kpi_status = decide_pptx_kpi_status(engine, question)
+    if pptx_kpi_status is not None:
+        return pptx_kpi_status
 
     from pptx_revision_summary_rules import decide_question as decide_pptx_revision_summary
 

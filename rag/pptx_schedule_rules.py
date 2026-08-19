@@ -20,6 +20,9 @@ PROPOSAL_SCHEDULE = re.compile(
 FINAL_SCHEDULE = re.compile(
     r"^白峰信用リスク評価の最終報告資料において、パイロット運用は本番化スケジュール上で第何週目から第何週目に実施予定ですか。$"
 )
+MINAMINO_MODEL_WEEK = re.compile(
+    r"^MINAMINOのPP内のPL案において、モデル構築は第何週に実施することになっていますか。$"
+)
 
 _A = "{http://schemas.openxmlformats.org/drawingml/2006/main}"
 _P = "{http://schemas.openxmlformats.org/presentationml/2006/main}"
@@ -64,6 +67,8 @@ def graph_contract_for_question(question: str) -> dict[str, Any] | None:
         return _contract(question, "proposal_model_enhancement_week_span")
     if FINAL_SCHEDULE.fullmatch(question):
         return _contract(question, "final_pilot_operation_week_span")
+    if MINAMINO_MODEL_WEEK.fullmatch(question):
+        return _contract(question, "proposal_model_build_single_week")
     return None
 
 
@@ -107,6 +112,7 @@ def _shape_records(raw: bytes) -> list[dict[str, Any]]:
             "cx": int(ext.get("cx")), "cy": int(ext.get("cy")),
             "head": (element.find(".//" + _A + "headEnd").get("type", "") if element.find(".//" + _A + "headEnd") is not None else ""),
             "tail": (element.find(".//" + _A + "tailEnd").get("type", "") if element.find(".//" + _A + "tailEnd") is not None else ""),
+            "filled": element.find("./" + _P + "spPr/" + _A + "solidFill") is not None,
         })
     return records
 
@@ -154,13 +160,74 @@ def _week_span(path: Path, *, final: bool) -> tuple[int, int]:
     return starts[0], ends[0]
 
 
+def _minamino_source(engine: Any, root: Path) -> tuple[Path, Path]:
+    glossary = root / "社内管理" / "社内用語集.docx"
+    lookup = getattr(engine, "glossary", None).lookup
+    if not glossary.is_file() or glossary.is_symlink():
+        raise _InvalidSource("glossary invalid")
+    expected = {
+        "MINAMINO": [("MINAMINO", ["医療法人社団 蒼樹会 みなみ野女性医療センター"])],
+        "PP": [("PP", ["提案書"])],
+        "PL": [("PL", ["スケジュール"])],
+    }
+    if any(lookup(alias) != value for alias, value in expected.items()):
+        raise _InvalidSource("glossary aliases changed")
+    project = root / "プロジェクト" / "医療法人社団 蒼樹会 みなみ野女性医療センター"
+    matches = [path for path in (project / "00.提案").glob("*.pptx") if path.is_file() and not path.is_symlink() and not path.name.startswith("~$") and unicodedata.normalize("NFC", path.name) == "提案書.pptx"]
+    if len(matches) != 1:
+        raise _InvalidSource("MINAMINO proposal not unique")
+    return glossary, matches[0]
+
+
+def _single_week(path: Path) -> int:
+    data = path.read_bytes()
+    if not data or len(data) != path.stat().st_size or not zipfile.is_zipfile(path):
+        raise _InvalidSource("presentation bytes invalid")
+    with zipfile.ZipFile(path) as archive:
+        names = sorted((name for name in archive.namelist() if re.fullmatch(r"ppt/slides/slide\d+\.xml", name)), key=lambda value: int(re.search(r"\d+", value).group()))
+        slides = [(_shape_records(archive.read(name)), int(re.search(r"\d+", name).group())) for name in names]
+    matches = [(records, number) for records, number in slides if any(record["text"] == "6. スケジュール案（6週間）" for record in records)]
+    if len(matches) != 1 or matches[0][1] != 9:
+        raise _InvalidSource("MINAMINO schedule slide not unique")
+    records = matches[0][0]
+    weeks = []
+    for record in records:
+        match = re.fullmatch(r"(\d+)週目", record["text"])
+        if match:
+            weeks.append((int(match.group(1)), record["x"], record["cx"]))
+    weeks.sort()
+    if [number for number, _, _ in weeks] != list(range(1, 7)):
+        raise _InvalidSource("MINAMINO week headers incomplete")
+    labels = [record for record in records if record["text"] == "モデル構築鈴木"]
+    if len(labels) != 1 or labels[0]["name"] != "Phase3":
+        raise _InvalidSource("model-build phase label not unique")
+    bars = [record for record in records if record["name"] == "Bar3" and record["filled"] and labels[0]["y"] <= record["y"] <= labels[0]["y"] + labels[0]["cy"]]
+    if len(bars) != 1:
+        raise _InvalidSource("visible model-build bar not unique")
+    center = bars[0]["x"] + bars[0]["cx"] // 2
+    matched_weeks = [number for number, x, cx in weeks if x <= center <= x + cx and bars[0]["cx"] < cx]
+    milestones = [record for record in records if record["text"] == "M4 (4週目)モデル比較完了"]
+    if len(matched_weeks) != 1 or len(milestones) != 1 or matched_weeks[0] != 4:
+        raise _InvalidSource("model-build week geometry not corroborated")
+    return matched_weeks[0]
+
+
 def decide_question(engine: Any, question: str) -> StructuredCandidateDecision | None:
     contract = graph_contract_for_question(question)
     if contract is None:
         return None
     final = FINAL_SCHEDULE.fullmatch(question) is not None
+    minamino = MINAMINO_MODEL_WEEK.fullmatch(question) is not None
     try:
         root = _root(engine)
+        if minamino:
+            from cross_document_finance_rules import _fingerprint
+
+            glossary, path = _minamino_source(engine, root)
+            week = _single_week(path)
+            paths, digest = _fingerprint((glossary, path), root)
+            result = StructuredCandidateAnswer(f"{week}週目", paths, digest, len(contract["operation_graph"]["nodes"]), 1)
+            return StructuredCandidateDecision("resolved", "certified_pptx_schedule_geometry", result)
         path = _source(root, final=final)
         start, end = _week_span(path, final=final)
         answer = f"第{start}週目から第{end}週目"
