@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 import json
+import math
 import re
 import unicodedata
 import urllib.error
@@ -15,11 +16,14 @@ from typing import Any, Protocol
 BACKEND = os.environ.get("RAG_BACKEND", "ollama").strip().lower()
 MODEL = os.environ.get(
     "RAG_MODEL",
-    "gemma4:12b" if BACKEND == "ollama" else "gpt-5.2",
+    "qwen3.5:9b" if BACKEND == "ollama" else "gpt-5.2",
 )
 OLLAMA_BASE_URL = os.environ.get("OLLAMA_BASE_URL", "http://127.0.0.1:11434")
 MAX_CONTEXT_CHARS = 60000
 MAX_GRAPH_PLAN_CHARS = 12000
+OLLAMA_CONTEXT_TIERS = (8192, 16384, 32768, 65536)
+OLLAMA_NUM_PREDICT = 768
+OLLAMA_CONTEXT_SAFETY_TOKENS = 512
 
 SYSTEM = """あなたは社内共有ドライブの資料にもとづいて質問に答えるアシスタントです。
 
@@ -220,6 +224,37 @@ class OllamaAnswerClient:
     timeout: float = 600.0
     backend: str = "ollama"
 
+    @staticmethod
+    def _estimated_prompt_tokens(messages: Sequence[Mapping[str, str]]) -> int:
+        """Conservatively estimate tokens without depending on a model tokenizer.
+
+        ASCII prose averages several characters per token, while Japanese text
+        is commonly much closer to one character per token.  The estimate is
+        intentionally high so dynamic context selection does not silently cut
+        evidence that fitted in the former fixed 65K window.
+        """
+
+        text = "\n".join(str(message.get("content") or "") for message in messages)
+        ascii_chars = sum(ord(character) < 128 for character in text)
+        non_ascii_chars = len(text) - ascii_chars
+        message_overhead = 16 * len(messages)
+        return math.ceil(ascii_chars / 4) + non_ascii_chars + message_overhead
+
+    @classmethod
+    def _context_length(cls, messages: Sequence[Mapping[str, str]]) -> int:
+        required = (
+            cls._estimated_prompt_tokens(messages)
+            + OLLAMA_NUM_PREDICT
+            + OLLAMA_CONTEXT_SAFETY_TOKENS
+        )
+        for tier in OLLAMA_CONTEXT_TIERS:
+            if required <= tier:
+                return tier
+        # Preserve the previous maximum rather than allocating beyond the
+        # locally validated 65K ceiling. Ollama will apply its normal prompt
+        # handling if a hostile or exceptionally large caller exceeds it.
+        return OLLAMA_CONTEXT_TIERS[-1]
+
     def _request(self, path: str, payload=None, timeout: float | None = None):
         url = self.base_url.rstrip("/") + path
         data = None if payload is None else json.dumps(payload).encode("utf-8")
@@ -246,6 +281,7 @@ class OllamaAnswerClient:
             )
 
     def generate(self, messages: list[dict[str, str]]) -> str:
+        num_ctx = self._context_length(messages)
         response = self._request("/api/chat", {
             "model": self.model,
             "messages": messages,
@@ -258,8 +294,8 @@ class OllamaAnswerClient:
             "options": {
                 "temperature": 0,
                 "seed": 42,
-                "num_ctx": 65536,
-                "num_predict": 768,
+                "num_ctx": num_ctx,
+                "num_predict": OLLAMA_NUM_PREDICT,
             },
         })
         message = response.get("message") or {}

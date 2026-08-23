@@ -14,7 +14,7 @@ from typing import Any, Mapping, Sequence
 from cross_document_finance_rules import _fingerprint
 from structured_candidate import StructuredCandidateAnswer, StructuredCandidateDecision
 
-VERSION = "0.1"
+VERSION = "0.2"
 QUESTION = "恒一会 かえで総合病院の計画フォルダ内において、データアステル側の担当者のうち、1タスク当たりの想定工数（想定工数 ÷ 担当タスク数）が最も大きい人のフルネームと、その1タスク当たりの想定工数を小数第2位で答えてください。ファイルに鍵がかかっている場合は社内管理を確認してください。"
 
 
@@ -59,7 +59,7 @@ def graph_contract_for_question(question: str) -> dict[str, Any] | None:
         "bindings": {"metric": "planned_hours / assigned_task_count", "decimal_places": 2, "zero_task_policy": "exclude"},
         "scope": {"source_channel": "glossary_password_rule_and_decrypted_native_xlsx", "question_independent": True, "ambiguity_policy": "hold", "decryption": "memory_only"},
         "operation_graph": {"external_inputs": [{"input_ref": "input_question", "input_type": "encrypted_plan_workload_ranking", "source": "question_scope"}], "nodes": nodes, "edges": [{"from": nodes[i - 1]["output_ref"], "to": nodes[i]["operation_id"]} for i in range(1, len(nodes))]},
-        "requested_output": {"source_operation_ref": nodes[-1]["operation_id"], "cardinality": "one", "answer_shape": {"container": "tuple", "value_type": "person_and_decimal_hours", "unit": None}, "display_precision": 2, "required_keys": ["full_name", "hours_per_task"]},
+        "requested_output": {"source_operation_ref": nodes[-1]["operation_id"], "cardinality": "one", "answer_shape": {"container": "tuple", "value_type": "person_and_decimal_hours", "unit": "時間"}, "display_precision": 2, "required_keys": ["full_name", "hours_per_task"]},
     }
     return {"graph_contract_id": "encrypted_plan_workload_" + hashlib.sha256(_canonical(core).encode()).hexdigest()[:32], **core}
 
@@ -174,7 +174,13 @@ def decide_question(engine: Any, question: str) -> StructuredCandidateDecision |
             raise ValueError("ratio lineage broken")
         rounded = ratio.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
         paths, digest = _fingerprint(tuple(dict.fromkeys((glossary, plan, *password_sources))), root)
-        result = StructuredCandidateAnswer(f"{name}、{rounded:.2f}", paths, digest, len(contract["operation_graph"]["nodes"]), 1)
+        result = StructuredCandidateAnswer(
+            f"{name}、1タスク当たり{rounded:.2f}時間",
+            paths,
+            digest,
+            len(contract["operation_graph"]["nodes"]),
+            1,
+        )
         return StructuredCandidateDecision("resolved", "certified_encrypted_plan_workload_ratio", result)
     except (ArithmeticError, ImportError, OSError, RuntimeError, TypeError, UnicodeError, ValueError):
         return StructuredCandidateDecision("hold", "encrypted_plan_workload_ratio_not_certified")

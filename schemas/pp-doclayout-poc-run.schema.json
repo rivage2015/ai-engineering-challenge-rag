@@ -1,0 +1,529 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://local.ai-engineering-challenge/schemas/pp-doclayout-poc-run.schema.json",
+  "title": "PPDocLayoutV3IsolatedPoCRun",
+  "description": "質問・正解・予測・回答から独立し、ローカル固定重みだけを使うPP-DocLayoutV3領域分割PoCのclosed contract",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "record_type",
+    "run_id",
+    "input",
+    "configuration",
+    "status",
+    "detections",
+    "raw_output",
+    "timing",
+    "warnings",
+    "error",
+    "hashes",
+    "provenance"
+  ],
+  "properties": {
+    "schema_version": {"const": "0.1"},
+    "record_type": {"const": "pp_doclayout_poc_run"},
+    "run_id": {"type": "string", "pattern": "^ppdlpoc_[0-9a-f]{24}$"},
+    "input": {"$ref": "#/$defs/input"},
+    "configuration": {"$ref": "#/$defs/configuration"},
+    "status": {"enum": ["completed", "failed"]},
+    "detections": {
+      "type": "array",
+      "maxItems": 1000,
+      "items": {"$ref": "#/$defs/detection"}
+    },
+    "raw_output": {
+      "oneOf": [
+        {"$ref": "#/$defs/raw_output"},
+        {"type": "null"}
+      ]
+    },
+    "timing": {"$ref": "#/$defs/timing"},
+    "warnings": {
+      "type": "array",
+      "maxItems": 100,
+      "uniqueItems": true,
+      "items": {"type": "string", "minLength": 1, "maxLength": 10000}
+    },
+    "error": {
+      "oneOf": [
+        {"$ref": "#/$defs/error"},
+        {"type": "null"}
+      ]
+    },
+    "hashes": {"$ref": "#/$defs/hashes"},
+    "provenance": {"$ref": "#/$defs/provenance"}
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {"status": {"const": "completed"}},
+        "required": ["status"]
+      },
+      "then": {
+        "properties": {
+          "detections": {"minItems": 1},
+          "raw_output": {"$ref": "#/$defs/raw_output"},
+          "error": {"type": "null"}
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {"status": {"const": "failed"}},
+        "required": ["status"]
+      },
+      "then": {
+        "properties": {
+          "detections": {"maxItems": 0},
+          "raw_output": {"type": "null"},
+          "error": {"$ref": "#/$defs/error"}
+        }
+      }
+    }
+  ],
+  "$defs": {
+    "sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "revision": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{40}$"
+    },
+    "dimensions": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["width_px", "height_px"],
+      "properties": {
+        "width_px": {"type": "integer", "minimum": 1, "maximum": 100000},
+        "height_px": {"type": "integer", "minimum": 1, "maximum": 100000}
+      }
+    },
+    "fixture_ref": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["line_number", "fixture_id", "signature_sha256"],
+      "properties": {
+        "line_number": {"type": "integer", "minimum": 1, "maximum": 10000},
+        "fixture_id": {"type": "string", "pattern": "^ocrfx_[0-9a-f]{24}$"},
+        "signature_sha256": {"$ref": "#/$defs/sha256"}
+      }
+    },
+    "input": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "sample_id",
+        "role",
+        "asset_id",
+        "fixture_refs",
+        "manifest_relative_path",
+        "manifest_sha256",
+        "materialized_path",
+        "image_sha256",
+        "dimensions",
+        "origin_kind",
+        "source_relative_path",
+        "source_sha256",
+        "page_number"
+      ],
+      "properties": {
+        "sample_id": {"type": "string", "pattern": "^ppsrc_[0-9a-f]{24}$"},
+        "role": {"enum": ["complex_pdf_page", "clean_table_page"]},
+        "asset_id": {"type": "string", "pattern": "^asset_[0-9a-f]{32}$"},
+        "fixture_refs": {
+          "type": "array",
+          "minItems": 2,
+          "maxItems": 100,
+          "items": {"$ref": "#/$defs/fixture_ref"}
+        },
+        "manifest_relative_path": {"type": "string", "minLength": 1, "maxLength": 4096},
+        "manifest_sha256": {"$ref": "#/$defs/sha256"},
+        "materialized_path": {"type": "string", "minLength": 1, "maxLength": 4096},
+        "image_sha256": {"$ref": "#/$defs/sha256"},
+        "dimensions": {"$ref": "#/$defs/dimensions"},
+        "origin_kind": {"enum": ["pdf_page", "office_embedded_image"]},
+        "source_relative_path": {"type": "string", "minLength": 1, "maxLength": 4096},
+        "source_sha256": {"$ref": "#/$defs/sha256"},
+        "page_number": {"type": ["integer", "null"], "minimum": 1}
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {"role": {"const": "complex_pdf_page"}},
+            "required": ["role"]
+          },
+          "then": {
+            "properties": {
+              "origin_kind": {"const": "pdf_page"},
+              "page_number": {"type": "integer", "minimum": 1}
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {"role": {"const": "clean_table_page"}},
+            "required": ["role"]
+          },
+          "then": {
+            "properties": {
+              "origin_kind": {"const": "office_embedded_image"},
+              "page_number": {"type": "null"}
+            }
+          }
+        }
+      ]
+    },
+    "model_file": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["relative_path", "size_bytes", "sha256"],
+      "properties": {
+        "relative_path": {
+          "enum": ["config.json", "model.safetensors", "preprocessor_config.json"]
+        },
+        "size_bytes": {"type": "integer", "minimum": 1},
+        "sha256": {"$ref": "#/$defs/sha256"}
+      }
+    },
+    "model": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "repo_id",
+        "revision",
+        "local_path",
+        "local_files_only",
+        "trust_remote_code",
+        "files",
+        "file_count",
+        "size_bytes",
+        "artifact_fingerprint_sha256",
+        "weights_relative_path",
+        "weights_size_bytes",
+        "weights_sha256"
+      ],
+      "properties": {
+        "repo_id": {"const": "PaddlePaddle/PP-DocLayoutV3_safetensors"},
+        "revision": {"$ref": "#/$defs/revision"},
+        "local_path": {"type": "string", "minLength": 1, "maxLength": 4096},
+        "local_files_only": {"const": true},
+        "trust_remote_code": {"const": false},
+        "files": {
+          "type": "array",
+          "minItems": 3,
+          "maxItems": 3,
+          "items": {"$ref": "#/$defs/model_file"}
+        },
+        "file_count": {"const": 3},
+        "size_bytes": {"type": "integer", "minimum": 1},
+        "artifact_fingerprint_sha256": {"$ref": "#/$defs/sha256"},
+        "weights_relative_path": {"const": "model.safetensors"},
+        "weights_size_bytes": {"type": "integer", "minimum": 1},
+        "weights_sha256": {"$ref": "#/$defs/sha256"}
+      }
+    },
+    "packages": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "torch",
+        "torchvision",
+        "transformers",
+        "safetensors",
+        "numpy",
+        "opencv_python",
+        "pillow",
+        "jsonschema",
+        "huggingface_hub"
+      ],
+      "properties": {
+        "torch": {"type": "string", "minLength": 1, "maxLength": 200},
+        "torchvision": {"type": "string", "minLength": 1, "maxLength": 200},
+        "transformers": {"type": "string", "minLength": 1, "maxLength": 200},
+        "safetensors": {"type": "string", "minLength": 1, "maxLength": 200},
+        "numpy": {"type": "string", "minLength": 1, "maxLength": 200},
+        "opencv_python": {"type": "string", "minLength": 1, "maxLength": 200},
+        "pillow": {"type": "string", "minLength": 1, "maxLength": 200},
+        "jsonschema": {"type": "string", "minLength": 1, "maxLength": 200},
+        "huggingface_hub": {"type": "string", "minLength": 1, "maxLength": 200}
+      }
+    },
+    "configuration": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "runner_version",
+        "python_version",
+        "platform",
+        "packages",
+        "package_fingerprint_sha256",
+        "device_requested",
+        "device_effective",
+        "inference_device",
+        "postprocess_device",
+        "offline",
+        "no_implicit_download",
+        "offline_environment",
+        "model",
+        "inference"
+      ],
+      "properties": {
+        "runner_version": {"const": "0.1"},
+        "python_version": {"type": "string", "minLength": 1, "maxLength": 200},
+        "platform": {"type": "string", "minLength": 1, "maxLength": 500},
+        "packages": {"$ref": "#/$defs/packages"},
+        "package_fingerprint_sha256": {"$ref": "#/$defs/sha256"},
+        "device_requested": {"enum": ["mps", "cpu"]},
+        "device_effective": {"enum": ["mps", "cpu"]},
+        "inference_device": {"enum": ["mps", "cpu"]},
+        "postprocess_device": {"const": "cpu"},
+        "offline": {"const": true},
+        "no_implicit_download": {"const": true},
+        "offline_environment": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["HF_HUB_OFFLINE", "TRANSFORMERS_OFFLINE", "HF_DATASETS_OFFLINE"],
+          "properties": {
+            "HF_HUB_OFFLINE": {"const": "1"},
+            "TRANSFORMERS_OFFLINE": {"const": "1"},
+            "HF_DATASETS_OFFLINE": {"const": "1"}
+          }
+        },
+        "model": {"$ref": "#/$defs/model"},
+        "inference": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "task",
+            "input_format",
+            "batch_size",
+            "threshold",
+            "postprocess",
+            "preserve_raw",
+            "question_conditioning"
+          ],
+          "properties": {
+            "task": {"const": "object_detection_with_reading_order"},
+            "input_format": {"const": "image"},
+            "batch_size": {"const": 1},
+            "threshold": {"type": "number", "minimum": 0, "maximum": 1},
+            "postprocess": {"const": "PPDocLayoutV3ImageProcessor.post_process_object_detection"},
+            "preserve_raw": {"const": true},
+            "question_conditioning": {"const": false}
+          }
+        }
+      }
+    },
+    "bbox": {
+      "type": "array",
+      "prefixItems": [
+        {"type": "number", "minimum": 0},
+        {"type": "number", "minimum": 0},
+        {"type": "number", "minimum": 0},
+        {"type": "number", "minimum": 0}
+      ],
+      "minItems": 4,
+      "maxItems": 4
+    },
+    "point": {
+      "type": "array",
+      "prefixItems": [
+        {"type": "number", "minimum": 0},
+        {"type": "number", "minimum": 0}
+      ],
+      "minItems": 2,
+      "maxItems": 2
+    },
+    "polygon": {
+      "type": "array",
+      "minItems": 4,
+      "maxItems": 4096,
+      "items": {"$ref": "#/$defs/point"}
+    },
+    "flat_polygon": {
+      "type": "array",
+      "minItems": 8,
+      "maxItems": 8192,
+      "items": {"type": "number", "minimum": 0}
+    },
+    "raw_polygon": {
+      "oneOf": [
+        {"$ref": "#/$defs/polygon"},
+        {"$ref": "#/$defs/flat_polygon"}
+      ]
+    },
+    "raw_detection": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["score", "label_id", "box", "polygon_points", "order_seq"],
+      "properties": {
+        "score": {"type": "number", "minimum": 0, "maximum": 1},
+        "label_id": {"type": "integer", "minimum": 0},
+        "box": {"$ref": "#/$defs/bbox"},
+        "polygon_points": {"$ref": "#/$defs/raw_polygon"},
+        "order_seq": {"type": "integer", "minimum": 0}
+      }
+    },
+    "detection": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "order",
+        "label_id",
+        "label",
+        "score",
+        "bbox",
+        "polygon_points",
+        "raw"
+      ],
+      "properties": {
+        "order": {"type": "integer", "minimum": 1, "maximum": 1000},
+        "label_id": {"type": "integer", "minimum": 0},
+        "label": {"type": "string", "minLength": 1, "maxLength": 200},
+        "score": {"type": "number", "minimum": 0, "maximum": 1},
+        "bbox": {"$ref": "#/$defs/bbox"},
+        "polygon_points": {"$ref": "#/$defs/polygon"},
+        "raw": {"$ref": "#/$defs/raw_detection"}
+      }
+    },
+    "label_map_entry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["label_id", "label"],
+      "properties": {
+        "label_id": {"type": "integer", "minimum": 0},
+        "label": {"type": "string", "minLength": 1, "maxLength": 200}
+      }
+    },
+    "raw_output": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "format",
+        "scores",
+        "labels",
+        "boxes",
+        "polygon_points",
+        "order_seq",
+        "result_order",
+        "label_map"
+      ],
+      "properties": {
+        "format": {"const": "transformers_pp_doclayout_v3_postprocess_v1"},
+        "scores": {
+          "type": "array",
+          "maxItems": 1000,
+          "items": {"type": "number", "minimum": 0, "maximum": 1}
+        },
+        "labels": {
+          "type": "array",
+          "maxItems": 1000,
+          "items": {"type": "integer", "minimum": 0}
+        },
+        "boxes": {
+          "type": "array",
+          "maxItems": 1000,
+          "items": {"$ref": "#/$defs/bbox"}
+        },
+        "polygon_points": {
+          "type": "array",
+          "maxItems": 1000,
+          "items": {"$ref": "#/$defs/raw_polygon"}
+        },
+        "order_seq": {
+          "type": "array",
+          "maxItems": 1000,
+          "items": {"type": "integer", "minimum": 0}
+        },
+        "result_order": {
+          "type": "array",
+          "maxItems": 1000,
+          "items": {"type": "integer", "minimum": 1, "maximum": 1000}
+        },
+        "label_map": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 1000,
+          "items": {"$ref": "#/$defs/label_map_entry"}
+        }
+      }
+    },
+    "timing": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["setup_ms", "inference_ms"],
+      "properties": {
+        "setup_ms": {"type": "number", "minimum": 0},
+        "inference_ms": {"type": "number", "minimum": 0}
+      }
+    },
+    "error": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["component", "type", "message"],
+      "properties": {
+        "component": {"enum": ["pp_doclayout_v3", "input_validation"]},
+        "type": {"type": "string", "minLength": 1, "maxLength": 500},
+        "message": {"type": "string", "minLength": 1, "maxLength": 10000}
+      }
+    },
+    "hashes": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "input_sha256",
+        "manifest_sha256",
+        "output_sha256",
+        "signature_sha256",
+        "record_integrity_sha256"
+      ],
+      "properties": {
+        "input_sha256": {"$ref": "#/$defs/sha256"},
+        "manifest_sha256": {"$ref": "#/$defs/sha256"},
+        "output_sha256": {"$ref": "#/$defs/sha256"},
+        "signature_sha256": {"$ref": "#/$defs/sha256"},
+        "record_integrity_sha256": {"$ref": "#/$defs/sha256"}
+      }
+    },
+    "provenance": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "generated_at",
+        "selection_method",
+        "question_independent",
+        "question_data_used",
+        "gold_data_used",
+        "prediction_data_used",
+        "answer_data_used",
+        "source_document_opened",
+        "source_data_used",
+        "layout_candidate",
+        "inference_device",
+        "postprocess_device",
+        "evidence_connected",
+        "search_unit_connected",
+        "mainline_connected"
+      ],
+      "properties": {
+        "generated_at": {"type": "string", "format": "date-time"},
+        "selection_method": {"const": "verified-manifest-layout-strata-v0.1"},
+        "question_independent": {"const": true},
+        "question_data_used": {"const": false},
+        "gold_data_used": {"const": false},
+        "prediction_data_used": {"const": false},
+        "answer_data_used": {"const": false},
+        "source_document_opened": {"const": false},
+        "source_data_used": {"const": true},
+        "layout_candidate": {"const": true},
+        "inference_device": {"enum": ["mps", "cpu"]},
+        "postprocess_device": {"const": "cpu"},
+        "evidence_connected": {"const": false},
+        "search_unit_connected": {"const": false},
+        "mainline_connected": {"const": false}
+      }
+    }
+  }
+}

@@ -12,7 +12,7 @@ from typing import Any, Mapping, Sequence
 from cross_document_finance_rules import _fingerprint
 from structured_candidate import StructuredCandidateAnswer, StructuredCandidateDecision
 
-VERSION = "0.1"
+VERSION = "0.2"
 QUESTION = "蒼樹会 みなみ野女性医療センターの糖尿病統計情報調査結果において、死亡率が最も高い都道府県の死亡率は、4番目に低い都道府県の死亡率の何倍ですか。小数第2位まで求めてください。"
 HEADERS = ("順位", "死亡率が高い都道府県(ワースト)", "死亡率(%)", "死亡率が低い都道府県(ベスト)", "死亡率(%)")
 
@@ -54,7 +54,7 @@ def graph_contract_for_question(question: str) -> dict[str, Any] | None:
         "bindings": {"numerator_rank": "highest", "denominator_rank_from_low": 4, "decimal_places": 2},
         "scope": {"source_channel": "glossary_and_native_docx_table", "question_independent": True, "ambiguity_policy": "hold"},
         "operation_graph": {"external_inputs": [{"input_ref": "input_question", "input_type": "ranked_table_ratio", "source": "question_scope"}], "nodes": nodes, "edges": [{"from": nodes[i - 1]["output_ref"], "to": nodes[i]["operation_id"]} for i in range(1, len(nodes))]},
-        "requested_output": {"source_operation_ref": nodes[-1]["operation_id"], "cardinality": "one", "answer_shape": {"container": "scalar", "value_type": "decimal_string", "unit": None}, "display_precision": 2, "required_keys": None},
+        "requested_output": {"source_operation_ref": nodes[-1]["operation_id"], "cardinality": "one", "answer_shape": {"container": "scalar", "value_type": "decimal_string", "unit": "倍"}, "display_precision": 2, "required_keys": None},
     }
     return {"graph_contract_id": "docx_rank_ratio_" + hashlib.sha256(_canonical(core).encode()).hexdigest()[:32], **core}
 
@@ -114,7 +114,11 @@ def _ratio_from_tables(tables: Sequence[Sequence[Sequence[str]]]) -> str:
         raise ValueError("best ranking is not strictly ascending")
     numerator = worst_values[0]
     denominator = best_values[3]
-    return format((numerator / denominator).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP), ".2f")
+    ratio = format(
+        (numerator / denominator).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP),
+        ".2f",
+    )
+    return f"{ratio}倍"
 
 
 def decide_question(engine: Any, question: str) -> StructuredCandidateDecision | None:

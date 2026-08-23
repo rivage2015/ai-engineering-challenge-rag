@@ -1,0 +1,322 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://local.ai-engineering-challenge/schemas/question-capability-matrix.schema.json",
+  "title": "QuestionCapabilityMatrixRow",
+  "description": "第4回提出と現行の質問グラフ／構造化回答器を、正解データなしで比較する1問分の記録",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "record_type",
+    "matrix_row_id",
+    "question_id",
+    "question",
+    "question_sha256",
+    "baseline",
+    "v16_source_audit",
+    "current",
+    "capabilities",
+    "components",
+    "provenance"
+  ],
+  "properties": {
+    "schema_version": {"const": "0.1"},
+    "record_type": {"const": "question_capability_matrix_row"},
+    "matrix_row_id": {"type": "string", "pattern": "^qcm_[0-9a-f]{24}$"},
+    "question_id": {"type": "string", "pattern": "^[0-9]+$"},
+    "question": {"type": "string", "minLength": 1, "maxLength": 20000},
+    "question_sha256": {"$ref": "#/$defs/sha256"},
+    "baseline": {"$ref": "#/$defs/baseline"},
+    "v16_source_audit": {"$ref": "#/$defs/sourceAudit"},
+    "current": {"$ref": "#/$defs/current"},
+    "capabilities": {"$ref": "#/$defs/capabilities"},
+    "components": {"$ref": "#/$defs/components"},
+    "provenance": {"$ref": "#/$defs/provenance"}
+  },
+  "$defs": {
+    "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "nullableSha256": {
+      "oneOf": [
+        {"type": "null"},
+        {"$ref": "#/$defs/sha256"}
+      ]
+    },
+    "nullableText": {"type": ["string", "null"], "minLength": 1, "maxLength": 20000},
+    "baseline": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "state",
+        "route",
+        "structured_status",
+        "structured_reason",
+        "output_validation_status",
+        "answer_sha256"
+      ],
+      "properties": {
+        "state": {"enum": ["machine_certified", "answered_unverified", "abstained"]},
+        "route": {"type": "string", "minLength": 1, "maxLength": 200},
+        "structured_status": {"$ref": "#/$defs/nullableText"},
+        "structured_reason": {"$ref": "#/$defs/nullableText"},
+        "output_validation_status": {
+          "enum": ["pass", "failed", "not_applicable", "unknown"]
+        },
+        "answer_sha256": {"$ref": "#/$defs/sha256"}
+      }
+    },
+    "sourceAudit": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["state", "audited", "entry_sha256"],
+      "properties": {
+        "state": {
+          "enum": [
+            "not_manually_audited",
+            "fresh_source_supported",
+            "source_recomputed",
+            "old_source_supported"
+          ]
+        },
+        "audited": {"type": "boolean"},
+        "entry_sha256": {"$ref": "#/$defs/nullableSha256"}
+      },
+      "allOf": [
+        {
+          "if": {"properties": {"audited": {"const": false}}, "required": ["audited"]},
+          "then": {
+            "properties": {
+              "state": {"const": "not_manually_audited"},
+              "entry_sha256": {"type": "null"}
+            }
+          },
+          "else": {
+            "properties": {
+              "state": {
+                "enum": ["fresh_source_supported", "source_recomputed", "old_source_supported"]
+              },
+              "entry_sha256": {"$ref": "#/$defs/sha256"}
+            }
+          }
+        }
+      ]
+    },
+    "current": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "state",
+        "graph_plan_version",
+        "graph_strict_status",
+        "graph_strict_reasons",
+        "advisory_usable",
+        "fallback_used",
+        "branch_count",
+        "candidate_version",
+        "decision_status",
+        "decision_reason",
+        "graph_rule_version",
+        "rule_id",
+        "graph_contract_id",
+        "contract_rebuild_valid",
+        "output_validation_status",
+        "violations",
+        "answer_sha256",
+        "source_paths",
+        "source_sha256",
+        "operation_count",
+        "error"
+      ],
+      "properties": {
+        "state": {"enum": ["certified", "unproven", "error"]},
+        "graph_plan_version": {"type": "string", "minLength": 1, "maxLength": 100},
+        "graph_strict_status": {"enum": ["pass", "hold", "fail", "error"]},
+        "graph_strict_reasons": {
+          "type": "array",
+          "maxItems": 100,
+          "uniqueItems": true,
+          "items": {"type": "string", "minLength": 1, "maxLength": 1000}
+        },
+        "advisory_usable": {"type": "boolean"},
+        "fallback_used": {"type": "boolean"},
+        "branch_count": {"type": "integer", "minimum": 0, "maximum": 100},
+        "candidate_version": {"type": "string", "minLength": 1, "maxLength": 100},
+        "decision_status": {"type": "string", "minLength": 1, "maxLength": 200},
+        "decision_reason": {"type": "string", "minLength": 1, "maxLength": 2000},
+        "graph_rule_version": {"$ref": "#/$defs/nullableText"},
+        "rule_id": {"$ref": "#/$defs/nullableText"},
+        "graph_contract_id": {
+          "type": ["string", "null"],
+          "pattern": "^[a-z][a-z0-9_]{2,127}$"
+        },
+        "contract_rebuild_valid": {"type": ["boolean", "null"]},
+        "output_validation_status": {"enum": ["pass", "not_run", "failed"]},
+        "violations": {
+          "type": "array",
+          "maxItems": 100,
+          "uniqueItems": true,
+          "items": {"type": "string", "minLength": 1, "maxLength": 2000}
+        },
+        "answer_sha256": {"$ref": "#/$defs/nullableSha256"},
+        "source_paths": {
+          "type": "array",
+          "maxItems": 100,
+          "uniqueItems": true,
+          "items": {"type": "string", "minLength": 1, "maxLength": 4000}
+        },
+        "source_sha256": {"$ref": "#/$defs/nullableSha256"},
+        "operation_count": {"type": ["integer", "null"], "minimum": 0},
+        "error": {"$ref": "#/$defs/nullableText"}
+      },
+      "allOf": [
+        {
+          "if": {"properties": {"state": {"const": "certified"}}, "required": ["state"]},
+          "then": {
+            "properties": {
+              "output_validation_status": {"const": "pass"},
+              "violations": {"maxItems": 0},
+              "answer_sha256": {"$ref": "#/$defs/sha256"},
+              "source_sha256": {"$ref": "#/$defs/sha256"},
+              "operation_count": {"type": "integer", "minimum": 1},
+              "error": {"type": "null"}
+            }
+          }
+        },
+        {
+          "if": {"properties": {"state": {"const": "unproven"}}, "required": ["state"]},
+          "then": {
+            "properties": {
+              "output_validation_status": {"const": "not_run"},
+              "answer_sha256": {"type": "null"},
+              "source_sha256": {"type": "null"},
+              "operation_count": {"type": "null"},
+              "error": {"type": "null"}
+            }
+          }
+        },
+        {
+          "if": {"properties": {"state": {"const": "error"}}, "required": ["state"]},
+          "then": {
+            "properties": {
+              "answer_sha256": {"type": "null"},
+              "source_sha256": {"type": "null"},
+              "operation_count": {"type": "null"},
+              "error": {"type": "string", "minLength": 1}
+            }
+          }
+        }
+      ]
+    },
+    "capabilityTag": {
+      "enum": [
+        "multi_document_join",
+        "version_or_state_diff",
+        "office_native_structure",
+        "style_or_annotation",
+        "page_or_layout",
+        "pdf_layout_or_table",
+        "graph_value_recovery",
+        "structured_data",
+        "deterministic_calculation",
+        "notebook_or_code_execution",
+        "semantic_text_extraction",
+        "spatial_relation",
+        "entity_or_alias_resolution",
+        "temporal_filtering",
+        "table_structure",
+        "complete_enumeration"
+      ]
+    },
+    "primaryGap": {
+      "enum": [
+        "none_currently_certified",
+        "current_execution_error",
+        "multi_document_reasoning",
+        "office_structure_extraction",
+        "structured_deterministic_execution",
+        "semantic_evidence_reasoning",
+        "pdf_layout_understanding",
+        "chart_to_table",
+        "code_execution_semantics",
+        "spatial_grounding"
+      ]
+    },
+    "capabilities": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["tags", "primary_gap", "source_extensions", "derivation"],
+      "properties": {
+        "tags": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 16,
+          "uniqueItems": true,
+          "items": {"$ref": "#/$defs/capabilityTag"}
+        },
+        "primary_gap": {"$ref": "#/$defs/primaryGap"},
+        "source_extensions": {
+          "type": "array",
+          "maxItems": 32,
+          "uniqueItems": true,
+          "items": {"type": "string", "pattern": "^\\.[a-z0-9]{1,16}$"}
+        },
+        "derivation": {"const": "generic_question_text_and_source_locators_v0.1"}
+      }
+    },
+    "componentStatus": {
+      "enum": ["certified_current", "applicable_not_e2e_tested", "not_primary"]
+    },
+    "unprovenComponentStatus": {
+      "enum": ["applicable_not_e2e_tested", "not_primary"]
+    },
+    "components": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "native_parser",
+        "apple_vision",
+        "paddleocr",
+        "ndlocr_lite",
+        "tesseract",
+        "docling"
+      ],
+      "properties": {
+        "native_parser": {"$ref": "#/$defs/componentStatus"},
+        "apple_vision": {"$ref": "#/$defs/unprovenComponentStatus"},
+        "paddleocr": {"$ref": "#/$defs/unprovenComponentStatus"},
+        "ndlocr_lite": {"$ref": "#/$defs/unprovenComponentStatus"},
+        "tesseract": {"$ref": "#/$defs/unprovenComponentStatus"},
+        "docling": {"$ref": "#/$defs/unprovenComponentStatus"}
+      }
+    },
+    "provenance": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "builder",
+        "builder_version",
+        "questions_sha256",
+        "fourth_run_log_sha256",
+        "v16_source_audit_sha256",
+        "source_inventory_sha256",
+        "gold_used",
+        "validation_answers_used",
+        "prediction_files_used",
+        "past_answers_used_as_evidence",
+        "question_id_specific_capability_overrides_used"
+      ],
+      "properties": {
+        "builder": {"const": "build_question_capability_matrix.py"},
+        "builder_version": {"const": "0.1"},
+        "questions_sha256": {"$ref": "#/$defs/sha256"},
+        "fourth_run_log_sha256": {"$ref": "#/$defs/sha256"},
+        "v16_source_audit_sha256": {"$ref": "#/$defs/sha256"},
+        "source_inventory_sha256": {"$ref": "#/$defs/sha256"},
+        "gold_used": {"const": false},
+        "validation_answers_used": {"const": false},
+        "prediction_files_used": {"const": false},
+        "past_answers_used_as_evidence": {"const": false},
+        "question_id_specific_capability_overrides_used": {"const": false}
+      }
+    }
+  }
+}

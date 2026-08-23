@@ -1,0 +1,76 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://local.ai-engineering-challenge/schemas/answer-source-audit.schema.json",
+  "title": "AnswerSourceAudit",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "record_type", "audit_id", "question_id", "question", "question_sha256", "capability_gap", "current_answer", "current_answer_sha256", "audit_status", "verification", "retrieval", "provenance"],
+  "properties": {
+    "schema_version": {"const": "0.1"},
+    "record_type": {"const": "answer_source_audit"},
+    "audit_id": {"type": "string", "pattern": "^asa_[0-9a-f]{24}$"},
+    "question_id": {"type": "string", "pattern": "^[0-9]+$"},
+    "question": {"type": "string", "minLength": 1},
+    "question_sha256": {"$ref": "#/$defs/sha256"},
+    "capability_gap": {"enum": ["semantic_evidence_reasoning", "multi_document_reasoning"]},
+    "current_answer": {"type": "string"},
+    "current_answer_sha256": {"$ref": "#/$defs/sha256"},
+    "audit_status": {"enum": ["verified", "contradicted", "unverified"]},
+    "verification": {
+      "type": "object", "additionalProperties": false,
+      "required": ["method", "source_derived_answer", "verified_source_paths", "reasons", "proof_complete"],
+      "properties": {
+        "method": {"enum": ["strict_graph_contract", "deterministic_contract_field", "deterministic_structured_source", "retrieval_observation_only"]},
+        "source_derived_answer": {"type": ["string", "null"]},
+        "verified_source_paths": {"type": "array", "uniqueItems": true, "items": {"type": "string", "minLength": 1}},
+        "reasons": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "string", "minLength": 1}},
+        "proof_complete": {"type": "boolean"}
+      }
+    },
+    "retrieval": {
+      "type": "object", "additionalProperties": false,
+      "required": ["query_sha256", "answer_used_in_query", "result_count", "answer_exact_occurrences", "results"],
+      "properties": {
+        "query_sha256": {"$ref": "#/$defs/sha256"},
+        "answer_used_in_query": {"const": false},
+        "result_count": {"type": "integer", "minimum": 0},
+        "answer_exact_occurrences": {"type": "integer", "minimum": 0},
+        "results": {"type": "array", "items": {"$ref": "#/$defs/result"}}
+      }
+    },
+    "provenance": {
+      "type": "object", "additionalProperties": false,
+      "required": ["builder", "builder_version", "matrix_sha256", "submission_log_sha256", "predictions_sha256", "lexical_state_sha256", "intermediate_state_sha256", "pdf_observations_sha256", "question_only_retrieval", "gold_used", "public_score_used", "past_answer_used_as_evidence"],
+      "properties": {
+        "builder": {"const": "answer-source-audit-builder"},
+        "builder_version": {"const": "0.1.0"},
+        "matrix_sha256": {"$ref": "#/$defs/sha256"},
+        "submission_log_sha256": {"$ref": "#/$defs/sha256"},
+        "predictions_sha256": {"$ref": "#/$defs/sha256"},
+        "lexical_state_sha256": {"$ref": "#/$defs/sha256"},
+        "intermediate_state_sha256": {"$ref": "#/$defs/sha256"},
+        "pdf_observations_sha256": {"anyOf": [{"$ref": "#/$defs/sha256"}, {"type": "null"}]},
+        "question_only_retrieval": {"const": true},
+        "gold_used": {"const": false},
+        "public_score_used": {"const": false},
+        "past_answer_used_as_evidence": {"const": false}
+      }
+    }
+  },
+  "$defs": {
+    "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "result": {
+      "type": "object", "additionalProperties": false,
+      "required": ["rank", "score", "search_unit_id", "document_id", "source_path", "source_sha256", "unit_type", "locator", "source_evidence_ids", "text", "text_sha256", "contains_current_answer_exact"],
+      "properties": {
+        "rank": {"type": "integer", "minimum": 1}, "score": {"type": "number"},
+        "search_unit_id": {"type": "string", "minLength": 1}, "document_id": {"type": "string", "minLength": 1},
+        "source_path": {"type": "string", "minLength": 1}, "source_sha256": {"$ref": "#/$defs/sha256"},
+        "unit_type": {"type": "string", "minLength": 1}, "locator": {"type": "object"},
+        "source_evidence_ids": {"type": "array", "items": {"type": "string", "minLength": 1}},
+        "text": {"type": "string"}, "text_sha256": {"$ref": "#/$defs/sha256"},
+        "contains_current_answer_exact": {"type": "boolean"}
+      }
+    }
+  }
+}

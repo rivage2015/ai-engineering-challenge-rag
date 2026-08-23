@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Any
 
@@ -46,14 +47,29 @@ def search(
         or low_margin_threshold <= 0
     ):
         raise ValueError("invalid RRF weight or adaptive confidence threshold")
-    lexical = search_lexical(
-        lexical_index, query, candidate_k, snippet_chars=snippet_chars,
-        document_ids=document_ids,
-    )
-    semantic = search_semantic(
-        semantic_index, query, candidate_k, base_url, snippet_chars,
-        document_ids=document_ids,
-    )
+    # Lexical scoring is local CPU/disk work while semantic retrieval begins
+    # with a local Ollama embedding request.  They are independent evidence
+    # lanes, so overlap them without changing the deterministic RRF merge.
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        lexical_future = executor.submit(
+            search_lexical,
+            lexical_index,
+            query,
+            candidate_k,
+            snippet_chars=snippet_chars,
+            document_ids=document_ids,
+        )
+        semantic_future = executor.submit(
+            search_semantic,
+            semantic_index,
+            query,
+            candidate_k,
+            base_url,
+            snippet_chars,
+            document_ids=document_ids,
+        )
+        lexical = lexical_future.result()
+        semantic = semantic_future.result()
     lexical_coverage = 0.0
     lexical_margin = float("inf")
     if lexical["results"]:

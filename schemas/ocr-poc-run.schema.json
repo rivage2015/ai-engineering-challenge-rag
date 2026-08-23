@@ -1,0 +1,120 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://local.ai-engineering-challenge/schemas/ocr-poc-run.schema.json",
+  "title": "OCRPoCRun",
+  "description": "1つのOCR fixtureへ1つのengineを実行した、生出力を失わない比較記録",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "record_type",
+    "run_id",
+    "fixture_ref",
+    "engine",
+    "status",
+    "lines",
+    "raw_text",
+    "timing",
+    "warnings",
+    "error",
+    "hashes",
+    "provenance"
+  ],
+  "properties": {
+    "schema_version": {"const": "0.1"},
+    "record_type": {"const": "ocr_poc_run"},
+    "run_id": {"type": "string", "pattern": "^ocrpoc_[0-9a-f]{24}$"},
+    "fixture_ref": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["fixture_id", "signature_sha256"],
+      "properties": {
+        "fixture_id": {"type": "string", "pattern": "^ocrfx_[0-9a-f]{24}$"},
+        "signature_sha256": {"$ref": "#/$defs/sha256"}
+      }
+    },
+    "engine": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "version", "fingerprint_sha256", "runtime"],
+      "properties": {
+        "name": {"type": "string", "pattern": "^[a-z][a-z0-9_]{1,63}$"},
+        "version": {"type": "string", "minLength": 1, "maxLength": 200},
+        "fingerprint_sha256": {"$ref": "#/$defs/sha256"},
+        "runtime": {"type": "object"}
+      }
+    },
+    "status": {"enum": ["completed", "needs_review", "failed", "timeout", "unavailable"]},
+    "lines": {"type": "array", "maxItems": 4000, "items": {"$ref": "#/$defs/line"}},
+    "raw_text": {"type": "string", "maxLength": 1000000},
+    "timing": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["setup_ms", "inference_ms", "cache_hit"],
+      "properties": {
+        "setup_ms": {"type": "number", "minimum": 0},
+        "inference_ms": {"type": "number", "minimum": 0},
+        "cache_hit": {"type": "boolean"}
+      }
+    },
+    "warnings": {"type": "array", "maxItems": 100, "uniqueItems": true, "items": {"type": "string", "minLength": 1, "maxLength": 10000}},
+    "error": {"type": ["string", "null"], "minLength": 1, "maxLength": 20000},
+    "hashes": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["input_sha256", "output_sha256", "signature_sha256", "record_sha256"],
+      "properties": {
+        "input_sha256": {"$ref": "#/$defs/sha256"},
+        "output_sha256": {"$ref": "#/$defs/sha256"},
+        "signature_sha256": {"$ref": "#/$defs/sha256"},
+        "record_sha256": {"$ref": "#/$defs/sha256"}
+      }
+    },
+    "provenance": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["runner", "runner_version", "generated_at", "question_independent", "evidence_connected", "search_unit_connected"],
+      "properties": {
+        "runner": {"const": "ocr-poc-runner"},
+        "runner_version": {"const": "0.1"},
+        "generated_at": {"type": "string", "format": "date-time"},
+        "question_independent": {"const": true},
+        "evidence_connected": {"const": false},
+        "search_unit_connected": {"const": false}
+      }
+    }
+  },
+  "allOf": [
+    {
+      "if": {"properties": {"status": {"enum": ["completed", "needs_review"]}}},
+      "then": {"properties": {"error": {"type": "null"}}},
+      "else": {"properties": {"lines": {"maxItems": 0}, "raw_text": {"maxLength": 0}, "error": {"type": "string", "minLength": 1}}}
+    }
+  ],
+  "$defs": {
+    "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "bbox": {
+      "type": "array",
+      "prefixItems": [
+        {"type": "integer", "minimum": 0, "maximum": 999},
+        {"type": "integer", "minimum": 0, "maximum": 999},
+        {"type": "integer", "minimum": 1, "maximum": 1000},
+        {"type": "integer", "minimum": 1, "maximum": 1000}
+      ],
+      "minItems": 4,
+      "maxItems": 4
+    },
+    "line": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["line_id", "sequence", "raw_text", "bbox", "confidence"],
+      "properties": {
+        "line_id": {"type": "string", "pattern": "^line_[0-9]+$"},
+        "sequence": {"type": "integer", "minimum": 1},
+        "raw_text": {"type": "string", "minLength": 1, "maxLength": 10000},
+        "bbox": {"$ref": "#/$defs/bbox"},
+        "confidence": {"type": ["number", "null"], "minimum": 0, "maximum": 1}
+      }
+    }
+  }
+}

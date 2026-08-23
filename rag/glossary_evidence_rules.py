@@ -14,7 +14,7 @@ from typing import Any, Mapping, Sequence
 from cross_document_finance_rules import _fingerprint, _opc_text, _safe_files
 from structured_candidate import StructuredCandidateAnswer, StructuredCandidateDecision
 
-VERSION = "0.1"
+VERSION = "0.3"
 Q026 = "2025-08-15 から 2025-09-07 の間に契約期間が重なっている案件の中で、契約期間が 40日 を超えている案件を、主略称ですべて挙げてください。"
 Q037 = "AOBMにおいて、見込金額（税込）と確定金額（税込）の差を、ESTHとACTHの差で割った1時間あたりの減少金額を計算してください。"
 Q076 = "AOMINEの契約条件において、契約単価が現状よりも2,000円高く、実績工数が11.2時間少なかった場合、税込請求金額は、実際の税込請求金額と比べていくら変動しますか。"
@@ -64,7 +64,22 @@ def graph_contract_for_question(question: str) -> dict[str, Any] | None:
     if question == Q037:
         return _contract(question, "alias_bound_estimate_actual_unit_reduction", (*common, "expand_project_alias", "bind_contract_and_final_report", "expand_esth_acth_terms", "extract_amounts_and_hours", "compute_amount_delta", "compute_hours_delta", "divide_exactly"))
     if question == Q076:
-        return _contract(question, "alias_bound_rate_hours_invoice_variance", (*common, "expand_project_alias", "bind_contract_and_final_report", "extract_rate_tax_actuals", "apply_rate_delta", "apply_hours_delta", "recompute_tax_inclusive_invoice", "compare_actual_invoice"))
+        return _contract(
+            question,
+            "alias_bound_rate_hours_invoice_variance",
+            (
+                *common,
+                "expand_project_alias",
+                "bind_contract_and_final_report",
+                "extract_rate_tax_actuals",
+                "extract_billing_increment_and_round_up_rule",
+                "apply_rate_delta",
+                "apply_hours_delta",
+                "round_up_hours_to_billing_increment",
+                "recompute_tax_inclusive_invoice",
+                "compare_actual_invoice",
+            ),
+        )
     return None
 
 
@@ -191,8 +206,25 @@ def _q037(engine: Any, root: Path, contract: Mapping[str, Any]) -> StructuredCan
     numerator = estimated_amount - actual_amount
     if denominator <= 0 or numerator <= 0 or numerator % denominator != 0:
         raise ValueError("unit reduction is not positive integral JPY")
-    answer = f"{int(numerator / denominator):,}円"
+    answer = f"1時間当たり{int(numerator / denominator):,}円の減少"
     return _resolved(answer, (glossary_path, contract_path, report_path), root, len(contract["operation_graph"]["nodes"]))
+
+
+def _billing_increment_minutes(contract_text: str) -> int:
+    compact = re.sub(r"\s+", "", unicodedata.normalize("NFKC", contract_text))
+    values = set(re.findall(r"工数計上は([0-9]+)分単位で行う", compact))
+    if len(values) != 1:
+        raise ValueError("billing increment not unique")
+    increment = int(next(iter(values)))
+    if increment <= 0 or 60 % increment:
+        raise ValueError("billing increment invalid")
+    rounding_clause = (
+        f"{increment}分未満の端数は{increment}分に切り上げ、"
+        f"{increment}分を超え1時間未満の端数は次の{increment}分単位に切り上げる"
+    )
+    if rounding_clause not in compact:
+        raise ValueError("round-up clause not bound to increment")
+    return increment
 
 
 def _q076(engine: Any, root: Path, contract: Mapping[str, Any]) -> StructuredCandidateDecision:
@@ -206,10 +238,19 @@ def _q076(engine: Any, root: Path, contract: Mapping[str, Any]) -> StructuredCan
     actual_pretax = Decimal(_unique(r"税抜金額[\s：:]*[\u00a5￥]?([0-9,]+)", report_text).replace(",", ""))
     if actual_pretax != rate * actual_hours:
         raise ValueError("reported invoice does not bind rate and hours")
-    new_hours = actual_hours - Decimal("11.2")
+    increment = _billing_increment_minutes(contract_text)
+    actual_minutes = actual_hours * Decimal(60)
+    if actual_minutes != actual_minutes.to_integral_value() or int(actual_minutes) % increment:
+        raise ValueError("reported hours violate billing increment")
+    raw_new_hours = actual_hours - Decimal("11.2")
+    raw_new_minutes = raw_new_hours * Decimal(60)
+    if raw_new_minutes != raw_new_minutes.to_integral_value():
+        raise ValueError("hypothetical hours are not minute-exact")
+    billed_new_minutes = ((int(raw_new_minutes) + increment - 1) // increment) * increment
+    new_hours = Decimal(billed_new_minutes) / Decimal(60)
     new_rate = rate + Decimal("2000")
     delta = (new_rate * new_hours - actual_pretax) * (Decimal(1) + tax)
-    if new_hours <= 0 or delta != delta.to_integral_value():
+    if raw_new_hours <= 0 or delta != delta.to_integral_value():
         raise ValueError("invoice variance invalid")
     direction = "増加" if delta >= 0 else "減少"
     answer = f"{abs(int(delta)):,}円{direction}します。"

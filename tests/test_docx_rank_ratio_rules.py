@@ -29,7 +29,7 @@ class DocxRankRatioRulesTests(unittest.TestCase):
     def test_actual_document_resolves_ratio(self):
         decision = decide_question(self.engine, self.question)
         self.assertEqual(("resolved", "certified_docx_ranked_mortality_ratio"), (decision.status, decision.reason))
-        self.assertEqual("2.49", decision.result.answer)
+        self.assertEqual("2.49倍", decision.result.answer)
         self.assertEqual(2, len(decision.result.source_paths))
 
     def test_rank_direction_or_completeness_changes_hold(self):
@@ -41,7 +41,7 @@ class DocxRankRatioRulesTests(unittest.TestCase):
             ["4位", "D県", "15.0", "I県", "7.3"],
             ["5位", "E県", "14.9", "J県", "8.0"],
         ]
-        self.assertEqual("2.49", _ratio_from_tables([table]))
+        self.assertEqual("2.49倍", _ratio_from_tables([table]))
         for changed in (table[:-1], [*table[:3], ["3位", "C県", "16.5", "H県", "7.28"], *table[4:]], [*table[:4], ["4位", "D県", "15.0", "I県", "7.1"], table[5]]):
             with self.subTest(changed=changed):
                 with self.assertRaises(ValueError):

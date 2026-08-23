@@ -8,6 +8,7 @@ from glossary_evidence_rules import (
     Q026,
     Q037,
     Q076,
+    _billing_increment_minutes,
     decide_question,
     graph_contract_for_question,
     validate_graph_contract,
@@ -42,8 +43,8 @@ class GlossaryEvidenceRulesTests(unittest.TestCase):
     def test_actual_answers_are_derived_with_glossary_provenance(self):
         expected = {
             Q026: "TOTO、AOMINE",
-            Q037: "22,000円",
-            Q076: "73,260円増加します。",
+            Q037: "1時間当たり22,000円の減少",
+            Q076: "79,200円増加します。",
         }
         for question, answer in expected.items():
             with self.subTest(question=question):
@@ -52,6 +53,18 @@ class GlossaryEvidenceRulesTests(unittest.TestCase):
                 self.assertEqual(decision.result.answer, answer)
                 self.assertIn("社内管理/社内用語集.docx", decision.result.source_paths)
                 self.assertEqual(decision.reason, "certified_glossary_evidence_graph")
+
+    def test_billing_increment_requires_matching_round_up_clause(self):
+        valid = (
+            "工数計上は30分単位で行う。"
+            "30分未満の端数は30分に切り上げ、"
+            "30分を超え1時間未満の端数は次の30分単位に切り上げる。"
+        )
+        self.assertEqual(30, _billing_increment_minutes(valid))
+        with self.assertRaises(ValueError):
+            _billing_increment_minutes(valid.replace("次の30分単位", "次の15分単位"))
+        with self.assertRaises(ValueError):
+            _billing_increment_minutes(valid + " 工数計上は15分単位で行う。")
 
     def test_missing_or_ambiguous_glossary_edge_holds(self):
         canonical = "株式会社青葉バイオメディカル機器"

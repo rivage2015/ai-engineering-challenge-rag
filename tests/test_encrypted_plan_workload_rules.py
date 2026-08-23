@@ -8,6 +8,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "rag"))
 
 from encrypted_plan_workload_rules import _winner, decide_question, graph_contract_for_question, validate_graph_contract
+from answer import validate_graph_answer
 from glossary import build_glossary
 from score_candidate_rules import graph_contract_for_question as dispatch_contract
 from structured_candidate import StructuredCandidateEngine
@@ -30,7 +31,8 @@ class EncryptedPlanWorkloadRulesTests(unittest.TestCase):
     def test_actual_encrypted_workbook_resolves_unique_winner(self):
         decision = decide_question(self.engine, self.question)
         self.assertEqual(("resolved", "certified_encrypted_plan_workload_ratio"), (decision.status, decision.reason))
-        self.assertEqual("池田 直哉、7.00", decision.result.answer)
+        self.assertEqual("池田 直哉、1タスク当たり7.00時間", decision.result.answer)
+        self.assertEqual((), validate_graph_answer(decision.result.answer, graph_contract_for_question(self.question)))
         self.assertGreaterEqual(len(decision.result.source_paths), 4)
 
     def test_zero_task_member_is_excluded_and_multi_assignees_are_counted(self):

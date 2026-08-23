@@ -18,7 +18,7 @@ from cross_document_finance_rules import _fingerprint, _pdf_text
 from pptx_revision_summary_rules import _slides
 from structured_candidate import StructuredCandidateAnswer, StructuredCandidateDecision
 
-VERSION = "0.1"
+VERSION = "0.2"
 Q048 = "青嶺不動産アセットマネジメントのニューヨーク不動産市場の最新動向調査.pdfにおいて、提案されているマンション税の新税率のうち、現行税率からの絶対値の増加が最も小さい価格帯はどこですか。"
 Q052 = "蒼樹会 みなみ野女性医療センターの今後の運用に関する記載の中で、データアステル側の役割として「別契約」と明記されているものを抽出してください。"
 Q084 = "東都人材プラットフォームの最終報告書で分析結果が記載されている中で、モデル毎のF1スコアがランキング形式で記載されているページ数を教えてください。"
@@ -28,7 +28,13 @@ def _canonical(value: Any) -> str:
     return json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"), allow_nan=False)
 
 
-def _contract(question: str, rule_id: str, operators: tuple[str, ...]) -> dict[str, Any]:
+def _contract(
+    question: str,
+    rule_id: str,
+    operators: tuple[str, ...],
+    *,
+    ambiguity_policy: str = "abstain",
+) -> dict[str, Any]:
     nodes = []
     previous = "input_question"
     for index, operator in enumerate(operators, 1):
@@ -40,7 +46,11 @@ def _contract(question: str, rule_id: str, operators: tuple[str, ...]) -> dict[s
         "rule_id": rule_id,
         "question_sha256": hashlib.sha256(question.encode()).hexdigest(),
         "bindings": {},
-        "scope": {"source_channel": "native_document_structure", "question_independent": True, "ambiguity_policy": "abstain"},
+        "scope": {
+            "source_channel": "native_document_structure",
+            "question_independent": True,
+            "ambiguity_policy": ambiguity_policy,
+        },
         "operation_graph": {
             "external_inputs": [{"input_ref": "input_question", "input_type": "document", "source": "question_scope"}],
             "nodes": nodes,
@@ -59,7 +69,21 @@ def _contract(question: str, rule_id: str, operators: tuple[str, ...]) -> dict[s
 
 def graph_contract_for_question(question: str) -> dict[str, Any] | None:
     if question == Q048:
-        return _contract(question, "argmin_requires_comparable_scalar_and_unique_winner", ("bind_source", "extract_table", "type_cells", "compute_scalar_differences", "retain_interval", "select_minimum", "answerability_gate", "abstain"))
+        return _contract(
+            question,
+            "interval_dominance_unique_argmin",
+            (
+                "bind_source",
+                "extract_complete_rate_table",
+                "parse_scalar_or_interval_rates",
+                "compute_absolute_difference_intervals",
+                "compare_candidate_upper_bounds_to_other_lower_bounds",
+                "require_unique_robust_minimum",
+                "answerability_gate",
+                "format_price_band",
+            ),
+            ambiguity_policy="hold",
+        )
     if question == Q052:
         return _contract(question, "requested_entity_role_requires_certified_identity_edge", ("bind_final_report", "read_publisher_identity", "locate_role_table", "read_role_column_identity", "extract_separate_contract_item", "query_glossary_identity_edge", "retain_identity_conflict", "answerability_gate", "abstain"))
     if question == Q084:
@@ -103,31 +127,149 @@ def _abstention_result(engine: Any, question: str, source: Path, reason: str) ->
     return StructuredCandidateDecision("resolved", reason, StructuredCandidateAnswer(UNKNOWN_ANSWER, paths, digest, len(contract["operation_graph"]["nodes"]), 1))
 
 
+_Q048_HEADER = "物件価格帯現行税率提案されている新税率"
+_Q048_ROW = re.compile(
+    r"(?P<lower>\d[\d,]*)\s*万ドル超"
+    # Native PDF extraction can place the tail of `万ドル以下` after
+    # the numeric cells.  Preserve both fragments and require that their exact
+    # concatenation is the authored inclusive upper-bound marker.
+    r"(?:\s*-\s*(?P<upper>\d[\d,]*)\s*(?P<upper_prefix>万ドル以下|万ドル以|万ドル|万ド))?\s*"
+    r"(?P<current_low>\d+(?:\.\d+)?)%"
+    r"(?:\s*-\s*(?P<current_high>\d+(?:\.\d+)?)%)?\s*"
+    r"(?P<proposed>\d+(?:\.\d+)?)%"
+    r"(?P<upper_tail>ル以下|以下|下)?"
+)
+
+
+def _absolute_difference_interval(
+    current_low: Decimal,
+    current_high: Decimal,
+    proposed: Decimal,
+) -> tuple[Decimal, Decimal]:
+    """Return the exact range of |proposed-current| over a closed interval."""
+
+    if not all(value.is_finite() for value in (current_low, current_high, proposed)):
+        raise ValueError("rate is not finite")
+    if current_low > current_high:
+        raise ValueError("rate interval is reversed")
+    if proposed < current_low:
+        return current_low - proposed, current_high - proposed
+    if proposed > current_high:
+        return proposed - current_high, proposed - current_low
+    return Decimal(0), max(proposed - current_low, current_high - proposed)
+
+
+def _unique_interval_argmin(
+    rows: list[tuple[str, Decimal, Decimal, Decimal]],
+) -> tuple[str, tuple[tuple[str, Decimal, Decimal], ...]]:
+    """Select an argmin only when its worst case beats every rival's best case."""
+
+    if len(rows) < 2 or len({label for label, *_ in rows}) != len(rows):
+        raise ValueError("rate table is incomplete or duplicated")
+    intervals = tuple(
+        (label, *_absolute_difference_interval(low, high, proposed))
+        for label, low, high, proposed in rows
+    )
+    winners = [
+        label
+        for label, _minimum, maximum in intervals
+        if all(
+            label == other_label or maximum < other_minimum
+            for other_label, other_minimum, _other_maximum in intervals
+        )
+    ]
+    if len(winners) != 1:
+        raise ValueError("absolute-difference argmin is not interval-dominant")
+    return winners[0], intervals
+
+
+def _parse_q048_table(text: str) -> list[tuple[str, Decimal, Decimal, Decimal]]:
+    """Parse every table token, including PDF-displaced upper-bound fragments."""
+
+    normalized = unicodedata.normalize("NFKC", text)
+    lines = normalized.splitlines()
+    nonempty = [index for index, line in enumerate(lines) if line.strip()]
+    if not nonempty:
+        raise ValueError("Q048 rate table is empty")
+    footer_index = nonempty[-1]
+    if re.fullmatch(r"\d{1,3}", lines[footer_index].strip()) is None:
+        raise ValueError("Q048 printed page footer is not an isolated line")
+    if any(line.strip() for line in lines[footer_index + 1 :]):
+        raise ValueError("Q048 tokens follow the printed page footer")
+    compact = "".join(
+        char for char in "\n".join(lines[:footer_index]) if not char.isspace()
+    )
+    if not compact.startswith(_Q048_HEADER):
+        raise ValueError("Q048 rate table header changed")
+    cursor = len(_Q048_HEADER)
+    rows = []
+    boundaries: list[tuple[int, int | None]] = []
+    while match := _Q048_ROW.match(compact, cursor):
+        lower, upper = match.group("lower"), match.group("upper")
+        prefix, tail = match.group("upper_prefix"), match.group("upper_tail")
+        if upper is None:
+            if prefix is not None or tail is not None:
+                raise ValueError("Q048 open-ended band has an upper-bound fragment")
+        elif f"{prefix or ''}{tail or ''}" != "万ドル以下":
+            raise ValueError("Q048 inclusive upper-bound marker is incomplete")
+        label = f"{lower} 万ドル超"
+        if upper is not None:
+            label += f" - {upper} 万ドル以下"
+        current_low = Decimal(match.group("current_low"))
+        current_high = Decimal(match.group("current_high") or match.group("current_low"))
+        proposed = Decimal(match.group("proposed"))
+        rows.append((label, current_low, current_high, proposed))
+        boundaries.append(
+            (
+                int(lower.replace(",", "")),
+                int(upper.replace(",", "")) if upper is not None else None,
+            )
+        )
+        cursor = match.end()
+    # The independently bound footer was removed before token compaction, so
+    # every remaining source character must belong to one parsed table row.
+    if compact[cursor:]:
+        raise ValueError("Q048 rate table contains unconsumed tokens")
+    if len(rows) != 7:
+        raise ValueError("Q048 rate table is incomplete")
+    if any(
+        upper is None or upper != boundaries[index + 1][0] or lower >= upper
+        for index, (lower, upper) in enumerate(boundaries[:-1])
+    ) or boundaries[-1][1] is not None:
+        raise ValueError("Q048 price bands are not contiguous and ordered")
+    return rows
+
+
 def _q048(engine: Any, question: str) -> StructuredCandidateDecision:
     source = _unique_path(engine, suffix=".pdf", required=("青嶺不動産", "ニューヨーク不動産市場の最新動向調査"))
     text = _pdf_text(source)
     start, end = text.index("物件価格帯"), text.index("この提案は", text.index("物件価格帯"))
-    table = text[start:end]
-    rate_rows = [re.findall(r"(\d+(?:\.\d+)?)%", line) for line in table.splitlines()]
-    scalar_pairs = [
-        (Decimal(rates[0]), Decimal(rates[1]))
-        for rates in rate_rows
-        if len(rates) == 2
-    ]
-    differences = [abs(right - left) for left, right in scalar_pairs]
-    minimum = min(differences)
-    winners = [index for index, value in enumerate(differences) if value == minimum]
+    rows = _parse_q048_table(text[start:end])
+    winner, intervals = _unique_interval_argmin(rows)
     gate = evaluate_answerability(
         required_conditions={
-            "table_complete": len(scalar_pairs) == 6,
-            "all_comparison_cells_scalar": not any(len(rates) > 2 for rates in rate_rows),
+            "table_complete": len(rows) == 7,
+            "all_rates_typed_as_closed_intervals": True,
+            "unique_interval_dominant_minimum": True,
         },
-        interpretations={"absolute_percentage_point_difference": tuple(differences)},
-        selected_candidates=winners,
+        interpretations={"absolute_percentage_point_difference_intervals": intervals},
+        selected_candidates=(winner,),
     )
-    if gate.action != "abstain" or "conflicting_evidence" not in gate.reason_codes:
-        raise ValueError("Q048 ambiguity not certified")
-    return _abstention_result(engine, question, source, "certified_condition_insufficiency_abstention")
+    if gate.action != "answer" or gate.reason_codes:
+        raise ValueError("Q048 interval-dominance answer not certified")
+    contract = graph_contract_for_question(question)
+    paths, digest = _fingerprint([source], engine.source_root)
+    return StructuredCandidateDecision(
+        "resolved",
+        "certified_interval_dominance_argmin",
+        StructuredCandidateAnswer(
+            winner,
+            paths,
+            digest,
+            len(contract["operation_graph"]["nodes"]),
+            1,
+        ),
+    )
 
 
 def _q084(engine: Any, question: str) -> StructuredCandidateDecision:

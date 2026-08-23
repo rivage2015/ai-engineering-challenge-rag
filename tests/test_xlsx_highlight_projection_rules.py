@@ -344,7 +344,7 @@ class XlsxHighlightProjectionRulesTest(unittest.TestCase):
         assert decision.result is not None
         self.assertEqual(
             decision.result.answer,
-            "segment=Alpha、phase=2、zone=Eastで抽出されたデータに対する個数",
+            "抽出条件：segment=Alpha、phase=2、zone=East。集計内容：行の個数（COUNT）。",
         )
         self.assertEqual(decision.result.operation_count, 9)
         self.assertEqual(decision.result.output_count, 1)
@@ -355,7 +355,7 @@ class XlsxHighlightProjectionRulesTest(unittest.TestCase):
         assert decision.result is not None
         self.assertEqual(
             decision.result.answer,
-            "segment=Alpha、phase=2、role=Engineerで抽出されたデータに対する個数 / record_id",
+            "抽出条件：segment=Alpha、phase=2、role=Engineer。集計内容：record_idの個数（COUNT）。",
         )
 
     def test_live_graphplan_and_output_validator(self) -> None:
@@ -397,7 +397,7 @@ class XlsxHighlightProjectionRulesTest(unittest.TestCase):
         assert decision.result is not None
         self.assertEqual(
             decision.result.answer,
-            "segment=Beta、phase=7、zone=Westで抽出されたデータに対する個数",
+            "抽出条件：segment=Beta、phase=7、zone=West。集計内容：行の個数（COUNT）。",
         )
 
     def test_vector_mutation_follows_authored_marker_and_raw_rows(self) -> None:
@@ -412,7 +412,7 @@ class XlsxHighlightProjectionRulesTest(unittest.TestCase):
         assert decision.result is not None
         self.assertEqual(
             decision.result.answer,
-            "segment=Beta、phase=7、role=Analystで抽出されたデータに対する個数 / record_id",
+            "抽出条件：segment=Beta、phase=7、role=Analyst。集計内容：record_idの個数（COUNT）。",
         )
 
     def test_duplicate_source_holds(self) -> None:

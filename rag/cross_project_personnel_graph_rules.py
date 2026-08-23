@@ -7,8 +7,10 @@ import io
 import json
 import re
 import unicodedata
+import zipfile
 from pathlib import Path
 from typing import Any, Mapping, Sequence
+from xml.etree import ElementTree
 
 from cross_document_finance_rules import _decrypt_if_needed, _fingerprint, _opc_text, _pdf_text, _source_bytes
 from cross_project_portfolio_rules import _contract_path, _final_report, _projects, _proposal, _safe_root
@@ -26,9 +28,38 @@ from evidence_graph_memory import (
 from pptx_spatial_rules import _default_spatial_observer, _slide_rasters
 from structured_candidate import StructuredCandidateAnswer, StructuredCandidateDecision
 
-VERSION = "0.1"
+VERSION = "0.3"
 QUESTION = "データアステル社の中でもっとも多くの案件にかかわっている人の内線番号を教えてください。"
 QUESTION_COUNT = "各案件のPP・契約書・PLAN・FRにおいて、DA側の実施体制として役割付きで記載されている人物は全部で何人ですか。"
+
+_ROLE_PATTERNS = (
+    ("エグゼクティブスポンサー", r"エグゼクティブスポンサー"),
+    ("プロジェクトマネージャー", r"プロジェクトマネージャー"),
+    ("リードデータサイエンティスト", r"リード\s*データサイエンティスト"),
+    ("データエンジニア", r"データエンジニア"),
+    ("ビジネスアナリスト", r"ビジネスアナリスト"),
+    ("QAレビュー", r"QA\s*レビュー(?:アー|ア|担当)"),
+)
+_SECONDARY_ROLE_PATTERNS = (
+    ("エグゼクティブスポンサー", r"(?:エグゼクティブスポンサー|(?<![A-Za-z])ES(?![A-Za-z]))"),
+    ("プロジェクトマネージャー", r"(?:プロジェクトマネージャー|(?<![A-Za-z])PM(?![A-Za-z]))"),
+    ("リードデータサイエンティスト", r"(?:リード\s*(?:データサイエンティスト|DS)|(?<![A-Za-z])(?:LDS|DS)(?![A-Za-z]))"),
+    ("データエンジニア", r"(?:データエンジニア|(?<![A-Za-z])DE(?![A-Za-z]))"),
+    ("ビジネスアナリスト", r"(?:ビジネスアナリスト|(?<![A-Za-z])BA(?![A-Za-z]))"),
+    ("QAレビュー", r"(?:QA\s*レビュー(?:アー|ア|担当)?|(?<![A-Za-z])QA(?![A-Za-z]))"),
+)
+_PERSON_PATTERN = r"([\u4e00-\u9fff々ヶ]{1,4})\s+([\u4e00-\u9fff々ヶ]{1,4})"
+_PAIR_SEPARATOR = r"(?:\s+|\s*[：:─—\-・/（）()]\s*)"
+_NON_PERSON_TOKENS = frozenset(
+    {
+        "記録", "完了", "結果", "確認", "指摘", "一覧", "承認", "担当",
+        "分析", "運用", "管理", "低", "中", "高", "氏名", "役割",
+        "基盤", "構築",
+    }
+)
+_NON_PERSON_FRAGMENTS = frozenset(
+    {"記録", "完了", "結果", "確認", "指摘", "承認", "担当", "分析", "運用", "管理"}
+)
 
 
 def _canonical(value: Any) -> str:
@@ -109,10 +140,55 @@ def graph_contract_for_question(question: str) -> dict[str, Any] | None:
             "documents": ["PP", "契約書", "PLAN", "FR"],
             "metric": "unique_person_count",
         }
+        contract["scope"]["source_channel"] = "current_project_pp_contract_plan_fr_role_rosters"
         contract["requested_output"]["answer_shape"]["value_type"] = "integer"
         contract["requested_output"]["answer_shape"]["unit"] = "人"
-        contract["operation_graph"]["nodes"][-2]["operator"] = "count_unique_verified_directory_people"
-        contract["operation_graph"]["nodes"][-1]["operator"] = "format_person_count"
+        operators = (
+            "bind_complete_project_set",
+            "bind_current_pp_contract_plan_fr_per_project",
+            "bind_authoritative_complete_six_role_pp_contract_roster",
+            "require_pp_contract_roster_agreement_when_both_available",
+            "extract_bidirectional_plan_fr_role_person_mentions",
+            "expand_pm_lead_ds_ba_qa_role_abbreviations",
+            "audit_plan_role_name_table_and_controlled_saito_variant",
+            "reject_person_outside_authoritative_project_roster",
+            "normalize_full_person_identity",
+            "create_unique_role_person_nodes",
+            "create_project_participation_nodes",
+            "create_same_person_edges",
+            "machine_audit_identity_edges",
+            "blind_audit_with_person_decoys",
+            "count_unique_verified_role_people",
+            "format_person_count",
+        )
+        nodes = []
+        previous = "input_question"
+        for index, operator in enumerate(operators, 1):
+            output = f"value_{index:03d}"
+            nodes.append(
+                {
+                    "operation_id": f"op_{index:03d}_{operator}",
+                    "operator": operator,
+                    "input_refs": [previous],
+                    "output_ref": output,
+                }
+            )
+            previous = output
+        contract["operation_graph"] = {
+            "external_inputs": [
+                {
+                    "input_ref": "input_question",
+                    "input_type": "project_corpus",
+                    "source": "question_scope",
+                }
+            ],
+            "nodes": nodes,
+            "edges": [
+                {"from": nodes[index - 1]["output_ref"], "to": nodes[index]["operation_id"]}
+                for index in range(1, len(nodes))
+            ],
+        }
+        contract["requested_output"]["source_operation_ref"] = nodes[-1]["operation_id"]
         core = {key: value for key, value in contract.items() if key != "graph_contract_id"}
         contract["graph_contract_id"] = "personnel_graph_" + hashlib.sha256(_canonical(core).encode()).hexdigest()[:32]
         return contract
@@ -141,20 +217,300 @@ def _text(path: Path) -> str:
     raise ValueError("unsupported project roster source")
 
 
-def _plan_text(path: Path, *, decrypted: bytes | None = None) -> str:
+def _plan_units(path: Path, *, decrypted: bytes | None = None) -> tuple[tuple[str, ...], ...]:
     from openpyxl import load_workbook
 
     data = decrypted if decrypted is not None else _decrypt_if_needed(path, _source_bytes(path))
     workbook = load_workbook(io.BytesIO(data), read_only=True, data_only=False, keep_links=False)
-    values = []
+    units: list[tuple[str, ...]] = []
     try:
         for sheet in workbook.worksheets:
-            values.append(sheet.title)
             for row in sheet.iter_rows(values_only=True):
-                values.extend(str(value) for value in row if value is not None)
+                cells = tuple(
+                    unicodedata.normalize("NFKC", str(value)).strip()
+                    for value in row
+                    if value is not None and str(value).strip()
+                )
+                if cells:
+                    units.append(cells)
     finally:
         workbook.close()
-    return "\n".join(values)
+    return tuple(units)
+
+
+def _plan_text(path: Path, *, decrypted: bytes | None = None) -> str:
+    return "\n".join("\t".join(unit) for unit in _plan_units(path, decrypted=decrypted))
+
+
+def _report_role_units(path: Path) -> tuple[tuple[str, ...], ...]:
+    if path.suffix.casefold() == ".pdf":
+        return tuple(
+            tuple(cell for cell in re.split(r"\s{2,}", line.strip()) if cell)
+            for line in _pdf_text(path).splitlines()
+            if line.strip()
+        )
+    if path.suffix.casefold() != ".pptx":
+        raise ValueError("unsupported final-report role source")
+    data = _decrypt_if_needed(path, _source_bytes(path))
+    units: list[tuple[str, ...]] = []
+    with zipfile.ZipFile(io.BytesIO(data)) as archive:
+        names = sorted(
+            (
+                name
+                for name in archive.namelist()
+                if re.fullmatch(r"ppt/slides/slide\d+\.xml", name)
+            ),
+            key=lambda name: int(re.search(r"(\d+)", Path(name).stem).group(1)),
+        )
+        if not names:
+            raise ValueError("final-report slides missing")
+        for name in names:
+            root = ElementTree.fromstring(archive.read(name))
+            for node in root.iter():
+                local = node.tag.rsplit("}", 1)[-1]
+                if local == "tr":
+                    cells = []
+                    for cell in (child for child in node if child.tag.rsplit("}", 1)[-1] == "tc"):
+                        value = " ".join(
+                            (item.text or "").strip()
+                            for item in cell.iter()
+                            if item.tag.rsplit("}", 1)[-1] == "t" and (item.text or "").strip()
+                        )
+                        cells.append(value)
+                    if any(cells):
+                        units.append(tuple(cells))
+                elif local == "sp":
+                    paragraphs = []
+                    for paragraph in (
+                        child for child in node.iter() if child.tag.rsplit("}", 1)[-1] == "p"
+                    ):
+                        value = "".join(
+                            item.text or ""
+                            for item in paragraph.iter()
+                            if item.tag.rsplit("}", 1)[-1] == "t"
+                        ).strip()
+                        if value:
+                            paragraphs.append(value)
+                    if paragraphs:
+                        units.append(tuple(paragraphs))
+    return tuple(units)
+
+
+def _extract_role_roster_text(text: str) -> dict[str, dict[str, str]] | None:
+    """Extract one complete six-role DA roster from native document text."""
+
+    normalized = unicodedata.normalize("NFKC", text)
+    roster: dict[str, dict[str, str]] = {}
+    for canonical_role, role_pattern in _ROLE_PATTERNS:
+        matches = {
+            unicodedata.normalize("NFC", f"{match.group(1)} {match.group(2)}")
+            for match in re.finditer(
+                role_pattern + r"\s*[：:]?\s*" + _PERSON_PATTERN,
+                normalized,
+            )
+        }
+        if len(matches) != 1:
+            return None
+        person = next(iter(matches))
+        key = _normalized(person)
+        if not key or key in roster:
+            return None
+        roster[key] = {"person": person, "role": canonical_role}
+    return roster if len(roster) == len(_ROLE_PATTERNS) else None
+
+
+def _extract_role_roster(path: Path) -> dict[str, dict[str, str]] | None:
+    try:
+        return _extract_role_roster_text(_text(path))
+    except (OSError, RuntimeError, UnicodeError, ValueError):
+        return None
+
+
+def _plausible_person_name(person: str) -> bool:
+    parts = unicodedata.normalize("NFKC", person).split()
+    return (
+        len(parts) == 2
+        and all(re.fullmatch(r"[\u4e00-\u9fff々ヶ]{1,4}", part) for part in parts)
+        and not any(part in _NON_PERSON_TOKENS for part in parts)
+        and not any(fragment in part for fragment in _NON_PERSON_FRAGMENTS for part in parts)
+    )
+
+
+def _controlled_saito_variant(left: str, right: str) -> bool:
+    compact = {_normalized(left), _normalized(right)}
+    return compact == {"斉藤悠斗", "斎藤悠斗"}
+
+
+def _canonical_roster_key(
+    roster: Mapping[str, Mapping[str, str]],
+    role: str,
+    person: str,
+    *,
+    require_role: bool = True,
+) -> str | None:
+    observed_key = _normalized(person)
+    for key, item in roster.items():
+        if require_role and item["role"] != role:
+            continue
+        if key == observed_key or _controlled_saito_variant(item["person"], person):
+            return key
+    return None
+
+
+def _person_cell(cell: str) -> str | None:
+    match = re.fullmatch(r"\s*" + _PERSON_PATTERN + r"\s*", cell)
+    if match is None:
+        return None
+    person = unicodedata.normalize("NFC", f"{match.group(1)} {match.group(2)}")
+    return person if _plausible_person_name(person) else None
+
+
+def _same_cell_person(cell: str, role_match: re.Match[str], *, before: bool) -> str | None:
+    if before:
+        match = re.search(
+            _PERSON_PATTERN + _PAIR_SEPARATOR + r"$", cell[: role_match.start()]
+        )
+    else:
+        match = re.match(
+            _PAIR_SEPARATOR + _PERSON_PATTERN, cell[role_match.end() :]
+        )
+    if match is None:
+        return None
+    person = unicodedata.normalize("NFC", f"{match.group(1)} {match.group(2)}")
+    return person if _plausible_person_name(person) else None
+
+
+def _standalone_role_cell(cell: str, role_match: re.Match[str]) -> bool:
+    remainder = cell[: role_match.start()] + cell[role_match.end() :]
+    return re.sub(r"[\s：:─—\-・/（）()]", "", remainder) == ""
+
+
+def _audit_structural_unit(
+    unit: Sequence[str],
+    roster: Mapping[str, Mapping[str, str]],
+) -> dict[str, dict[str, str]]:
+    cells = tuple(
+        normalized
+        for cell in unit
+        for line in str(cell).splitlines()
+        if (normalized := unicodedata.normalize("NFKC", line).strip())
+    )
+    occurrences: list[dict[str, Any]] = []
+    for cell_index, cell in enumerate(cells):
+        for role, role_pattern in _SECONDARY_ROLE_PATTERNS:
+            for role_match in re.finditer(role_pattern, cell):
+                same_cell: list[str] = []
+                for before in (True, False):
+                    person = _same_cell_person(cell, role_match, before=before)
+                    if person is not None and person not in same_cell:
+                        same_cell.append(person)
+                neighbors: dict[str, str] = {}
+                neighbor_cells: dict[str, int] = {}
+                if _standalone_role_cell(cell, role_match):
+                    for side, neighbor in (
+                        ("before", cell_index - 1),
+                        ("after", cell_index + 1),
+                    ):
+                        if 0 <= neighbor < len(cells):
+                            person = _person_cell(cells[neighbor])
+                            if person is not None:
+                                neighbors[side] = person
+                                neighbor_cells[side] = neighbor
+                occurrences.append(
+                    {
+                        "role": role,
+                        "same_cell": tuple(same_cell),
+                        "neighbors": neighbors,
+                        "neighbor_cells": neighbor_cells,
+                    }
+                )
+
+    # Repeated table/list pairs can establish a structural direction.  A single
+    # role between two person-like cells cannot: accepting its one known side
+    # would silently discard a conflicting or out-of-roster mention.
+    direction_votes: list[str] = []
+    for occurrence in occurrences:
+        if occurrence["same_cell"]:
+            continue
+        role = occurrence["role"]
+        neighbors = occurrence["neighbors"]
+        matching_sides = [
+            side
+            for side, person in neighbors.items()
+            if _canonical_roster_key(roster, role, person) is not None
+        ]
+        if len(matching_sides) == 1:
+            direction_votes.append(matching_sides[0])
+    structural_direction = None
+    if len(direction_votes) >= 2 and len(set(direction_votes)) == 1:
+        structural_direction = direction_votes[0]
+
+    selected_neighbor_cells: set[int] = set()
+    if structural_direction is not None:
+        selected_neighbor_cells = {
+            occurrence["neighbor_cells"][structural_direction]
+            for occurrence in occurrences
+            if not occurrence["same_cell"]
+            and structural_direction in occurrence["neighbor_cells"]
+        }
+
+    observed: dict[str, dict[str, str]] = {}
+    for occurrence in occurrences:
+        role = occurrence["role"]
+        candidates = list(occurrence["same_cell"])
+        neighbors = occurrence["neighbors"]
+        if not candidates:
+            if structural_direction is not None and structural_direction in neighbors:
+                candidates = [neighbors[structural_direction]]
+                for side, person in neighbors.items():
+                    if (
+                        side != structural_direction
+                        and occurrence["neighbor_cells"][side]
+                        not in selected_neighbor_cells
+                        and person not in candidates
+                    ):
+                        candidates.append(person)
+            else:
+                candidates = list(dict.fromkeys(neighbors.values()))
+        if not candidates:
+            continue
+
+        resolved: list[tuple[str, str]] = []
+        for person in candidates:
+            key = _canonical_roster_key(roster, role, person)
+            if key is None:
+                known_person = _canonical_roster_key(
+                    roster, role, person, require_role=False
+                )
+                if known_person is not None:
+                    raise ValueError("secondary source role disagrees with authoritative roster")
+                raise ValueError("secondary source contains person outside authoritative roster")
+            resolved.append((person, key))
+        keys = {key for _, key in resolved}
+        if len(keys) != 1:
+            raise ValueError("role occurrence has multiple authoritative people")
+        key = resolved[0][1]
+        observed[key] = {"person": roster[key]["person"], "role": role}
+    return observed
+
+
+def _audit_secondary_role_mentions_units(
+    units: Sequence[Sequence[str]],
+    roster: Mapping[str, Mapping[str, str]],
+) -> dict[str, dict[str, str]]:
+    observed: dict[str, dict[str, str]] = {}
+    for unit in units:
+        observed.update(_audit_structural_unit(unit, roster))
+    return observed
+
+
+def _audit_secondary_role_mentions_text(
+    text: str,
+    roster: Mapping[str, Mapping[str, str]],
+) -> dict[str, dict[str, str]]:
+    """Audit PLAN/FR role-person mentions against the authoritative project roster."""
+    lines = tuple(line.strip() for line in text.splitlines() if line.strip())
+    return _audit_secondary_role_mentions_units((lines,), roster)
 
 
 def _directory(engine: Any, root: Path):
@@ -437,6 +793,102 @@ def _build_count_memory(
     return reloaded, len(observed)
 
 
+def _build_role_count_memory(
+    *,
+    question: str,
+    contract: Mapping[str, Any],
+    people: Mapping[str, Mapping[str, Any]],
+    project_records: Sequence[Mapping[str, Any]],
+) -> tuple[dict[str, Any], int]:
+    graph = new_graph(
+        question_id="Q086",
+        question_sha256=hashlib.sha256(question.encode()).hexdigest(),
+        graph_plan_id=str(contract["graph_contract_id"]),
+    )
+    person_nodes = {}
+    for key, person in sorted(people.items()):
+        roles = sorted(person["roles"])
+        person_nodes[key] = add_node(
+            graph,
+            node_type="role_person",
+            value={"person": person["person"], "roles": roles},
+            normalized_value={"person": key},
+            source={
+                "path": person["paths"][0],
+                "sha256": person["sha256s"][0],
+                "locator": {"role": roles[0]},
+                "quote": f"{roles[0]} / {person['person']}",
+                "extraction_method": "authoritative_complete_pp_contract_da_role_roster",
+            },
+        )
+    policy = EdgePolicy(
+        edge_type="same_person",
+        from_node_types=("role_person",),
+        to_node_types=("project_participation",),
+        equality_checks=(EqualityCheck("normalized_value.person", "normalized_value.person", "nfc_compact"),),
+    )
+    decoys = {key: [node for other, node in person_nodes.items() if other != key] for key in person_nodes}
+    observed = set()
+    edge_ids = []
+    for record in project_records:
+        for key, evidence in sorted(record["people"].items()):
+            node = add_node(
+                graph,
+                node_type="project_participation",
+                value={
+                    "person": people[key]["person"],
+                    "project": record["project"],
+                    "role": evidence["role"],
+                    "supporting_paths": evidence["paths"],
+                },
+                normalized_value={"person": key, "project": _normalized(record["project"])},
+                source={
+                    "path": evidence["paths"][0],
+                    "sha256": evidence["sha256s"][0],
+                    "locator": {
+                        "project": record["project"],
+                        "role": evidence["role"],
+                        "audited_document_classes": evidence["audited_document_classes"],
+                        "secondary_scan_counts": evidence["secondary_scan_counts"],
+                    },
+                    "quote": f"{evidence['role']} / {people[key]['person']}",
+                    "extraction_method": "authoritative_roster_with_bidirectional_plan_fr_audit",
+                },
+            )
+            edge_id = propose_edge(
+                graph,
+                edge_type="same_person",
+                from_node_id=person_nodes[key],
+                to_node_id=node,
+                claim="The project role entry and cross-project role person identify the same employee.",
+                comparison_fields=["normalized_value.person"],
+            )
+            if audit_edge_with_same_model(
+                graph,
+                edge_id,
+                policy,
+                model_call=_same_model_role,
+                decoy_node_ids=decoys[key],
+            ) != "verified":
+                raise ValueError("role identity edge was not verified")
+            edge_ids.append(edge_id)
+            observed.add(key)
+    if observed != set(people):
+        raise ValueError("role roster union is incomplete")
+    set_answer_projection(
+        graph,
+        operation="count_unique_verified_role_people",
+        input_node_ids=[person_nodes[key] for key in sorted(observed)],
+        input_edge_ids=edge_ids,
+    )
+    if graph["state"] != "ready" or validate_graph(graph):
+        raise ValueError("role count evidence graph memory did not validate")
+    reloaded = json.loads(canonical_json(graph))
+    if validate_graph(reloaded):
+        raise ValueError("reloaded role count evidence graph memory did not validate")
+    return reloaded, len(observed)
+
+
 def decide_question(engine: Any, question: str) -> StructuredCandidateDecision | None:
     contract = graph_contract_for_question(question)
     if contract is None:
@@ -446,12 +898,10 @@ def decide_question(engine: Any, question: str) -> StructuredCandidateDecision |
     if root is None or projects is None:
         return StructuredCandidateDecision("hold", "personnel_graph_project_set_incomplete")
     try:
-        directory_path, people = _directory(engine, root)
-        if directory_path is None or people is None:
-            raise ValueError("directory")
         if question == QUESTION_COUNT:
             project_records = []
-            evidence_paths = [directory_path]
+            people: dict[str, dict[str, Any]] = {}
+            evidence_paths = []
             for project in projects:
                 core = _current_core_sources(project)
                 plan = _current_plan(project)
@@ -461,7 +911,7 @@ def decide_question(engine: Any, question: str) -> StructuredCandidateDecision |
                 sources = (("PP", proposal), ("契約書", contract_path), ("PLAN", plan), ("FR", report))
                 evidence_paths.extend(path for _, path in sources)
                 try:
-                    plan_text = _plan_text(plan)
+                    plan_units = _plan_units(plan)
                 except Exception:
                     from cross_project_portfolio_rules import _alias
                     from score_candidate_rules import _encrypted_workbook_bytes
@@ -470,33 +920,81 @@ def decide_question(engine: Any, question: str) -> StructuredCandidateDecision |
                     decrypted = _encrypted_workbook_bytes(engine, project, plan, alias) if alias else None
                     if decrypted is None:
                         raise ValueError("encrypted plan")
-                    plan_text = _plan_text(plan, decrypted=decrypted[0])
+                    plan_units = _plan_units(plan, decrypted=decrypted[0])
                     evidence_paths.extend(decrypted[1])
-                texts = {
-                    (document_type, path): (plan_text if document_type == "PLAN" else _text(path))
-                    for document_type, path in sources
+                report_units = _report_role_units(report)
+                if not plan_units or not report_units:
+                    raise ValueError("empty plan or final report")
+                proposal_roster = _extract_role_roster(proposal)
+                contract_roster = _extract_role_roster(contract_path)
+                complete_rosters = [
+                    value for value in (proposal_roster, contract_roster) if value is not None
+                ]
+                if not complete_rosters:
+                    raise ValueError("complete role roster")
+                roster = complete_rosters[0]
+                if any(
+                    _canonical(candidate) != _canonical(roster)
+                    for candidate in complete_rosters[1:]
+                ):
+                    raise ValueError("role roster disagreement")
+                secondary_observations = {
+                    plan: _audit_secondary_role_mentions_units(plan_units, roster),
+                    report: _audit_secondary_role_mentions_units(report_units, roster),
                 }
-                roster = {}
-                for key, person in people.items():
-                    matching = [
-                        (document_type, path)
-                        for (document_type, path), text in texts.items()
-                        if person["person"] in text
+                secondary_scan_counts = {
+                    "PLAN": len(secondary_observations[plan]),
+                    "FR": len(secondary_observations[report]),
+                }
+                project_people = {}
+                for key, item in roster.items():
+                    supporting = [
+                        path
+                        for path, candidate in (
+                            (proposal, proposal_roster),
+                            (contract_path, contract_roster),
+                        )
+                        if candidate is not None
                     ]
-                    if matching:
-                        matching.sort(key=lambda item: (item[0], unicodedata.normalize("NFC", item[1].relative_to(root).as_posix())))
-                        roster[key] = {
-                            "paths": [unicodedata.normalize("NFC", path.relative_to(root).as_posix()) for _, path in matching],
-                            "sha256s": [hashlib.sha256(path.read_bytes()).hexdigest() for _, path in matching],
-                            "document_types": [document_type for document_type, _ in matching],
-                        }
-                if not roster:
-                    raise ValueError("empty role roster")
-                project_records.append({"project": project.name, "people": roster})
-            graph, count = _build_count_memory(
+                    supporting.extend(
+                        path
+                        for path, observations in secondary_observations.items()
+                        if key in observations
+                    )
+                    relative_paths = [
+                        unicodedata.normalize("NFC", path.relative_to(root).as_posix())
+                        for path in supporting
+                    ]
+                    sha256s = [hashlib.sha256(path.read_bytes()).hexdigest() for path in supporting]
+                    project_people[key] = {
+                        "role": item["role"],
+                        "paths": relative_paths,
+                        "sha256s": sha256s,
+                        "audited_document_classes": [
+                            document_type
+                            for document_type, path in sources
+                            if path in supporting
+                        ],
+                        "secondary_scan_counts": secondary_scan_counts,
+                    }
+                    aggregate = people.setdefault(
+                        key,
+                        {
+                            "person": item["person"],
+                            "roles": set(),
+                            "paths": [],
+                            "sha256s": [],
+                        },
+                    )
+                    if aggregate["person"] != item["person"]:
+                        raise ValueError("normalized person display disagreement")
+                    aggregate["roles"].add(item["role"])
+                    aggregate["paths"].extend(relative_paths)
+                    aggregate["sha256s"].extend(sha256s)
+                project_records.append({"project": project.name, "people": project_people})
+            graph, count = _build_role_count_memory(
                 question=question,
                 contract=contract,
-                directory_path=directory_path,
                 people=people,
                 project_records=project_records,
             )
@@ -516,6 +1014,9 @@ def decide_question(engine: Any, question: str) -> StructuredCandidateDecision |
                     1,
                 ),
             )
+        directory_path, people = _directory(engine, root)
+        if directory_path is None or people is None:
+            raise ValueError("directory")
         project_records = []
         evidence_paths = [directory_path]
         for project in projects:

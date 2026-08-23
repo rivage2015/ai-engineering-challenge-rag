@@ -1,0 +1,558 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://local.ai-engineering-challenge/schemas/docling-poc-run.schema.json",
+  "title": "DoclingStructuralPoCRun",
+  "description": "質問・正解・予測・回答から独立したDocling構造解析PoCのclosed contract",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "record_type",
+    "run_id",
+    "input",
+    "configuration",
+    "status",
+    "document",
+    "timing",
+    "warnings",
+    "errors",
+    "hashes",
+    "provenance"
+  ],
+  "properties": {
+    "schema_version": {"const": "0.2"},
+    "record_type": {"const": "docling_poc_run"},
+    "run_id": {"type": "string", "pattern": "^docpoc_[0-9a-f]{24}$"},
+    "input": {"$ref": "#/$defs/input"},
+    "configuration": {"$ref": "#/$defs/configuration"},
+    "status": {"enum": ["completed", "partial", "failed", "unavailable"]},
+    "document": {"$ref": "#/$defs/document"},
+    "timing": {"$ref": "#/$defs/timing"},
+    "warnings": {
+      "type": "array",
+      "maxItems": 1000,
+      "items": {"type": "string", "minLength": 1, "maxLength": 10000}
+    },
+    "errors": {
+      "type": "array",
+      "maxItems": 1000,
+      "items": {"$ref": "#/$defs/error"}
+    },
+    "hashes": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["input_sha256", "output_sha256", "signature_sha256", "record_integrity_sha256"],
+      "properties": {
+        "input_sha256": {"$ref": "#/$defs/sha256"},
+        "output_sha256": {"$ref": "#/$defs/sha256"},
+        "signature_sha256": {"$ref": "#/$defs/sha256"},
+        "record_integrity_sha256": {"$ref": "#/$defs/sha256"}
+      }
+    },
+    "provenance": {"$ref": "#/$defs/run_provenance"}
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {"status": {"const": "completed"}},
+        "required": ["status"]
+      },
+      "then": {
+        "properties": {
+          "document": {
+            "properties": {
+              "item_counts": {
+                "properties": {"total": {"minimum": 1}}
+              },
+              "items": {"minItems": 1},
+              "markdown": {"type": "string"},
+              "docling_json": {"type": "string"}
+            }
+          }
+        }
+      }
+    }
+  ],
+  "$defs": {
+    "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "dimensions": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["width_px", "height_px"],
+      "properties": {
+        "width_px": {"type": "integer", "minimum": 1, "maximum": 100000},
+        "height_px": {"type": "integer", "minimum": 1, "maximum": 100000}
+      }
+    },
+    "fixture_ref": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["fixture_id", "signature_sha256"],
+      "properties": {
+        "fixture_id": {"type": "string", "pattern": "^ocrfx_[0-9a-f]{24}$"},
+        "signature_sha256": {"$ref": "#/$defs/sha256"}
+      }
+    },
+    "input": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "sample_id",
+        "role",
+        "fixture_refs",
+        "materialized_path",
+        "image_sha256",
+        "dimensions",
+        "origin_kind",
+        "source_relative_path",
+        "source_sha256",
+        "page_number"
+      ],
+      "properties": {
+        "sample_id": {"type": "string", "pattern": "^docsrc_[0-9a-f]{24}$"},
+        "role": {
+          "enum": [
+            "image_only_pdf_page",
+            "office_embedded_table_image",
+            "standalone_table_image"
+          ]
+        },
+        "fixture_refs": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 1000,
+          "items": {"$ref": "#/$defs/fixture_ref"}
+        },
+        "materialized_path": {"type": "string", "minLength": 1, "maxLength": 4096},
+        "image_sha256": {"$ref": "#/$defs/sha256"},
+        "dimensions": {"$ref": "#/$defs/dimensions"},
+        "origin_kind": {
+          "enum": ["pdf_page", "office_embedded_image", "standalone_image"]
+        },
+        "source_relative_path": {"type": "string", "minLength": 1, "maxLength": 4096},
+        "source_sha256": {"$ref": "#/$defs/sha256"},
+        "page_number": {"type": ["integer", "null"], "minimum": 1}
+      }
+    },
+    "package_versions": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "docling",
+        "docling_core",
+        "docling_ibm_models",
+        "docling_parse",
+        "torch",
+        "torchvision"
+      ],
+      "properties": {
+        "docling": {"type": "string", "minLength": 1, "maxLength": 200},
+        "docling_core": {"type": "string", "minLength": 1, "maxLength": 200},
+        "docling_ibm_models": {"type": "string", "minLength": 1, "maxLength": 200},
+        "docling_parse": {"type": "string", "minLength": 1, "maxLength": 200},
+        "torch": {"type": "string", "minLength": 1, "maxLength": 200},
+        "torchvision": {"type": "string", "minLength": 1, "maxLength": 200},
+        "tesseract": {"type": "string", "minLength": 1, "maxLength": 200},
+        "ocrmac": {"type": "string", "minLength": 1, "maxLength": 200}
+      }
+    },
+    "model_fingerprint": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["repo_id", "revision", "relative_path", "file_count", "size_bytes", "sha256"],
+      "properties": {
+        "repo_id": {"type": "string", "minLength": 1, "maxLength": 500},
+        "revision": {"type": "string", "minLength": 1, "maxLength": 200},
+        "relative_path": {"type": "string", "minLength": 1, "maxLength": 4096},
+        "file_count": {"type": "integer", "minimum": 1, "maximum": 100000},
+        "size_bytes": {"type": "integer", "minimum": 1},
+        "sha256": {"$ref": "#/$defs/sha256"}
+      }
+    },
+    "configuration": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "runner_version",
+        "python_version",
+        "platform",
+        "num_threads",
+        "package_versions",
+        "package_fingerprint_sha256",
+        "ocr_engine_fingerprint",
+        "pipeline",
+        "models"
+      ],
+      "properties": {
+        "runner_version": {"const": "0.2"},
+        "python_version": {"type": "string", "minLength": 1, "maxLength": 200},
+        "platform": {"type": "string", "minLength": 1, "maxLength": 500},
+        "num_threads": {"type": "integer", "minimum": 1, "maximum": 128},
+        "package_versions": {"$ref": "#/$defs/package_versions"},
+        "package_fingerprint_sha256": {"$ref": "#/$defs/sha256"},
+        "ocr_engine_fingerprint": {"$ref": "#/$defs/ocr_engine_fingerprint"},
+        "pipeline": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["input_format", "pipeline", "remote_services", "external_plugins", "ocr", "layout", "table_structure"],
+          "properties": {
+            "input_format": {"const": "image"},
+            "pipeline": {"const": "standard_pdf_pipeline"},
+            "remote_services": {"const": false},
+            "external_plugins": {"const": false},
+            "ocr": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["enabled", "engine", "languages", "force_full_page"],
+              "properties": {
+                "enabled": {"const": true},
+                "engine": {"enum": ["tesseract_cli", "ocrmac"]},
+                "languages": {
+                  "type": "array",
+                  "minItems": 2,
+                  "maxItems": 2
+                },
+                "force_full_page": {"const": true},
+                "recognition": {"type": "string", "minLength": 1, "maxLength": 100},
+                "framework": {"type": "string", "minLength": 1, "maxLength": 100}
+              },
+              "allOf": [
+                {
+                  "if": {
+                    "properties": {"engine": {"const": "tesseract_cli"}},
+                    "required": ["engine"]
+                  },
+                  "then": {
+                    "properties": {
+                      "languages": {
+                        "prefixItems": [{"const": "jpn"}, {"const": "eng"}]
+                      }
+                    },
+                    "not": {
+                      "anyOf": [
+                        {"required": ["recognition"]},
+                        {"required": ["framework"]}
+                      ]
+                    }
+                  }
+                },
+                {
+                  "if": {
+                    "properties": {"engine": {"const": "ocrmac"}},
+                    "required": ["engine"]
+                  },
+                  "then": {
+                    "required": ["recognition", "framework"],
+                    "properties": {
+                      "languages": {
+                        "prefixItems": [{"const": "ja-JP"}, {"const": "en-US"}]
+                      },
+                      "recognition": {"const": "accurate"},
+                      "framework": {"const": "vision"}
+                    }
+                  }
+                }
+              ]
+            },
+            "layout": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["enabled", "model", "revision", "device_requested"],
+              "properties": {
+                "enabled": {"const": true},
+                "model": {"const": "docling-project/docling-layout-heron"},
+                "revision": {"const": "main"},
+                "device_requested": {"const": "mps"}
+              }
+            },
+            "table_structure": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["enabled", "model", "revision", "mode", "cell_matching", "device_requested", "device_effective", "mps_forced_cpu", "fallback_reason"],
+              "properties": {
+                "enabled": {"const": true},
+                "model": {"const": "docling-project/docling-models"},
+                "revision": {"const": "v2.3.0"},
+                "mode": {"const": "accurate"},
+                "cell_matching": {"const": true},
+                "device_requested": {"const": "mps"},
+                "device_effective": {"const": "cpu"},
+                "mps_forced_cpu": {"const": true},
+                "fallback_reason": {"type": "string", "minLength": 1, "maxLength": 1000}
+              }
+            }
+          }
+        },
+        "models": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["layout", "tableformer"],
+          "properties": {
+            "layout": {"$ref": "#/$defs/model_fingerprint"},
+            "tableformer": {"$ref": "#/$defs/model_fingerprint"}
+          }
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "pipeline": {
+                "properties": {
+                  "ocr": {
+                    "properties": {"engine": {"const": "ocrmac"}},
+                    "required": ["engine"]
+                  }
+                },
+                "required": ["ocr"]
+              }
+            },
+            "required": ["pipeline"]
+          },
+          "then": {
+            "properties": {
+              "ocr_engine_fingerprint": {
+                "properties": {"engine": {"const": "ocrmac"}}
+              },
+              "package_versions": {
+                "required": ["ocrmac"],
+                "not": {"required": ["tesseract"]}
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "pipeline": {
+                "properties": {
+                  "ocr": {
+                    "properties": {"engine": {"const": "tesseract_cli"}},
+                    "required": ["engine"]
+                  }
+                },
+                "required": ["ocr"]
+              }
+            },
+            "required": ["pipeline"]
+          },
+          "then": {
+            "properties": {
+              "ocr_engine_fingerprint": {
+                "properties": {"engine": {"const": "tesseract_cli"}}
+              },
+              "package_versions": {
+                "required": ["tesseract"],
+                "not": {"required": ["ocrmac"]}
+              }
+            }
+          }
+        }
+      ]
+    },
+    "ocr_engine_fingerprint": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["engine", "version", "runtime", "artifacts_sha256", "config_sha256", "fingerprint_sha256"],
+      "properties": {
+        "engine": {"enum": ["tesseract_cli", "ocrmac"]},
+        "version": {"type": "string", "minLength": 1, "maxLength": 500},
+        "runtime": {"type": "string", "minLength": 1, "maxLength": 1000},
+        "artifacts_sha256": {"$ref": "#/$defs/sha256"},
+        "config_sha256": {"$ref": "#/$defs/sha256"},
+        "fingerprint_sha256": {"$ref": "#/$defs/sha256"}
+      }
+    },
+    "bbox": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["l", "t", "r", "b", "coord_origin"],
+      "properties": {
+        "l": {"type": "number"},
+        "t": {"type": "number"},
+        "r": {"type": "number"},
+        "b": {"type": "number"},
+        "coord_origin": {"enum": ["TOPLEFT", "BOTTOMLEFT"]}
+      }
+    },
+    "item_provenance": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["page_number", "bbox", "charspan"],
+      "properties": {
+        "page_number": {"type": "integer", "minimum": 1},
+        "bbox": {"$ref": "#/$defs/bbox"},
+        "charspan": {
+          "type": "array",
+          "prefixItems": [
+            {"type": "integer", "minimum": 0},
+            {"type": "integer", "minimum": 0}
+          ],
+          "minItems": 2,
+          "maxItems": 2
+        }
+      }
+    },
+    "page": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["page_number", "width", "height"],
+      "properties": {
+        "page_number": {"type": "integer", "minimum": 1},
+        "width": {"type": "number", "exclusiveMinimum": 0},
+        "height": {"type": "number", "exclusiveMinimum": 0}
+      }
+    },
+    "item": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["self_ref", "label", "depth", "text", "provenance"],
+      "properties": {
+        "self_ref": {"type": "string", "minLength": 1, "maxLength": 4096},
+        "label": {"type": "string", "minLength": 1, "maxLength": 200},
+        "depth": {"type": "integer", "minimum": 0, "maximum": 1000},
+        "text": {"type": ["string", "null"], "maxLength": 1000000},
+        "provenance": {
+          "type": "array",
+          "maxItems": 1000,
+          "items": {"$ref": "#/$defs/item_provenance"}
+        }
+      }
+    },
+    "cell": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["row_start", "row_end", "column_start", "column_end", "row_span", "column_span", "text", "column_header", "row_header", "row_section", "bbox"],
+      "properties": {
+        "row_start": {"type": "integer", "minimum": 0},
+        "row_end": {"type": "integer", "minimum": 1},
+        "column_start": {"type": "integer", "minimum": 0},
+        "column_end": {"type": "integer", "minimum": 1},
+        "row_span": {"type": "integer", "minimum": 1},
+        "column_span": {"type": "integer", "minimum": 1},
+        "text": {"type": "string", "maxLength": 1000000},
+        "column_header": {"type": "boolean"},
+        "row_header": {"type": "boolean"},
+        "row_section": {"type": "boolean"},
+        "bbox": {"anyOf": [{"$ref": "#/$defs/bbox"}, {"type": "null"}]}
+      }
+    },
+    "table": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["table_index", "self_ref", "label", "rows", "columns", "provenance", "cells"],
+      "properties": {
+        "table_index": {"type": "integer", "minimum": 0},
+        "self_ref": {"type": "string", "minLength": 1, "maxLength": 4096},
+        "label": {"type": "string", "minLength": 1, "maxLength": 200},
+        "rows": {"type": "integer", "minimum": 0, "maximum": 100000},
+        "columns": {"type": "integer", "minimum": 0, "maximum": 100000},
+        "provenance": {
+          "type": "array",
+          "maxItems": 1000,
+          "items": {"$ref": "#/$defs/item_provenance"}
+        },
+        "cells": {
+          "type": "array",
+          "maxItems": 1000000,
+          "items": {"$ref": "#/$defs/cell"}
+        }
+      }
+    },
+    "item_counts": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["total", "text", "title", "section_header", "list_item", "table", "picture", "code", "formula", "caption", "page_header", "page_footer", "other"],
+      "properties": {
+        "total": {"type": "integer", "minimum": 0},
+        "text": {"type": "integer", "minimum": 0},
+        "title": {"type": "integer", "minimum": 0},
+        "section_header": {"type": "integer", "minimum": 0},
+        "list_item": {"type": "integer", "minimum": 0},
+        "table": {"type": "integer", "minimum": 0},
+        "picture": {"type": "integer", "minimum": 0},
+        "code": {"type": "integer", "minimum": 0},
+        "formula": {"type": "integer", "minimum": 0},
+        "caption": {"type": "integer", "minimum": 0},
+        "page_header": {"type": "integer", "minimum": 0},
+        "page_footer": {"type": "integer", "minimum": 0},
+        "other": {"type": "integer", "minimum": 0}
+      }
+    },
+    "document": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "markdown", "docling_json", "item_counts", "pages", "items", "tables", "markdown_sha256", "docling_json_sha256"],
+      "properties": {
+        "name": {"type": ["string", "null"], "maxLength": 4096},
+        "markdown": {"type": ["string", "null"], "maxLength": 100000000},
+        "docling_json": {"type": ["string", "null"], "maxLength": 200000000},
+        "item_counts": {"$ref": "#/$defs/item_counts"},
+        "pages": {"type": "array", "maxItems": 100000, "items": {"$ref": "#/$defs/page"}},
+        "items": {"type": "array", "maxItems": 1000000, "items": {"$ref": "#/$defs/item"}},
+        "tables": {"type": "array", "maxItems": 100000, "items": {"$ref": "#/$defs/table"}},
+        "markdown_sha256": {"anyOf": [{"$ref": "#/$defs/sha256"}, {"type": "null"}]},
+        "docling_json_sha256": {"anyOf": [{"$ref": "#/$defs/sha256"}, {"type": "null"}]}
+      }
+    },
+    "stage_timing": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["stage", "elapsed_seconds", "count"],
+      "properties": {
+        "stage": {"type": "string", "minLength": 1, "maxLength": 500},
+        "elapsed_seconds": {"type": "number", "minimum": 0},
+        "count": {"type": "integer", "minimum": 0}
+      }
+    },
+    "timing": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["total_ms", "stages"],
+      "properties": {
+        "total_ms": {"type": "number", "minimum": 0},
+        "stages": {"type": "array", "maxItems": 1000, "items": {"$ref": "#/$defs/stage_timing"}}
+      }
+    },
+    "error": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["component", "type", "message"],
+      "properties": {
+        "component": {"type": "string", "minLength": 1, "maxLength": 500},
+        "type": {"type": "string", "minLength": 1, "maxLength": 500},
+        "message": {"type": "string", "minLength": 1, "maxLength": 10000}
+      }
+    },
+    "run_provenance": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "generated_at",
+        "selection_method",
+        "question_independent",
+        "question_data_used",
+        "gold_data_used",
+        "prediction_data_used",
+        "answer_data_used",
+        "source_data_used",
+        "document_graph_candidate",
+        "evidence_connected",
+        "search_unit_connected"
+      ],
+      "properties": {
+        "generated_at": {"type": "string", "format": "date-time"},
+        "selection_method": {"const": "verified-manifest-structural-strata-v0.1"},
+        "question_independent": {"const": true},
+        "question_data_used": {"const": false},
+        "gold_data_used": {"const": false},
+        "prediction_data_used": {"const": false},
+        "answer_data_used": {"const": false},
+        "source_data_used": {"const": true},
+        "document_graph_candidate": {"const": true},
+        "evidence_connected": {"const": false},
+        "search_unit_connected": {"const": false}
+      }
+    }
+  }
+}

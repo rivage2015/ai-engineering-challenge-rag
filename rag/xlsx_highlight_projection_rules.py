@@ -34,7 +34,7 @@ from structured_candidate import (
 )
 
 
-XLSX_HIGHLIGHT_PROJECTION_RULE_VERSION = "0.1"
+XLSX_HIGHLIGHT_PROJECTION_RULE_VERSION = "0.2"
 
 HIGHLIGHT_PROJECTION = re.compile(
     r"^(?P<location>.+?)の(?P<container>[^,、。]+?\.xlsx)において、"
@@ -1199,7 +1199,12 @@ def _answer(projection: _Projection) -> str:
     conditions = "、".join(
         f"{field}={value}" for field, value in zip(projection.fields, projection.values)
     )
-    return f"{conditions}で抽出されたデータに対する{projection.aggregate_caption}"
+    aggregate = _aggregate(projection.aggregate_caption)
+    if aggregate is None:
+        raise _InvalidSource("aggregate caption became invalid during formatting")
+    mode, count_field = aggregate
+    aggregation = "行の個数（COUNT）" if mode == "rows" else f"{count_field}の個数（COUNT）"
+    return f"抽出条件：{conditions}。集計内容：{aggregation}。"
 
 
 def _decision(answer: str, path: Path, root: Path, operations: int) -> StructuredCandidateDecision:

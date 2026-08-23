@@ -1,0 +1,226 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://local.ai-engineering-challenge/schemas/ocr-poc-manifest.schema.json",
+  "title": "OCRPoCFixture",
+  "description": "質問・回答データから独立した、画像領域単位のOCR比較用正解fixture",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "record_type",
+    "fixture_id",
+    "asset_ref",
+    "crop",
+    "strata",
+    "reference",
+    "hashes",
+    "provenance"
+  ],
+  "properties": {
+    "schema_version": {"const": "0.1"},
+    "record_type": {"const": "ocr_poc_fixture"},
+    "fixture_id": {"type": "string", "pattern": "^ocrfx_[0-9a-f]{24}$"},
+    "asset_ref": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "asset_id",
+        "materialized_path",
+        "image_sha256",
+        "dimensions",
+        "source_relative_path",
+        "source_sha256",
+        "origin_kind",
+        "page_number"
+      ],
+      "properties": {
+        "asset_id": {"type": "string", "pattern": "^asset_[0-9a-f]{32}$"},
+        "materialized_path": {"type": "string", "minLength": 1, "maxLength": 4096},
+        "image_sha256": {"$ref": "#/$defs/sha256"},
+        "dimensions": {"$ref": "#/$defs/dimensions"},
+        "source_relative_path": {"type": "string", "minLength": 1, "maxLength": 4096},
+        "source_sha256": {"$ref": "#/$defs/sha256"},
+        "origin_kind": {
+          "enum": [
+            "pdf_page",
+            "office_embedded_image",
+            "notebook_embedded_image",
+            "standalone_image",
+            "external_holdout",
+            "synthetic"
+          ]
+        },
+        "page_number": {"type": ["integer", "null"], "minimum": 1}
+      }
+    },
+    "crop": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["bbox", "purpose", "writing_mode"],
+      "properties": {
+        "bbox": {"$ref": "#/$defs/bbox"},
+        "purpose": {
+          "enum": [
+            "printed_line",
+            "table_header",
+            "table_cell",
+            "chart_title",
+            "chart_label",
+            "diagram_label",
+            "scene_text",
+            "vertical_text",
+            "handwriting"
+          ]
+        },
+        "writing_mode": {"enum": ["horizontal", "vertical", "mixed"]}
+      }
+    },
+    "strata": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["document_family", "difficulty", "routes"],
+      "properties": {
+        "document_family": {
+          "enum": [
+            "scan_pdf",
+            "office_embedded",
+            "standalone_chart",
+            "notebook_output",
+            "photo_or_screenshot",
+            "external_benchmark",
+            "synthetic"
+          ]
+        },
+        "difficulty": {"enum": ["easy", "medium", "hard"]},
+        "routes": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "enum": [
+              "ocr_text",
+              "table_structure",
+              "chart_source_recovery",
+              "diagram_relations",
+              "formula_ocr",
+              "image_description",
+              "review"
+            ]
+          }
+        }
+      }
+    },
+    "reference": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "status",
+        "raw_text",
+        "important_spans",
+        "verification_method",
+        "reviewer_count",
+        "notes"
+      ],
+      "properties": {
+        "status": {"enum": ["verified", "pending"]},
+        "raw_text": {"type": ["string", "null"], "minLength": 1, "maxLength": 10000},
+        "important_spans": {
+          "type": "array",
+          "maxItems": 50,
+          "uniqueItems": true,
+          "items": {"type": "string", "minLength": 1, "maxLength": 1000}
+        },
+        "verification_method": {
+          "enum": [
+            "human_visual_transcription",
+            "source_native_crosscheck",
+            "source_recomputed_label",
+            "pending_human_review"
+          ]
+        },
+        "reviewer_count": {"type": "integer", "minimum": 0, "maximum": 10},
+        "notes": {"type": "array", "maxItems": 20, "items": {"type": "string", "minLength": 1, "maxLength": 2000}}
+      }
+    },
+    "hashes": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["signature_sha256"],
+      "properties": {"signature_sha256": {"$ref": "#/$defs/sha256"}}
+    },
+    "provenance": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "created_at",
+        "selection_method",
+        "question_independent",
+        "question_data_used",
+        "answer_data_used",
+        "prediction_data_used",
+        "source_data_used"
+      ],
+      "properties": {
+        "created_at": {"type": "string", "format": "date-time"},
+        "selection_method": {"const": "human-stratified-region-v0.1"},
+        "question_independent": {"const": true},
+        "question_data_used": {"const": false},
+        "answer_data_used": {"const": false},
+        "prediction_data_used": {"const": false},
+        "source_data_used": {"const": true}
+      }
+    }
+  },
+  "allOf": [
+    {
+      "if": {"properties": {"reference": {"properties": {"status": {"const": "verified"}}}}},
+      "then": {
+        "properties": {
+          "reference": {
+            "properties": {
+              "raw_text": {"type": "string", "minLength": 1},
+              "verification_method": {"enum": ["human_visual_transcription", "source_native_crosscheck", "source_recomputed_label"]},
+              "reviewer_count": {"type": "integer", "minimum": 1}
+            }
+          }
+        }
+      },
+      "else": {
+        "properties": {
+          "reference": {
+            "properties": {
+              "raw_text": {"type": "null"},
+              "important_spans": {"maxItems": 0},
+              "verification_method": {"const": "pending_human_review"},
+              "reviewer_count": {"const": 0}
+            }
+          }
+        }
+      }
+    }
+  ],
+  "$defs": {
+    "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "dimensions": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["width_px", "height_px"],
+      "properties": {
+        "width_px": {"type": "integer", "minimum": 1, "maximum": 100000},
+        "height_px": {"type": "integer", "minimum": 1, "maximum": 100000}
+      }
+    },
+    "bbox": {
+      "description": "画像左上を[0,0]、右下を[1000,1000]とする[x,y,width,height]",
+      "type": "array",
+      "prefixItems": [
+        {"type": "integer", "minimum": 0, "maximum": 999},
+        {"type": "integer", "minimum": 0, "maximum": 999},
+        {"type": "integer", "minimum": 1, "maximum": 1000},
+        {"type": "integer", "minimum": 1, "maximum": 1000}
+      ],
+      "minItems": 4,
+      "maxItems": 4
+    }
+  }
+}
