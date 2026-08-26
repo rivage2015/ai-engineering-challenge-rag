@@ -32,10 +32,11 @@ SUPPORTED_SUFFIXES = {
     ".docx", ".xlsx", ".pptx", ".pdf",
     ".csv", ".tsv", ".json", ".xml", ".ipynb",
     ".md", ".txt", ".py", ".toml", ".yaml", ".yml", ".rst", ".sql", ".sh", ".command",
+    ".png", ".jpg", ".jpeg", ".tif", ".tiff", ".bmp",
 }
 SKIP_DIRECTORY_NAMES = {".git", "__pycache__", ".ipynb_checkpoints", "node_modules"}
 EXTRACTOR = "intermediate-record-extractor"
-EXTRACTOR_VERSION = "0.5.0"
+EXTRACTOR_VERSION = "0.7.0"
 STATE_VERSION = "1"
 STATE_FILE = "build-state.json"
 LOCK_FILE = "build.lock"

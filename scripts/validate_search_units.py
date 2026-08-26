@@ -17,6 +17,7 @@ EVIDENCE_PATTERN = re.compile(r"^ev_[0-9a-f]{16,64}$")
 UNIT_TYPES = {
     "paragraph_chunk", "table_row", "slide_text", "page_text",
     "text_chunk", "code_chunk", "notebook_cell", "chart_summary", "chart_series",
+    "image_text_packet",
 }
 REQUIRED = {
     "schema_version", "record_type", "search_unit_id", "document_id", "unit_type",

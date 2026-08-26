@@ -25,11 +25,12 @@ from xml.etree import ElementTree
 
 SCHEMA_VERSION = "0.1"
 EXTRACTOR = "intermediate-record-probe"
-EXTRACTOR_VERSION = "0.2.0"
+EXTRACTOR_VERSION = "0.3.0"
 
 PLAIN_TEXT_SUFFIXES = {
     ".md", ".txt", ".py", ".toml", ".yaml", ".yml", ".rst", ".sql", ".sh", ".command",
 }
+IMAGE_SUFFIXES = {".png", ".jpg", ".jpeg", ".tif", ".tiff", ".bmp"}
 CODE_SUFFIXES = {".py", ".toml", ".yaml", ".yml", ".sql", ".sh", ".command"}
 DATA_URI_PATTERN = re.compile(
     r"data:(image/[A-Za-z0-9.+-]+);base64,([A-Za-z0-9+/=\r\n\t ]+)",
@@ -325,6 +326,7 @@ class Probe:
         native_properties: dict[str, Any] | None = None,
         method: str = "native_parser",
         confidence: float = 1.0,
+        deterministic: bool = True,
         warning: str | None = None,
     ) -> dict[str, Any]:
         identity = {
@@ -346,7 +348,7 @@ class Probe:
                 "extractor": self.extractor,
                 "extractor_version": self.extractor_version,
                 "extracted_at": self.run_at,
-                "deterministic": True,
+                "deterministic": deterministic,
                 "confidence": confidence,
                 "warnings": [warning] if warning else [],
             },
@@ -419,6 +421,8 @@ class Probe:
             self.extract_pptx(path)
         elif suffix == ".pdf":
             self.extract_pdf(path)
+        elif suffix in IMAGE_SUFFIXES:
+            self.extract_image(path)
         elif suffix in {".csv", ".tsv"}:
             self.extract_delimited(path)
         elif suffix == ".json":
@@ -902,11 +906,46 @@ class Probe:
             )
         pages_without_text = 0
         for page_number, page in enumerate(reader.pages, 1):
-            text_value = page.extract_text() or ""
             media_box = page.mediabox
+            page_width = float(media_box.width)
+            page_height = float(media_box.height)
+            blocks: list[dict[str, Any]] = []
+
+            def observe_text(
+                text: str,
+                _cm: list[float],
+                tm: list[float],
+                _font: dict[str, Any] | None,
+                font_size: float,
+            ) -> None:
+                value = " ".join(text.split())
+                if not value:
+                    return
+                size = max(float(font_size or 0), 1.0)
+                x = max(0.0, min(float(tm[4]), page_width))
+                baseline = max(0.0, min(float(tm[5]), page_height))
+                height = min(size * 1.25, page_height)
+                top = max(0.0, min(page_height - baseline - height, page_height))
+                width = min(max(size * 0.48 * len(value), 1.0), max(page_width - x, 1.0))
+                blocks.append({
+                    "text": value,
+                    "geometry": {
+                        "coordinate_space": "page",
+                        "coordinate_origin": "top_left",
+                        "unit": "pt",
+                        "x": x,
+                        "y": top,
+                        "width": width,
+                        "height": height,
+                    },
+                    "font_size_pt": size,
+                })
+
+            text_value = page.extract_text(visitor_text=observe_text) or ""
             geometry = {
                 "coordinate_space": "page", "unit": "pt",
-                "x": 0, "y": 0, "width": float(media_box.width), "height": float(media_box.height),
+                "coordinate_origin": "top_left",
+                "x": 0, "y": 0, "width": page_width, "height": page_height,
             }
             if text_value.strip():
                 item_content = content(raw_text=text_value)
@@ -922,8 +961,112 @@ class Probe:
                 warning=warning,
             )
             self.contain_document(doc_id, page_ev["evidence_id"])
+            for block_index, block in enumerate(blocks, 1):
+                if not self.may_add_leaf(doc_id):
+                    break
+                self.add_evidence(
+                    doc_id,
+                    "text_block",
+                    {"page_number": page_number, "object_index": block_index},
+                    content(raw_text=block["text"]),
+                    parent_id=page_ev["evidence_id"],
+                    ordinal=block_index,
+                    geometry=block["geometry"],
+                    native_properties={"font_size_pt": block["font_size_pt"], "source": "pdf_text_operator"},
+                )
         if pages_without_text:
             self.mark_partial(doc, f"OCR deferred for {pages_without_text} page(s) without a text layer")
+
+    def extract_image(self, path: Path) -> None:
+        """Preserve an image and expose only strict local OCR consensus."""
+        from local_image_ocr import extract
+
+        doc = self.add_document(path, "apple-vision+tesseract-strict-consensus")
+        doc_id = doc["document_id"]
+        try:
+            observation = extract(path)
+        except Exception as exc:
+            self.mark_partial(doc, f"local image OCR unavailable: {type(exc).__name__}: {exc}")
+            image_ev = self.add_evidence(
+                doc_id,
+                "image",
+                {"object_index": 1},
+                content(content_ref=doc["source"]["relative_path"], mime_type=doc["source"]["media_type"]),
+                ordinal=1,
+                native_properties={"source_sha256": doc["source"]["sha256"]},
+                method="verified_image_bytes",
+            )
+            self.contain_document(doc_id, image_ev["evidence_id"])
+            return
+
+        width = observation["dimensions"]["width_px"]
+        height = observation["dimensions"]["height_px"]
+        image_ev = self.add_evidence(
+            doc_id,
+            "image",
+            {"object_index": 1},
+            content(content_ref=doc["source"]["relative_path"], mime_type=doc["source"]["media_type"]),
+            ordinal=1,
+            geometry={
+                "coordinate_space": "image",
+                "coordinate_origin": "top_left",
+                "unit": "px",
+                "x": 0,
+                "y": 0,
+                "width": width,
+                "height": height,
+            },
+            native_properties={
+                "source_sha256": observation["input_sha256"],
+                "image_format": observation["image_format"],
+                "orientation": observation["orientation"],
+                "ocr_engines": observation["engines"],
+                "independent_ocr_engines": observation["independent_engines"],
+                "unresolved_ocr_line_count": observation["unresolved_count"],
+            },
+            method="verified_image_bytes",
+        )
+        self.contain_document(doc_id, image_ev["evidence_id"])
+        for line_index, line in enumerate(observation["consensus_lines"], 1):
+            bbox = line["bbox"]
+            confidence_values = [
+                value for value in (line["primary_confidence"], line["audit_confidence"])
+                if value is not None
+            ]
+            self.add_evidence(
+                doc_id,
+                "ocr_line",
+                {"object_index": line_index},
+                content(raw_text=line["text"]),
+                parent_id=image_ev["evidence_id"],
+                ordinal=line_index,
+                geometry={
+                    "coordinate_space": "image",
+                    "coordinate_origin": "top_left",
+                    "unit": "normalized_1000",
+                    "x": bbox[0],
+                    "y": bbox[1],
+                    "width": bbox[2],
+                    "height": bbox[3],
+                },
+                native_properties={
+                    "consensus_method": "strict-spatial-nfc-exact",
+                    "spatial_overlap": line["overlap"],
+                    "primary_confidence": line["primary_confidence"],
+                    "audit_confidence": line["audit_confidence"],
+                    "independent_engines": observation["independent_engines"],
+                },
+                method="dual_local_ocr_consensus",
+                confidence=min(confidence_values) if confidence_values else 0.0,
+                deterministic=False,
+            )
+        if not observation["consensus_lines"]:
+            self.mark_partial(doc, "dual-engine OCR produced no exact spatial consensus lines")
+        if observation["unresolved_count"]:
+            self.mark_partial(
+                doc,
+                f"{observation['unresolved_count']} OCR engine reading(s) remain unresolved and unindexed",
+            )
 
     def extract_delimited(self, path: Path) -> None:
         text_value, encoding = read_text(path)

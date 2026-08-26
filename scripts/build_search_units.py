@@ -13,7 +13,7 @@ from typing import Any, Callable
 
 
 BUILDER = "search-unit-builder"
-BUILDER_VERSION = "0.2.0"
+BUILDER_VERSION = "0.3.0"
 SCHEMA_VERSION = "0.1"
 STATE_FILE = "search-build-state.json"
 CELL_PATTERN = re.compile(r"^([A-Z]{1,3})([1-9][0-9]*)$")
@@ -171,6 +171,9 @@ class DocumentDeriver:
         self.table_contexts: dict[tuple[Any, ...], dict[str, Any]] = {}
         self.current_slide: int | None = None
         self.slide_shapes: list[tuple[str, str]] = []
+        self.image_lines: list[tuple[str, str]] = []
+        self.image_evidence_id: str | None = None
+        self.image_source_label: str | None = None
         self.counts: dict[str, int] = {}
 
     def write(self, record: dict[str, Any]) -> None:
@@ -331,6 +334,42 @@ class DocumentDeriver:
                 self.generated_at,
             ))
 
+    def flush_image(self) -> None:
+        if not self.image_lines:
+            return
+        body = "\n".join(value for _, value in self.image_lines if value).strip()
+        text = (
+            f"Image file: {self.image_source_label}\n{body}"
+            if self.image_source_label and body else body
+        )
+        if text:
+            evidence_ids = [evidence_id for evidence_id, value in self.image_lines if value]
+            if self.image_evidence_id:
+                evidence_ids.insert(0, self.image_evidence_id)
+            self.write(make_unit(
+                self.document_id,
+                "image_text_packet",
+                evidence_ids,
+                {"object_index": 1},
+                text,
+                self.generated_at,
+                {"container_kind": "standalone_image"},
+            ))
+        self.image_lines = []
+        self.image_evidence_id = None
+        self.image_source_label = None
+
+    def start_image(self, evidence: dict[str, Any]) -> None:
+        content_ref = evidence.get("content", {}).get("content_ref")
+        if isinstance(content_ref, str) and "::" not in content_ref and "#" not in content_ref:
+            self.image_evidence_id = evidence["evidence_id"]
+            self.image_source_label = Path(content_ref).name
+
+    def add_ocr_line(self, evidence: dict[str, Any]) -> None:
+        value = display_value(evidence)
+        if value:
+            self.image_lines.append((evidence["evidence_id"], value))
+
     def add_direct_table_row(self, evidence: dict[str, Any]) -> None:
         value = display_value(evidence)
         if not value:
@@ -384,6 +423,8 @@ class DocumentDeriver:
 
     def consume(self, evidence: dict[str, Any]) -> None:
         evidence_type = evidence.get("evidence_type")
+        if evidence_type != "ocr_line":
+            self.flush_image()
         if evidence_type in {"heading", "paragraph"}:
             self.flush_row()
             self.add_paragraph(evidence)
@@ -415,6 +456,13 @@ class DocumentDeriver:
             self.flush_row()
             self.flush_slide()
             self.add_direct_text(evidence, "notebook_cell")
+        elif evidence_type == "ocr_line":
+            self.flush_paragraphs()
+            self.flush_row()
+            self.flush_slide()
+            self.add_ocr_line(evidence)
+        elif evidence_type == "image":
+            self.start_image(evidence)
         elif (
             evidence_type == "chart"
             and evidence.get("provenance", {}).get("extraction_method") == "verified_chart_table_adaptation"
@@ -444,6 +492,7 @@ class DocumentDeriver:
         self.flush_paragraphs()
         self.flush_row()
         self.flush_slide()
+        self.flush_image()
         return self.counts
 
 

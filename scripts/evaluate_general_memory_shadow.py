@@ -89,6 +89,8 @@ def validate_cases(cases: list[dict[str, Any]], corpus: Path) -> None:
         for field in (
             "expected_same_unit_phrases", "forbidden_same_unit_phrases",
             "expected_same_slide_phrases", "forbidden_same_slide_phrases",
+            "expected_same_block_phrases", "forbidden_same_block_phrases",
+            "expected_same_image_phrases", "forbidden_same_image_phrases",
         ):
             for group in case.get(field, []):
                 if not isinstance(group, list) or len(group) < 2 or not all(
@@ -105,6 +107,32 @@ def validate_cases(cases: list[dict[str, Any]], corpus: Path) -> None:
                 isinstance(phrase, str) and phrase.strip() for phrase in phrases
             ):
                 raise ValueError(f"{case_id}: spatial relation needs 2+ to_unit_phrases")
+        for relation in case.get("expected_cross_page_relations", []):
+            if not isinstance(relation.get("from_page"), int) or not isinstance(relation.get("to_page"), int):
+                raise ValueError(f"{case_id}: cross-page relation needs integer pages")
+            if relation["from_page"] == relation["to_page"]:
+                raise ValueError(f"{case_id}: cross-page relation pages must differ")
+            if not isinstance(relation.get("from_phrase"), str) or not relation["from_phrase"].strip():
+                raise ValueError(f"{case_id}: cross-page relation needs from_phrase")
+            phrases = relation.get("to_phrases")
+            if not isinstance(phrases, list) or not phrases or not all(
+                isinstance(phrase, str) and phrase.strip() for phrase in phrases
+            ):
+                raise ValueError(f"{case_id}: cross-page relation needs to_phrases")
+        for relation in case.get("expected_spatial_text_relations", []):
+            if relation.get("relation") not in {"above", "below", "left_of", "right_of"}:
+                raise ValueError(f"{case_id}: unsupported text spatial relation")
+            if not isinstance(relation.get("page_number"), int):
+                raise ValueError(f"{case_id}: text spatial relation needs page_number")
+            for field in ("from_phrase", "to_phrase"):
+                if not isinstance(relation.get(field), str) or not relation[field].strip():
+                    raise ValueError(f"{case_id}: text spatial relation needs {field}")
+        for relation in case.get("expected_image_spatial_relations", []):
+            if relation.get("relation") not in {"above", "below", "left_of", "right_of"}:
+                raise ValueError(f"{case_id}: unsupported image spatial relation")
+            for field in ("from_phrase", "to_phrase"):
+                if not isinstance(relation.get(field), str) or not relation[field].strip():
+                    raise ValueError(f"{case_id}: image spatial relation needs {field}")
 
 
 def build_distribution(corpus: Path, output: Path) -> dict[str, Any]:
@@ -179,8 +207,12 @@ def distribution_ranker(output: Path) -> Callable[[str, int], list[dict[str, Any
         for record in evidence:
             relative = documents[record["document_id"]]["source"]["relative_path"]
             text = str(record.get("observed_text", ""))
-            lexical = module.lexical_coverage(query, text)
-            token = module.token_coverage(query, text)
+            # The real system has a path graph. Include the verified relative
+            # path in this offline proxy so explicit format/file-name intent is
+            # not discarded while the evidence text remains unchanged.
+            scoring_text = f"{relative}\n{text}"
+            lexical = module.lexical_coverage(query, scoring_text)
+            token = module.token_coverage(query, scoring_text)
             score = lexical * 0.15 + token * 0.30
             candidate = {
                 "relative_path": relative,
@@ -288,7 +320,9 @@ def evaluate_method(
     return {"method": name, "metrics": metrics, "cases": rows}
 
 
-def phrase_coverage(cases: list[dict[str, Any]], evidence_dir: Path) -> dict[str, Any]:
+def phrase_coverage(
+    cases: list[dict[str, Any]], evidence_dir: Path, *, expected_field: str = "expected_phrases"
+) -> dict[str, Any]:
     documents = {item["document_id"]: item for item in jsonl(evidence_dir / "semantic-documents.jsonl")}
     text_by_path: dict[str, list[str]] = {}
     for record in jsonl(evidence_dir / "semantic-evidence.jsonl"):
@@ -301,10 +335,11 @@ def phrase_coverage(cases: list[dict[str, Any]], evidence_dir: Path) -> dict[str
         source_text = "\n".join(
             part for relative in case["relevant_sources"] for part in text_by_path.get(relative, [])
         )
-        missing = [phrase for phrase in case["expected_phrases"] if phrase not in source_text]
+        expected = case.get(expected_field, case["expected_phrases"])
+        missing = [phrase for phrase in expected if phrase not in source_text]
         rows.append({
             "eval_case_id": case["eval_case_id"],
-            "expected_phrases": case["expected_phrases"],
+            "expected_phrases": expected,
             "missing_phrases": missing,
             "pass": not missing,
         })
@@ -312,15 +347,24 @@ def phrase_coverage(cases: list[dict[str, Any]], evidence_dir: Path) -> dict[str
 
 
 def relationship_context_audit(cases: list[dict[str, Any]], adapter_dir: Path) -> dict[str, Any]:
-    """Check verified table-row, same-slide, and simple spatial contexts."""
+    """Check verified row/block, page/slide, and simple spatial contexts."""
     documents = {item["document_id"]: item for item in jsonl(adapter_dir / "semantic-documents.jsonl")}
     rows_by_path: dict[str, list[dict[str, Any]]] = {}
     slide_records_by_path: dict[str, list[dict[str, Any]]] = {}
+    page_records_by_path: dict[str, list[dict[str, Any]]] = {}
+    blocks_by_path: dict[str, list[dict[str, Any]]] = {}
+    image_lines_by_path: dict[str, list[dict[str, Any]]] = {}
     for record in jsonl(adapter_dir / "safe-answer-evidence.jsonl"):
         relative = documents[record["document_id"]]["source"]["relative_path"]
         if record.get("locator", {}).get("slide_number") is not None:
             slide_records_by_path.setdefault(relative, []).append(record)
         adapter = record.get("adapter", {})
+        if record.get("locator", {}).get("page_number") is not None:
+            page_records_by_path.setdefault(relative, []).append(record)
+        if adapter.get("source_record_type") == "text_block":
+            blocks_by_path.setdefault(relative, []).append(record)
+        if adapter.get("source_record_type") == "ocr_line":
+            image_lines_by_path.setdefault(relative, []).append(record)
         if adapter.get("source_record_type") != "search_unit" or adapter.get("unit_type") != "table_row":
             continue
         rows_by_path.setdefault(relative, []).append(record)
@@ -331,7 +375,19 @@ def relationship_context_audit(cases: list[dict[str, Any]], adapter_dir: Path) -
         slide_groups = case.get("expected_same_slide_phrases", [])
         forbidden_slide_groups = case.get("forbidden_same_slide_phrases", [])
         spatial_relations = case.get("expected_spatial_relations", [])
-        if not groups and not forbidden_groups and not slide_groups and not forbidden_slide_groups and not spatial_relations:
+        block_groups = case.get("expected_same_block_phrases", [])
+        forbidden_block_groups = case.get("forbidden_same_block_phrases", [])
+        cross_page_relations = case.get("expected_cross_page_relations", [])
+        spatial_text_relations = case.get("expected_spatial_text_relations", [])
+        image_groups = case.get("expected_same_image_phrases", [])
+        forbidden_image_groups = case.get("forbidden_same_image_phrases", [])
+        image_spatial_relations = case.get("expected_image_spatial_relations", [])
+        if not any((
+            groups, forbidden_groups, slide_groups, forbidden_slide_groups,
+            spatial_relations, block_groups, forbidden_block_groups,
+            cross_page_relations, spatial_text_relations,
+            image_groups, forbidden_image_groups, image_spatial_relations,
+        )):
             continue
         candidate_rows = [
             row
@@ -432,7 +488,144 @@ def relationship_context_audit(cases: list[dict[str, Any]], adapter_dir: Path) -
                                     "to_geometry": target_geometry,
                                 })
             spatial_results.append({**relation, "matches": matches, "pass": bool(matches)})
-        all_results = group_results + forbidden_results + slide_group_results + forbidden_slide_results + spatial_results
+        candidate_blocks = [
+            block
+            for relative in case["relevant_sources"]
+            for block in blocks_by_path.get(relative, [])
+        ]
+        block_group_results = []
+        for phrases in block_groups:
+            matches = [
+                block for block in candidate_blocks
+                if all(phrase in str(block.get("observed_text", "")) for phrase in phrases)
+            ]
+            block_group_results.append({
+                "phrases": phrases,
+                "matching_evidence_ids": [item["evidence_id"] for item in matches],
+                "pass": bool(matches),
+            })
+        forbidden_block_results = []
+        for phrases in forbidden_block_groups:
+            matches = [
+                block for block in candidate_blocks
+                if all(phrase in str(block.get("observed_text", "")) for phrase in phrases)
+            ]
+            forbidden_block_results.append({
+                "phrases": phrases,
+                "matching_evidence_ids": [item["evidence_id"] for item in matches],
+                "pass": not matches,
+            })
+        cross_page_results = []
+        for relation in cross_page_relations:
+            matches = []
+            for relative in case["relevant_sources"]:
+                records = page_records_by_path.get(relative, [])
+                from_text = "\n".join(
+                    str(item.get("observed_text", "")) for item in records
+                    if item.get("locator", {}).get("page_number") == relation["from_page"]
+                )
+                to_text = "\n".join(
+                    str(item.get("observed_text", "")) for item in records
+                    if item.get("locator", {}).get("page_number") == relation["to_page"]
+                )
+                if relation["from_phrase"] in from_text and all(
+                    phrase in to_text for phrase in relation["to_phrases"]
+                ):
+                    matches.append({
+                        "relative_path": relative,
+                        "from_page": relation["from_page"],
+                        "to_page": relation["to_page"],
+                    })
+            cross_page_results.append({**relation, "matches": matches, "pass": bool(matches)})
+        spatial_text_results = []
+        for relation in spatial_text_relations:
+            matches = []
+            for relative in case["relevant_sources"]:
+                records = [
+                    item for item in blocks_by_path.get(relative, [])
+                    if item.get("locator", {}).get("page_number") == relation["page_number"]
+                    and isinstance(item.get("geometry"), dict)
+                ]
+                sources = [item for item in records if relation["from_phrase"] in str(item.get("observed_text", ""))]
+                targets = [item for item in records if relation["to_phrase"] in str(item.get("observed_text", ""))]
+                for source in sources:
+                    for target in targets:
+                        source_geometry = source["geometry"]
+                        target_geometry = target["geometry"]
+                        passed = {
+                            "above": source_geometry["y"] + source_geometry["height"] <= target_geometry["y"],
+                            "below": target_geometry["y"] + target_geometry["height"] <= source_geometry["y"],
+                            "left_of": source_geometry["x"] + source_geometry["width"] <= target_geometry["x"],
+                            "right_of": target_geometry["x"] + target_geometry["width"] <= source_geometry["x"],
+                        }[relation["relation"]]
+                        if passed:
+                            matches.append({
+                                "relative_path": relative,
+                                "page_number": relation["page_number"],
+                                "from_evidence_id": source["evidence_id"],
+                                "to_evidence_id": target["evidence_id"],
+                                "from_geometry": source_geometry,
+                                "to_geometry": target_geometry,
+                            })
+            spatial_text_results.append({**relation, "matches": matches, "pass": bool(matches)})
+        image_group_results = []
+        for phrases in image_groups:
+            matches = []
+            for relative in case["relevant_sources"]:
+                records = image_lines_by_path.get(relative, [])
+                packet_text = "\n".join(str(item.get("observed_text", "")) for item in records)
+                if all(phrase in packet_text for phrase in phrases):
+                    matches.append({
+                        "relative_path": relative,
+                        "evidence_ids": [item["evidence_id"] for item in records],
+                    })
+            image_group_results.append({"phrases": phrases, "matches": matches, "pass": bool(matches)})
+        forbidden_image_results = []
+        for phrases in forbidden_image_groups:
+            matches = []
+            for relative in case["relevant_sources"]:
+                packet_text = "\n".join(
+                    str(item.get("observed_text", ""))
+                    for item in image_lines_by_path.get(relative, [])
+                )
+                if all(phrase in packet_text for phrase in phrases):
+                    matches.append({"relative_path": relative})
+            forbidden_image_results.append({"phrases": phrases, "matches": matches, "pass": not matches})
+        image_spatial_results = []
+        for relation in image_spatial_relations:
+            matches = []
+            for relative in case["relevant_sources"]:
+                records = [
+                    item for item in image_lines_by_path.get(relative, [])
+                    if isinstance(item.get("geometry"), dict)
+                ]
+                sources = [item for item in records if relation["from_phrase"] in str(item.get("observed_text", ""))]
+                targets = [item for item in records if relation["to_phrase"] in str(item.get("observed_text", ""))]
+                for source in sources:
+                    for target in targets:
+                        source_geometry = source["geometry"]
+                        target_geometry = target["geometry"]
+                        passed = {
+                            "above": source_geometry["y"] + source_geometry["height"] <= target_geometry["y"],
+                            "below": target_geometry["y"] + target_geometry["height"] <= source_geometry["y"],
+                            "left_of": source_geometry["x"] + source_geometry["width"] <= target_geometry["x"],
+                            "right_of": target_geometry["x"] + target_geometry["width"] <= source_geometry["x"],
+                        }[relation["relation"]]
+                        if passed:
+                            matches.append({
+                                "relative_path": relative,
+                                "from_evidence_id": source["evidence_id"],
+                                "to_evidence_id": target["evidence_id"],
+                                "from_geometry": source_geometry,
+                                "to_geometry": target_geometry,
+                            })
+            image_spatial_results.append({**relation, "matches": matches, "pass": bool(matches)})
+        all_results = (
+            group_results + forbidden_results + slide_group_results + forbidden_slide_results
+            + spatial_results + block_group_results + forbidden_block_results
+            + cross_page_results + spatial_text_results
+            + image_group_results + forbidden_image_results + image_spatial_results
+        )
         results.append({
             "eval_case_id": case["eval_case_id"],
             "groups": group_results,
@@ -440,6 +633,13 @@ def relationship_context_audit(cases: list[dict[str, Any]], adapter_dir: Path) -
             "slide_groups": slide_group_results,
             "forbidden_slide_groups": forbidden_slide_results,
             "spatial_relations": spatial_results,
+            "block_groups": block_group_results,
+            "forbidden_block_groups": forbidden_block_results,
+            "cross_page_relations": cross_page_results,
+            "spatial_text_relations": spatial_text_results,
+            "image_groups": image_group_results,
+            "forbidden_image_groups": forbidden_image_results,
+            "image_spatial_relations": image_spatial_results,
             "pass": all(item["pass"] for item in all_results),
         })
     return {"all_pass": bool(results) and all(item["pass"] for item in results), "cases": results}
@@ -473,17 +673,32 @@ def safety_audit(
             adapter_record = adapter_by_path.get(relative)
             actual = distribution_record.get("disposition") if distribution_record else "missing"
             adapter_actual = adapter_record.get("disposition") if adapter_record else "missing"
+            distribution_expected = case.get(
+                "expected_distribution_security_disposition", case["expected_security_disposition"]
+            )
+            adapter_expected = case.get(
+                "expected_adapter_security_disposition", case["expected_security_disposition"]
+            )
+            distribution_exposed = relative in distribution_paths
+            adapter_exposed = relative in adapter_paths
             results.append({
                 "eval_case_id": case["eval_case_id"],
                 "relative_path": relative,
                 "expected": case["expected_security_disposition"],
                 "distribution_actual": actual,
                 "adapter_actual": adapter_actual,
-                "pass": actual == case["expected_security_disposition"] == adapter_actual,
+                "distribution_expected": distribution_expected,
+                "adapter_expected": adapter_expected,
+                "pass": (
+                    actual == distribution_expected
+                    and adapter_actual == adapter_expected
+                    and distribution_exposed == case.get("expected_distribution_safe_stream_exposed_source", False)
+                    and adapter_exposed == case.get("expected_adapter_safe_stream_exposed_source", False)
+                ),
                 "distribution_risk_reasons": distribution_record.get("risk_reasons", []) if distribution_record else [],
                 "adapter_risk_reasons": adapter_record.get("risk_reasons", []) if adapter_record else [],
-                "distribution_safe_stream_exposed_source": relative in distribution_paths,
-                "adapter_safe_stream_exposed_source": relative in adapter_paths,
+                "distribution_safe_stream_exposed_source": distribution_exposed,
+                "adapter_safe_stream_exposed_source": adapter_exposed,
                 "layer1_raw_retrieval_exposed_source": relative in layer1_paths,
                 "distribution_safe_stream_paths": distribution_paths,
                 "adapter_safe_stream_paths": adapter_paths,
@@ -524,10 +739,12 @@ def main() -> int:
         for path in corpus.rglob("*")
         if path.is_file() and path.suffix
     })
+    image_covered = bool({"png", "jpg", "jpeg", "tif", "tiff", "bmp"} & set(covered_formats))
     pending_file_formats = [
-        item for item in ("docx", "xlsx", "pptx", "pdf", "images")
-        if item not in covered_formats
+        item for item in ("docx", "xlsx", "pptx", "pdf") if item not in covered_formats
     ]
+    if not image_covered:
+        pending_file_formats.append("images")
     comparisons = [
         evaluate_method(
             "distribution-lexical-token-proxy",
@@ -584,7 +801,9 @@ def main() -> int:
             },
         },
         "expected_phrase_coverage": {
-            "distribution": phrase_coverage(cases, distribution_dir),
+            "distribution": phrase_coverage(
+                cases, distribution_dir, expected_field="expected_distribution_phrases"
+            ),
             "layer1_adapter": phrase_coverage(cases, adapter_dir),
         },
         "relationship_context_audit": relationship_context_audit(cases, adapter_dir),

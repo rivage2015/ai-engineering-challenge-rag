@@ -22,7 +22,7 @@ from validate_search_units import validate as validate_search_units
 
 
 ADAPTER = "layer1-to-local-memory-evidence-adapter"
-ADAPTER_VERSION = "0.3.0"
+ADAPTER_VERSION = "0.4.0"
 SCHEMA_VERSION = "0.1"
 
 
@@ -134,6 +134,7 @@ def adapt(
     seen_evidence: set[str] = set()
     projections: list[dict[str, Any]] = []
     projection_methods: Counter[str] = Counter()
+    skipped_binary_evidence = 0
     for record in layer_evidence:
         evidence_id = record.get("evidence_id")
         document_id = record.get("document_id")
@@ -142,7 +143,14 @@ def adapt(
         if document_id not in document_by_id:
             raise ValueError(f"Evidence references missing document: {document_id}")
         seen_evidence.add(evidence_id)
-        observed_text, projection_method = text_from_content(record.get("content", {}))
+        record_content = record.get("content", {})
+        if isinstance(record_content.get("content_ref"), str):
+            # Preserve the binary source binding in Layer 1, but do not turn a
+            # path or opaque image payload into searchable text. Searchable
+            # image content must arrive through separately audited OCR lines.
+            skipped_binary_evidence += 1
+            continue
+        observed_text, projection_method = text_from_content(record_content)
         projection_methods[projection_method] += 1
         source = document_by_id[document_id]["source"]
         projected = {
@@ -173,13 +181,13 @@ def adapt(
         projections.append(projected)
 
     # SearchUnits are derived, question-independent groupings of verified
-    # Evidence.  Preserve only table rows at this boundary for now: they carry
-    # the header/cell/section relationships that raw cell projections lose.
+    # Evidence. Preserve table rows and audited image text packets at this
+    # boundary because isolated cells or OCR lines lose their relationships.
     # Every referenced Evidence ID has already been validated against the same
     # intermediate build by validate_search_units().
     search_unit_projection_count = 0
     for unit in search_units:
-        if unit.get("unit_type") != "table_row":
+        if unit.get("unit_type") not in {"table_row", "image_text_packet"}:
             continue
         document_id = unit["document_id"]
         source_evidence_ids = unit["source_evidence_ids"]
@@ -286,7 +294,7 @@ def adapt(
         "text_projection_counts": dict(sorted(projection_methods.items())),
         "search_unit_projection": {
             "enabled": search_output is not None,
-            "included_unit_types": ["table_row"] if search_output is not None else [],
+            "included_unit_types": ["image_text_packet", "table_row"] if search_output is not None else [],
             "count": search_unit_projection_count,
             "search_state": ({
                 "path": str(search_output / "search-build-state.json"),
@@ -296,6 +304,7 @@ def adapt(
                 sha256_file(search_output / "search_units.jsonl") if search_output is not None else None
             ),
         },
+        "skipped_binary_evidence": skipped_binary_evidence,
     }
     atomic_write(
         output / "layer1-adapter-state.json",
