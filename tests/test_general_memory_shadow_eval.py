@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import shutil
 import subprocess
@@ -12,9 +13,29 @@ from pathlib import Path
 REPO = Path(__file__).resolve().parents[1]
 DATASET = REPO / "evaluation" / "general-memory-v0.1"
 SCRIPT = REPO / "scripts" / "evaluate_general_memory_shadow.py"
+DOCX_BUILDER = REPO / "scripts" / "build_general_memory_docx_fixtures.py"
 
 
 class GeneralMemoryShadowEvaluationTest(unittest.TestCase):
+    def test_docx_fixture_builder_is_byte_stable(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            output = Path(temporary) / "office"
+            command = [sys.executable, str(DOCX_BUILDER), "--out", str(output)]
+            first = subprocess.run(command, cwd=REPO, text=True, capture_output=True, check=False)
+            self.assertEqual(first.returncode, 0, first.stderr)
+            first_hashes = {
+                path.name: hashlib.sha256(path.read_bytes()).hexdigest()
+                for path in sorted(output.glob("*.docx"))
+            }
+            second = subprocess.run(command, cwd=REPO, text=True, capture_output=True, check=False)
+            self.assertEqual(second.returncode, 0, second.stderr)
+            second_hashes = {
+                path.name: hashlib.sha256(path.read_bytes()).hexdigest()
+                for path in sorted(output.glob("*.docx"))
+            }
+            self.assertEqual(len(first_hashes), 3)
+            self.assertEqual(first_hashes, second_hashes)
+
     def test_offline_shadow_evaluation_is_traceable_and_safe(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             output = Path(temporary) / "shadow"
@@ -27,18 +48,22 @@ class GeneralMemoryShadowEvaluationTest(unittest.TestCase):
             )
             self.assertEqual(process.returncode, 0, process.stderr)
             report = json.loads((output / "shadow-evaluation-report.json").read_text(encoding="utf-8"))
-            self.assertEqual(report["coverage"]["case_count"], 6)
-            self.assertEqual(report["coverage"]["dataset_files"], 10)
+            self.assertEqual(report["coverage"]["case_count"], 8)
+            self.assertEqual(report["coverage"]["dataset_files"], 13)
+            self.assertIn("docx", report["coverage"]["formats"])
+            self.assertNotIn("docx", report["coverage"]["not_yet_covered"])
             self.assertFalse(report["modes"]["external_network_used"])
             self.assertTrue(report["safety_audit"]["all_pass"])
-            safety = report["safety_audit"]["distribution_gate"][0]
-            self.assertEqual(safety["distribution_actual"], "quarantine")
-            self.assertEqual(safety["adapter_actual"], "quarantine")
-            self.assertIn("priority_override", safety["distribution_risk_reasons"])
-            self.assertIn("priority_override", safety["adapter_risk_reasons"])
-            self.assertFalse(safety["distribution_safe_stream_exposed_source"])
-            self.assertFalse(safety["adapter_safe_stream_exposed_source"])
-            self.assertTrue(safety["layer1_raw_retrieval_exposed_source"])
+            safety_cases = report["safety_audit"]["distribution_gate"]
+            self.assertEqual(len(safety_cases), 2)
+            for safety in safety_cases:
+                self.assertEqual(safety["distribution_actual"], "quarantine")
+                self.assertEqual(safety["adapter_actual"], "quarantine")
+                self.assertIn("priority_override", safety["distribution_risk_reasons"])
+                self.assertIn("priority_override", safety["adapter_risk_reasons"])
+                self.assertFalse(safety["distribution_safe_stream_exposed_source"])
+                self.assertFalse(safety["adapter_safe_stream_exposed_source"])
+                self.assertTrue(safety["layer1_raw_retrieval_exposed_source"])
             self.assertTrue(report["expected_phrase_coverage"]["distribution"]["all_pass"])
             self.assertTrue(report["expected_phrase_coverage"]["layer1_adapter"]["all_pass"])
             methods = {item["method"]: item for item in report["retrieval_comparison"]}
@@ -48,7 +73,7 @@ class GeneralMemoryShadowEvaluationTest(unittest.TestCase):
                 "layer1-adapter-through-distribution-safe-stream-proxy",
             })
             for method in methods.values():
-                self.assertEqual(method["metrics"]["case_count"], 5)
+                self.assertEqual(method["metrics"]["case_count"], 6)
                 self.assertIn("source_recall_at_5", method["metrics"])
                 for case in method["cases"]:
                     self.assertTrue(case["relevant_sources"])

@@ -348,6 +348,15 @@ def main() -> int:
     distribution_search = distribution_ranker(distribution_dir)
     layer1_search = layer1_ranker(layer1_build)
     adapter_search = distribution_ranker(adapter_dir)
+    covered_formats = sorted({
+        path.suffix.lower().lstrip(".")
+        for path in corpus.rglob("*")
+        if path.is_file() and path.suffix
+    })
+    pending_file_formats = [
+        item for item in ("docx", "xlsx", "pptx", "pdf", "images")
+        if item not in covered_formats
+    ]
     comparisons = [
         evaluate_method(
             "distribution-lexical-token-proxy",
@@ -377,8 +386,8 @@ def main() -> int:
         "coverage": {
             "dataset_files": sum(path.is_file() for path in corpus.rglob("*")),
             "case_count": len(cases),
-            "formats": ["csv", "md", "txt"],
-            "not_yet_covered": ["docx", "xlsx", "pptx", "pdf", "images", "layout reasoning", "answer synthesis"],
+            "formats": covered_formats,
+            "not_yet_covered": pending_file_formats + ["layout reasoning", "answer synthesis"],
             "distribution": {
                 "document_count": distribution_coverage["document_count"],
                 "evidence_count": distribution_coverage["evidence_count"],
