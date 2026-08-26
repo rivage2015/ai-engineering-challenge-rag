@@ -86,6 +86,12 @@ def validate_cases(cases: list[dict[str, Any]], corpus: Path) -> None:
                 raise ValueError(f"{case_id}: missing source: {relative}")
         if case["category"] == "safety_exclusion" and "expected_security_disposition" not in case:
             raise ValueError(f"{case_id}: safety case needs expected_security_disposition")
+        for field in ("expected_same_unit_phrases", "forbidden_same_unit_phrases"):
+            for group in case.get(field, []):
+                if not isinstance(group, list) or len(group) < 2 or not all(
+                    isinstance(phrase, str) and phrase.strip() for phrase in group
+                ):
+                    raise ValueError(f"{case_id}: {field} needs groups of 2+ phrases")
 
 
 def build_distribution(corpus: Path, output: Path) -> dict[str, Any]:
@@ -137,6 +143,7 @@ def build_layer1_adapter(corpus: Path, layer1_build: dict[str, Any], output: Pat
     run([
         python, str(SCRIPTS / "adapt_layer1_to_local_memory.py"),
         "--intermediate", str(layer1_build["intermediate"]),
+        "--search-output", str(layer1_build["search"]),
         "--source-root", str(corpus), "--out", str(output),
     ])
     run([
@@ -155,7 +162,7 @@ def distribution_ranker(output: Path) -> Callable[[str, int], list[dict[str, Any
     evidence = jsonl(output / "safe-answer-evidence.jsonl")
 
     def rank(query: str, top_k: int) -> list[dict[str, Any]]:
-        best: dict[str, dict[str, Any]] = {}
+        candidates: list[dict[str, Any]] = []
         for record in evidence:
             relative = documents[record["document_id"]]["source"]["relative_path"]
             text = str(record.get("observed_text", ""))
@@ -168,13 +175,30 @@ def distribution_ranker(output: Path) -> Callable[[str, int], list[dict[str, Any
                 "lexical_score": round(lexical, 8),
                 "token_score": round(token, 8),
                 "evidence_id": record["evidence_id"],
+                "document_id": record["document_id"],
+                "text": text,
             }
+            candidates.append(candidate)
+        candidates = [
+            item for item in candidates
+            if not any(pattern.search(item["text"]) for pattern in module.base.INSTRUCTION_LIKE_PATTERNS)
+        ]
+        best: dict[str, dict[str, Any]] = {}
+        for candidate in module.rerank_with_document_support(candidates):
+            relative = candidate["relative_path"]
             previous = best.get(relative)
-            if previous is None or (-candidate["score"], candidate["relative_path"], candidate["evidence_id"]) < (
-                -previous["score"], previous["relative_path"], previous["evidence_id"]
+            if previous is None or (
+                -candidate["rerank_score"], -candidate["score"], candidate["relative_path"], candidate["evidence_id"]
+            ) < (
+                -previous["rerank_score"], -previous["score"], previous["relative_path"], previous["evidence_id"]
             ):
                 best[relative] = candidate
-        return sorted(best.values(), key=lambda item: (-item["score"], item["relative_path"], item["evidence_id"]))[:top_k]
+        return sorted(
+            best.values(),
+            key=lambda item: (
+                -item["rerank_score"], -item["score"], item["relative_path"], item["evidence_id"],
+            ),
+        )[:top_k]
 
     return rank
 
@@ -274,6 +298,58 @@ def phrase_coverage(cases: list[dict[str, Any]], evidence_dir: Path) -> dict[str
     return {"all_pass": all(row["pass"] for row in rows), "cases": rows}
 
 
+def relationship_context_audit(cases: list[dict[str, Any]], adapter_dir: Path) -> dict[str, Any]:
+    """Check that required phrases coexist in one verified table-row projection."""
+    documents = {item["document_id"]: item for item in jsonl(adapter_dir / "semantic-documents.jsonl")}
+    rows_by_path: dict[str, list[dict[str, Any]]] = {}
+    for record in jsonl(adapter_dir / "safe-answer-evidence.jsonl"):
+        adapter = record.get("adapter", {})
+        if adapter.get("source_record_type") != "search_unit" or adapter.get("unit_type") != "table_row":
+            continue
+        relative = documents[record["document_id"]]["source"]["relative_path"]
+        rows_by_path.setdefault(relative, []).append(record)
+    results = []
+    for case in cases:
+        groups = case.get("expected_same_unit_phrases", [])
+        forbidden_groups = case.get("forbidden_same_unit_phrases", [])
+        if not groups and not forbidden_groups:
+            continue
+        candidate_rows = [
+            row
+            for relative in case["relevant_sources"]
+            for row in rows_by_path.get(relative, [])
+        ]
+        group_results = []
+        for phrases in groups:
+            matches = [
+                row for row in candidate_rows
+                if all(phrase in str(row.get("observed_text", "")) for phrase in phrases)
+            ]
+            group_results.append({
+                "phrases": phrases,
+                "matching_evidence_ids": [row["evidence_id"] for row in matches],
+                "pass": bool(matches),
+            })
+        forbidden_results = []
+        for phrases in forbidden_groups:
+            matches = [
+                row for row in candidate_rows
+                if all(phrase in str(row.get("observed_text", "")) for phrase in phrases)
+            ]
+            forbidden_results.append({
+                "phrases": phrases,
+                "matching_evidence_ids": [row["evidence_id"] for row in matches],
+                "pass": not matches,
+            })
+        results.append({
+            "eval_case_id": case["eval_case_id"],
+            "groups": group_results,
+            "forbidden_groups": forbidden_results,
+            "pass": all(item["pass"] for item in group_results + forbidden_results),
+        })
+    return {"all_pass": bool(results) and all(item["pass"] for item in results), "cases": results}
+
+
 def safety_audit(
     cases: list[dict[str, Any]],
     distribution: Path,
@@ -365,7 +441,7 @@ def main() -> int:
         ),
         evaluate_method("layer1-real-bm25", cases, layer1_search),
         evaluate_method(
-            "layer1-adapter-through-distribution-safe-stream-proxy",
+            "layer1-adapter-document-support-through-distribution-safe-stream-proxy",
             cases,
             adapter_search,
         ),
@@ -381,6 +457,10 @@ def main() -> int:
             "layer1": "real extraction + real SearchUnit derivation + real SQLite BM25 ranking",
             "llm_answer_generation": "not_evaluated",
             "semantic_vector_retrieval": "not_evaluated",
+            "document_support_reranking": (
+                "real product reranker; bounded top-3 distinct Evidence support; "
+                "lexical/token proxy inputs in this offline run"
+            ),
             "external_network_used": False,
         },
         "coverage": {
@@ -405,12 +485,14 @@ def main() -> int:
                 "evidence_count": adapter_state["outputs"]["evidence"]["count"],
                 "requires_content_security_gate": adapter_state["requires_content_security_gate"],
                 "text_projection_counts": adapter_state["text_projection_counts"],
+                "search_unit_projection": adapter_state["search_unit_projection"],
             },
         },
         "expected_phrase_coverage": {
             "distribution": phrase_coverage(cases, distribution_dir),
             "layer1_adapter": phrase_coverage(cases, adapter_dir),
         },
+        "relationship_context_audit": relationship_context_audit(cases, adapter_dir),
         "retrieval_comparison": comparisons,
         "safety_audit": safety_audit(
             cases, distribution_dir, adapter_dir,

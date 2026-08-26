@@ -26,7 +26,7 @@ if BASE_SPEC is None or BASE_SPEC.loader is None:
 base = importlib.util.module_from_spec(BASE_SPEC)
 BASE_SPEC.loader.exec_module(base)
 
-ENGINE_CACHE_VERSION = "v2-speed-1"
+ENGINE_CACHE_VERSION = "v2-speed-2-document-support"
 
 
 PLAN_SCHEMA = {
@@ -122,6 +122,54 @@ def token_coverage(query: str, text: str) -> float:
         return 0.0
     normalized_text = normalize(text)
     return sum(token in normalized_text for token in tokens) / len(tokens)
+
+
+def rerank_with_document_support(candidates: list[dict]) -> list[dict]:
+    """Add bounded support from distinct Evidence in the same document.
+
+    The primary Evidence score remains intact. Only the second and third
+    distinct lexical/token matches can add support, so repeated extraction of
+    the same text and a large number of weak chunks cannot dominate ranking.
+    This is retrieval support, not proof that one document version is true.
+    Competing versions remain available to the relation auditor.
+    """
+    support_by_document: dict[str, list[float]] = {}
+    seen_text_by_document: dict[str, set[str]] = {}
+    for item in candidates:
+        document_id = item["document_id"]
+        normalized_text = normalize(str(item.get("text", "")))
+        text_key = hashlib.sha256(normalized_text.encode("utf-8")).hexdigest()
+        seen = seen_text_by_document.setdefault(document_id, set())
+        if text_key in seen:
+            continue
+        seen.add(text_key)
+        support = max(
+            0.0,
+            float(item.get("lexical_score", 0.0)) * 0.15
+            + float(item.get("token_score", 0.0)) * 0.30,
+        )
+        support_by_document.setdefault(document_id, []).append(support)
+
+    bonus_by_document: dict[str, float] = {}
+    for document_id, values in support_by_document.items():
+        ranked = sorted(values, reverse=True)
+        primary = ranked[0] if ranked else 0.0
+        supplemental = [value for value in ranked[1:3] if value >= max(0.05, primary * 0.35)]
+        bonus = sum(weight * value for weight, value in zip((0.50, 0.25), supplemental))
+        bonus_by_document[document_id] = min(bonus, primary * 0.75)
+
+    reranked = []
+    for item in candidates:
+        copy = dict(item)
+        bonus = bonus_by_document.get(item["document_id"], 0.0)
+        copy["document_support_bonus"] = bonus
+        copy["rerank_score"] = float(item["score"]) + bonus
+        reranked.append(copy)
+    reranked.sort(key=lambda item: (
+        -item["rerank_score"], -item["score"], -item["lexical_score"],
+        item["relative_path"], item["evidence_id"],
+    ))
+    return reranked
 
 
 RETRIEVAL_ALIASES = {
@@ -251,7 +299,13 @@ def retrieve_hybrid(index_path: Path, query: str, top_k: int, timeout: int) -> t
     finally:
         connection.close()
 
-    candidates.sort(key=lambda item: (-item["score"], -item["lexical_score"], item["relative_path"], item["evidence_id"]))
+    # A residual instruction-like observation must neither be returned nor
+    # improve its document's support score, even after the content gate.
+    candidates = [
+        item for item in candidates
+        if not any(pattern.search(item["text"]) for pattern in base.INSTRUCTION_LIKE_PATTERNS)
+    ]
+    candidates = rerank_with_document_support(candidates)
     results = []
     seen_text = set()
     for item in candidates:
@@ -259,8 +313,6 @@ def retrieve_hybrid(index_path: Path, query: str, top_k: int, timeout: int) -> t
         if key in seen_text:
             continue
         seen_text.add(key)
-        if any(pattern.search(item["text"]) for pattern in base.INSTRUCTION_LIKE_PATTERNS):
-            continue
         results.append(item)
         if len(results) == top_k:
             break
@@ -842,7 +894,8 @@ def main() -> int:
         "answer": answer,
         "retrieved": [
             {key: item[key] for key in (
-                "score", "semantic_score", "lexical_score", "token_score", "evidence_id",
+                "score", "rerank_score", "document_support_bonus",
+                "semantic_score", "lexical_score", "token_score", "evidence_id",
                 "document_id", "relative_path", "locator",
             )}
             for item in all_retrieved.values()

@@ -18,14 +18,21 @@ from collections import Counter, defaultdict
 from pathlib import Path
 from typing import Any
 
+from validate_search_units import validate as validate_search_units
+
 
 ADAPTER = "layer1-to-local-memory-evidence-adapter"
-ADAPTER_VERSION = "0.1.0"
+ADAPTER_VERSION = "0.2.0"
 SCHEMA_VERSION = "0.1"
 
 
 def canonical(value: Any) -> str:
     return json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+
+
+def stable_id(prefix: str, value: Any) -> str:
+    digest = hashlib.sha256(canonical(value).encode("utf-8")).hexdigest()
+    return f"{prefix}_{digest[:32]}"
 
 
 def sha256_file(path: Path) -> str:
@@ -88,7 +95,12 @@ def validate_source_binding(root: Path, source: dict[str, Any]) -> None:
         raise ValueError(f"source size mismatch: {relative}")
 
 
-def adapt(intermediate: Path, source_root: Path, output: Path) -> dict[str, Any]:
+def adapt(
+    intermediate: Path,
+    source_root: Path,
+    output: Path,
+    search_output: Path | None = None,
+) -> dict[str, Any]:
     if output.exists() and (not output.is_dir() or any(output.iterdir())):
         raise ValueError(f"output directory is not empty: {output}")
     output.mkdir(parents=True, exist_ok=True)
@@ -101,6 +113,10 @@ def adapt(intermediate: Path, source_root: Path, output: Path) -> dict[str, Any]
 
     layer_documents = read_jsonl(intermediate / "documents.jsonl")
     layer_evidence = read_jsonl(intermediate / "evidence.jsonl")
+    search_units: list[dict[str, Any]] = []
+    if search_output is not None:
+        validate_search_units(search_output, intermediate)
+        search_units = read_jsonl(search_output / "search_units.jsonl")
     document_by_id: dict[str, dict[str, Any]] = {}
     for document in layer_documents:
         document_id = document.get("document_id")
@@ -152,6 +168,61 @@ def adapt(intermediate: Path, source_root: Path, output: Path) -> dict[str, Any]
         }
         evidence_by_document[document_id].append(projected)
         projections.append(projected)
+
+    # SearchUnits are derived, question-independent groupings of verified
+    # Evidence.  Preserve only table rows at this boundary for now: they carry
+    # the header/cell/section relationships that raw cell projections lose.
+    # Every referenced Evidence ID has already been validated against the same
+    # intermediate build by validate_search_units().
+    search_unit_projection_count = 0
+    for unit in search_units:
+        if unit.get("unit_type") != "table_row":
+            continue
+        document_id = unit["document_id"]
+        source_evidence_ids = unit["source_evidence_ids"]
+        observed_text = unit["text"]["search_text"]
+        evidence_id = stable_id("ev", {
+            "adapter": ADAPTER,
+            "adapter_version": ADAPTER_VERSION,
+            "source_search_unit_id": unit["search_unit_id"],
+            "document_id": document_id,
+            "unit_type": unit["unit_type"],
+            "source_evidence_ids": source_evidence_ids,
+            "locator": unit["locator"],
+            "text_sha256": unit["text"]["sha256"],
+        })
+        if evidence_id in seen_evidence:
+            raise ValueError(f"projected SearchUnit collides with Evidence ID: {evidence_id}")
+        seen_evidence.add(evidence_id)
+        source = document_by_id[document_id]["source"]
+        projected = {
+            "schema_version": SCHEMA_VERSION,
+            "evidence_id": evidence_id,
+            "document_id": document_id,
+            "ordinal": len(evidence_by_document[document_id]) + 1,
+            "locator": unit["locator"],
+            "observed_text": observed_text,
+            "source": {
+                "relative_path": source["relative_path"],
+                "sha256": source["sha256"],
+            },
+            "extraction_method": "verified_search_unit_projection",
+            "status": "observed",
+            "adapter": {
+                "name": ADAPTER,
+                "version": ADAPTER_VERSION,
+                "source_record_type": "search_unit",
+                "source_search_unit_id": unit["search_unit_id"],
+                "source_evidence_ids": source_evidence_ids,
+                "unit_type": unit["unit_type"],
+                "text_projection": "search_unit_text",
+                "execution_policy": "never_execute",
+            },
+        }
+        evidence_by_document[document_id].append(projected)
+        projections.append(projected)
+        projection_methods["search_unit_text"] += 1
+        search_unit_projection_count += 1
 
     documents: list[dict[str, Any]] = []
     statuses: Counter[str] = Counter()
@@ -210,6 +281,18 @@ def adapt(intermediate: Path, source_root: Path, output: Path) -> dict[str, Any]
         },
         "layer1_status_counts": dict(sorted(statuses.items())),
         "text_projection_counts": dict(sorted(projection_methods.items())),
+        "search_unit_projection": {
+            "enabled": search_output is not None,
+            "included_unit_types": ["table_row"] if search_output is not None else [],
+            "count": search_unit_projection_count,
+            "search_state": ({
+                "path": str(search_output / "search-build-state.json"),
+                "sha256": sha256_file(search_output / "search-build-state.json"),
+            } if search_output is not None else None),
+            "search_units_sha256": (
+                sha256_file(search_output / "search_units.jsonl") if search_output is not None else None
+            ),
+        },
     }
     atomic_write(
         output / "layer1-adapter-state.json",
@@ -222,9 +305,15 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--intermediate", required=True, type=Path)
     parser.add_argument("--source-root", required=True, type=Path)
+    parser.add_argument("--search-output", type=Path)
     parser.add_argument("--out", required=True, type=Path)
     args = parser.parse_args()
-    result = adapt(args.intermediate.resolve(strict=True), args.source_root.resolve(strict=True), args.out.resolve())
+    result = adapt(
+        args.intermediate.resolve(strict=True),
+        args.source_root.resolve(strict=True),
+        args.out.resolve(),
+        args.search_output.resolve(strict=True) if args.search_output is not None else None,
+    )
     print(json.dumps(result, ensure_ascii=False, sort_keys=True))
     return 0
 

@@ -13,6 +13,7 @@
 !scripts/
 !scripts/*.py
 !scripts/*.swift
+!scripts/*.mjs
 
 !tests/
 !tests/*.py
