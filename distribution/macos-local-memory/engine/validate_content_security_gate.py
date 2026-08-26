@@ -83,7 +83,9 @@ def main() -> int:
     fail(bool(stream_ids["prompt_library_only"] & stream_ids["quarantine"]), "prompt_quarantine_overlap")
     fail(set.union(*stream_ids.values()) != set(source_ids), "stream_partition_incomplete")
 
-    for source_record, classification in zip(source, classifications, strict=True):
+    fail(len(source) != len(classifications), "classification_length_mismatch")
+    # Python 3.9 compatibility with the same invariant as strict zip.
+    for source_record, classification in zip(source, classifications):
         fail(classification.get("trust") != "untrusted", f"classification_trust:{classification['evidence_id']}")
         fail(classification.get("execution_policy") != "never_execute", f"classification_execution:{classification['evidence_id']}")
         expected_hash = hashlib.sha256(str(source_record.get("observed_text", "")).encode("utf-8")).hexdigest()

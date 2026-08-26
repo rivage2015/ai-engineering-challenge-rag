@@ -70,7 +70,11 @@ def atomic_bytes(path: Path, value: bytes) -> None:
 
 def atomic_text(path: Path, value: str) -> None:
     temporary = path.with_name(path.name + ".tmp")
-    temporary.write_text(value, encoding="utf-8", newline="\n")
+    # ``Path.write_text(newline=...)`` is unavailable on the Python version
+    # bundled with the local evaluation environment.  ``open`` preserves the
+    # same explicit UTF-8/LF contract across supported Python versions.
+    with temporary.open("w", encoding="utf-8", newline="\n") as handle:
+        handle.write(value)
     with temporary.open("rb") as handle:
         os.fsync(handle.fileno())
     os.replace(temporary, path)

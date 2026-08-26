@@ -17,6 +17,13 @@
 !tests/
 !tests/*.py
 
+# Small, synthetic evaluation fixtures only. Runtime evaluation outputs stay
+# excluded by the deny-by-default rule.
+!evaluation/
+evaluation/*
+!evaluation/general-memory-v0.1/
+!evaluation/general-memory-v0.1/**
+
 # Reusable end-to-end runner. Runtime caches, answers, logs, assets and secrets
 # remain denied by the default rule above.
 !rag/

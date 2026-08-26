@@ -226,7 +226,11 @@ def main() -> int:
 
     classifications = []
     streams: dict[str, list[dict]] = {key: [] for key in rank}
-    for source_record, item in zip(evidence, local, strict=True):
+    if len(evidence) != len(local):
+        raise SystemExit("classification_count_mismatch")
+    # Keep Python 3.9 compatibility; the explicit length check above provides
+    # the same invariant as ``zip(..., strict=True)``.
+    for source_record, item in zip(evidence, local):
         item = dict(item)
         item["document_disposition"] = final_disposition[item["document_id"]]
         classifications.append(item)
