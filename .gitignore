@@ -26,6 +26,13 @@ rag/*
 
 !実行.command
 
+# Reproducible macOS distribution source only. Built DMG/ZIP files, local
+# indexes, models, user documents and logs remain excluded.
+!distribution/
+distribution/*
+!distribution/macos-local-memory/
+!distribution/macos-local-memory/**
+
 **/__pycache__/
 **/*.py[cod]
 **/.DS_Store
