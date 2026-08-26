@@ -40,7 +40,7 @@ def main() -> int:
     state_path = gate_dir / "content-security-state.json"
     state = json.loads(state_path.read_text(encoding="utf-8"))
     fail(state.get("schema_version") != "0.1", "state_schema_version")
-    fail(state.get("policy_version") != "0.1.0", "state_policy_version")
+    fail(state.get("policy_version") != "0.2.0", "state_policy_version")
     fail(state.get("classifier") != "deterministic_content_security_gate", "state_classifier")
     fail(state.get("question_independent") is not True, "state_question_independent")
     fail(state.get("llm_used_for_classification") is not False, "state_llm_flag")
@@ -54,6 +54,7 @@ def main() -> int:
     documents = load_jsonl(documents_path)
     classifications = load_jsonl(gate_dir / "content-security-classifications.jsonl")
     document_results = load_jsonl(gate_dir / "content-security-documents.jsonl")
+    exclusions = load_jsonl(gate_dir / "content-security-exclusions.jsonl")
     streams = {
         "answer_eligible": load_jsonl(gate_dir / "safe-answer-evidence.jsonl"),
         "prompt_library_only": load_jsonl(gate_dir / "prompt-library-evidence.jsonl"),
@@ -68,6 +69,7 @@ def main() -> int:
     extracted_document_ids = {item["document_id"] for item in source}
     fail({item["document_id"] for item in document_results} != extracted_document_ids, "document_result_coverage")
     source_by_id = {item["evidence_id"]: item for item in source}
+    classification_by_id = {item["evidence_id"]: item for item in classifications}
     doc_disposition = {item["document_id"]: item["disposition"] for item in document_results}
 
     stream_ids: dict[str, set[str]] = {}
@@ -77,7 +79,7 @@ def main() -> int:
         stream_ids[disposition] = set(ids)
         for item in records:
             fail(source_by_id.get(item["evidence_id"]) != item, f"stream_record_changed:{item['evidence_id']}")
-            fail(doc_disposition[item["document_id"]] != disposition, f"stream_wrong_disposition:{item['evidence_id']}")
+            fail(classification_by_id[item["evidence_id"]]["effective_disposition"] != disposition, f"stream_wrong_disposition:{item['evidence_id']}")
     fail(bool(stream_ids["answer_eligible"] & stream_ids["prompt_library_only"]), "safe_prompt_overlap")
     fail(bool(stream_ids["answer_eligible"] & stream_ids["quarantine"]), "safe_quarantine_overlap")
     fail(bool(stream_ids["prompt_library_only"] & stream_ids["quarantine"]), "prompt_quarantine_overlap")
@@ -91,8 +93,14 @@ def main() -> int:
         expected_hash = hashlib.sha256(str(source_record.get("observed_text", "")).encode("utf-8")).hexdigest()
         fail(classification.get("observed_text_sha256") != expected_hash, f"classification_text_hash:{classification['evidence_id']}")
         fail(classification.get("document_disposition") != doc_disposition[classification["document_id"]], f"classification_document_disposition:{classification['evidence_id']}")
+        fail(classification.get("effective_disposition") not in streams, f"classification_effective_disposition:{classification['evidence_id']}")
         if classification.get("content_role") in {"ai_instruction", "prompt_injection", "unknown_or_mixed"}:
             fail(classification["evidence_id"] in stream_ids["answer_eligible"], f"unsafe_evidence_in_safe_stream:{classification['evidence_id']}")
+
+    excluded_id_list = [item["evidence_id"] for item in exclusions]
+    fail(len(excluded_id_list) != len(set(excluded_id_list)), "duplicate_exclusion_id")
+    excluded_ids = set(excluded_id_list)
+    fail(excluded_ids != stream_ids["prompt_library_only"] | stream_ids["quarantine"], "exclusion_manifest_mismatch")
 
     for name, expected in state["outputs"].items():
         path = gate_dir / name
@@ -105,6 +113,7 @@ def main() -> int:
     fail(counts["safe_answer_evidence"] != len(streams["answer_eligible"]), "count_safe")
     fail(counts["prompt_library_evidence"] != len(streams["prompt_library_only"]), "count_prompt")
     fail(counts["quarantine_evidence"] != len(streams["quarantine"]), "count_quarantine")
+    fail(counts["excluded_evidence"] != len(exclusions), "count_exclusions")
     fail(counts["document_dispositions"] != dict(sorted(Counter(doc_disposition.values()).items())), "count_document_dispositions")
     fail(state["source_evidence"]["count"] != len(source), "source_evidence_count")
     fail(state["source_documents"]["count"] != len(documents), "source_document_count")

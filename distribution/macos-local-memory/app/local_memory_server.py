@@ -45,6 +45,42 @@ def state() -> dict:
     return bootstrap.load_json(bootstrap.STATE, {"phase": "not_started", "message": "まだ索引は作成されていません。", "error": ""})
 
 
+def security_exclusion_notice() -> str:
+    """Render transparent, non-sensitive information about gated Evidence."""
+    config = bootstrap.load_json(bootstrap.CONFIG)
+    workspace = Path(config.get("workspace", bootstrap.SUPPORT / "data"))
+    state_path = workspace / "03-security" / "content-security-state.json"
+    exclusions_path = workspace / "03-security" / "content-security-exclusions.jsonl"
+    if not state_path.is_file() or not exclusions_path.is_file():
+        return ""
+    try:
+        security_state = json.loads(state_path.read_text(encoding="utf-8"))
+        exclusions = [
+            json.loads(line) for line in exclusions_path.read_text(encoding="utf-8").splitlines()
+            if line.strip()
+        ]
+    except (OSError, ValueError, TypeError):
+        return '<p class="warn">安全性判定の詳細を読み込めませんでした。</p>'
+    expected = int(security_state.get("counts", {}).get("excluded_evidence", 0))
+    if expected != len(exclusions):
+        return '<p class="warn">安全性判定の件数が一致しないため、除外一覧を表示できません。</p>'
+    if not exclusions:
+        return ""
+    grouped: dict[tuple[str, str], int] = {}
+    for item in exclusions:
+        relative_path = str(item.get("source", {}).get("relative_path", "(不明)"))
+        key = (relative_path, str(item.get("disposition", "unknown")))
+        grouped[key] = grouped.get(key, 0) + 1
+    rows = "".join(
+        f"<li>{html.escape(path)} — {html.escape(disposition)} ({count}箇所)</li>"
+        for (path, disposition), count in sorted(grouped.items())
+    )
+    return (
+        f'<details class="card"><summary>安全のため {len(exclusions)} 箇所の証拠を回答索引から除外しました</summary>'
+        f'<p class="small">判定に応じて、プロンプ資料の該当箇所、または高確度の攻撃文を含む資料を除外しています。</p><ul>{rows}</ul></details>'
+    )
+
+
 def home(message: str = "") -> bytes:
     diagnosis = bootstrap.diagnose()
     current = state()
@@ -73,6 +109,7 @@ def home(message: str = "") -> bytes:
     <div class="metric">メモリ<b>{diagnosis['memory_gb'] or '?'} GB</b></div><div class="metric">空き容量<b>{diagnosis['free_gb']} GB</b></div>
     <div class="metric">チップ<b>{html.escape(diagnosis['architecture'])}</b></div><div class="metric">Ollama<b>{'起動中' if diagnosis['ollama_online'] else '停止中/未導入'}</b></div></div>
     <p class="small">検索対象: {html.escape(diagnosis['source_root'] or '未選択')}<br>モデル: {html.escape(models)}</p>{setup}</section>{ask}
+    {security_exclusion_notice()}
     <section class="card"><details><summary>プライバシーと制限</summary><p class="small">質問・回答・索引は <code>~/Library/Application Support/LocalMemorySearch</code> に保存されます。通常利用中のAI処理は127.0.0.1のOllamaのみです。初回のOllama導入・モデル取得にはインターネットが必要です。画像・音声・動画は現在、ファイル名とメタデータだけを索引化します。</p></details></section>
     """, refresh=refresh)
 
@@ -160,6 +197,7 @@ class Handler(BaseHTTPRequestHandler):
                 <a class="button secondary" href="/">← 戻る</a><div class="eyebrow">AUDITED ANSWER</div><h1>{html.escape(query)}</h1>
                 <section class="card"><div class="answer">{html.escape(str(answer.get('answer','')))}</div><p class="small">回答モード: {html.escape(str(answer.get('answer_mode','')))}<br>独立監査: {html.escape(str(audit.get('verdict','未実行')))} — {html.escape(str(audit.get('reason','')))}</p></section>
                 <section class="card"><h2>参照候補</h2><ul>{sources or '<li>根拠候補なし</li>'}</ul><p class="small">候補のファイル名は回答の正しさを自動で保証するものではありません。監査不合格時は回答を停止します。</p></section>
+                {security_exclusion_notice()}
                 """))
             except Exception as exc:
                 self.send(page(f'<a class="button secondary" href="/">← 戻る</a><section class="card"><h1>回答を保留しました</h1><p class="bad">{html.escape(type(exc).__name__ + ": " + str(exc))}</p><p>ローカルモデル、索引、または監査の機械検証に失敗したため、推測で回答しません。</p></section>'), 500)

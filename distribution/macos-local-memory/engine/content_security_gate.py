@@ -22,7 +22,7 @@ from pathlib import Path
 
 
 SCHEMA_VERSION = "0.1"
-POLICY_VERSION = "0.1.0"
+POLICY_VERSION = "0.2.0"
 
 
 def sha256_file(path: Path) -> str:
@@ -53,9 +53,7 @@ PATTERNS: dict[str, tuple[re.Pattern[str], ...]] = {
         re.compile(r"(?:システムプロンプト|隠された指示|内部命令)[^。\n]{0,24}(?:開示|表示|出力|教えて)"),
     ),
     "ai_role_assignment": (
-        re.compile(r"(?:^|\n)\s*#{1,4}\s*(?:role|役割)\b", re.I),
-        re.compile(r"あなたは[^。\n]{0,80}(?:ai|assistant|chatgpt|gemma|gpt|エージェント|アシスタント|専門家|担当)" , re.I),
-        re.compile(r"(?:^|\n)\s*あなたは[^。\n]{1,120}(?:です|として(?:振る舞|行動|対応|回答))"),
+        re.compile(r"あなたは[^。\n]{0,80}(?:ai|assistant|chatgpt|gemma|gpt|エージェント|アシスタント)" , re.I),
         re.compile(r"(?:system\s*prompt|gpts?\s*instructions?|custom\s*instructions?)", re.I),
         re.compile(r"(?:システムプロンプト|カスタムインストラクション|カスタム指示)"),
     ),
@@ -116,17 +114,39 @@ def classify_text(text: str, relative_path: str) -> tuple[str, str, int, dict[st
     if "ai_role_assignment" in codes and codes & {"output_control", "instruction_structure"}:
         return "ai_instruction", "prompt_library_only", 7, signals
     if "ai_role_assignment" in codes:
-        return "ai_instruction", "prompt_library_only", 6, signals
-    if "output_control" in codes and "instruction_structure" in codes:
-        return "unknown_or_mixed", "quarantine", 5, signals
+        # A role-like sentence by itself is evidence, not executable control.
+        # It becomes prompt-library material only when an instruction signal
+        # occurs in the same local window.
+        return "human_instruction", "answer_eligible", 3, signals
     if "instruction_structure" in codes or "output_control" in codes:
         return "human_instruction", "answer_eligible", 2, signals
     return "normal_content", "answer_eligible", 0, signals
 
 
 def classify_document_chunks(chunks: list[str], relative_path: str) -> tuple[str, str, int, dict[str, list[str]]]:
-    """Scan across chunk boundaries as well as within individual chunks."""
-    return classify_text("\n".join(chunks), relative_path)
+    """Summarize local scans without combining unrelated document sections.
+
+    Individual chunks and adjacent pairs are scanned. This preserves split
+    injection detection while preventing signals from distant paragraphs from
+    being synthesized into a document-wide false positive.
+    """
+    rank = {"answer_eligible": 0, "prompt_library_only": 1, "quarantine": 2}
+    scans = [classify_text(chunk, relative_path) for chunk in chunks]
+    scans.extend(
+        classify_text(f"{left}\n{right}", relative_path)
+        for left, right in zip(chunks, chunks[1:])
+    )
+    if not scans:
+        return classify_text("", relative_path)
+    role, disposition, score, _ = max(scans, key=lambda item: (rank[item[1]], item[2]))
+    combined_signals: dict[str, list[str]] = {}
+    for _, _, _, signals in scans:
+        for code, snippets in signals.items():
+            values = combined_signals.setdefault(code, [])
+            for snippet in snippets:
+                if snippet not in values and len(values) < 4:
+                    values.append(snippet)
+    return role, disposition, score, combined_signals
 
 
 def atomic_write(path: Path, data: bytes) -> None:
@@ -200,9 +220,50 @@ def main() -> int:
         items = by_document[document_id]
         relative_path = document_by_id[document_id]["source"]["relative_path"]
         source_texts = [str(source_record.get("observed_text", "")) for source_record in evidence if source_record["document_id"] == document_id]
+
+        # Escalate only the chunks participating in a risky adjacent window.
+        # Never apply one chunk's result to every Evidence item in the file.
+        for index in range(len(items) - 1):
+            window_role, window_disposition, window_score, window_signals = classify_text(
+                f"{source_texts[index]}\n{source_texts[index + 1]}", relative_path
+            )
+            local_window_rank = max(
+                rank[items[index]["local_disposition"]],
+                rank[items[index + 1]["local_disposition"]],
+            )
+            if rank[window_disposition] <= local_window_rank:
+                continue
+            for item in (items[index], items[index + 1]):
+                if rank[window_disposition] > rank[item["local_disposition"]]:
+                    item["content_role"] = window_role
+                    item["effective_disposition"] = window_disposition
+                    item["risk_score"] = max(item["risk_score"], window_score)
+                    item["adjacent_window_risk_signals"] = window_signals
+                else:
+                    item.setdefault("effective_disposition", item["local_disposition"])
+        for item in items:
+            item.setdefault("effective_disposition", item["local_disposition"])
+
         document_role, document_scan_disposition, document_score, document_signals = classify_document_chunks(source_texts, relative_path)
+        hard_injection_reasons = {
+            code for code in document_signals
+            if code in {"priority_override", "secret_exfiltration"}
+        }
+        if hard_injection_reasons:
+            # High-confidence prompt injection taints derivative packets from
+            # the same source (for example spreadsheet relations or PDF layout
+            # packets), even when those packets do not repeat the attack text.
+            # Lower-risk prompt-library material remains chunk-partitioned.
+            inherited_signals = {
+                code: document_signals[code] for code in sorted(hard_injection_reasons)
+            }
+            for item in items:
+                item["content_role"] = "prompt_injection"
+                item["effective_disposition"] = "quarantine"
+                item["risk_score"] = max(item["risk_score"], document_score)
+                item["inherited_document_risk_signals"] = inherited_signals
         disposition = max(
-            [document_scan_disposition, *(item["local_disposition"] for item in items)],
+            [document_scan_disposition, *(item["effective_disposition"] for item in items)],
             key=rank.__getitem__,
         )
         final_disposition[document_id] = disposition
@@ -220,6 +281,9 @@ def main() -> int:
             "document_scan_risk_signals": document_signals,
             "max_risk_score": max(document_score, *(item["risk_score"] for item in items)),
             "evidence_count": len(items),
+            "evidence_dispositions": dict(sorted(Counter(item["effective_disposition"] for item in items).items())),
+            "partially_excluded": any(item["effective_disposition"] == "answer_eligible" for item in items)
+                and any(item["effective_disposition"] != "answer_eligible" for item in items),
             "trust": "untrusted",
             "execution_policy": "never_execute",
         })
@@ -234,7 +298,27 @@ def main() -> int:
         item = dict(item)
         item["document_disposition"] = final_disposition[item["document_id"]]
         classifications.append(item)
-        streams[item["document_disposition"]].append(source_record)
+        streams[item["effective_disposition"]].append(source_record)
+
+    exclusions = [
+        {
+            "schema_version": SCHEMA_VERSION,
+            "policy_version": POLICY_VERSION,
+            "evidence_id": item["evidence_id"],
+            "document_id": item["document_id"],
+            "source": item["source"],
+            "locator": item["locator"],
+            "disposition": item["effective_disposition"],
+            "content_role": item["content_role"],
+            "risk_reasons": sorted(
+                set(item["risk_signals"])
+                | set(item.get("adjacent_window_risk_signals", {}))
+                | set(item.get("inherited_document_risk_signals", {}))
+            ),
+        }
+        for item in classifications
+        if item["effective_disposition"] != "answer_eligible"
+    ]
 
     outputs = {
         "content-security-classifications.jsonl": jsonl_bytes(classifications),
@@ -242,6 +326,7 @@ def main() -> int:
         "safe-answer-evidence.jsonl": jsonl_bytes(streams["answer_eligible"]),
         "prompt-library-evidence.jsonl": jsonl_bytes(streams["prompt_library_only"]),
         "quarantine-evidence.jsonl": jsonl_bytes(streams["quarantine"]),
+        "content-security-exclusions.jsonl": jsonl_bytes(exclusions),
     }
     for name, data in outputs.items():
         atomic_write(output_dir / name, data)
@@ -263,6 +348,8 @@ def main() -> int:
             "safe_answer_evidence": len(streams["answer_eligible"]),
             "prompt_library_evidence": len(streams["prompt_library_only"]),
             "quarantine_evidence": len(streams["quarantine"]),
+            "excluded_evidence": len(exclusions),
+            "partially_excluded_documents": sum(item["partially_excluded"] for item in document_results),
             "document_dispositions": dict(sorted(Counter(final_disposition.values()).items())),
         },
         "outputs": {
