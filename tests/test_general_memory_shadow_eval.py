@@ -48,16 +48,18 @@ class GeneralMemoryShadowEvaluationTest(unittest.TestCase):
             )
             self.assertEqual(process.returncode, 0, process.stderr)
             report = json.loads((output / "shadow-evaluation-report.json").read_text(encoding="utf-8"))
-            self.assertEqual(report["coverage"]["case_count"], 10)
-            self.assertEqual(report["coverage"]["dataset_files"], 16)
+            self.assertEqual(report["coverage"]["case_count"], 12)
+            self.assertEqual(report["coverage"]["dataset_files"], 19)
             self.assertIn("docx", report["coverage"]["formats"])
             self.assertIn("xlsx", report["coverage"]["formats"])
+            self.assertIn("pptx", report["coverage"]["formats"])
             self.assertNotIn("docx", report["coverage"]["not_yet_covered"])
             self.assertNotIn("xlsx", report["coverage"]["not_yet_covered"])
+            self.assertNotIn("pptx", report["coverage"]["not_yet_covered"])
             self.assertFalse(report["modes"]["external_network_used"])
             self.assertTrue(report["safety_audit"]["all_pass"])
             safety_cases = report["safety_audit"]["distribution_gate"]
-            self.assertEqual(len(safety_cases), 3)
+            self.assertEqual(len(safety_cases), 4)
             for safety in safety_cases:
                 self.assertEqual(safety["distribution_actual"], "quarantine")
                 self.assertEqual(safety["adapter_actual"], "quarantine")
@@ -83,7 +85,7 @@ class GeneralMemoryShadowEvaluationTest(unittest.TestCase):
                 "layer1-adapter-document-support-through-distribution-safe-stream-proxy",
             })
             for method in methods.values():
-                self.assertEqual(method["metrics"]["case_count"], 7)
+                self.assertEqual(method["metrics"]["case_count"], 8)
                 self.assertIn("source_recall_at_5", method["metrics"])
                 for case in method["cases"]:
                     self.assertTrue(case["relevant_sources"])
@@ -115,6 +117,25 @@ class GeneralMemoryShadowEvaluationTest(unittest.TestCase):
                 if case["eval_case_id"] == "gm_xlsx_final_onboarding_row"
             )
             self.assertEqual(xlsx_case["first_relevant_rank"], 1)
+            pptx_relationship = next(
+                case for case in report["relationship_context_audit"]["cases"]
+                if case["eval_case_id"] == "gm_pptx_final_onboarding_decision"
+            )
+            self.assertTrue(pptx_relationship["pass"])
+            self.assertTrue(pptx_relationship["slide_groups"][0]["matches"])
+            self.assertEqual(pptx_relationship["slide_groups"][0]["matches"][0]["slide_number"], 2)
+            self.assertTrue(pptx_relationship["spatial_relations"][0]["matches"])
+            spatial_match = pptx_relationship["spatial_relations"][0]["matches"][0]
+            self.assertEqual(spatial_match["slide_number"], 2)
+            self.assertLessEqual(
+                spatial_match["from_geometry"]["y"] + spatial_match["from_geometry"]["height"],
+                spatial_match["to_geometry"]["y"],
+            )
+            pptx_case = next(
+                case for case in methods["layer1-real-bm25"]["cases"]
+                if case["eval_case_id"] == "gm_pptx_final_onboarding_decision"
+            )
+            self.assertEqual(pptx_case["first_relevant_rank"], 1)
 
     def test_adapter_rejects_source_changed_after_layer1_extraction(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:

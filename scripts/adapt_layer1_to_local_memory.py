@@ -22,7 +22,7 @@ from validate_search_units import validate as validate_search_units
 
 
 ADAPTER = "layer1-to-local-memory-evidence-adapter"
-ADAPTER_VERSION = "0.2.0"
+ADAPTER_VERSION = "0.3.0"
 SCHEMA_VERSION = "0.1"
 
 
@@ -166,6 +166,9 @@ def adapt(
                 "execution_policy": "never_execute",
             },
         }
+        geometry = record.get("geometry")
+        if isinstance(geometry, dict) and geometry:
+            projected["geometry"] = geometry
         evidence_by_document[document_id].append(projected)
         projections.append(projected)
 

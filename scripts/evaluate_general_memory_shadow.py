@@ -86,12 +86,25 @@ def validate_cases(cases: list[dict[str, Any]], corpus: Path) -> None:
                 raise ValueError(f"{case_id}: missing source: {relative}")
         if case["category"] == "safety_exclusion" and "expected_security_disposition" not in case:
             raise ValueError(f"{case_id}: safety case needs expected_security_disposition")
-        for field in ("expected_same_unit_phrases", "forbidden_same_unit_phrases"):
+        for field in (
+            "expected_same_unit_phrases", "forbidden_same_unit_phrases",
+            "expected_same_slide_phrases", "forbidden_same_slide_phrases",
+        ):
             for group in case.get(field, []):
                 if not isinstance(group, list) or len(group) < 2 or not all(
                     isinstance(phrase, str) and phrase.strip() for phrase in group
                 ):
                     raise ValueError(f"{case_id}: {field} needs groups of 2+ phrases")
+        for relation in case.get("expected_spatial_relations", []):
+            if relation.get("relation") not in {"above", "below", "left_of", "right_of"}:
+                raise ValueError(f"{case_id}: unsupported spatial relation")
+            if not isinstance(relation.get("from_phrase"), str) or not relation["from_phrase"].strip():
+                raise ValueError(f"{case_id}: spatial relation needs from_phrase")
+            phrases = relation.get("to_unit_phrases")
+            if not isinstance(phrases, list) or len(phrases) < 2 or not all(
+                isinstance(phrase, str) and phrase.strip() for phrase in phrases
+            ):
+                raise ValueError(f"{case_id}: spatial relation needs 2+ to_unit_phrases")
 
 
 def build_distribution(corpus: Path, output: Path) -> dict[str, Any]:
@@ -299,20 +312,26 @@ def phrase_coverage(cases: list[dict[str, Any]], evidence_dir: Path) -> dict[str
 
 
 def relationship_context_audit(cases: list[dict[str, Any]], adapter_dir: Path) -> dict[str, Any]:
-    """Check that required phrases coexist in one verified table-row projection."""
+    """Check verified table-row, same-slide, and simple spatial contexts."""
     documents = {item["document_id"]: item for item in jsonl(adapter_dir / "semantic-documents.jsonl")}
     rows_by_path: dict[str, list[dict[str, Any]]] = {}
+    slide_records_by_path: dict[str, list[dict[str, Any]]] = {}
     for record in jsonl(adapter_dir / "safe-answer-evidence.jsonl"):
+        relative = documents[record["document_id"]]["source"]["relative_path"]
+        if record.get("locator", {}).get("slide_number") is not None:
+            slide_records_by_path.setdefault(relative, []).append(record)
         adapter = record.get("adapter", {})
         if adapter.get("source_record_type") != "search_unit" or adapter.get("unit_type") != "table_row":
             continue
-        relative = documents[record["document_id"]]["source"]["relative_path"]
         rows_by_path.setdefault(relative, []).append(record)
     results = []
     for case in cases:
         groups = case.get("expected_same_unit_phrases", [])
         forbidden_groups = case.get("forbidden_same_unit_phrases", [])
-        if not groups and not forbidden_groups:
+        slide_groups = case.get("expected_same_slide_phrases", [])
+        forbidden_slide_groups = case.get("forbidden_same_slide_phrases", [])
+        spatial_relations = case.get("expected_spatial_relations", [])
+        if not groups and not forbidden_groups and not slide_groups and not forbidden_slide_groups and not spatial_relations:
             continue
         candidate_rows = [
             row
@@ -341,11 +360,87 @@ def relationship_context_audit(cases: list[dict[str, Any]], adapter_dir: Path) -
                 "matching_evidence_ids": [row["evidence_id"] for row in matches],
                 "pass": not matches,
             })
+        slide_packets: dict[tuple[str, int], list[dict[str, Any]]] = {}
+        for relative in case["relevant_sources"]:
+            for record in slide_records_by_path.get(relative, []):
+                slide_number = int(record["locator"]["slide_number"])
+                slide_packets.setdefault((relative, slide_number), []).append(record)
+        slide_group_results = []
+        for phrases in slide_groups:
+            matches = []
+            for (relative, slide_number), records in slide_packets.items():
+                packet_text = "\n".join(str(item.get("observed_text", "")) for item in records)
+                if all(phrase in packet_text for phrase in phrases):
+                    matches.append({
+                        "relative_path": relative,
+                        "slide_number": slide_number,
+                        "evidence_ids": [item["evidence_id"] for item in records],
+                    })
+            slide_group_results.append({"phrases": phrases, "matches": matches, "pass": bool(matches)})
+        forbidden_slide_results = []
+        for phrases in forbidden_slide_groups:
+            matches = []
+            for (relative, slide_number), records in slide_packets.items():
+                packet_text = "\n".join(str(item.get("observed_text", "")) for item in records)
+                if all(phrase in packet_text for phrase in phrases):
+                    matches.append({"relative_path": relative, "slide_number": slide_number})
+            forbidden_slide_results.append({"phrases": phrases, "matches": matches, "pass": not matches})
+        spatial_results = []
+        for relation in spatial_relations:
+            matches = []
+            for relative in case["relevant_sources"]:
+                records = slide_records_by_path.get(relative, [])
+                from_records = [
+                    item for item in records
+                    if relation["from_phrase"] in str(item.get("observed_text", ""))
+                    and isinstance(item.get("geometry"), dict)
+                ]
+                to_rows = [
+                    item for item in rows_by_path.get(relative, [])
+                    if all(phrase in str(item.get("observed_text", "")) for phrase in relation["to_unit_phrases"])
+                ]
+                for source in from_records:
+                    source_geometry = source["geometry"]
+                    for row in to_rows:
+                        row_locator = row.get("locator", {})
+                        target_shapes = [
+                            item for item in records
+                            if item.get("locator", {}).get("slide_number") == row_locator.get("slide_number")
+                            and item.get("locator", {}).get("shape_id") == row_locator.get("shape_id")
+                            and item.get("adapter", {}).get("source_record_type") == "shape"
+                            and isinstance(item.get("geometry"), dict)
+                        ]
+                        for target in target_shapes:
+                            if source.get("locator", {}).get("slide_number") != row_locator.get("slide_number"):
+                                continue
+                            target_geometry = target["geometry"]
+                            relation_name = relation["relation"]
+                            passed = {
+                                "above": source_geometry["y"] + source_geometry["height"] <= target_geometry["y"],
+                                "below": target_geometry["y"] + target_geometry["height"] <= source_geometry["y"],
+                                "left_of": source_geometry["x"] + source_geometry["width"] <= target_geometry["x"],
+                                "right_of": target_geometry["x"] + target_geometry["width"] <= source_geometry["x"],
+                            }[relation_name]
+                            if passed:
+                                matches.append({
+                                    "relative_path": relative,
+                                    "slide_number": row_locator["slide_number"],
+                                    "from_evidence_id": source["evidence_id"],
+                                    "to_row_evidence_id": row["evidence_id"],
+                                    "to_shape_evidence_id": target["evidence_id"],
+                                    "from_geometry": source_geometry,
+                                    "to_geometry": target_geometry,
+                                })
+            spatial_results.append({**relation, "matches": matches, "pass": bool(matches)})
+        all_results = group_results + forbidden_results + slide_group_results + forbidden_slide_results + spatial_results
         results.append({
             "eval_case_id": case["eval_case_id"],
             "groups": group_results,
             "forbidden_groups": forbidden_results,
-            "pass": all(item["pass"] for item in group_results + forbidden_results),
+            "slide_groups": slide_group_results,
+            "forbidden_slide_groups": forbidden_slide_results,
+            "spatial_relations": spatial_results,
+            "pass": all(item["pass"] for item in all_results),
         })
     return {"all_pass": bool(results) and all(item["pass"] for item in results), "cases": results}
 
