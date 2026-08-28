@@ -148,10 +148,19 @@ def configure_source(source: Path) -> dict:
         raise SystemExit("検索対象は実フォルダを指定してください。")
     config = load_json(CONFIG, {
         "embedding_model": "embeddinggemma:latest",
-        "answer_model": "qwen3.5:9b",
+        "answer_model": "gemma4:12b",
         "audit_model": "gemma4:12b",
+        "model_profile": "gemma4-validated-v1",
+        "sequential_model_loading": True,
         "port": 8765,
     })
+    if (
+        config.get("answer_model") == "qwen3.5:9b"
+        and config.get("audit_model") == "gemma4:12b"
+        and not config.get("model_profile")
+    ):
+        config["answer_model"] = "gemma4:12b"
+        config["model_profile"] = "gemma4-validated-v1"
     config["source_root"] = str(source)
     config["workspace"] = str(SUPPORT / "data")
     config["index_path"] = str(SUPPORT / "data" / "safe-answer-index.sqlite3")

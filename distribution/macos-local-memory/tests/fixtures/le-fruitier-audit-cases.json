@@ -1,0 +1,37 @@
+[
+  {
+    "id": "current_operation_location",
+    "query": "この資料のOriHimeパイロットは、現在どこからOriHimeを操作していますか？",
+    "required_terms": ["長崎県"],
+    "expected_final_mode": "grounded",
+    "expected_audit_verdict": "verified"
+  },
+  {
+    "id": "current_household",
+    "query": "この資料の人物は、現在誰と一緒に暮らしていますか？",
+    "required_terms": ["父"],
+    "expected_final_mode": "grounded",
+    "expected_audit_verdict": "verified"
+  },
+  {
+    "id": "past_residences",
+    "query": "この資料の人物が過去に住んでいた場所をすべて挙げてください。",
+    "required_terms": ["多摩", "浅草", "一関市"],
+    "expected_final_mode": "grounded",
+    "expected_audit_verdict": "verified"
+  },
+  {
+    "id": "stated_achievement",
+    "query": "この資料に書かれているChatGPTに関する実績は何ですか？",
+    "required_terms": ["部門優勝"],
+    "expected_final_mode": "grounded",
+    "expected_audit_verdict": "verified"
+  },
+  {
+    "id": "missing_pilot_name",
+    "query": "この資料にパイロット名は書かれていますか？書かれているなら名前は何ですか？",
+    "required_terms": ["わかりません"],
+    "expected_final_mode": "insufficient",
+    "expected_audit_verdict": "verified"
+  }
+]

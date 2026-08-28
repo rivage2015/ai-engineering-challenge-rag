@@ -24,7 +24,157 @@ def load_engine(name: str):
     return module
 
 
+def load_app(name: str):
+    path = ROOT / "app" / f"{name}.py"
+    spec = importlib.util.spec_from_file_location(name, path)
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
 class PackageTests(unittest.TestCase):
+    @staticmethod
+    def claim_record(query: str, label: str, value: str, evidence_ids: list[str], mode: str = "grounded") -> dict:
+        item = {
+            "item_id": "F1", "label": label, "required_claim": f"質問者についての{label}",
+            "retrieval_query": query, "required": True,
+        }
+        if mode == "insufficient":
+            audit = {
+                "item_id": "F1", "verdict": "insufficient", "supported_value": "",
+                "supporting_packet_ids": [], "competing_packet_ids": [],
+                "reason_code": "missing_evidence", "defect": "直接根拠なし",
+                "missing_information": ["直接根拠"],
+            }
+            answer_text = "わかりません"
+        else:
+            audit = {
+                "item_id": "F1", "verdict": "supported", "supported_value": value,
+                "supporting_packet_ids": evidence_ids, "competing_packet_ids": [],
+                "reason_code": "none", "defect": "", "missing_information": [],
+            }
+            answer_text = f"確認できた内容:\n- {label}: {value}"
+        return {
+            "query": query,
+            "question_plan": {"items": [item], "answer_shape": label, "partial_answer_allowed": True},
+            "field_runs": [{"item": item, "retrieved_evidence_ids": evidence_ids, "audit": audit}],
+            "answer": {
+                "answer_status": "insufficient" if mode == "insufficient" else "answered",
+                "answer_mode": mode, "answer": answer_text,
+                "evidence_ids": [] if mode == "insufficient" else evidence_ids,
+                "diagnostic_evidence_ids": evidence_ids if mode == "insufficient" else [],
+            },
+        }
+
+    def test_claim_graph_accepts_evidence_backed_past_residence_set(self) -> None:
+        validator = load_app("claim_graph_validator")
+        record = self.claim_record(
+            "過去に住んでいた場所をすべて挙げてください。",
+            "過去の居住地", "多摩、浅草、一関市", ["E1"],
+        )
+        packets = [{
+            "evidence_id": "E1",
+            "text": "大学で多摩、仕事で浅草、3年ほど岩手県の一関市に住んでいました。今は故郷の長崎です。",
+        }]
+        contract, graph, report = validator.build_and_validate(record, packets)
+        self.assertEqual(report["status"], "pass")
+        self.assertEqual(graph["contract_hash"], contract["contract_hash"])
+        self.assertIn("coverage_requires_semantic_audit", {item["code"] for item in report["warnings"]})
+
+    def test_claim_graph_blocks_person_name_without_explicit_name_edge(self) -> None:
+        validator = load_app("claim_graph_validator")
+        record = self.claim_record(
+            "このOriHimeパイロットの名前は何ですか？", "名前", "OriHime", ["E1"],
+        )
+        packets = [{
+            "evidence_id": "E1",
+            "text": "powered by OriHime\nパイロットネーム\n川崎から離れた長崎県から操作しています。",
+        }]
+        _, _, report = validator.build_and_validate(record, packets)
+        self.assertEqual(report["status"], "blocked")
+        self.assertIn("person_name_relation_missing", {item["code"] for item in report["failures"]})
+
+    def test_claim_graph_blocks_current_place_as_past_residence(self) -> None:
+        validator = load_app("claim_graph_validator")
+        record = self.claim_record(
+            "過去に住んでいた場所をすべて挙げてください。", "過去の居住地", "長崎", ["E1"],
+        )
+        packets = [{
+            "evidence_id": "E1",
+            "text": "大学で多摩、仕事で浅草、一関市に住んでいました。今は故郷の長崎で暮らしています。",
+        }]
+        _, _, report = validator.build_and_validate(record, packets)
+        self.assertEqual(report["status"], "blocked")
+        self.assertIn("time_scope_conflict", {item["code"] for item in report["failures"]})
+
+    def test_claim_graph_blocks_unknown_evidence_and_accepts_safe_unknown(self) -> None:
+        validator = load_app("claim_graph_validator")
+        broken = self.claim_record("記載された実績は？", "記載された実績", "部門優勝", ["MISSING"])
+        _, _, broken_report = validator.build_and_validate(broken, [])
+        self.assertEqual(broken_report["status"], "blocked")
+        safe_unknown = self.claim_record(
+            "このOriHimeパイロットの名前は何ですか？", "名前", "", ["E1"], mode="insufficient",
+        )
+        _, _, unknown_report = validator.build_and_validate(
+            safe_unknown, [{"evidence_id": "E1", "text": "名前は記載されていません。"}],
+        )
+        self.assertEqual(unknown_report["status"], "pass")
+
+    def test_final_audit_rejection_projects_schema_valid_unknown_answer(self) -> None:
+        final_audit = load_app("final_answer_audit")
+        original = {
+            "answer_status": "answered",
+            "answer_mode": "grounded",
+            "answer": "確認できた内容:\n- 名前: 長崎県から操作しています。",
+            "evidence_ids": ["E1"],
+            "basis_summary": "根拠があると判定しました。",
+            "uncertainties": [],
+            "non_answer_reason": {"code": "none", "explanation": ""},
+            "diagnostic_evidence_ids": [],
+            "needed_information": [],
+            "follow_up_question": "",
+            "reconsideration_condition": "",
+            "verification_reminder": "",
+        }
+        projected = final_audit.project_rejected_answer(
+            original,
+            {"verdict": "rejected", "reason": "対象取り違え", "unsupported_claims": ["名前の誤認"]},
+            ["E1"],
+        )
+        self.assertEqual(projected["answer"], "わかりません")
+        self.assertEqual(projected["non_answer_reason"]["code"], "unsupported_relation")
+        self.assertEqual(projected["diagnostic_evidence_ids"], ["E1"])
+        self.assertTrue(projected["needed_information"])
+        self.assertTrue(projected["follow_up_question"])
+        self.assertTrue(projected["reconsideration_condition"])
+
+        fallback = final_audit.project_validation_failure(original, ["E1"], ValueError("broken"))
+        self.assertEqual(fallback["answer"], "わかりません")
+        self.assertEqual(fallback["non_answer_reason"]["code"], "machine_validation_failure")
+        self.assertEqual(fallback["diagnostic_evidence_ids"], ["E1"])
+
+    def test_fast_plan_recognizes_remote_operation_location_question(self) -> None:
+        answer = load_engine("answer_local_memory_v2")
+        plan = answer.try_fast_plan(
+            "この資料のOriHimeパイロットは、現在どこからOriHimeを操作していますか？"
+        )
+        self.assertIsNotNone(plan)
+        self.assertEqual([item["label"] for item in plan["items"]], ["操作場所"])
+
+    def test_fast_plan_recognizes_simple_profile_questions(self) -> None:
+        answer = load_engine("answer_local_memory_v2")
+        cases = (
+            ("この人物は現在誰と一緒に暮らしていますか？", ["同居者"]),
+            ("過去に住んでいた場所をすべて挙げてください。", ["過去の居住地"]),
+            ("資料に書かれているChatGPTに関する実績は何ですか？", ["記載された実績"]),
+        )
+        for query, labels in cases:
+            with self.subTest(query=query):
+                plan = answer.try_fast_plan(query)
+                self.assertIsNotNone(plan)
+                self.assertEqual([item["label"] for item in plan["items"]], labels)
+
     def test_security_gate_keeps_normal_japanese_business_document(self) -> None:
         gate = load_engine("content_security_gate")
         document = """2025年8月の定例会議 議事録
@@ -155,12 +305,20 @@ class PackageTests(unittest.TestCase):
         answer_v2 = (ENGINE / "answer_local_memory_v2.py").read_text(encoding="utf-8")
         final_audit = (ROOT / "app" / "final_answer_audit.py").read_text(encoding="utf-8")
 
-        self.assertIn('"answer_model": "qwen3.5:9b"', bootstrap)
+        self.assertIn('"answer_model": "gemma4:12b"', bootstrap)
         self.assertIn('"audit_model": "gemma4:12b"', bootstrap)
-        self.assertIn('default="qwen3.5:9b"', answer_v2)
+        self.assertIn('"model_profile": "gemma4-validated-v1"', bootstrap)
+        self.assertIn('"sequential_model_loading": True', bootstrap)
+        self.assertIn('default="gemma4:12b"', answer_v2)
         self.assertIn('config["answer_model"]', server)
         self.assertIn('config["audit_model"]', server)
+        self.assertIn('unload_ollama_model(config["answer_model"])', server)
+        self.assertIn('unload_ollama_model(config["audit_model"])', server)
+        self.assertIn('same_model_reused_across_separate_contexts', server)
         self.assertIn('"independent_final_auditor"', final_audit)
+        self.assertIn('"independent_final_audit"', final_audit)
+        self.assertIn('"think": False', final_audit)
+        self.assertIn('"num_predict": 320', final_audit)
         self.assertIn('"audited-answers.jsonl"', server)
 
 

@@ -11,7 +11,9 @@ import subprocess
 import sys
 import tempfile
 import threading
+import time
 import urllib.parse
+import urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
@@ -21,6 +23,7 @@ import bootstrap
 BUILD_LOCK = threading.Lock()
 BASE = Path(__file__).resolve().parent
 ENGINE = BASE / "engine"
+OLLAMA_GENERATE = "http://127.0.0.1:11434/api/generate"
 
 
 STYLE = """
@@ -125,7 +128,30 @@ def build_worker() -> None:
         BUILD_LOCK.release()
 
 
+def unload_ollama_model(model: str, timeout: int = 60) -> dict:
+    """Ask local Ollama to release one model and report the switching cost."""
+    started = time.perf_counter()
+    request = urllib.request.Request(
+        OLLAMA_GENERATE,
+        data=json.dumps({"model": model, "keep_alive": 0, "stream": False}).encode("utf-8"),
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=timeout) as response:
+            response.read()
+        return {"requested": True, "succeeded": True, "seconds": round(time.perf_counter() - started, 3), "error": ""}
+    except Exception as exc:
+        return {
+            "requested": True,
+            "succeeded": False,
+            "seconds": round(time.perf_counter() - started, 3),
+            "error": f"{type(exc).__name__}: {exc}",
+        }
+
+
 def answer_query(query: str) -> dict:
+    pipeline_started = time.perf_counter()
     config = bootstrap.load_json(bootstrap.CONFIG)
     index = Path(config["index_path"])
     log = bootstrap.SUPPORT / "logs" / "answers.jsonl"
@@ -136,23 +162,52 @@ def answer_query(query: str) -> dict:
         "--audit-mode", "batched", "--fast-plan", "--log", str(log),
         "--cache", str(cache), "--json",
     ]
+    answer_started = time.perf_counter()
     generated = subprocess.run(command, capture_output=True, text=True, timeout=900, check=True)
+    answer_seconds = time.perf_counter() - answer_started
     record = json.loads(generated.stdout)
+    sequential = bool(config.get("sequential_model_loading", True))
+    reuse_loaded_model = config["answer_model"] == config["audit_model"]
+    answer_unload = (
+        unload_ollama_model(config["answer_model"])
+        if sequential and not reuse_loaded_model
+        else {
+            "requested": False, "succeeded": False, "seconds": 0.0,
+            "error": "", "reason": "same_model_reused" if reuse_loaded_model else "sequential_loading_disabled",
+        }
+    )
     with tempfile.NamedTemporaryFile("w", suffix=".json", encoding="utf-8", delete=False) as handle:
         json.dump(record, handle, ensure_ascii=False)
         temporary = Path(handle.name)
     try:
+        audit_started = time.perf_counter()
         audited = subprocess.run([
             sys.executable, str(BASE / "final_answer_audit.py"), "--record", str(temporary),
             "--index", str(index), "--model", config["audit_model"],
         ], capture_output=True, text=True, timeout=600, check=True)
+        audit_seconds = time.perf_counter() - audit_started
         audited_record = json.loads(audited.stdout)
+        audit_unload = (
+            unload_ollama_model(config["audit_model"])
+            if sequential else {"requested": False, "succeeded": False, "seconds": 0.0, "error": ""}
+        )
+        audited_record["pipeline_performance"] = {
+            "sequential_model_loading": sequential,
+            "same_model_reused_across_separate_contexts": reuse_loaded_model,
+            "answer_process_seconds": round(answer_seconds, 3),
+            "answer_model_unload": answer_unload,
+            "audit_process_seconds": round(audit_seconds, 3),
+            "audit_model_unload": audit_unload,
+            "total_seconds": round(time.perf_counter() - pipeline_started, 3),
+        }
         audited_log = bootstrap.SUPPORT / "logs" / "audited-answers.jsonl"
         audited_log.parent.mkdir(parents=True, exist_ok=True)
         with audited_log.open("a", encoding="utf-8") as handle:
             handle.write(json.dumps(audited_record, ensure_ascii=False) + "\n")
         return audited_record
     finally:
+        if sequential and "audit_unload" not in locals():
+            unload_ollama_model(config["audit_model"])
         temporary.unlink(missing_ok=True)
 
 
