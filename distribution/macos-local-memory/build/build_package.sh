@@ -17,11 +17,38 @@ ln -s /Applications "$STAGE/Applications"
 
 /usr/bin/osacompile -l JavaScript -o "$APP" "$SOURCE/app/launcher.js"
 mkdir -p "$RESOURCES/engine"
-cp "$SOURCE/app/bootstrap.py" "$SOURCE/app/final_answer_audit.py" "$SOURCE/app/local_memory_server.py" "$SOURCE/app/launch.sh" "$RESOURCES/"
+cp "$SOURCE/app/bootstrap.py" "$SOURCE/app/claim_graph_validator.py" "$SOURCE/app/final_answer_audit.py" "$SOURCE/app/local_memory_server.py" "$SOURCE/app/launch.sh" "$RESOURCES/"
 cp "$SOURCE/engine/"*.py "$RESOURCES/engine/"
+mkdir -p "$RESOURCES/engine/layer1/scripts" "$RESOURCES/engine/layer1/schemas"
+cp \
+  "$ROOT/scripts/build_intermediate_records.py" \
+  "$ROOT/scripts/probe_intermediate_records.py" \
+  "$ROOT/scripts/evidence_text_chunking.py" \
+  "$ROOT/scripts/build_search_units.py" \
+  "$ROOT/scripts/validate_search_units.py" \
+  "$ROOT/scripts/validate_intermediate_records.py" \
+  "$ROOT/scripts/validate_intermediate_records_streaming.py" \
+  "$ROOT/scripts/lexical_search_common.py" \
+  "$ROOT/scripts/adapt_layer1_to_local_memory.py" \
+  "$ROOT/scripts/local_image_ocr.py" \
+  "$ROOT/scripts/extract_ocr_observations.py" \
+  "$ROOT/scripts/classify_visual_assets.py" \
+  "$ROOT/scripts/validate_ocr_observations.py" \
+  "$ROOT/scripts/validate_visual_classifications.py" \
+  "$ROOT/scripts/ollama_embedding_common.py" \
+  "$ROOT/scripts/apple_vision_ocr.swift" \
+  "$RESOURCES/engine/layer1/scripts/"
+cp \
+  "$ROOT/schemas/document.schema.json" \
+  "$ROOT/schemas/evidence.schema.json" \
+  "$ROOT/schemas/relation.schema.json" \
+  "$ROOT/schemas/search-unit.schema.json" \
+  "$ROOT/schemas/ocr-observation.schema.json" \
+  "$ROOT/schemas/visual-classification.schema.json" \
+  "$RESOURCES/engine/layer1/schemas/"
 cp "$SOURCE/docs/はじめにお読みください.md" "$STAGE/導入ガイド/"
 cp "$SOURCE/docs/START-HERE.html" "$STAGE/START-HERE.html"
-chmod +x "$RESOURCES/launch.sh" "$RESOURCES/"*.py "$RESOURCES/engine/"*.py
+chmod +x "$RESOURCES/launch.sh" "$RESOURCES/"*.py "$RESOURCES/engine/"*.py "$RESOURCES/engine/layer1/scripts/"*.py
 
 PLIST="$APP/Contents/Info.plist"
 /usr/libexec/PlistBuddy -c "Add :CFBundleIdentifier string jp.rivage.local-memory-search" "$PLIST" 2>/dev/null || /usr/libexec/PlistBuddy -c "Set :CFBundleIdentifier jp.rivage.local-memory-search" "$PLIST"

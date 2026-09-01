@@ -8,20 +8,35 @@ import hashlib
 import json
 import os
 import re
+import statistics
 from pathlib import Path
 from typing import Any, Callable
 
 
 BUILDER = "search-unit-builder"
-BUILDER_VERSION = "0.3.0"
+BUILDER_VERSION = "0.5.0"
 SCHEMA_VERSION = "0.1"
 STATE_FILE = "search-build-state.json"
 CELL_PATTERN = re.compile(r"^([A-Z]{1,3})([1-9][0-9]*)$")
 SEARCH_LOCATOR_KEYS = {
-    "page_number", "slide_number", "sheet_name", "table_index", "shape_id",
+    "page_number", "slide_number", "sheet_name", "cell", "table_index", "shape_id",
     "row_index", "paragraph_start", "paragraph_end", "notebook_cell_index",
     "code_line_start", "code_line_end", "locator_text", "source_member",
     "object_index", "series_index",
+}
+FORMULA_CACHED_VALUE_STATUS = "stored_in_file_not_recalculated"
+PROVISIONAL_OCR_MARKER = "[暫定読取]"
+OCR_QUALITY_BY_AGREEMENT = {
+    "independent_agreement": "high",
+    "same_engine_agreement": "provisional",
+    "provisional_single_pass": "provisional",
+}
+IMAGE_READING_ORDER_METHOD = "geometry_row_bands_v1"
+ROW_BAND_CENTER_TOLERANCE = 0.55
+OCR_BBOX_COORDINATE_SYSTEMS = {
+    "raw_raster_top_left_normalized_1000",
+    "display_oriented_top_left_normalized_1000",
+    "source_orientation_1_top_left_normalized_1000",
 }
 
 
@@ -68,6 +83,21 @@ def display_value(evidence: dict[str, Any]) -> str:
     return ""
 
 
+def scalar_display(value: Any) -> str:
+    if value is None:
+        return ""
+    if isinstance(value, (dict, list)):
+        return canonical_json(value)
+    return str(value).strip()
+
+
+def cached_value_display(value: Any, available: bool) -> str:
+    if not available:
+        return "なし"
+    rendered = scalar_display(value)
+    return rendered if rendered else "空文字"
+
+
 def column_letters_to_number(letters: str) -> int:
     result = 0
     for character in letters:
@@ -108,6 +138,83 @@ def table_cell_identity(evidence: dict[str, Any]) -> tuple[tuple[Any, ...], int,
         container = ("slide_table", location["slide_number"], location["shape_id"])
         return (container + (row,), column, str(column), locator)
     return None
+
+
+def image_row_bands(lines: list[dict[str, Any]]) -> list[list[dict[str, Any]]]:
+    """Reconstruct deterministic visual rows from normalized OCR geometry.
+
+    OCR engines often enumerate a table down columns.  Keeping that engine
+    order turns correct characters into an incorrect document.  The line
+    Evidence remains untouched; only the question-independent SearchUnit view
+    is ordered into top-to-bottom bands and left-to-right fragments.
+    """
+    fragments: list[dict[str, Any]] = []
+    for line in lines:
+        geometry = line.get("geometry")
+        if not isinstance(geometry, dict):
+            raise ValueError("OCR line lacks geometry for reading-order reconstruction")
+        values = [geometry.get(key) for key in ("x", "y", "width", "height")]
+        if any(
+            not isinstance(value, (int, float)) or isinstance(value, bool)
+            for value in values
+        ):
+            raise ValueError("OCR line geometry is not numeric")
+        x, y, width, height = values
+        if (
+            x < 0 or y < 0 or width <= 0 or height <= 0
+            or x + width > 1000 or y + height > 1000
+        ):
+            raise ValueError("OCR line geometry is outside normalized image bounds")
+        fragments.append({
+            **line,
+            "_x": float(x),
+            "_top": float(y),
+            "_height": float(height),
+            "_center_y": float(y) + float(height) / 2,
+        })
+
+    fragments.sort(key=lambda item: (
+        item["_center_y"], item["_x"], item["evidence_id"],
+    ))
+    groups: list[list[dict[str, Any]]] = []
+    for item in fragments:
+        candidates: list[tuple[float, int]] = []
+        for index, group in enumerate(groups):
+            group_center = statistics.median(value["_center_y"] for value in group)
+            group_height = statistics.median(value["_height"] for value in group)
+            distance = abs(item["_center_y"] - group_center)
+            if distance <= ROW_BAND_CENTER_TOLERANCE * min(item["_height"], group_height):
+                candidates.append((distance, index))
+        if candidates:
+            groups[min(candidates)[1]].append(item)
+        else:
+            groups.append([item])
+
+    ordered = sorted(
+        groups,
+        key=lambda group: (
+            min(item["_top"] for item in group),
+            min(item["_x"] for item in group),
+            min(item["evidence_id"] for item in group),
+        ),
+    )
+    return [
+        sorted(group, key=lambda item: (
+            item["_x"], item["_center_y"], item["evidence_id"],
+        ))
+        for group in ordered
+    ]
+
+
+def image_fragment_text(value: str, quality_tier: str) -> str:
+    fragments = []
+    for line in value.splitlines():
+        item = line.strip()
+        if quality_tier == "provisional" and item.startswith(PROVISIONAL_OCR_MARKER):
+            item = item[len(PROVISIONAL_OCR_MARKER):].lstrip()
+        if item:
+            fragments.append(item)
+    return " ".join(fragments)
 
 
 def make_unit(
@@ -166,12 +273,12 @@ class DocumentDeriver:
         self.heading: dict[str, Any] | None = None
         self.current_row_key: tuple[Any, ...] | None = None
         self.current_row_locator: dict[str, Any] = {}
-        self.current_row_cells: list[tuple[int, str, str, str]] = []
-        self.headers: dict[tuple[Any, ...], list[tuple[int, str, str, str]]] = {}
+        self.current_row_cells: list[dict[str, Any]] = []
+        self.headers: dict[tuple[Any, ...], list[dict[str, Any]]] = {}
         self.table_contexts: dict[tuple[Any, ...], dict[str, Any]] = {}
         self.current_slide: int | None = None
         self.slide_shapes: list[tuple[str, str]] = []
-        self.image_lines: list[tuple[str, str]] = []
+        self.image_lines: list[dict[str, Any]] = []
         self.image_evidence_id: str | None = None
         self.image_source_label: str | None = None
         self.counts: dict[str, int] = {}
@@ -225,8 +332,11 @@ class DocumentDeriver:
     def flush_row(self) -> None:
         if self.current_row_key is None:
             return
-        cells = sorted(self.current_row_cells, key=lambda item: item[0])
-        populated = [cell for cell in cells if cell[2]]
+        cells = sorted(self.current_row_cells, key=lambda item: item["column"])
+        populated = [
+            cell for cell in cells
+            if cell["value"] or cell.get("formula")
+        ]
         if populated:
             container = self.current_row_key[:-1]
             header = self.headers.get(container)
@@ -234,21 +344,60 @@ class DocumentDeriver:
             if header is None:
                 self.headers[container] = cells
                 context.update({"header_method": "first_non_empty_row_candidate", "is_header_candidate": True})
-                lines = [f"{label}: {value}" for _, label, value, _ in populated]
+                labels: dict[int, str] = {}
             else:
-                labels = {column: value for column, _, value, _ in header if value}
-                header_ids = [evidence_id for _, _, value, evidence_id in header if value]
+                labels = {
+                    cell["column"]: cell["value"]
+                    for cell in header if cell["value"]
+                }
+                header_ids = [
+                    evidence_id
+                    for cell in header if cell["value"]
+                    for evidence_id in (
+                        cell.get("evidence_id"), cell.get("formula_evidence_id")
+                    )
+                    if evidence_id
+                ]
                 context.update({
                     "header_method": "first_non_empty_row_candidate",
                     "is_header_candidate": False,
-                    "header_labels": [labels.get(column, label) for column, label, _, _ in cells],
+                    "header_labels": [
+                        labels.get(cell["column"], cell["label"])
+                        for cell in cells
+                    ],
                     "header_evidence_ids": header_ids,
                 })
-                lines = [f"{labels.get(column, label)}: {value}" for column, label, value, _ in populated]
+            lines: list[str] = []
+            for cell in populated:
+                label = labels.get(cell["column"], cell["label"])
+                value = cell["value"]
+                formula = cell.get("formula")
+                if formula:
+                    saved = cached_value_display(
+                        cell.get("cached_value"),
+                        bool(cell.get("cached_value_available")),
+                    )
+                    # Keep ``Label: =FORMULA`` verbatim for relationship
+                    # questions, while exposing the saved workbook value in
+                    # the same bounded row field.  Repeating the whole label
+                    # on a second line distorts BM25 length/ranking elsewhere.
+                    lines.append(
+                        f"{label}: {formula} "
+                        f"[保存値・ファイル保存時・未再計算: {saved}]"
+                    )
+                else:
+                    lines.append(f"{label}: {value}")
             heading_text = context.get("container_heading_text")
             if heading_text:
                 lines.insert(0, f"セクション: {heading_text}")
-            row_evidence_ids = [evidence_id for _, _, _, evidence_id in populated]
+            row_evidence_ids = [
+                evidence_id
+                for cell in populated
+                for evidence_id in (
+                    cell.get("evidence_id"), cell.get("formula_evidence_id")
+                )
+                if evidence_id
+            ]
             evidence_ids = list(dict.fromkeys(
                 context.get("container_heading_evidence_ids", [])
                 + context.get("header_evidence_ids", [])
@@ -276,7 +425,86 @@ class DocumentDeriver:
             self.flush_row()
             self.current_row_key = row_key
             self.current_row_locator = locator
-        self.current_row_cells.append((column, label, display_value(evidence), evidence["evidence_id"]))
+        self.current_row_cells.append({
+            "column": column,
+            "label": label,
+            "value": display_value(evidence),
+            "evidence_id": evidence["evidence_id"],
+            "formula": None,
+            "formula_evidence_id": None,
+            "cached_value": None,
+            "cached_value_available": False,
+        })
+
+    def add_formula(self, evidence: dict[str, Any]) -> None:
+        identity = table_cell_identity(evidence)
+        if identity is None:
+            return
+        row_key, column, label, locator = identity
+        if self.current_row_key != row_key:
+            self.flush_row()
+            self.current_row_key = row_key
+            self.current_row_locator = {
+                key: value for key, value in locator.items() if key != "cell"
+            }
+        cell = next(
+            (item for item in self.current_row_cells if item["column"] == column),
+            None,
+        )
+        if cell is None:
+            cell = {
+                "column": column,
+                "label": label,
+                "value": "",
+                "evidence_id": evidence.get("parent_evidence_id"),
+                "formula": None,
+                "formula_evidence_id": None,
+                "cached_value": None,
+                "cached_value_available": False,
+            }
+            self.current_row_cells.append(cell)
+        formula = display_value(evidence)
+        if not formula:
+            return
+        native = evidence.get("native_properties", {})
+        if native.get("cached_value_status") != FORMULA_CACHED_VALUE_STATUS:
+            raise ValueError("formula Evidence lacks stored-value semantics")
+        cached_available = native.get("cached_value_available")
+        if not isinstance(cached_available, bool):
+            raise ValueError("formula Evidence lacks cached-value availability")
+        cell["formula"] = formula
+        cell["formula_evidence_id"] = evidence["evidence_id"]
+        cell["cached_value"] = native.get("cached_value")
+        cell["cached_value_available"] = cached_available
+
+        cached_line = cached_value_display(
+            native.get("cached_value"), cached_available
+        )
+        source_evidence_ids = list(dict.fromkeys(
+            [
+                evidence_id
+                for evidence_id in (
+                    evidence.get("parent_evidence_id"), evidence["evidence_id"]
+                )
+                if evidence_id
+            ]
+        ))
+        location = evidence.get("location", {})
+        exact_locator = {
+            key: location[key] for key in SEARCH_LOCATOR_KEYS if key in location
+        }
+        self.write(make_unit(
+            self.document_id,
+            "text_chunk",
+            source_evidence_ids,
+            exact_locator,
+            "\n".join([
+                f"セル: {location.get('cell', label)}",
+                f"保存値（ファイル保存時・未再計算）: {cached_line}",
+                f"式: {formula}",
+            ]),
+            self.generated_at,
+        ))
 
     def add_table(self, evidence: dict[str, Any]) -> None:
         location = evidence.get("location", {})
@@ -337,24 +565,75 @@ class DocumentDeriver:
     def flush_image(self) -> None:
         if not self.image_lines:
             return
-        body = "\n".join(value for _, value in self.image_lines if value).strip()
-        text = (
-            f"Image file: {self.image_source_label}\n{body}"
-            if self.image_source_label and body else body
-        )
-        if text:
-            evidence_ids = [evidence_id for evidence_id, value in self.image_lines if value]
-            if self.image_evidence_id:
-                evidence_ids.insert(0, self.image_evidence_id)
-            self.write(make_unit(
-                self.document_id,
-                "image_text_packet",
-                evidence_ids,
-                {"object_index": 1},
-                text,
-                self.generated_at,
-                {"container_kind": "standalone_image"},
-            ))
+        # A packet is the retrieval/answer boundary. Keep both quality tiers
+        # and coordinate frames separate before reconstructing visual rows;
+        # EXIF-rotated Vision and raw-raster Tesseract boxes are not comparable.
+        for quality_tier in ("high", "provisional"):
+            coordinate_systems = sorted({
+                line["bbox_coordinate_system"] for line in self.image_lines
+                if line["quality_tier"] == quality_tier
+            })
+            for bbox_coordinate_system in coordinate_systems:
+                packet_lines = [
+                    line for line in self.image_lines
+                    if line["quality_tier"] == quality_tier
+                    and line["bbox_coordinate_system"] == bbox_coordinate_system
+                ]
+                row_bands = image_row_bands(packet_lines)
+                lines: list[dict[str, Any]] = []
+                rows: list[str] = []
+                for band in row_bands:
+                    fragments = [
+                        image_fragment_text(line["text"], quality_tier)
+                        for line in band
+                    ]
+                    row = " ".join(
+                        fragment for fragment in fragments if fragment
+                    ).strip()
+                    if not row:
+                        continue
+                    if quality_tier == "provisional":
+                        row = f"{PROVISIONAL_OCR_MARKER} {row}"
+                    rows.append(row)
+                    lines.extend(band)
+                if not lines:
+                    continue
+                body = "\n".join(rows).strip()
+                text = (
+                    f"Image file: {self.image_source_label}\n{body}"
+                    if self.image_source_label and body else body
+                )
+                if not text:
+                    continue
+                evidence_ids = [line["evidence_id"] for line in lines]
+                if self.image_evidence_id:
+                    evidence_ids.insert(0, self.image_evidence_id)
+                agreement_types = sorted({line["agreement_type"] for line in lines})
+                context: dict[str, Any] = {
+                    "container_kind": "standalone_image",
+                    "quality_tier": quality_tier,
+                    "agreement_types": agreement_types,
+                    "bbox_coordinate_system": bbox_coordinate_system,
+                    "reading_order_method": IMAGE_READING_ORDER_METHOD,
+                    "row_band_count": len(rows),
+                }
+                if quality_tier == "provisional":
+                    context["provisional_marker"] = PROVISIONAL_OCR_MARKER
+                self.write(make_unit(
+                    self.document_id,
+                    "image_text_packet",
+                    evidence_ids,
+                    {
+                        "object_index": 1,
+                        "locator_text": (
+                            f"quality_tier={quality_tier};"
+                            f"bbox_coordinate_system={bbox_coordinate_system}"
+                        ),
+                    },
+                    text,
+                    self.generated_at,
+                    context,
+                ))
         self.image_lines = []
         self.image_evidence_id = None
         self.image_source_label = None
@@ -368,7 +647,51 @@ class DocumentDeriver:
     def add_ocr_line(self, evidence: dict[str, Any]) -> None:
         value = display_value(evidence)
         if value:
-            self.image_lines.append((evidence["evidence_id"], value))
+            native = evidence.get("native_properties", {})
+            agreement_type = native.get("agreement_type")
+            expected_quality_tier = OCR_QUALITY_BY_AGREEMENT.get(agreement_type)
+            quality_tier = native.get("quality_tier")
+            if expected_quality_tier is None:
+                raise ValueError(
+                    f"unsupported OCR agreement type: {agreement_type!r}"
+                )
+            if quality_tier != expected_quality_tier:
+                raise ValueError(
+                    "OCR quality tier disagrees with agreement type: "
+                    f"{agreement_type!r} cannot be {quality_tier!r}"
+                )
+            marker = native.get("provisional_marker")
+            bbox_coordinate_system = native.get("bbox_coordinate_system")
+            if bbox_coordinate_system not in OCR_BBOX_COORDINATE_SYSTEMS:
+                raise ValueError("OCR Evidence lacks a supported bbox coordinate system")
+            if (
+                quality_tier == "high"
+                and bbox_coordinate_system
+                != "source_orientation_1_top_left_normalized_1000"
+            ):
+                raise ValueError("high OCR Evidence requires the shared orientation-1 frame")
+            if quality_tier == "provisional":
+                if marker != PROVISIONAL_OCR_MARKER:
+                    raise ValueError("provisional OCR Evidence lacks the canonical marker")
+                value = "\n".join(
+                    line if line.lstrip().startswith(PROVISIONAL_OCR_MARKER + " ")
+                    else f"{PROVISIONAL_OCR_MARKER} {line}"
+                    for line in value.splitlines()
+                    if line.strip()
+                )
+            elif marker is not None or any(
+                line.lstrip().startswith(PROVISIONAL_OCR_MARKER)
+                for line in value.splitlines()
+            ):
+                raise ValueError("high OCR Evidence must not carry a provisional marker")
+            self.image_lines.append({
+                "evidence_id": evidence["evidence_id"],
+                "text": value,
+                "quality_tier": quality_tier,
+                "agreement_type": agreement_type,
+                "bbox_coordinate_system": bbox_coordinate_system,
+                "geometry": evidence.get("geometry"),
+            })
 
     def add_direct_table_row(self, evidence: dict[str, Any]) -> None:
         value = display_value(evidence)
@@ -434,6 +757,9 @@ class DocumentDeriver:
         elif evidence_type == "table_cell":
             self.flush_paragraphs()
             self.add_cell(evidence)
+        elif evidence_type == "formula":
+            self.flush_paragraphs()
+            self.add_formula(evidence)
         elif evidence_type == "table_row":
             self.flush_paragraphs()
             self.flush_row()
@@ -519,8 +845,8 @@ def build(intermediate: Path | list[Path], output: Path, target_chars: int) -> d
     for directory in intermediates:
         state_path = directory / "build-state.json"
         state = load_json(state_path)
-        if state.get("build_status") != "complete":
-            raise ValueError(f"intermediate build must be complete: {directory}")
+        if state.get("build_status") not in {"complete", "complete_with_failures"}:
+            raise ValueError(f"intermediate build must have reached a terminal state: {directory}")
         loaded.append((directory, state_path, state))
     run_at_values = {state["run_at"] for _, _, state in loaded}
     if len(run_at_values) != 1:

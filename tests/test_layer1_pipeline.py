@@ -1,12 +1,15 @@
 from __future__ import annotations
 
 import hashlib
+import io
+import importlib.util
 import json
 import shutil
 import subprocess
 import sys
 import tempfile
 import unittest
+import zipfile
 from pathlib import Path
 from unittest import mock
 
@@ -19,6 +22,7 @@ sys.path.insert(0, str(SCRIPTS))
 sys.path.insert(0, str(REPOSITORY / "rag"))
 
 import build_chart_intermediate
+import build_intermediate_records
 import build_layer1_deliverables
 import build_lexical_index
 import build_search_units
@@ -31,6 +35,7 @@ import search_lexical_index
 import validate_intermediate_records_streaming
 import validate_layer1_deliverables
 import validate_lexical_index
+import validate_search_units
 import validate_search_units_streaming
 import validate_semantic_index
 import layer1_index
@@ -42,6 +47,144 @@ MODEL = {
     "resolved": "embeddinggemma:latest",
     "digest": "a" * 64,
 }
+
+OOXML_REQUIRED = frozenset({
+    "[Content_Types].xml",
+    "xl/workbook.xml",
+    "xl/_rels/workbook.xml.rels",
+})
+
+
+def write_unsafe_ooxml(
+    target: Path | io.BytesIO,
+    *,
+    required_members: frozenset[str],
+    unsafe_member: str,
+) -> None:
+    with zipfile.ZipFile(target, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+        for name in sorted(required_members):
+            value = (
+                '<!DOCTYPE root [<!ENTITY unsafe "entity">]><root/>'
+                if name == unsafe_member
+                else "<root/>"
+            )
+            archive.writestr(name, value)
+    if isinstance(target, io.BytesIO):
+        target.seek(0)
+
+
+def write_minimal_xlsx(
+    path: Path,
+    *,
+    numeric_lexeme: str = "0.123456789012345678901234567890",
+    unsafe_workbook_xml: bool = False,
+    workbook_xml_bytes: bytes | None = None,
+) -> None:
+    workbook_prefix = '<!DOCTYPE workbook [<!ENTITY unsafe "entity">]>' if unsafe_workbook_xml else ""
+    members = {
+        "[Content_Types].xml": (
+            '<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"/>'
+        ),
+        "xl/workbook.xml": workbook_xml_bytes or (workbook_prefix + (
+            '<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" '
+            'xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">'
+            '<sheets><sheet name="Precise" sheetId="1" r:id="rId1"/></sheets></workbook>'
+        )),
+        "xl/_rels/workbook.xml.rels": (
+            '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'
+            '<Relationship Id="rId1" '
+            'Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" '
+            'Target="worksheets/sheet1.xml"/></Relationships>'
+        ),
+        "xl/styles.xml": (
+            '<styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">'
+            '<cellXfs count="1"><xf numFmtId="0"/></cellXfs></styleSheet>'
+        ),
+        "xl/worksheets/sheet1.xml": (
+            '<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">'
+            f'<sheetData><row r="1"><c r="A1"><v>{numeric_lexeme}</v></c></row></sheetData>'
+            '</worksheet>'
+        ),
+    }
+    with zipfile.ZipFile(path, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+        for name, value in members.items():
+            archive.writestr(name, value)
+
+
+def write_cached_formula_xlsx(path: Path) -> None:
+    """Write two sheets with formula text and saved, not recalculated values."""
+    spreadsheet = "http://schemas.openxmlformats.org/spreadsheetml/2006/main"
+    office_relationships = (
+        "http://schemas.openxmlformats.org/officeDocument/2006/relationships"
+    )
+    package_relationships = (
+        "http://schemas.openxmlformats.org/package/2006/relationships"
+    )
+    members = {
+        "[Content_Types].xml": (
+            '<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">'
+            '<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>'
+            '<Default Extension="xml" ContentType="application/xml"/>'
+            '<Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/>'
+            '<Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>'
+            '<Override PartName="/xl/worksheets/sheet2.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>'
+            '<Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/>'
+            '</Types>'
+        ),
+        "_rels/.rels": (
+            f'<Relationships xmlns="{package_relationships}">'
+            f'<Relationship Id="rId1" Type="{office_relationships}/officeDocument" Target="xl/workbook.xml"/>'
+            '</Relationships>'
+        ),
+        "xl/workbook.xml": (
+            f'<workbook xmlns="{spreadsheet}" xmlns:r="{office_relationships}">'
+            '<sheets>'
+            '<sheet name="マスター" sheetId="1" r:id="rId1"/>'
+            '<sheet name="集計表マスター" sheetId="2" r:id="rId2"/>'
+            '</sheets></workbook>'
+        ),
+        "xl/_rels/workbook.xml.rels": (
+            f'<Relationships xmlns="{package_relationships}">'
+            f'<Relationship Id="rId1" Type="{office_relationships}/worksheet" Target="worksheets/sheet1.xml"/>'
+            f'<Relationship Id="rId2" Type="{office_relationships}/worksheet" Target="worksheets/sheet2.xml"/>'
+            f'<Relationship Id="rId3" Type="{office_relationships}/styles" Target="styles.xml"/>'
+            '</Relationships>'
+        ),
+        "xl/styles.xml": (
+            f'<styleSheet xmlns="{spreadsheet}">'
+            '<fonts count="1"><font><sz val="11"/><name val="Arial"/></font></fonts>'
+            '<fills count="2"><fill><patternFill patternType="none"/></fill>'
+            '<fill><patternFill patternType="gray125"/></fill></fills>'
+            '<borders count="1"><border/></borders>'
+            '<cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs>'
+            '<cellXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/></cellXfs>'
+            '<cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles>'
+            '</styleSheet>'
+        ),
+        "xl/worksheets/sheet1.xml": (
+            f'<worksheet xmlns="{spreadsheet}"><dimension ref="B7:C9"/><sheetData>'
+            '<row r="7"><c r="B7" t="inlineStr"><is><t>受付</t></is></c>'
+            '<c r="C7" t="n"><f>集計表マスター!B33</f><v>13</v></c></row>'
+            '<row r="8"><c r="B8" t="inlineStr"><is><t>配膳</t></is></c>'
+            '<c r="C8" t="n"><f>集計表マスター!C33</f><v>0</v></c></row>'
+            '<row r="9"><c r="B9" t="inlineStr"><is><t>卓上</t></is></c>'
+            '<c r="C9" t="n"><f>集計表マスター!D33</f><v>0</v></c></row>'
+            '</sheetData></worksheet>'
+        ),
+        "xl/worksheets/sheet2.xml": (
+            f'<worksheet xmlns="{spreadsheet}"><dimension ref="B1:D33"/><sheetData>'
+            '<row r="1"><c r="B1" t="inlineStr"><is><t>受付</t></is></c>'
+            '<c r="C1" t="inlineStr"><is><t>配膳</t></is></c>'
+            '<c r="D1" t="inlineStr"><is><t>卓上</t></is></c></row>'
+            '<row r="33"><c r="B33" t="n"><f>SUM(B2:B32)</f><v>13</v></c>'
+            '<c r="C33" t="n"><f>SUM(C2:C32)</f><v>0</v></c>'
+            '<c r="D33" t="n"><f>SUM(D2:D32)</f><v>0</v></c></row>'
+            '</sheetData></worksheet>'
+        ),
+    }
+    with zipfile.ZipFile(path, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+        for name, value in members.items():
+            archive.writestr(name, value)
 
 
 def write_json(path: Path, value: object) -> None:
@@ -346,6 +489,523 @@ class Layer1PipelineTest(unittest.TestCase):
         value, encoding = probe_intermediate_records.read_text(utf16_path)
         self.assertEqual(value, "日本語テキスト")
         self.assertEqual(encoding, "utf-16")
+
+    def test_large_text_like_file_routes_to_bounded_searchable_stream(self) -> None:
+        source = self.work / "large.json"
+        source.write_text('{"message":"後段の質問に渡す読取結果"}\n', encoding="utf-8")
+        probe = probe_intermediate_records.Probe(
+            self.work, RUN_AT, None, diagnostic=False
+        )
+        with (
+            mock.patch.object(probe_intermediate_records, "MAX_DIRECT_TEXT_BYTES", 8),
+            mock.patch.object(
+                probe_intermediate_records,
+                "read_text",
+                side_effect=AssertionError("large-file route must not materialize the source"),
+            ),
+        ):
+            probe.extract(source)
+
+        self.assertEqual(len(probe.documents), 1)
+        document = probe.documents[0]
+        self.assertEqual(document["extraction"]["parser"], "bounded-text-stream")
+        self.assertEqual(document["extraction"]["status"], "partial")
+        self.assertTrue(probe.evidence)
+        self.assertIn("後段の質問に渡す", probe.evidence[0]["content"]["raw_text"])
+        self.assertEqual(
+            probe.evidence[0]["provenance"]["extraction_method"],
+            "bounded_streaming_text",
+        )
+        self.assertEqual(
+            probe.evidence[0]["native_properties"]["source_structure_status"],
+            "unresolved",
+        )
+
+    def test_large_stream_is_exactly_sharded_for_the_question_path(self) -> None:
+        source = self.work / "large.txt"
+        source_text = "先頭\n" + ("読取文字" * 1400) + "\n末尾の質問根拠"
+        source.write_text(source_text, encoding="utf-8")
+        probe = probe_intermediate_records.Probe(
+            self.work, RUN_AT, None, diagnostic=False
+        )
+        with mock.patch.object(
+            probe_intermediate_records, "MAX_DIRECT_TEXT_BYTES", 8
+        ):
+            probe.extract(source)
+
+        chunks = [item["content"]["raw_text"] for item in probe.evidence]
+        self.assertGreater(len(chunks), 1)
+        self.assertEqual("".join(chunks), source_text)
+        self.assertTrue(all(
+            len(value) <= probe_intermediate_records.MAX_QUESTION_EVIDENCE_CHARS
+            for value in chunks
+        ))
+        self.assertIn("末尾の質問根拠", chunks[-1])
+        offsets = [
+            (
+                item["native_properties"]["character_start"],
+                item["native_properties"]["character_end"],
+            )
+            for item in probe.evidence
+        ]
+        self.assertEqual(offsets[0][0], 0)
+        self.assertEqual(offsets[-1][1], len(source_text))
+        self.assertTrue(all(left[1] == right[0] for left, right in zip(offsets, offsets[1:])))
+
+    def test_large_cp932_sniff_keeps_a_character_split_at_sample_boundary(self) -> None:
+        prefix = b"A" * (probe_intermediate_records.TEXT_ENCODING_SNIFF_BYTES - 1)
+        encoded = prefix + "後".encode("cp932") + b"B" * 16
+        sample = encoded[:probe_intermediate_records.TEXT_ENCODING_SNIFF_BYTES]
+        self.assertEqual(
+            probe_intermediate_records.detect_text_encoding(
+                sample, partial_sample=True
+            ),
+            "cp932",
+        )
+
+        source = self.work / "large-boundary.csv"
+        source.write_bytes(encoded)
+        probe = probe_intermediate_records.Probe(
+            self.work, RUN_AT, None, diagnostic=False
+        )
+        with mock.patch.object(
+            probe_intermediate_records,
+            "MAX_DIRECT_TEXT_BYTES",
+            probe_intermediate_records.TEXT_ENCODING_SNIFF_BYTES - 1,
+        ):
+            probe.extract(source)
+        reconstructed = "".join(
+            item["content"]["raw_text"] for item in probe.evidence
+        )
+        self.assertIn("後", reconstructed)
+        self.assertNotIn("\ufffd", reconstructed)
+
+    def test_large_cp932_with_ascii_prefix_is_validated_beyond_the_sniff_window(self) -> None:
+        encoded = (
+            b"A" * probe_intermediate_records.TEXT_ENCODING_SNIFF_BYTES
+            + "後".encode("cp932")
+            + b"B"
+        )
+        source = self.work / "large-ascii-prefix.csv"
+        source.write_bytes(encoded)
+        self.assertEqual(
+            probe_intermediate_records.detect_text_file_encoding(source),
+            "cp932",
+        )
+
+        probe = probe_intermediate_records.Probe(
+            self.work, RUN_AT, None, diagnostic=False
+        )
+        with mock.patch.object(
+            probe_intermediate_records,
+            "MAX_DIRECT_TEXT_BYTES",
+            probe_intermediate_records.TEXT_ENCODING_SNIFF_BYTES - 1,
+        ):
+            probe.extract(source)
+        reconstructed = "".join(
+            item["content"]["raw_text"] for item in probe.evidence
+        )
+        self.assertIn("後", reconstructed)
+        self.assertNotIn("\ufffd", reconstructed)
+
+    def test_ooxml_fallback_rejects_unsafe_xml_and_zip_bomb_ratio(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="aiec-ooxml-safety-") as temporary:
+            root = Path(temporary)
+            unsafe = root / "unsafe.xlsx"
+            write_minimal_xlsx(unsafe, unsafe_workbook_xml=True)
+            with self.assertRaisesRegex(ValueError, "ooxml_xml_unsafe"):
+                probe_intermediate_records.validate_ooxml_archive(
+                    unsafe, required_members=OOXML_REQUIRED
+                )
+
+            compressed_bomb = root / "compressed-bomb.xlsx"
+            with zipfile.ZipFile(
+                compressed_bomb, "w", compression=zipfile.ZIP_DEFLATED
+            ) as archive:
+                for name in OOXML_REQUIRED:
+                    value = "A" * 1_000_000 if name == "xl/workbook.xml" else "<root/>"
+                    archive.writestr(name, value)
+            with self.assertRaisesRegex(ValueError, "ooxml_archive_resource_limit"):
+                probe_intermediate_records.validate_ooxml_archive(
+                    compressed_bomb, required_members=OOXML_REQUIRED
+                )
+
+    @unittest.skipUnless(
+        importlib.util.find_spec("openpyxl"),
+        "openpyxl is required for the native-reader safety-route test",
+    )
+    def test_openpyxl_route_runs_ooxml_safety_gate_before_parser(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="aiec-openpyxl-safety-") as temporary:
+            root = Path(temporary)
+            unsafe = root / "unsafe.xlsx"
+            write_minimal_xlsx(unsafe, unsafe_workbook_xml=True)
+            probe = probe_intermediate_records.Probe(
+                root, RUN_AT, None, diagnostic=False
+            )
+            with self.assertRaisesRegex(ValueError, "ooxml_xml_unsafe"):
+                probe.extract_xlsx(unsafe)
+
+    @unittest.skipUnless(
+        importlib.util.find_spec("docx"),
+        "python-docx is required for the native-reader safety-route test",
+    )
+    def test_python_docx_route_gates_archive_before_parser(self) -> None:
+        import docx
+
+        with tempfile.TemporaryDirectory(prefix="aiec-docx-safety-") as temporary:
+            root = Path(temporary)
+            unsafe = root / "unsafe.docx"
+            write_unsafe_ooxml(
+                unsafe,
+                required_members=probe_intermediate_records.DOCX_REQUIRED_OOXML_MEMBERS,
+                unsafe_member="word/document.xml",
+            )
+            probe = probe_intermediate_records.Probe(
+                root, RUN_AT, None, diagnostic=False
+            )
+            with mock.patch.object(docx, "Document") as parser:
+                with self.assertRaisesRegex(ValueError, "ooxml_xml_unsafe"):
+                    probe.extract_docx(unsafe)
+                parser.assert_not_called()
+
+            decrypted = io.BytesIO()
+            write_unsafe_ooxml(
+                decrypted,
+                required_members=probe_intermediate_records.DOCX_REQUIRED_OOXML_MEMBERS,
+                unsafe_member="word/document.xml",
+            )
+            decrypted.seek(7)
+            with (
+                mock.patch.object(
+                    probe, "office_source", return_value=(decrypted, True)
+                ),
+                mock.patch.object(docx, "Document") as parser,
+            ):
+                with self.assertRaisesRegex(ValueError, "ooxml_xml_unsafe"):
+                    probe.extract_docx(unsafe)
+                parser.assert_not_called()
+            self.assertEqual(decrypted.tell(), 0)
+
+    @unittest.skipUnless(
+        importlib.util.find_spec("pptx"),
+        "python-pptx is required for the native-reader safety-route test",
+    )
+    def test_python_pptx_route_gates_archive_before_parser(self) -> None:
+        import pptx
+
+        with tempfile.TemporaryDirectory(prefix="aiec-pptx-safety-") as temporary:
+            root = Path(temporary)
+            unsafe = root / "unsafe.pptx"
+            write_unsafe_ooxml(
+                unsafe,
+                required_members=probe_intermediate_records.PPTX_REQUIRED_OOXML_MEMBERS,
+                unsafe_member="ppt/presentation.xml",
+            )
+            probe = probe_intermediate_records.Probe(
+                root, RUN_AT, None, diagnostic=False
+            )
+            with mock.patch.object(pptx, "Presentation") as parser:
+                with self.assertRaisesRegex(ValueError, "ooxml_xml_unsafe"):
+                    probe.extract_pptx(unsafe)
+                parser.assert_not_called()
+
+            decrypted = io.BytesIO()
+            write_unsafe_ooxml(
+                decrypted,
+                required_members=probe_intermediate_records.PPTX_REQUIRED_OOXML_MEMBERS,
+                unsafe_member="ppt/presentation.xml",
+            )
+            decrypted.seek(7)
+            with (
+                mock.patch.object(
+                    probe, "office_source", return_value=(decrypted, True)
+                ),
+                mock.patch.object(pptx, "Presentation") as parser,
+            ):
+                with self.assertRaisesRegex(ValueError, "ooxml_xml_unsafe"):
+                    probe.extract_pptx(unsafe)
+                parser.assert_not_called()
+            self.assertEqual(decrypted.tell(), 0)
+
+    def test_ooxml_fallback_rejects_utf16_dtd_before_parsing(self) -> None:
+        unsafe_xml = (
+            '<?xml version="1.0" encoding="UTF-16"?>'
+            '<!DOCTYPE workbook [<!ENTITY unsafe "entity">]>'
+            '<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"/>'
+        )
+        with tempfile.TemporaryDirectory(prefix="aiec-ooxml-utf16-") as temporary:
+            root = Path(temporary)
+            for name, payload in (
+                ("bom-le.xlsx", unsafe_xml.encode("utf-16")),
+                (
+                    "signature-be.xlsx",
+                    unsafe_xml.replace("UTF-16", "UTF-16BE").encode("utf-16-be"),
+                ),
+            ):
+                workbook = root / name
+                write_minimal_xlsx(workbook, workbook_xml_bytes=payload)
+                with self.subTest(name=name), self.assertRaisesRegex(
+                    ValueError, "ooxml_xml_unsafe"
+                ):
+                    probe_intermediate_records.validate_ooxml_archive(
+                        workbook, required_members=OOXML_REQUIRED
+                    )
+
+            safe_xml = (
+                '<?xml version="1.0" encoding="UTF-16"?>'
+                '<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"/>'
+            ).encode("utf-16")
+            safe = root / "safe-utf16.xlsx"
+            write_minimal_xlsx(safe, workbook_xml_bytes=safe_xml)
+            probe_intermediate_records.validate_ooxml_archive(
+                safe, required_members=OOXML_REQUIRED
+            )
+
+            mismatched = root / "mismatched-declaration.xlsx"
+            write_minimal_xlsx(
+                mismatched,
+                workbook_xml_bytes=(
+                    '<?xml version="1.0" encoding="UTF-8"?>'
+                    '<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"/>'
+                ).encode("utf-16"),
+            )
+            with self.assertRaisesRegex(ValueError, "ooxml_xml_encoding_invalid"):
+                probe_intermediate_records.validate_ooxml_archive(
+                    mismatched, required_members=OOXML_REQUIRED
+                )
+
+    def test_ooxml_fallback_preserves_numeric_raw_lexeme(self) -> None:
+        exact = "0.123456789012345678901234567890"
+        with tempfile.TemporaryDirectory(prefix="aiec-ooxml-precision-") as temporary:
+            root = Path(temporary)
+            workbook = root / "precise.xlsx"
+            write_minimal_xlsx(workbook, numeric_lexeme=exact)
+            probe = probe_intermediate_records.Probe(
+                root, RUN_AT, None, diagnostic=False
+            )
+            probe.extract_xlsx_ooxml(workbook)
+            probe.finalize_document()
+            cells = [
+                item for item in probe.evidence
+                if item.get("evidence_type") == "table_cell"
+            ]
+            self.assertEqual(len(cells), 1)
+            self.assertEqual(cells[0]["content"]["raw_value"], exact)
+            self.assertEqual(cells[0]["content"]["normalized_value"], exact)
+            self.assertEqual(cells[0]["native_properties"]["raw_lexeme"], exact)
+
+    def assert_cached_formulas_are_questionable(
+        self,
+        probe: probe_intermediate_records.Probe,
+    ) -> None:
+        expected = {
+            ("マスター", "C7"): 13,
+            ("マスター", "C8"): 0,
+            ("マスター", "C9"): 0,
+            ("集計表マスター", "B33"): 13,
+            ("集計表マスター", "C33"): 0,
+            ("集計表マスター", "D33"): 0,
+        }
+        cells = {
+            (item["location"]["sheet_name"], item["location"]["cell"]): item
+            for item in probe.evidence
+            if item.get("evidence_type") == "table_cell"
+            and (item["location"]["sheet_name"], item["location"]["cell"])
+            in expected
+        }
+        formulas = {
+            (item["location"]["sheet_name"], item["location"]["cell"]): item
+            for item in probe.evidence
+            if item.get("evidence_type") == "formula"
+        }
+        self.assertEqual(set(cells), set(expected))
+        self.assertEqual(set(formulas), set(expected))
+        for locator, saved_value in expected.items():
+            with self.subTest(locator=locator):
+                self.assertEqual(cells[locator]["content"]["raw_value"], saved_value)
+                self.assertTrue(formulas[locator]["content"]["raw_text"].startswith("="))
+                self.assertEqual(
+                    formulas[locator]["native_properties"]["cached_value"],
+                    saved_value,
+                )
+                self.assertTrue(
+                    formulas[locator]["native_properties"]["cached_value_available"]
+                )
+                self.assertEqual(
+                    formulas[locator]["native_properties"]["cached_value_status"],
+                    "stored_in_file_not_recalculated",
+                )
+
+        units: list[dict[str, object]] = []
+        deriver = build_search_units.DocumentDeriver(
+            probe.documents[0]["document_id"], RUN_AT, units.append, 1200
+        )
+        for item in probe.evidence:
+            deriver.consume(item)
+        deriver.finish()
+
+        exact_formula_units = {
+            (item["locator"]["sheet_name"], item["locator"]["cell"]): item
+            for item in units
+            if item["unit_type"] == "text_chunk" and "cell" in item["locator"]
+        }
+        self.assertEqual(set(exact_formula_units), set(expected))
+        for locator, saved_value in expected.items():
+            text = exact_formula_units[locator]["text"]["search_text"]
+            self.assertIn(f"保存値（ファイル保存時・未再計算）: {saved_value}", text)
+            self.assertIn("式: =", text)
+            self.assertEqual(
+                set(exact_formula_units[locator]["source_evidence_ids"]),
+                {
+                    cells[locator]["evidence_id"],
+                    formulas[locator]["evidence_id"],
+                },
+            )
+
+        rows = {
+            (item["locator"]["sheet_name"], item["locator"]["row_index"]): item
+            for item in units if item["unit_type"] == "table_row"
+        }
+        for locator in (("マスター", 7), ("マスター", 8), ("マスター", 9)):
+            text = rows[locator]["text"]["search_text"]
+            self.assertIn(str(expected[(locator[0], f"C{locator[1]}")]), text)
+            self.assertIn("保存値・ファイル保存時・未再計算", text)
+            self.assertIn(": =", text)
+        aggregate_text = rows[("集計表マスター", 33)]["text"]["search_text"]
+        for value in (13, 0, 0):
+            self.assertIn(str(value), aggregate_text)
+        self.assertEqual(aggregate_text.count("保存値・ファイル保存時・未再計算"), 3)
+        self.assertEqual(aggregate_text.count(": =SUM("), 3)
+
+    def test_ooxml_fallback_keeps_formula_and_saved_value_in_search_units(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="aiec-ooxml-formula-cache-") as temporary:
+            root = Path(temporary)
+            workbook = root / "cached-formulas.xlsx"
+            write_cached_formula_xlsx(workbook)
+            before = hashlib.sha256(workbook.read_bytes()).hexdigest()
+            probe = probe_intermediate_records.Probe(
+                root, RUN_AT, None, diagnostic=False
+            )
+            probe.extract_xlsx_ooxml(workbook)
+            probe.finalize_document()
+            self.assert_cached_formulas_are_questionable(probe)
+            self.assertEqual(hashlib.sha256(workbook.read_bytes()).hexdigest(), before)
+
+    @unittest.skipUnless(
+        importlib.util.find_spec("openpyxl"),
+        "openpyxl is required for the native cached-formula route test",
+    )
+    def test_openpyxl_keeps_formula_and_saved_value_in_search_units(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="aiec-openpyxl-formula-cache-") as temporary:
+            root = Path(temporary)
+            workbook = root / "cached-formulas.xlsx"
+            write_cached_formula_xlsx(workbook)
+            before = hashlib.sha256(workbook.read_bytes()).hexdigest()
+            probe = probe_intermediate_records.Probe(
+                root, RUN_AT, None, diagnostic=False
+            )
+            probe.extract_xlsx(workbook)
+            probe.finalize_document()
+            self.assert_cached_formulas_are_questionable(probe)
+            self.assertEqual(hashlib.sha256(workbook.read_bytes()).hexdigest(), before)
+
+    def test_search_unit_schema_allows_exact_formula_cell_locator(self) -> None:
+        schema = json.loads(
+            (REPOSITORY / "schemas" / "search-unit.schema.json").read_text(
+                encoding="utf-8"
+            )
+        )
+        cell = schema["properties"]["locator"]["properties"]["cell"]
+        self.assertEqual(cell["pattern"], "^[A-Z]{1,3}[1-9][0-9]*$")
+
+    def test_cached_formula_search_units_pass_trace_validators(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="aiec-formula-trace-") as temporary:
+            base = Path(temporary)
+            root = base / "source"
+            root.mkdir()
+            write_cached_formula_xlsx(root / "cached-formulas.xlsx")
+            intermediate = base / "intermediate"
+            subprocess.run(
+                [
+                    sys.executable,
+                    str(SCRIPTS / "build_intermediate_records.py"),
+                    "--root", str(root),
+                    "--out", str(intermediate),
+                    "--run-at", RUN_AT,
+                ],
+                check=True,
+                capture_output=True,
+                text=True,
+            )
+            search = base / "search"
+            build_search_units.build([intermediate], search, 1200)
+            validate_intermediate_records_streaming.validate(intermediate, root)
+            expected = validate_search_units.validate(search, [intermediate])
+            streamed = validate_search_units_streaming.validate(
+                search, [intermediate]
+            )
+            self.assertEqual(streamed, expected)
+            self.assertEqual(expected["counts_by_type"]["text_chunk"], 6)
+            units = [
+                json.loads(line)
+                for line in (search / "search_units.jsonl").read_text(
+                    encoding="utf-8"
+                ).splitlines()
+                if line.strip()
+            ]
+            formula_units = [
+                item for item in units
+                if item["unit_type"] == "text_chunk"
+                and "cell" in item["locator"]
+            ]
+            self.assertEqual(len(formula_units), 6)
+            self.assertTrue(all("未再計算" in item["text"]["search_text"] for item in formula_units))
+
+    def test_failed_document_rolls_back_partial_evidence_and_relations(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="aiec-file-transaction-") as temporary:
+            root = Path(temporary) / "source"
+            root.mkdir()
+            source = root / "late-failure.txt"
+            source.write_text("source remains unchanged", encoding="utf-8")
+            output = Path(temporary) / "intermediate"
+            output.mkdir()
+
+            def emit_then_fail(extractor, path: Path) -> None:
+                document = extractor.add_document(path, "late-failure-fixture")
+                evidence = extractor.add_evidence(
+                    document["document_id"],
+                    "paragraph",
+                    {"paragraph_index": 1},
+                    probe_intermediate_records.content(raw_text="partial-evidence-must-not-survive"),
+                )
+                extractor.contain_document(document["document_id"], evidence["evidence_id"])
+                raise RuntimeError("synthetic late extraction failure")
+
+            source_sha = probe_intermediate_records.digest_file(source)
+            with mock.patch.object(
+                build_intermediate_records.Probe, "extract", new=emit_then_fail
+            ):
+                entry, error = build_intermediate_records.process_file(
+                    output, root, source, RUN_AT, source_sha, ()
+                )
+
+            self.assertIsInstance(error, RuntimeError)
+            self.assertEqual(entry["status"], "failed")
+            self.assertEqual(entry["shards"]["documents"]["record_count"], 1)
+            self.assertEqual(entry["shards"]["evidence"]["record_count"], 0)
+            self.assertEqual(entry["shards"]["relations"]["record_count"], 0)
+            document_path = output / entry["shards"]["documents"]["relative_path"]
+            evidence_path = output / entry["shards"]["evidence"]["relative_path"]
+            relation_path = output / entry["shards"]["relations"]["relative_path"]
+            document = json.loads(document_path.read_text(encoding="utf-8"))
+            self.assertEqual(document["extraction"]["status"], "failed")
+            self.assertIn("synthetic late extraction failure", document["extraction"]["errors"][0])
+            self.assertEqual(evidence_path.read_bytes(), b"")
+            self.assertEqual(relation_path.read_bytes(), b"")
+            self.assertNotIn(
+                b"partial-evidence-must-not-survive",
+                document_path.read_bytes() + evidence_path.read_bytes() + relation_path.read_bytes(),
+            )
 
     def test_evaluation_records_confirmed_ground_truth_and_full_trace(self) -> None:
         unit = json.loads(

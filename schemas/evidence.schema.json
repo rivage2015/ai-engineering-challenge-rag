@@ -53,6 +53,7 @@
         "code_block",
         "notebook_cell",
         "metadata",
+        "ocr_line",
         "other"
       ]
     },
@@ -142,7 +143,8 @@
         "coordinate_space": {
           "enum": ["page", "slide", "sheet", "image", "other"]
         },
-        "unit": {"enum": ["pt", "emu", "px", "cell", "other"]},
+        "coordinate_origin": {"enum": ["top_left"]},
+        "unit": {"enum": ["pt", "emu", "px", "cell", "normalized_1000", "other"]},
         "x": {"type": "number"},
         "y": {"type": "number"},
         "width": {"type": "number", "minimum": 0},
@@ -187,10 +189,163 @@
       }
     }
   },
+  "allOf": [
+    {
+      "if": {
+        "properties": {"evidence_type": {"const": "ocr_line"}},
+        "required": ["evidence_type"]
+      },
+      "then": {
+        "required": ["parent_evidence_id", "geometry", "native_properties"],
+        "properties": {
+          "geometry": {
+            "required": [
+              "coordinate_space", "coordinate_origin", "unit",
+              "x", "y", "width", "height"
+            ],
+            "properties": {
+              "coordinate_space": {"const": "image"},
+              "coordinate_origin": {"const": "top_left"},
+              "unit": {"const": "normalized_1000"}
+            }
+          },
+          "native_properties": {"$ref": "#/$defs/ocrLineNativeProperties"}
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "evidence_type": {"const": "ocr_line"},
+          "native_properties": {
+            "properties": {
+              "agreement_type": {"const": "independent_agreement"}
+            },
+            "required": ["agreement_type"]
+          }
+        },
+        "required": ["evidence_type", "native_properties"]
+      },
+      "then": {
+        "properties": {
+          "native_properties": {
+            "properties": {
+              "quality_tier": {"const": "high"},
+              "independent_engines": {"const": true},
+              "spatial_overlap": {"minimum": 0.5}
+            },
+            "not": {"required": ["provisional_marker"]}
+          },
+          "provenance": {
+            "properties": {
+              "extraction_method": {"const": "dual_local_ocr_consensus"}
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "evidence_type": {"const": "ocr_line"},
+          "native_properties": {
+            "properties": {
+              "agreement_type": {"const": "same_engine_agreement"}
+            },
+            "required": ["agreement_type"]
+          }
+        },
+        "required": ["evidence_type", "native_properties"]
+      },
+      "then": {
+        "properties": {
+          "native_properties": {
+            "required": ["provisional_marker"],
+            "properties": {
+              "quality_tier": {"const": "provisional"},
+              "provisional_marker": {"const": "[暫定読取]"},
+              "spatial_overlap": {"minimum": 0.5}
+            }
+          },
+          "provenance": {
+            "properties": {
+              "extraction_method": {"const": "adaptive_local_ocr_provisional"}
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "evidence_type": {"const": "ocr_line"},
+          "native_properties": {
+            "properties": {
+              "agreement_type": {"const": "provisional_single_pass"}
+            },
+            "required": ["agreement_type"]
+          }
+        },
+        "required": ["evidence_type", "native_properties"]
+      },
+      "then": {
+        "properties": {
+          "native_properties": {
+            "required": ["provisional_marker"],
+            "properties": {
+              "quality_tier": {"const": "provisional"},
+              "provisional_marker": {"const": "[暫定読取]"},
+              "spatial_overlap": {"const": 0}
+            }
+          },
+          "provenance": {
+            "properties": {
+              "extraction_method": {"const": "adaptive_local_ocr_provisional"}
+            }
+          }
+        }
+      }
+    }
+  ],
   "$defs": {
     "color": {
       "type": "string",
       "pattern": "^[0-9A-F]{8}$"
+    },
+    "ocrLineNativeProperties": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": [
+        "consensus_method",
+        "agreement_type",
+        "quality_tier",
+        "bbox_coordinate_system",
+        "spatial_overlap",
+        "independent_engines",
+        "observation_provenance"
+      ],
+      "properties": {
+        "consensus_method": {"type": "string", "minLength": 1},
+        "agreement_type": {
+          "enum": [
+            "independent_agreement",
+            "same_engine_agreement",
+            "provisional_single_pass"
+          ]
+        },
+        "quality_tier": {"enum": ["high", "provisional"]},
+        "bbox_coordinate_system": {
+          "enum": [
+            "raw_raster_top_left_normalized_1000",
+            "display_oriented_top_left_normalized_1000",
+            "source_orientation_1_top_left_normalized_1000"
+          ]
+        },
+        "provisional_marker": {"const": "[暫定読取]"},
+        "spatial_overlap": {"type": "number", "minimum": 0, "maximum": 1},
+        "independent_engines": {"type": "boolean"},
+        "observation_provenance": {"type": "object"}
+      }
     },
     "annotation": {
       "type": "object",

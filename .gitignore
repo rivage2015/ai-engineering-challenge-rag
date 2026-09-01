@@ -3,6 +3,7 @@
 
 !.gitignore
 !README.md
+!REPOSITORY_CATALOG.md
 
 !design/
 !design/**

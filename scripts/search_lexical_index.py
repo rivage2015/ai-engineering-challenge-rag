@@ -203,6 +203,7 @@ def main() -> None:
         choices=[
             "paragraph_chunk", "table_row", "slide_text", "page_text",
             "text_chunk", "code_chunk", "notebook_cell", "chart_summary", "chart_series",
+            "image_text_packet",
         ],
     )
     parser.add_argument("--snippet-chars", type=int, default=500)

@@ -25,7 +25,7 @@ REQUIRED = {
 }
 ALLOWED = REQUIRED | {"context"}
 LOCATOR_KEYS = {
-    "page_number", "slide_number", "sheet_name", "table_index", "shape_id",
+    "page_number", "slide_number", "sheet_name", "cell", "table_index", "shape_id",
     "row_index", "paragraph_start", "paragraph_end", "notebook_cell_index",
     "code_line_start", "code_line_end", "locator_text", "source_member",
     "object_index", "series_index",
@@ -33,7 +33,20 @@ LOCATOR_KEYS = {
 CONTEXT_KEYS = {
     "heading_text", "header_labels", "header_evidence_ids", "header_method",
     "is_header_candidate", "container_kind", "container_heading_text",
-    "container_heading_evidence_ids",
+    "container_heading_evidence_ids", "quality_tier", "agreement_types",
+    "provisional_marker", "bbox_coordinate_system", "reading_order_method",
+    "row_band_count",
+}
+PROVISIONAL_OCR_MARKER = "[暫定読取]"
+OCR_QUALITY_BY_AGREEMENT = {
+    "independent_agreement": "high",
+    "same_engine_agreement": "provisional",
+    "provisional_single_pass": "provisional",
+}
+OCR_BBOX_COORDINATE_SYSTEMS = {
+    "raw_raster_top_left_normalized_1000",
+    "display_oriented_top_left_normalized_1000",
+    "source_orientation_1_top_left_normalized_1000",
 }
 
 
@@ -57,10 +70,12 @@ def digest_file(path: Path, chunk_size: int = 1024 * 1024) -> str:
     return digest.hexdigest()
 
 
-def load_intermediate_ids(intermediate: Path | list[Path]) -> tuple[set[str], dict[str, str]]:
+def load_intermediate_ids(
+    intermediate: Path | list[Path],
+) -> tuple[set[str], dict[str, dict[str, Any]]]:
     intermediates = [intermediate] if isinstance(intermediate, Path) else intermediate
     documents: set[str] = set()
-    evidence: dict[str, str] = {}
+    evidence: dict[str, dict[str, Any]] = {}
     for directory in intermediates:
         with (directory / "documents.jsonl").open(encoding="utf-8") as handle:
             for line in handle:
@@ -75,8 +90,104 @@ def load_intermediate_ids(intermediate: Path | list[Path]) -> tuple[set[str], di
                     item = json.loads(line)
                     if item["evidence_id"] in evidence:
                         raise ValueError(f"duplicate intermediate Evidence: {item['evidence_id']}")
-                    evidence[item["evidence_id"]] = item["document_id"]
+                    evidence[item["evidence_id"]] = item
     return documents, evidence
+
+
+def image_packet_contract_errors(
+    item: dict[str, Any],
+    label: str,
+    evidence: dict[str, dict[str, Any]],
+) -> list[str]:
+    """Check packet-level and referenced-line OCR quality invariants."""
+    context = item.get("context", {})
+    quality_keys = {
+        "quality_tier", "agreement_types", "provisional_marker",
+        "bbox_coordinate_system", "reading_order_method", "row_band_count",
+    }
+    if item.get("unit_type") != "image_text_packet":
+        if quality_keys & context.keys():
+            return [f"{label}: image quality metadata is only valid on image_text_packet"]
+        return []
+    errors: list[str] = []
+    if context.get("container_kind") != "standalone_image":
+        errors.append(f"{label}: image packet container_kind must be standalone_image")
+    bbox_coordinate_system = context.get("bbox_coordinate_system")
+    if bbox_coordinate_system not in OCR_BBOX_COORDINATE_SYSTEMS:
+        errors.append(f"{label}: image packet bbox coordinate system is invalid")
+    if (
+        context.get("reading_order_method") != "geometry_row_bands_v1"
+        or not isinstance(context.get("row_band_count"), int)
+        or isinstance(context.get("row_band_count"), bool)
+        or context.get("row_band_count", 0) < 1
+    ):
+        errors.append(f"{label}: image packet reading-order metadata is invalid")
+    quality_tier = context.get("quality_tier")
+    agreement_types = context.get("agreement_types")
+    if (
+        quality_tier not in {"high", "provisional"}
+        or not isinstance(agreement_types, list)
+        or not agreement_types
+        or len(agreement_types) != len(set(agreement_types))
+    ):
+        errors.append(f"{label}: image packet quality metadata is invalid")
+        return errors
+    expected_tiers = {OCR_QUALITY_BY_AGREEMENT.get(value) for value in agreement_types}
+    if expected_tiers != {quality_tier}:
+        errors.append(f"{label}: image packet agreement types mix quality tiers")
+    marker_present = "provisional_marker" in context
+    marker = context.get("provisional_marker")
+    search_text = item.get("text", {}).get("search_text", "")
+    content_lines = [
+        line for line in search_text.splitlines()
+        if line.strip() and not line.startswith("Image file: ")
+    ]
+    if context.get("row_band_count") != len(content_lines):
+        errors.append(f"{label}: image packet row-band count does not match its text")
+    if quality_tier == "high":
+        if marker_present or any(
+            line.lstrip().startswith(PROVISIONAL_OCR_MARKER) for line in content_lines
+        ):
+            errors.append(f"{label}: high image packet carries provisional markers")
+    else:
+        if marker != PROVISIONAL_OCR_MARKER:
+            errors.append(f"{label}: provisional image packet lacks the canonical marker")
+        if not content_lines or any(
+            not line.lstrip().startswith(PROVISIONAL_OCR_MARKER + " ")
+            for line in content_lines
+        ):
+            errors.append(f"{label}: every provisional image packet line must be marked")
+
+    source_records = [
+        evidence[evidence_id]
+        for evidence_id in item.get("source_evidence_ids", [])
+        if evidence_id in evidence
+    ]
+    ocr_sources = [
+        source for source in source_records if source.get("evidence_type") == "ocr_line"
+    ]
+    if not ocr_sources:
+        errors.append(f"{label}: image packet has no OCR-line source Evidence")
+        return errors
+    source_tiers = {
+        source.get("native_properties", {}).get("quality_tier")
+        for source in ocr_sources
+    }
+    source_agreements = {
+        source.get("native_properties", {}).get("agreement_type")
+        for source in ocr_sources
+    }
+    source_coordinate_systems = {
+        source.get("native_properties", {}).get("bbox_coordinate_system")
+        for source in ocr_sources
+    }
+    if source_tiers != {quality_tier}:
+        errors.append(f"{label}: image packet mixes source Evidence quality tiers")
+    if source_agreements != set(agreement_types):
+        errors.append(f"{label}: image packet agreement metadata differs from its sources")
+    if source_coordinate_systems != {bbox_coordinate_system}:
+        errors.append(f"{label}: image packet mixes source bbox coordinate systems")
+    return errors
 
 
 def validate(search_output: Path, intermediate: Path | list[Path]) -> dict[str, Any]:
@@ -125,7 +236,12 @@ def validate(search_output: Path, intermediate: Path | list[Path]) -> dict[str, 
             if not source_ids or len(source_ids) != len(set(source_ids)):
                 errors.append(f"{label}: source_evidence_ids must be nonempty and unique")
             for evidence_id in source_ids:
-                if not EVIDENCE_PATTERN.fullmatch(evidence_id) or evidence.get(evidence_id) != document_id:
+                source_record = evidence.get(evidence_id)
+                if (
+                    not EVIDENCE_PATTERN.fullmatch(evidence_id)
+                    or source_record is None
+                    or source_record.get("document_id") != document_id
+                ):
                     errors.append(f"{label}: dangling or cross-document Evidence {evidence_id}")
             context = item.get("context", {})
             if context.keys() - CONTEXT_KEYS:
@@ -162,6 +278,7 @@ def validate(search_output: Path, intermediate: Path | list[Path]) -> dict[str, 
                 errors.append(f"{label}: unstable search unit id")
             if provenance.get("builder") != "search-unit-builder" or provenance.get("deterministic") is not True:
                 errors.append(f"{label}: invalid provenance")
+            errors.extend(image_packet_contract_errors(item, label, evidence))
             counts[unit_type] = counts.get(unit_type, 0) + 1
     if errors:
         preview = errors[:100]

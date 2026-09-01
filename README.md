@@ -3,6 +3,9 @@
 SIGNATE「AI ENGINEERING CHALLENGE」向けに検討している、質問非依存の
 中間データ構造と抽出処理の実装リポジトリです。
 
+GitHub上の収録物、各ディレクトリの役割、現行系統と履歴系統の違いは
+[`REPOSITORY_CATALOG.md`](REPOSITORY_CATALOG.md)を参照してください。
+
 大会から提供されたデータ、評価データ、提出物、生成済みインデックスは含みません。
 原本ファイルを`Document`、抽出根拠を`Evidence`、構造的な関係を`Relation`として
 保持し、後段の検索用派生データと回答生成から分離します。

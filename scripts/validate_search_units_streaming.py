@@ -22,6 +22,7 @@ EVIDENCE_PATTERN = re.compile(r"^ev_[0-9a-f]{16,64}$")
 UNIT_TYPES = {
     "paragraph_chunk", "table_row", "slide_text", "page_text",
     "text_chunk", "code_chunk", "notebook_cell", "chart_summary", "chart_series",
+    "image_text_packet",
 }
 REQUIRED = {
     "schema_version", "record_type", "search_unit_id", "document_id", "unit_type",
@@ -29,7 +30,7 @@ REQUIRED = {
 }
 ALLOWED = REQUIRED | {"context"}
 LOCATOR_KEYS = {
-    "page_number", "slide_number", "sheet_name", "table_index", "shape_id",
+    "page_number", "slide_number", "sheet_name", "cell", "table_index", "shape_id",
     "row_index", "paragraph_start", "paragraph_end", "notebook_cell_index",
     "code_line_start", "code_line_end", "locator_text", "source_member",
     "object_index", "series_index",
@@ -37,7 +38,20 @@ LOCATOR_KEYS = {
 CONTEXT_KEYS = {
     "heading_text", "header_labels", "header_evidence_ids", "header_method",
     "is_header_candidate", "container_kind", "container_heading_text",
-    "container_heading_evidence_ids",
+    "container_heading_evidence_ids", "quality_tier", "agreement_types",
+    "provisional_marker", "bbox_coordinate_system", "reading_order_method",
+    "row_band_count",
+}
+PROVISIONAL_OCR_MARKER = "[暫定読取]"
+OCR_QUALITY_BY_AGREEMENT = {
+    "independent_agreement": "high",
+    "same_engine_agreement": "provisional",
+    "provisional_single_pass": "provisional",
+}
+OCR_BBOX_COORDINATE_SYSTEMS = {
+    "raw_raster_top_left_normalized_1000",
+    "display_oriented_top_left_normalized_1000",
+    "source_orientation_1_top_left_normalized_1000",
 }
 
 
@@ -60,15 +74,90 @@ def records(path: Path) -> Iterator[tuple[int, dict[str, Any]]]:
                 raise ValueError(f"{path}:{line_number}: invalid JSON: {exc}") from exc
 
 
+def image_packet_contract_errors(item: dict[str, Any], label: str) -> list[str]:
+    context = item.get("context", {})
+    quality_keys = {
+        "quality_tier", "agreement_types", "provisional_marker",
+        "bbox_coordinate_system", "reading_order_method", "row_band_count",
+    }
+    if item.get("unit_type") != "image_text_packet":
+        return (
+            [f"{label}: image quality metadata is only valid on image_text_packet"]
+            if quality_keys & context.keys() else []
+        )
+    errors: list[str] = []
+    if context.get("container_kind") != "standalone_image":
+        errors.append(f"{label}: image packet container_kind must be standalone_image")
+    if context.get("bbox_coordinate_system") not in OCR_BBOX_COORDINATE_SYSTEMS:
+        errors.append(f"{label}: image packet bbox coordinate system is invalid")
+    if (
+        context.get("reading_order_method") != "geometry_row_bands_v1"
+        or not isinstance(context.get("row_band_count"), int)
+        or isinstance(context.get("row_band_count"), bool)
+        or context.get("row_band_count", 0) < 1
+    ):
+        errors.append(f"{label}: image packet reading-order metadata is invalid")
+    quality_tier = context.get("quality_tier")
+    agreement_types = context.get("agreement_types")
+    if (
+        quality_tier not in {"high", "provisional"}
+        or not isinstance(agreement_types, list)
+        or not agreement_types
+        or len(agreement_types) != len(set(agreement_types))
+    ):
+        errors.append(f"{label}: image packet quality metadata is invalid")
+        return errors
+    if {OCR_QUALITY_BY_AGREEMENT.get(value) for value in agreement_types} != {quality_tier}:
+        errors.append(f"{label}: image packet agreement types mix quality tiers")
+    marker_present = "provisional_marker" in context
+    marker = context.get("provisional_marker")
+    search_text = item.get("text", {}).get("search_text", "")
+    content_lines = [
+        line for line in search_text.splitlines()
+        if line.strip() and not line.startswith("Image file: ")
+    ]
+    if context.get("row_band_count") != len(content_lines):
+        errors.append(f"{label}: image packet row-band count does not match its text")
+    if quality_tier == "high":
+        if marker_present or any(
+            line.lstrip().startswith(PROVISIONAL_OCR_MARKER) for line in content_lines
+        ):
+            errors.append(f"{label}: high image packet carries provisional markers")
+    else:
+        if marker != PROVISIONAL_OCR_MARKER:
+            errors.append(f"{label}: provisional image packet lacks the canonical marker")
+        if not content_lines or any(
+            not line.lstrip().startswith(PROVISIONAL_OCR_MARKER + " ")
+            for line in content_lines
+        ):
+            errors.append(f"{label}: every provisional image packet line must be marked")
+    return errors
+
+
 def initialize(connection: sqlite3.Connection) -> None:
     connection.executescript("""
         PRAGMA journal_mode=OFF;
         PRAGMA synchronous=OFF;
         PRAGMA temp_store=FILE;
         CREATE TABLE documents(id TEXT PRIMARY KEY);
-        CREATE TABLE evidence(id TEXT PRIMARY KEY, document_id TEXT NOT NULL);
+        CREATE TABLE evidence(
+            id TEXT PRIMARY KEY,
+            document_id TEXT NOT NULL,
+            evidence_type TEXT,
+            quality_tier TEXT,
+            agreement_type TEXT,
+            provisional_marker TEXT,
+            bbox_coordinate_system TEXT
+        );
         CREATE INDEX evidence_document_idx ON evidence(document_id);
-        CREATE TABLE units(id TEXT PRIMARY KEY, document_id TEXT NOT NULL);
+        CREATE TABLE units(
+            id TEXT PRIMARY KEY,
+            document_id TEXT NOT NULL,
+            unit_type TEXT,
+            quality_tier TEXT,
+            agreement_types TEXT,
+            bbox_coordinate_system TEXT
+        );
         CREATE TABLE refs(unit_id TEXT NOT NULL, unit_document_id TEXT NOT NULL, evidence_id TEXT NOT NULL);
         CREATE INDEX refs_evidence_idx ON refs(evidence_id);
     """)
@@ -99,8 +188,17 @@ def validate(search_output: Path, intermediate: Path | list[Path]) -> dict[str, 
         evidence_count = 0
         for directory in intermediates:
             for _, item in records(directory / "evidence.jsonl"):
+                native = item.get("native_properties", {})
                 try:
-                    connection.execute("INSERT INTO evidence VALUES (?, ?)", (item["evidence_id"], item["document_id"]))
+                    connection.execute(
+                        "INSERT INTO evidence VALUES (?, ?, ?, ?, ?, ?, ?)",
+                        (
+                            item["evidence_id"], item["document_id"],
+                            item.get("evidence_type"), native.get("quality_tier"),
+                            native.get("agreement_type"), native.get("provisional_marker"),
+                            native.get("bbox_coordinate_system"),
+                        ),
+                    )
                 except sqlite3.IntegrityError:
                     errors.append(f"duplicate intermediate Evidence: {item['evidence_id']}")
                 evidence_count += 1
@@ -164,8 +262,17 @@ def validate(search_output: Path, intermediate: Path | list[Path]) -> dict[str, 
             })
             if unit_id != expected:
                 errors.append(f"{label}: unstable search unit id")
+            errors.extend(image_packet_contract_errors(item, label))
             try:
-                connection.execute("INSERT INTO units VALUES (?, ?)", (unit_id, document_id))
+                connection.execute(
+                    "INSERT INTO units VALUES (?, ?, ?, ?, ?, ?)",
+                    (
+                        unit_id, document_id, unit_type,
+                        context.get("quality_tier"),
+                        canonical_json(context.get("agreement_types", [])),
+                        context.get("bbox_coordinate_system"),
+                    ),
+                )
             except sqlite3.IntegrityError:
                 errors.append(f"{label}: duplicate search unit id {unit_id}")
             connection.executemany(
@@ -192,6 +299,37 @@ def validate(search_output: Path, intermediate: Path | list[Path]) -> dict[str, 
             "WHERE e.document_id != r.unit_document_id LIMIT 100"
         ):
             errors.append(f"{unit_id}: cross-document Evidence {evidence_id}")
+        for unit_id, quality_tier, agreement_types_json, bbox_coordinate_system in connection.execute(
+            "SELECT id,quality_tier,agreement_types,bbox_coordinate_system FROM units "
+            "WHERE unit_type='image_text_packet' ORDER BY id"
+        ):
+            source_quality = list(connection.execute(
+                "SELECT e.quality_tier,e.agreement_type,e.provisional_marker,e.bbox_coordinate_system "
+                "FROM refs r JOIN evidence e ON e.id=r.evidence_id "
+                "WHERE r.unit_id=? AND e.evidence_type='ocr_line'",
+                (unit_id,),
+            ))
+            if not source_quality:
+                errors.append(f"{unit_id}: image packet has no OCR-line source Evidence")
+                continue
+            source_tiers = {row[0] for row in source_quality}
+            source_agreements = {row[1] for row in source_quality}
+            try:
+                agreement_types = set(json.loads(agreement_types_json))
+            except (TypeError, json.JSONDecodeError):
+                agreement_types = set()
+            if source_tiers != {quality_tier}:
+                errors.append(f"{unit_id}: image packet mixes source Evidence quality tiers")
+            if source_agreements != agreement_types:
+                errors.append(f"{unit_id}: image packet agreement metadata differs from its sources")
+            if {row[3] for row in source_quality} != {bbox_coordinate_system}:
+                errors.append(f"{unit_id}: image packet mixes source bbox coordinate systems")
+            if quality_tier == "high" and any(row[2] is not None for row in source_quality):
+                errors.append(f"{unit_id}: high image packet references provisionally marked Evidence")
+            if quality_tier == "provisional" and any(
+                row[2] != PROVISIONAL_OCR_MARKER for row in source_quality
+            ):
+                errors.append(f"{unit_id}: provisional image packet source marker mismatch")
         connection.close()
 
     output = state.get("output", {})

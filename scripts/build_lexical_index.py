@@ -20,9 +20,33 @@ from lexical_search_common import (
 
 
 INDEXER = "sqlite-bm25-index-builder"
-INDEXER_VERSION = "0.1.0"
+INDEXER_VERSION = "0.2.0"
 STATE_FILE = "lexical-index-state.json"
 DATABASE_FILE = "lexical-index.sqlite3"
+PROVISIONAL_OCR_MARKER = "[暫定読取]"
+
+
+def indexable_search_text(unit: dict[str, Any]) -> str:
+    """Remove the audit label, never the provisional OCR observation itself.
+
+    The canonical marker remains in stored/search-result text and therefore at
+    the answer boundary. Excluding its repeated presentation token from BM25
+    prevents a multi-line provisional packet from receiving an artificial
+    document-length penalty merely because every line is visibly labelled.
+    """
+    text = unit["text"]["search_text"]
+    context = unit.get("context", {})
+    if (
+        unit.get("unit_type") != "image_text_packet"
+        or context.get("quality_tier") != "provisional"
+        or context.get("provisional_marker") != PROVISIONAL_OCR_MARKER
+    ):
+        return text
+    prefix = PROVISIONAL_OCR_MARKER + " "
+    return "\n".join(
+        line[len(prefix):] if line.lstrip().startswith(prefix) and line == line.lstrip() else line
+        for line in text.splitlines()
+    )
 
 
 def load_json(path: Path) -> dict[str, Any]:
@@ -101,7 +125,7 @@ def build(search_output: Path, output: Path) -> dict[str, Any]:
                     unit = json.loads(line)
                 except json.JSONDecodeError as exc:
                     raise ValueError(f"{units_path}:{line_number}: invalid JSON: {exc}") from exc
-                frequencies = term_frequencies(unit["text"]["search_text"])
+                frequencies = term_frequencies(indexable_search_text(unit))
                 if not frequencies:
                     raise ValueError(f"{units_path}:{line_number}: no indexable tokens")
                 record_count += 1

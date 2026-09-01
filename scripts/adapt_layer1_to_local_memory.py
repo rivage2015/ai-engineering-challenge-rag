@@ -10,6 +10,7 @@ built.
 from __future__ import annotations
 
 import argparse
+import copy
 import hashlib
 import json
 import os
@@ -18,12 +19,25 @@ from collections import Counter, defaultdict
 from pathlib import Path
 from typing import Any
 
+from evidence_text_chunking import MAX_QUESTION_EVIDENCE_CHARS, exact_text_chunks
 from validate_search_units import validate as validate_search_units
 
 
 ADAPTER = "layer1-to-local-memory-evidence-adapter"
-ADAPTER_VERSION = "0.4.0"
+ADAPTER_VERSION = "0.6.0"
 SCHEMA_VERSION = "0.1"
+QUESTION_SHARD_VERSION = "question-evidence-shard-v1"
+PROVISIONAL_OCR_MARKER = "[暫定読取]"
+OCR_QUALITY_BY_AGREEMENT = {
+    "independent_agreement": "high",
+    "same_engine_agreement": "provisional",
+    "provisional_single_pass": "provisional",
+}
+OCR_BBOX_COORDINATE_SYSTEMS = {
+    "raw_raster_top_left_normalized_1000",
+    "display_oriented_top_left_normalized_1000",
+    "source_orientation_1_top_left_normalized_1000",
+}
 
 
 def canonical(value: Any) -> str:
@@ -33,6 +47,14 @@ def canonical(value: Any) -> str:
 def stable_id(prefix: str, value: Any) -> str:
     digest = hashlib.sha256(canonical(value).encode("utf-8")).hexdigest()
     return f"{prefix}_{digest[:32]}"
+
+
+def sha256_text(value: str) -> str:
+    return hashlib.sha256(value.encode("utf-8")).hexdigest()
+
+
+def sha256_canonical(value: Any) -> str:
+    return sha256_text(canonical(value))
 
 
 def sha256_file(path: Path) -> str:
@@ -77,6 +99,284 @@ def text_from_content(content: dict[str, Any]) -> tuple[str, str]:
     raise ValueError("Evidence content has neither raw_text nor raw_value")
 
 
+def _marked_lines(text: str) -> list[str]:
+    return [
+        line for line in text.splitlines()
+        if line.strip() and line.lstrip().startswith(PROVISIONAL_OCR_MARKER + " ")
+    ]
+
+
+def _mark_provisional_text(text: str) -> str:
+    return "\n".join(
+        line if line.lstrip().startswith(PROVISIONAL_OCR_MARKER + " ")
+        else f"{PROVISIONAL_OCR_MARKER} {line}"
+        for line in text.splitlines()
+        if line.strip()
+    )
+
+
+QUESTION_SHARD_KEYS = {
+    "version",
+    "source_projection_id",
+    "source_projection_sha256",
+    "source_text_sha256",
+    "character_start",
+    "character_end",
+    "chunk_index",
+    "chunk_count",
+    "chunk_sha256",
+    "observed_text_prefix",
+}
+
+
+def _question_shard_id(metadata: dict[str, Any]) -> str:
+    return stable_id(
+        "ev",
+        {
+            "adapter": ADAPTER,
+            "adapter_version": ADAPTER_VERSION,
+            "question_shard": metadata,
+        },
+    )
+
+
+def validate_question_shard_reconstruction(
+    source_projection: dict[str, Any],
+    shards: list[dict[str, Any]],
+) -> str:
+    """Fail closed unless semantic shards reconstruct one projection exactly."""
+    source_projection_id = source_projection.get("evidence_id")
+    source_text = source_projection.get("observed_text")
+    if not isinstance(source_projection_id, str) or not source_projection_id:
+        raise ValueError("question shard source projection ID is invalid")
+    if not isinstance(source_text, str) or len(source_text) <= MAX_QUESTION_EVIDENCE_CHARS:
+        raise ValueError("question shard source text does not require sharding")
+    if not shards:
+        raise ValueError("question shard set is empty")
+
+    source_projection_sha256 = sha256_canonical(source_projection)
+    source_text_sha256 = sha256_text(source_text)
+    provisional = source_projection.get("quality_tier") == "provisional"
+    canonical_prefix = PROVISIONAL_OCR_MARKER + " "
+    reconstructed: list[str] = []
+    expected_start = 0
+    seen_ids: set[str] = set()
+
+    for expected_index, shard in enumerate(shards, 1):
+        metadata = shard.get("adapter", {}).get("question_shard")
+        if not isinstance(metadata, dict) or set(metadata) != QUESTION_SHARD_KEYS:
+            raise ValueError("question shard metadata is invalid")
+        if (
+            metadata.get("version") != QUESTION_SHARD_VERSION
+            or metadata.get("source_projection_id") != source_projection_id
+            or metadata.get("source_projection_sha256") != source_projection_sha256
+            or metadata.get("source_text_sha256") != source_text_sha256
+            or metadata.get("chunk_index") != expected_index
+            or metadata.get("chunk_count") != len(shards)
+        ):
+            raise ValueError("question shard lineage is inconsistent")
+        start = metadata.get("character_start")
+        end = metadata.get("character_end")
+        if (
+            not isinstance(start, int)
+            or isinstance(start, bool)
+            or not isinstance(end, int)
+            or isinstance(end, bool)
+            or start != expected_start
+            or end <= start
+            or end > len(source_text)
+        ):
+            raise ValueError("question shard offsets are not contiguous")
+
+        expected_payload = source_text[start:end]
+        expected_prefix = (
+            ""
+            if not provisional or expected_payload.startswith(PROVISIONAL_OCR_MARKER)
+            else canonical_prefix
+        )
+        prefix = metadata.get("observed_text_prefix")
+        observed_text = shard.get("observed_text")
+        if (
+            prefix != expected_prefix
+            or not isinstance(observed_text, str)
+            or not observed_text.startswith(expected_prefix)
+            or len(observed_text) > MAX_QUESTION_EVIDENCE_CHARS
+        ):
+            raise ValueError("question shard visible text is invalid")
+        payload = observed_text[len(expected_prefix):]
+        if payload != expected_payload or metadata.get("chunk_sha256") != sha256_text(payload):
+            raise ValueError("question shard content does not match its source offset")
+        if provisional and not observed_text.startswith(PROVISIONAL_OCR_MARKER):
+            raise ValueError("provisional question shard is not visibly marked")
+
+        shard_id = shard.get("evidence_id")
+        if (
+            not isinstance(shard_id, str)
+            or shard_id in seen_ids
+            or shard_id != _question_shard_id(metadata)
+        ):
+            raise ValueError("question shard ID is invalid")
+        seen_ids.add(shard_id)
+
+        restored = copy.deepcopy(shard)
+        restored["evidence_id"] = source_projection_id
+        restored["observed_text"] = source_text
+        del restored["adapter"]["question_shard"]
+        if restored != source_projection:
+            raise ValueError("question shard did not preserve source projection metadata")
+
+        reconstructed.append(payload)
+        expected_start = end
+
+    result = "".join(reconstructed)
+    if expected_start != len(source_text) or result != source_text:
+        raise ValueError("question shard reconstruction is incomplete")
+    return result
+
+
+def question_shards(projected: dict[str, Any]) -> list[dict[str, Any]]:
+    """Replace one oversized semantic projection with exact question-sized shards."""
+    observed_text = projected.get("observed_text")
+    if not isinstance(observed_text, str):
+        raise ValueError("semantic projection observed_text is invalid")
+    if len(observed_text) <= MAX_QUESTION_EVIDENCE_CHARS:
+        return [projected]
+
+    source_projection_id = projected.get("evidence_id")
+    if not isinstance(source_projection_id, str) or not source_projection_id:
+        raise ValueError("semantic projection evidence_id is invalid")
+    source_projection_sha256 = sha256_canonical(projected)
+    source_text_sha256 = sha256_text(observed_text)
+    provisional = projected.get("quality_tier") == "provisional"
+    visible_prefix = PROVISIONAL_OCR_MARKER + " "
+    payload_limit = (
+        MAX_QUESTION_EVIDENCE_CHARS - len(visible_prefix)
+        if provisional else MAX_QUESTION_EVIDENCE_CHARS
+    )
+    chunks = exact_text_chunks(observed_text, max_chars=payload_limit)
+    shards: list[dict[str, Any]] = []
+    for chunk_index, chunk in enumerate(chunks, 1):
+        prefix = (
+            ""
+            if not provisional or chunk.text.startswith(PROVISIONAL_OCR_MARKER)
+            else visible_prefix
+        )
+        metadata = {
+            "version": QUESTION_SHARD_VERSION,
+            "source_projection_id": source_projection_id,
+            "source_projection_sha256": source_projection_sha256,
+            "source_text_sha256": source_text_sha256,
+            "character_start": chunk.start,
+            "character_end": chunk.end,
+            "chunk_index": chunk_index,
+            "chunk_count": len(chunks),
+            "chunk_sha256": sha256_text(chunk.text),
+            "observed_text_prefix": prefix,
+        }
+        shard = copy.deepcopy(projected)
+        shard["evidence_id"] = _question_shard_id(metadata)
+        shard["observed_text"] = prefix + chunk.text
+        shard["adapter"]["question_shard"] = metadata
+        shards.append(shard)
+    validate_question_shard_reconstruction(projected, shards)
+    return shards
+
+
+def ocr_evidence_quality(record: dict[str, Any]) -> tuple[str, list[str], str | None]:
+    """Return validated quality metadata for one Layer 1 OCR Evidence record."""
+    native = record.get("native_properties", {})
+    agreement_type = native.get("agreement_type")
+    expected_tier = OCR_QUALITY_BY_AGREEMENT.get(agreement_type)
+    if expected_tier is None:
+        raise ValueError(f"unsupported OCR agreement type: {agreement_type!r}")
+    quality_tier = native.get("quality_tier")
+    if quality_tier != expected_tier:
+        raise ValueError(
+            "OCR quality tier disagrees with agreement type: "
+            f"{agreement_type!r} cannot be {quality_tier!r}"
+        )
+    marker = native.get("provisional_marker")
+    marker_present = "provisional_marker" in native
+    extraction_method = record.get("provenance", {}).get("extraction_method")
+    overlap = native.get("spatial_overlap")
+    bbox_coordinate_system = native.get("bbox_coordinate_system")
+    if bbox_coordinate_system not in OCR_BBOX_COORDINATE_SYSTEMS:
+        raise ValueError("OCR Evidence bbox coordinate system is invalid")
+    numeric_overlap = isinstance(overlap, (int, float)) and not isinstance(overlap, bool)
+    if quality_tier == "high":
+        if marker_present:
+            raise ValueError("high OCR Evidence must not carry a provisional marker")
+        if native.get("independent_engines") is not True:
+            raise ValueError("high OCR Evidence requires independent engine groups")
+        if extraction_method != "dual_local_ocr_consensus":
+            raise ValueError("high OCR Evidence requires dual-engine consensus provenance")
+        if not numeric_overlap or overlap < 0.5:
+            raise ValueError("high OCR Evidence requires spatial agreement")
+        if bbox_coordinate_system != "source_orientation_1_top_left_normalized_1000":
+            raise ValueError("high OCR Evidence requires the shared orientation-1 frame")
+        return quality_tier, [agreement_type], None
+    if marker != PROVISIONAL_OCR_MARKER:
+        raise ValueError("provisional OCR Evidence lacks the canonical marker")
+    if extraction_method != "adaptive_local_ocr_provisional":
+        raise ValueError("provisional OCR Evidence has invalid extraction provenance")
+    if agreement_type == "same_engine_agreement":
+        if not numeric_overlap or overlap < 0.5:
+            raise ValueError("same-engine OCR agreement requires spatial overlap")
+    elif overlap != 0:
+        raise ValueError("single-pass provisional OCR must have zero overlap")
+    return quality_tier, [agreement_type], PROVISIONAL_OCR_MARKER
+
+
+def image_packet_quality(unit: dict[str, Any]) -> tuple[str, list[str], str | None]:
+    """Return validated quality metadata for a homogeneous image packet."""
+    context = unit.get("context", {})
+    if context.get("container_kind") != "standalone_image":
+        raise ValueError("image text packet must identify its standalone-image container")
+    if context.get("bbox_coordinate_system") not in OCR_BBOX_COORDINATE_SYSTEMS:
+        raise ValueError("image text packet bbox coordinate system is invalid")
+    if (
+        context.get("reading_order_method") != "geometry_row_bands_v1"
+        or not isinstance(context.get("row_band_count"), int)
+        or isinstance(context.get("row_band_count"), bool)
+        or context.get("row_band_count", 0) < 1
+    ):
+        raise ValueError("image text packet reading-order metadata is invalid")
+    quality_tier = context.get("quality_tier")
+    agreement_types = context.get("agreement_types")
+    if (
+        quality_tier not in {"high", "provisional"}
+        or not isinstance(agreement_types, list)
+        or not agreement_types
+        or len(agreement_types) != len(set(agreement_types))
+    ):
+        raise ValueError("image text packet quality metadata is invalid")
+    expected_tiers = {OCR_QUALITY_BY_AGREEMENT.get(value) for value in agreement_types}
+    if expected_tiers != {quality_tier}:
+        raise ValueError("image text packet mixes agreement quality tiers")
+    marker = context.get("provisional_marker")
+    marker_present = "provisional_marker" in context
+    text = unit.get("text", {}).get("search_text", "")
+    marked_lines = _marked_lines(text)
+    content_lines = [
+        line for line in text.splitlines()
+        if line.strip() and not line.startswith("Image file: ")
+    ]
+    if context.get("row_band_count") != len(content_lines):
+        raise ValueError("image text packet row-band count does not match its text")
+    if quality_tier == "high":
+        if marker_present or marked_lines:
+            raise ValueError("high image text packet must not carry provisional markers")
+        return quality_tier, agreement_types, None
+    if marker != PROVISIONAL_OCR_MARKER:
+        raise ValueError("provisional image text packet lacks the canonical marker")
+    if not content_lines or any(
+        not line.lstrip().startswith(PROVISIONAL_OCR_MARKER + " ")
+        for line in content_lines
+    ):
+        raise ValueError("every provisional image packet line must be visibly marked")
+    return quality_tier, agreement_types, PROVISIONAL_OCR_MARKER
+
+
 def validate_source_binding(root: Path, source: dict[str, Any]) -> None:
     relative = source.get("relative_path")
     if not isinstance(relative, str) or not relative:
@@ -106,8 +406,8 @@ def adapt(
     output.mkdir(parents=True, exist_ok=True)
     state_path = intermediate / "build-state.json"
     state = json.loads(state_path.read_text(encoding="utf-8"))
-    if state.get("build_status") != "complete":
-        raise ValueError("Layer 1 intermediate build must be complete without failures")
+    if state.get("build_status") not in {"complete", "complete_with_failures"}:
+        raise ValueError("Layer 1 intermediate build must have reached a terminal state")
     if Path(state.get("source_root", "")).resolve() != source_root:
         raise ValueError("source root does not match Layer 1 build state")
 
@@ -134,6 +434,8 @@ def adapt(
     seen_evidence: set[str] = set()
     projections: list[dict[str, Any]] = []
     projection_methods: Counter[str] = Counter()
+    question_shard_sources: Counter[str] = Counter()
+    question_shard_count = 0
     skipped_binary_evidence = 0
     for record in layer_evidence:
         evidence_id = record.get("evidence_id")
@@ -151,6 +453,17 @@ def adapt(
             skipped_binary_evidence += 1
             continue
         observed_text, projection_method = text_from_content(record_content)
+        quality_metadata: tuple[str, list[str], str | None] | None = None
+        if record.get("evidence_type") == "ocr_line":
+            quality_metadata = ocr_evidence_quality(record)
+            quality_tier, _agreement_types, marker = quality_metadata
+            if quality_tier == "provisional" and observed_text:
+                observed_text = _mark_provisional_text(observed_text)
+            elif marker is None and any(
+                line.lstrip().startswith(PROVISIONAL_OCR_MARKER)
+                for line in observed_text.splitlines()
+            ):
+                raise ValueError("high OCR text collides with the provisional marker")
         projection_methods[projection_method] += 1
         source = document_by_id[document_id]["source"]
         projected = {
@@ -174,11 +487,30 @@ def adapt(
                 "execution_policy": "never_execute",
             },
         }
+        if quality_metadata is not None:
+            quality_tier, agreement_types, marker = quality_metadata
+            projected["quality_tier"] = quality_tier
+            projected["agreement_types"] = agreement_types
+            projected["bbox_coordinate_system"] = record["native_properties"][
+                "bbox_coordinate_system"
+            ]
+            if marker is not None:
+                projected["provisional_marker"] = marker
         geometry = record.get("geometry")
         if isinstance(geometry, dict) and geometry:
             projected["geometry"] = geometry
-        evidence_by_document[document_id].append(projected)
-        projections.append(projected)
+        projected_shards = question_shards(projected)
+        if len(projected_shards) > 1:
+            question_shard_sources[str(record.get("evidence_type", "unknown"))] += 1
+            question_shard_count += len(projected_shards)
+        for shard in projected_shards:
+            shard_id = shard["evidence_id"]
+            if shard_id != evidence_id:
+                if shard_id in seen_evidence:
+                    raise ValueError(f"question shard collides with Evidence ID: {shard_id}")
+                seen_evidence.add(shard_id)
+            evidence_by_document[document_id].append(shard)
+            projections.append(shard)
 
     # SearchUnits are derived, question-independent groupings of verified
     # Evidence. Preserve table rows and audited image text packets at this
@@ -186,12 +518,16 @@ def adapt(
     # Every referenced Evidence ID has already been validated against the same
     # intermediate build by validate_search_units().
     search_unit_projection_count = 0
+    image_quality_counts: Counter[str] = Counter()
     for unit in search_units:
         if unit.get("unit_type") not in {"table_row", "image_text_packet"}:
             continue
         document_id = unit["document_id"]
         source_evidence_ids = unit["source_evidence_ids"]
         observed_text = unit["text"]["search_text"]
+        image_quality: tuple[str, list[str], str | None] | None = None
+        if unit["unit_type"] == "image_text_packet":
+            image_quality = image_packet_quality(unit)
         evidence_id = stable_id("ev", {
             "adapter": ADAPTER,
             "adapter_version": ADAPTER_VERSION,
@@ -230,10 +566,37 @@ def adapt(
                 "execution_policy": "never_execute",
             },
         }
-        evidence_by_document[document_id].append(projected)
-        projections.append(projected)
+        if image_quality is not None:
+            quality_tier, agreement_types, marker = image_quality
+            image_context = unit["context"]
+            projected["quality_tier"] = quality_tier
+            projected["agreement_types"] = agreement_types
+            projected["bbox_coordinate_system"] = image_context["bbox_coordinate_system"]
+            projected["reading_order_method"] = image_context["reading_order_method"]
+            projected["row_band_count"] = image_context["row_band_count"]
+            if marker is not None:
+                projected["provisional_marker"] = marker
+            image_quality_counts[quality_tier] += 1
+        projected_shards = question_shards(projected)
+        if len(projected_shards) > 1:
+            question_shard_sources[f"search_unit:{unit['unit_type']}"] += 1
+            question_shard_count += len(projected_shards)
+        for shard in projected_shards:
+            shard_id = shard["evidence_id"]
+            if shard_id != evidence_id:
+                if shard_id in seen_evidence:
+                    raise ValueError(f"question shard collides with Evidence ID: {shard_id}")
+                seen_evidence.add(shard_id)
+            evidence_by_document[document_id].append(shard)
+            projections.append(shard)
         projection_methods["search_unit_text"] += 1
         search_unit_projection_count += 1
+
+    if any(
+        len(item.get("observed_text", "")) > MAX_QUESTION_EVIDENCE_CHARS
+        for item in projections
+    ):
+        raise RuntimeError("semantic question evidence exceeds the configured character cap")
 
     documents: list[dict[str, Any]] = []
     statuses: Counter[str] = Counter()
@@ -242,6 +605,7 @@ def adapt(
         source = source_document["source"]
         status = source_document.get("extraction", {}).get("status", "unknown")
         statuses[status] += 1
+        extraction_failed = status == "failed"
         documents.append({
             "schema_version": SCHEMA_VERSION,
             "document_id": document_id,
@@ -252,11 +616,18 @@ def adapt(
                 "size_bytes": source["size_bytes"],
                 "file_type": source.get("extension") or "no_extension",
             },
-            "classification": "extractable",
-            "classification_reason": "verified_layer1_intermediate_record",
+            "classification": "unresolved" if extraction_failed else "extractable",
+            "classification_reason": (
+                "layer1_extraction_failed" if extraction_failed
+                else "verified_layer1_intermediate_record"
+            ),
             "project_id": None,
             "extraction_method": source_document.get("extraction", {}).get("parser", "unknown"),
-            "status": "extracted" if evidence_by_document.get(document_id) else "empty_after_extraction",
+            "status": (
+                "extraction_failed" if extraction_failed
+                else "extracted" if evidence_by_document.get(document_id)
+                else "empty_after_extraction"
+            ),
             "evidence_ids": [item["evidence_id"] for item in evidence_by_document.get(document_id, [])],
             "extraction_metadata": {
                 "layer1_status": status,
@@ -264,7 +635,10 @@ def adapt(
                 "adapter": ADAPTER,
                 "adapter_version": ADAPTER_VERSION,
             },
-            "error": None,
+            "error": (
+                "; ".join(str(item) for item in source_document.get("extraction", {}).get("errors", []))
+                if extraction_failed else None
+            ),
         })
 
     document_bytes = "".join(canonical(item) + "\n" for item in documents).encode("utf-8")
@@ -292,6 +666,13 @@ def adapt(
         },
         "layer1_status_counts": dict(sorted(statuses.items())),
         "text_projection_counts": dict(sorted(projection_methods.items())),
+        "question_sharding": {
+            "version": QUESTION_SHARD_VERSION,
+            "max_observed_text_chars": MAX_QUESTION_EVIDENCE_CHARS,
+            "source_projection_count": sum(question_shard_sources.values()),
+            "shard_count": question_shard_count,
+            "source_record_type_counts": dict(sorted(question_shard_sources.items())),
+        },
         "search_unit_projection": {
             "enabled": search_output is not None,
             "included_unit_types": ["image_text_packet", "table_row"] if search_output is not None else [],
@@ -303,6 +684,7 @@ def adapt(
             "search_units_sha256": (
                 sha256_file(search_output / "search_units.jsonl") if search_output is not None else None
             ),
+            "image_quality_counts": dict(sorted(image_quality_counts.items())),
         },
         "skipped_binary_evidence": skipped_binary_evidence,
     }

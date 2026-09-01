@@ -32,6 +32,17 @@ REQUIRED = {
     "evidence": {"schema_version", "record_type", "evidence_id", "document_id", "evidence_type", "location", "content", "provenance"},
     "relation": {"schema_version", "record_type", "relation_id", "relation_class", "relation_type", "from_ref", "to_ref", "provenance", "status"},
 }
+PROVISIONAL_OCR_MARKER = "[暫定読取]"
+OCR_QUALITY_BY_AGREEMENT = {
+    "independent_agreement": "high",
+    "same_engine_agreement": "provisional",
+    "provisional_single_pass": "provisional",
+}
+OCR_BBOX_COORDINATE_SYSTEMS = {
+    "raw_raster_top_left_normalized_1000",
+    "display_oriented_top_left_normalized_1000",
+    "source_orientation_1_top_left_normalized_1000",
+}
 
 
 def records(path: Path) -> Iterator[tuple[int, object]]:
@@ -52,6 +63,61 @@ def content_hash_payload(item: dict[str, Any]) -> dict[str, Any]:
     raise ValueError("content has none of raw_text/raw_value/content_ref")
 
 
+def image_ocr_contract_errors(record: dict[str, Any], label: str) -> list[str]:
+    """Validate OCR tier invariants even without the optional schema runtime."""
+    if record.get("evidence_type") != "ocr_line":
+        return []
+    errors: list[str] = []
+    native = record.get("native_properties")
+    if not isinstance(native, dict):
+        return [f"{label}: OCR native_properties are missing"]
+    agreement_type = native.get("agreement_type")
+    expected_tier = OCR_QUALITY_BY_AGREEMENT.get(agreement_type)
+    quality_tier = native.get("quality_tier")
+    if expected_tier is None:
+        errors.append(f"{label}: unsupported OCR agreement type {agreement_type!r}")
+        return errors
+    if quality_tier != expected_tier:
+        errors.append(
+            f"{label}: OCR agreement {agreement_type!r} requires tier {expected_tier!r}"
+        )
+    marker_present = "provisional_marker" in native
+    marker = native.get("provisional_marker")
+    provenance = record.get("provenance", {})
+    method = provenance.get("extraction_method") if isinstance(provenance, dict) else None
+    overlap = native.get("spatial_overlap")
+    bbox_coordinate_system = native.get("bbox_coordinate_system")
+    if bbox_coordinate_system not in OCR_BBOX_COORDINATE_SYSTEMS:
+        errors.append(f"{label}: OCR bbox coordinate system is missing or unsupported")
+    numeric_overlap = (
+        isinstance(overlap, (int, float)) and not isinstance(overlap, bool)
+    )
+    if expected_tier == "high":
+        if marker_present:
+            errors.append(f"{label}: high OCR Evidence carries a provisional marker")
+        if native.get("independent_engines") is not True:
+            errors.append(f"{label}: high OCR Evidence lacks independent engine groups")
+        if method != "dual_local_ocr_consensus":
+            errors.append(f"{label}: high OCR Evidence has non-independent provenance")
+        if not numeric_overlap or overlap < 0.5:
+            errors.append(f"{label}: high OCR Evidence lacks spatial agreement")
+        if bbox_coordinate_system != "source_orientation_1_top_left_normalized_1000":
+            errors.append(
+                f"{label}: high OCR Evidence lacks a shared source-orientation-1 frame"
+            )
+    else:
+        if marker != PROVISIONAL_OCR_MARKER:
+            errors.append(f"{label}: provisional OCR Evidence lacks the canonical marker")
+        if method != "adaptive_local_ocr_provisional":
+            errors.append(f"{label}: provisional OCR Evidence has invalid provenance")
+        if agreement_type == "same_engine_agreement":
+            if not numeric_overlap or overlap < 0.5:
+                errors.append(f"{label}: same-engine OCR agreement lacks spatial overlap")
+        elif overlap != 0:
+            errors.append(f"{label}: single-pass provisional OCR overlap must be zero")
+    return errors
+
+
 def initialize(connection: sqlite3.Connection) -> None:
     connection.executescript("""
         PRAGMA journal_mode=OFF;
@@ -69,8 +135,15 @@ def initialize(connection: sqlite3.Connection) -> None:
     """)
 
 
-def validate(directory: Path, source_root: Path | None = None) -> dict[str, int]:
-    schema_validators = published_schema_validators()
+def validate(
+    directory: Path,
+    source_root: Path | None = None,
+    *,
+    published_schema: bool = True,
+) -> dict[str, int]:
+    schema_validators = published_schema_validators() if published_schema else {
+        "document": None, "evidence": None, "relation": None,
+    }
     errors: list[str] = []
     counts = {"document": 0, "evidence": 0, "relation": 0}
     with tempfile.TemporaryDirectory(prefix="aiec-intermediate-validation-") as temporary:
@@ -80,11 +153,9 @@ def validate(directory: Path, source_root: Path | None = None) -> dict[str, int]
         for line_number, record in records(directory / "documents.jsonl"):
             counts["document"] += 1
             label = f"document[{line_number}]"
-            record_schema_errors = schema_record_errors(
-                "document",
-                record,
-                label,
-                schema_validators["document"],
+            record_schema_errors = (
+                schema_record_errors("document", record, label, schema_validators["document"])
+                if published_schema else []
             )
             errors.extend(record_schema_errors)
             if not isinstance(record, dict):
@@ -130,11 +201,9 @@ def validate(directory: Path, source_root: Path | None = None) -> dict[str, int]
         for line_number, record in records(directory / "evidence.jsonl"):
             counts["evidence"] += 1
             label = f"evidence[{line_number}]"
-            record_schema_errors = schema_record_errors(
-                "evidence",
-                record,
-                label,
-                schema_validators["evidence"],
+            record_schema_errors = (
+                schema_record_errors("evidence", record, label, schema_validators["evidence"])
+                if published_schema else []
             )
             errors.extend(record_schema_errors)
             if not isinstance(record, dict):
@@ -146,6 +215,7 @@ def validate(directory: Path, source_root: Path | None = None) -> dict[str, int]
             if extra:
                 errors.append(f"{label}: unexpected fields {sorted(extra)}")
             errors.extend(question_boundary_errors("evidence", record, label))
+            errors.extend(image_ocr_contract_errors(record, label))
             if record_schema_errors:
                 continue
             evidence_id = record.get("evidence_id", "")
@@ -202,11 +272,9 @@ def validate(directory: Path, source_root: Path | None = None) -> dict[str, int]
         for line_number, record in records(directory / "relations.jsonl"):
             counts["relation"] += 1
             label = f"relation[{line_number}]"
-            record_schema_errors = schema_record_errors(
-                "relation",
-                record,
-                label,
-                schema_validators["relation"],
+            record_schema_errors = (
+                schema_record_errors("relation", record, label, schema_validators["relation"])
+                if published_schema else []
             )
             errors.extend(record_schema_errors)
             if not isinstance(record, dict):
@@ -280,10 +348,24 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("directory", type=Path)
     parser.add_argument("--root", type=Path)
+    parser.add_argument(
+        "--allow-structural-schema-fallback", action="store_true",
+        help="run stable-ID/hash/lineage checks without jsonschema; report this limitation explicitly",
+    )
     args = parser.parse_args()
+    published_schema = True
+    if args.allow_structural_schema_fallback:
+        try:
+            import jsonschema  # noqa: F401
+        except ImportError:
+            published_schema = False
     print(canonical_json({
         "status": "ok",
-        "counts": validate(args.directory.resolve(), args.root.resolve() if args.root else None),
+        "schema_validation": "draft202012" if published_schema else "structural_contract_only",
+        "counts": validate(
+            args.directory.resolve(), args.root.resolve() if args.root else None,
+            published_schema=published_schema,
+        ),
     }))
 
 

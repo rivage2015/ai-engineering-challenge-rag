@@ -7,6 +7,7 @@ import hashlib
 import json
 import re
 import unicodedata
+from decimal import Decimal, InvalidOperation
 
 
 CURRENT_MARKERS = ("現在", "今は", "いまは", "現在は")
@@ -14,6 +15,9 @@ PAST_MARKERS = ("過去", "以前", "かつて", "住んでいました", "住�
 ALL_MARKERS = ("すべて", "全て", "全部", "全件", "漏れなく", "すべて挙げ")
 PERSON_MARKERS = ("人物", "本人", "パイロット", "質問者", "担当者", "誰")
 NAME_MARKERS = ("名前", "氏名", "パイロットネーム", "氏名は", "名前は")
+PROVISIONAL_MARKER = "[暫定読取]"
+COUNT_MARKERS = ("何回", "回数", "何枠", "枠数", "何件", "件数", "総数", "合計")
+EXPLICIT_PERIOD = re.compile(r"20\d{2}\s*年\s*(?:1[0-2]|0?[1-9])\s*月")
 
 
 def normalize(value: object) -> str:
@@ -30,15 +34,19 @@ def stable_hash(value: object) -> str:
 
 def infer_time_scope(query: str, label: str) -> str:
     combined = query + " " + label
+    if EXPLICIT_PERIOD.search(unicodedata.normalize("NFKC", combined)):
+        return "specified_period"
     if any(marker in combined for marker in ("過去", "以前", "かつて", "住んでいた")):
         return "past"
-    if any(marker in combined for marker in ("現在", "今", "いま")):
+    if any(marker in combined for marker in CURRENT_MARKERS):
         return "current"
     return "unspecified"
 
 
 def infer_entity_type(query: str, label: str) -> str:
     combined = query + " " + label
+    if any(marker in combined for marker in COUNT_MARKERS):
+        return "numeric_count"
     if "氏名" in combined or (
         any(marker in combined for marker in NAME_MARKERS)
         and any(marker in combined for marker in PERSON_MARKERS)
@@ -71,6 +79,118 @@ def build_question_contract(query: str, plan: dict) -> dict:
 def split_values(value: str) -> list[str]:
     parts = [part.strip(" \t-・") for part in re.split(r"[、,，;/／\n]+", value) if part.strip(" \t-・")]
     return parts or ([value.strip()] if value.strip() else [])
+
+
+def non_provisional_text(value: str) -> str:
+    """Return only text that is not labelled as a provisional reading.
+
+    A direct provisional Evidence packet starts with the marker and is wholly
+    provisional. A derived image packet can contain multiple OCR lines; in
+    that form only each marker-prefixed line is provisional, while independently
+    accepted lines in the same packet remain eligible support.
+    """
+    lines = value.splitlines() or [value]
+    first_nonempty = next((line for line in lines if line.strip()), "")
+    if first_nonempty.lstrip().startswith(PROVISIONAL_MARKER):
+        return ""
+    accepted = []
+    for line in lines:
+        prefix, marker, _provisional = line.partition(PROVISIONAL_MARKER)
+        accepted.append(prefix if marker else line)
+    return "\n".join(accepted)
+
+
+def packet_has_provisional_reading(value: str) -> bool:
+    """Return whether a packet contains any explicitly provisional OCR line.
+
+    SearchUnits keep high and provisional image readings in separate packets.
+    A supported claim therefore never needs a provisional packet in its support
+    set. Keeping those packets diagnostic also prevents relation laundering.
+    """
+    return any(
+        line.lstrip().startswith(PROVISIONAL_MARKER)
+        for line in value.splitlines()
+    )
+
+
+def numeric_value(value: object) -> Decimal | None:
+    match = re.search(r"[-+]?(?:\d+(?:\.\d+)?|\.\d+)", unicodedata.normalize("NFKC", str(value)))
+    if not match:
+        return None
+    try:
+        parsed = Decimal(match.group(0))
+    except InvalidOperation:
+        return None
+    return parsed if parsed.is_finite() else None
+
+
+def validate_question_graph_binding(
+    record: dict,
+    contract: dict,
+    graph: dict,
+    packet_map: dict[str, str],
+    failures: list[dict],
+    warnings: list[dict],
+) -> None:
+    """Bind numeric count claims to the verified pre-answer aggregate graph."""
+    count_fields = {
+        item.get("field_id") for item in contract.get("items", [])
+        if item.get("entity_type") == "numeric_count"
+    }
+    if not count_fields:
+        return
+    artifact = record.get("question_evidence_graph")
+    validation = record.get("question_evidence_graph_validation")
+    if not isinstance(artifact, dict) or not isinstance(validation, dict):
+        failures.append({
+            "code": "question_graph_missing",
+            "detail": "回数主張に必要な回答前Question Evidence Graphがありません。",
+        })
+        return
+    if artifact.get("status") == "unsupported" and validation.get("status") == "not_applicable":
+        failures.append({
+            "code": "structured_aggregate_graph_required",
+            "detail": "回数主張に必要な構造化集計Graphがありません。",
+        })
+        return
+    if artifact.get("status") != "ready" or validation.get("status") != "pass":
+        failures.append({
+            "code": "question_graph_not_verified",
+            "detail": f"集計Graph未検証: {artifact.get('reason', '')}",
+        })
+        return
+    body = {key: value for key, value in artifact.items() if key not in {"artifact_hash", "artifact_id"}}
+    expected_hash = stable_hash(body)
+    if artifact.get("artifact_hash") != expected_hash or artifact.get("artifact_id") != f"qeg_{expected_hash[:24]}":
+        failures.append({"code": "question_graph_hash_mismatch", "detail": "集計Graphのhashが一致しません。"})
+        return
+    selection = artifact.get("selection") or {}
+    validation_ids = set(selection.get("validation_evidence_ids", []))
+    missing_ids = sorted(validation_ids - set(packet_map))
+    if missing_ids:
+        failures.append({
+            "code": "question_graph_evidence_missing",
+            "detail": f"集計GraphのEvidenceが不足: {missing_ids[:6]}",
+        })
+    expected_value = numeric_value(selection.get("value"))
+    mandatory_ids = set(selection.get("mandatory_aggregation_evidence_ids", []))
+    for claim in graph.get("claims", []):
+        if claim.get("field_id") not in count_fields:
+            continue
+        claim_id = claim.get("claim_id", "")
+        actual_value = numeric_value(claim.get("value"))
+        if expected_value is None or actual_value != expected_value:
+            failures.append({
+                "code": "question_graph_value_mismatch",
+                "claim_id": claim_id,
+                "detail": "回数主張が機械的に再集計した値と一致しません。",
+            })
+        if not (set(claim.get("evidence_ids", [])) & mandatory_ids):
+            failures.append({
+                "code": "question_graph_evidence_escape",
+                "claim_id": claim_id,
+                "detail": "回数主張が検証済みの合計Evidenceを参照していません。",
+            })
 
 
 def build_claim_graph(record: dict, packets: list[dict], contract: dict | None = None) -> dict:
@@ -107,13 +227,26 @@ def build_claim_graph(record: dict, packets: list[dict], contract: dict | None =
             "evidence_ids": evidence_ids,
         }
         claims.append(claim)
+        nodes.append({
+            "node_id": claim_id,
+            "node_type": "claim",
+            "field_id": field_id,
+            "predicate": claim["predicate"],
+        })
         nodes.append({"node_id": value_id, "node_type": "value", "value": value})
-        edges.append({"edge_id": f"A_{claim_id}", "source": field_id, "predicate": "answered_by", "target": value_id})
+        edges.append({
+            "edge_id": f"A_{claim_id}", "source": field_id,
+            "predicate": "answered_by", "target": claim_id,
+        })
+        edges.append({
+            "edge_id": f"V_{claim_id}", "source": claim_id,
+            "predicate": "has_value", "target": value_id,
+        })
         for evidence_id in evidence_ids:
             if evidence_id in packet_ids:
                 edges.append({"edge_id": f"S_{claim_id}_{evidence_id}", "source": evidence_id, "predicate": "supports", "target": claim_id})
     body = {"contract_hash": contract["contract_hash"], "nodes": nodes, "edges": edges, "claims": claims}
-    return {"artifact_version": "1.0", "artifact_hash": stable_hash(body), **body}
+    return {"artifact_version": "1.1", "artifact_hash": stable_hash(body), **body}
 
 
 def _name_relation_is_explicit(value: str, text: str) -> bool:
@@ -168,6 +301,38 @@ def validate_claim_graph(record: dict, packets: list[dict], contract: dict, grap
     if graph.get("contract_hash") != contract.get("contract_hash"):
         failures.append({"code": "artifact_contract_mismatch", "detail": "主張グラフが別の質問契約を参照しています。"})
 
+    nodes = graph.get("nodes", [])
+    edges = graph.get("edges", [])
+    node_ids = [node.get("node_id") for node in nodes if isinstance(node, dict)]
+    if len(node_ids) != len(set(node_ids)) or any(not node_id for node_id in node_ids):
+        failures.append({"code": "graph_node_ids_invalid", "detail": "Node IDが空または重複しています。"})
+    known_nodes = set(node_ids)
+    edge_ids = [edge.get("edge_id") for edge in edges if isinstance(edge, dict)]
+    if len(edge_ids) != len(set(edge_ids)) or any(not edge_id for edge_id in edge_ids):
+        failures.append({"code": "graph_edge_ids_invalid", "detail": "Edge IDが空または重複しています。"})
+    for edge in edges:
+        if not isinstance(edge, dict):
+            failures.append({"code": "graph_edge_invalid", "detail": "Edgeがobjectではありません。"})
+            continue
+        if edge.get("source") not in known_nodes or edge.get("target") not in known_nodes:
+            failures.append({
+                "code": "graph_edge_endpoint_missing",
+                "detail": f"Edge端点がありません: {edge.get('edge_id', '')}",
+            })
+    claim_node_ids = {
+        node.get("node_id") for node in nodes
+        if isinstance(node, dict) and node.get("node_type") == "claim"
+    }
+    missing_claim_nodes = [
+        claim.get("claim_id") for claim in graph.get("claims", [])
+        if claim.get("claim_id") not in claim_node_ids
+    ]
+    if missing_claim_nodes:
+        failures.append({
+            "code": "claim_node_missing",
+            "detail": f"主張を表すNodeがありません: {missing_claim_nodes}",
+        })
+
     field_ids = {item.get("field_id") for item in contract.get("items", [])}
     answer_text = normalize(record.get("answer", {}).get("answer", ""))
     for claim in graph.get("claims", []):
@@ -179,15 +344,37 @@ def validate_claim_graph(record: dict, packets: list[dict], contract: dict, grap
         if not evidence_ids or missing_ids:
             failures.append({"code": "invalid_evidence_reference", "claim_id": claim_id, "detail": f"不明なEvidence ID: {missing_ids}"})
             continue
+        provisional_support_ids = [
+            evidence_id for evidence_id in evidence_ids
+            if packet_has_provisional_reading(packet_map[evidence_id])
+        ]
+        if provisional_support_ids:
+            failures.append({
+                "code": "provisional_evidence_only",
+                "claim_id": claim_id,
+                "detail": (
+                    "Provisional OCR packets cannot be used as confirmed support; "
+                    f"keep them diagnostic: {provisional_support_ids}"
+                ),
+            })
         cited_text = "\n".join(packet_map[evidence_id] for evidence_id in evidence_ids)
+        non_provisional_cited_text = "\n".join(
+            non_provisional_text(packet_map[evidence_id]) for evidence_id in evidence_ids
+        )
         for value_part in claim.get("value_parts", []):
             if normalize(value_part) not in normalize(cited_text):
                 failures.append({"code": "value_not_in_evidence", "claim_id": claim_id, "detail": f"原文にない値: {value_part}"})
-            if _time_relation_conflicts(str(claim.get("time_scope", "unspecified")), value_part, cited_text):
+            if _time_relation_conflicts(
+                str(claim.get("time_scope", "unspecified")),
+                value_part,
+                non_provisional_cited_text,
+            ):
                 failures.append({"code": "time_scope_conflict", "claim_id": claim_id, "detail": f"質問の時制と一致しない値: {value_part}"})
         if normalize(claim.get("value", "")) not in answer_text:
             failures.append({"code": "value_not_in_answer", "claim_id": claim_id, "detail": "検証済み値が最終回答へ投影されていません。"})
-        if claim.get("entity_type") == "person_name" and not _name_relation_is_explicit(str(claim.get("value", "")), cited_text):
+        if claim.get("entity_type") == "person_name" and not _name_relation_is_explicit(
+            str(claim.get("value", "")), non_provisional_cited_text
+        ):
             failures.append({"code": "person_name_relation_missing", "claim_id": claim_id, "detail": "人物名と値を結ぶ明示的な記述がありません。"})
 
     supported_fields = {claim.get("field_id") for claim in graph.get("claims", [])}
@@ -203,9 +390,11 @@ def validate_claim_graph(record: dict, packets: list[dict], contract: dict, grap
         if item.get("require_all") and item.get("field_id") in supported_fields:
             warnings.append({"code": "coverage_requires_semantic_audit", "field_id": item.get("field_id"), "detail": "全件性は独立監査役がEvidenceの列挙範囲を再確認します。"})
 
+    validate_question_graph_binding(record, contract, graph, packet_map, failures, warnings)
+
     status = "blocked" if failures else "pass"
     return {
-        "validator_version": "1.0",
+        "validator_version": "1.3",
         "status": status,
         "failures": failures,
         "warnings": warnings,

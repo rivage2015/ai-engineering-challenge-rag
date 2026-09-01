@@ -15,7 +15,7 @@ import os
 import shutil
 import tempfile
 from datetime import datetime, timezone
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Any
 
 from probe_intermediate_records import (
@@ -36,7 +36,7 @@ SUPPORTED_SUFFIXES = {
 }
 SKIP_DIRECTORY_NAMES = {".git", "__pycache__", ".ipynb_checkpoints", "node_modules"}
 EXTRACTOR = "intermediate-record-extractor"
-EXTRACTOR_VERSION = "0.7.0"
+EXTRACTOR_VERSION = "0.8.0"
 STATE_VERSION = "1"
 STATE_FILE = "build-state.json"
 LOCK_FILE = "build.lock"
@@ -133,6 +133,23 @@ class ShardWriter:
             handle.close()
         self.closed = True
 
+    def discard_uncommitted_records(self) -> None:
+        """Roll back every record emitted for the active source file.
+
+        Evidence and Relation records are streamed before the final Document
+        record. If extraction later fails, none of that partial graph may be
+        published beside a failed Document. The failure Document is emitted
+        only after this file-local rollback.
+        """
+        if self.closed:
+            raise RuntimeError("cannot roll back a closed document shard")
+        for handle in self.handles.values():
+            handle.flush()
+            handle.seek(0)
+            handle.truncate(0)
+        self.counts = {kind: 0 for kind in RECORD_FILES}
+        self.last_document = None
+
     def commit(self) -> dict[str, Any]:
         self.close()
         shards: dict[str, dict[str, Any]] = {}
@@ -161,7 +178,12 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--root", required=True, type=Path, help="source root used for relative paths")
     parser.add_argument("--out", required=True, type=Path, help="output directory")
-    parser.add_argument("--input", type=Path, nargs="*", help="optional explicit files; otherwise discover recursively")
+    inputs = parser.add_mutually_exclusive_group()
+    inputs.add_argument("--input", type=Path, nargs="*", help="optional explicit files; otherwise discover recursively")
+    inputs.add_argument(
+        "--input-manifest", type=Path,
+        help="JSON manifest of relative source paths; avoids oversized command lines for curated builds",
+    )
     parser.add_argument("--run-at", help="ISO-8601 timestamp; a resumed build reuses the stored value")
     parser.add_argument("--resume", action="store_true", help="resume an existing build-state.json")
     parser.add_argument(
@@ -171,6 +193,30 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--fail-fast", action="store_true", help="stop after recording the first failed document")
     parser.add_argument("--max-files", type=int, help="process at most this many pending files, then stop resumably")
     return parser.parse_args()
+
+
+def load_input_manifest(root: Path, manifest_path: Path) -> list[Path]:
+    """Load a source-bound list without accepting absolute or parent paths."""
+    manifest = json.loads(manifest_path.resolve(strict=True).read_text(encoding="utf-8"))
+    if not isinstance(manifest, dict) or manifest.get("schema_version") != "0.1":
+        raise ValueError("input manifest schema_version must be 0.1")
+    declared_root = manifest.get("source_root")
+    if not isinstance(declared_root, str) or Path(declared_root).resolve() != root.resolve():
+        raise ValueError("input manifest source_root mismatch")
+    values = manifest.get("paths")
+    if not isinstance(values, list) or not values:
+        raise ValueError("input manifest paths must be a non-empty list")
+    if len(values) != len(set(values)):
+        raise ValueError("input manifest paths must be unique")
+    paths: list[Path] = []
+    for value in values:
+        if not isinstance(value, str) or not value:
+            raise ValueError("input manifest paths must contain non-empty strings")
+        relative = PurePosixPath(value)
+        if relative.is_absolute() or any(part in {"", ".", ".."} for part in relative.parts):
+            raise ValueError(f"unsafe input manifest path: {value!r}")
+        paths.append(root.joinpath(*relative.parts))
+    return paths
 
 
 def validate_inputs(root: Path, paths: list[Path]) -> list[Path]:
@@ -268,6 +314,7 @@ def process_file(
     except Exception as error:
         extraction_error = error
         try:
+            writer.discard_uncommitted_records()
             extractor.record_failure(path, error)
             extractor.finalize_document()
         except Exception:
@@ -334,6 +381,14 @@ def main() -> None:
     else:
         raise SystemExit("--out must be outside --root to prevent recursive self-ingestion")
 
+    try:
+        explicit_inputs = (
+            load_input_manifest(root, args.input_manifest)
+            if args.input_manifest is not None else args.input
+        )
+    except (OSError, ValueError, json.JSONDecodeError) as error:
+        raise SystemExit(str(error)) from error
+
     if args.resume:
         if not output.is_dir():
             raise SystemExit(f"resume output is not a directory: {output}")
@@ -345,13 +400,13 @@ def main() -> None:
     with BuildLock(output / LOCK_FILE):
         if args.resume:
             try:
-                state, inputs = load_state(output, root, args.input)
+                state, inputs = load_state(output, root, explicit_inputs)
             except ValueError as error:
                 raise SystemExit(str(error)) from error
             run_at = state["run_at"]
         else:
             try:
-                inputs = validate_inputs(root, args.input if args.input is not None else discover(root))
+                inputs = validate_inputs(root, explicit_inputs if explicit_inputs is not None else discover(root))
             except ValueError as error:
                 raise SystemExit(str(error)) from error
             run_at = args.run_at or datetime.now(timezone.utc).isoformat()

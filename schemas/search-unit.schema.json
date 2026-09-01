@@ -31,7 +31,8 @@
         "code_chunk",
         "notebook_cell",
         "chart_summary",
-        "chart_series"
+        "chart_series",
+        "image_text_packet"
       ]
     },
     "source_evidence_ids": {
@@ -47,6 +48,7 @@
         "page_number": {"type": "integer", "minimum": 1},
         "slide_number": {"type": "integer", "minimum": 1},
         "sheet_name": {"type": "string", "minLength": 1},
+        "cell": {"type": "string", "pattern": "^[A-Z]{1,3}[1-9][0-9]*$"},
         "table_index": {"type": "integer", "minimum": 1},
         "shape_id": {"type": "string", "minLength": 1},
         "row_index": {"type": "integer", "minimum": 1},
@@ -76,7 +78,7 @@
       "additionalProperties": false,
       "properties": {
         "heading_text": {"type": "string", "minLength": 1},
-        "container_kind": {"enum": ["table", "slide", "chart"]},
+        "container_kind": {"enum": ["table", "slide", "chart", "standalone_image"]},
         "container_heading_text": {"type": "string", "minLength": 1},
         "container_heading_evidence_ids": {
           "type": "array",
@@ -94,7 +96,30 @@
           "items": {"type": "string", "pattern": "^ev_[0-9a-f]{16,64}$"}
         },
         "header_method": {"enum": ["first_non_empty_row_candidate", "source_header_row"]},
-        "is_header_candidate": {"type": "boolean"}
+        "is_header_candidate": {"type": "boolean"},
+        "quality_tier": {"enum": ["high", "provisional"]},
+        "agreement_types": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "enum": [
+              "independent_agreement",
+              "same_engine_agreement",
+              "provisional_single_pass"
+            ]
+          }
+        },
+        "provisional_marker": {"const": "[暫定読取]"},
+        "bbox_coordinate_system": {
+          "enum": [
+            "raw_raster_top_left_normalized_1000",
+            "display_oriented_top_left_normalized_1000",
+            "source_orientation_1_top_left_normalized_1000"
+          ]
+        },
+        "reading_order_method": {"const": "geometry_row_bands_v1"},
+        "row_band_count": {"type": "integer", "minimum": 1}
       }
     },
     "provenance": {
@@ -108,5 +133,117 @@
         "deterministic": {"const": true}
       }
     }
-  }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {"unit_type": {"const": "image_text_packet"}},
+        "required": ["unit_type"]
+      },
+      "then": {
+        "required": ["context"],
+        "properties": {
+          "context": {
+            "required": [
+              "container_kind", "quality_tier", "agreement_types",
+              "bbox_coordinate_system",
+              "reading_order_method", "row_band_count"
+            ],
+            "properties": {
+              "container_kind": {"const": "standalone_image"}
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "unit_type": {"const": "image_text_packet"},
+          "context": {
+            "properties": {"quality_tier": {"const": "high"}},
+            "required": ["quality_tier"]
+          }
+        },
+        "required": ["unit_type", "context"]
+      },
+      "then": {
+        "properties": {
+          "context": {
+            "properties": {
+              "agreement_types": {
+                "items": {"const": "independent_agreement"}
+              }
+            },
+            "not": {"required": ["provisional_marker"]}
+          },
+          "text": {
+            "properties": {
+              "search_text": {
+                "not": {"pattern": "(^|\\n)\\[暫定読取\\] "}
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "unit_type": {"const": "image_text_packet"},
+          "context": {
+            "properties": {"quality_tier": {"const": "provisional"}},
+            "required": ["quality_tier"]
+          }
+        },
+        "required": ["unit_type", "context"]
+      },
+      "then": {
+        "properties": {
+          "context": {
+            "required": ["provisional_marker"],
+            "properties": {
+              "agreement_types": {
+                "items": {
+                  "enum": ["same_engine_agreement", "provisional_single_pass"]
+                }
+              },
+              "provisional_marker": {"const": "[暫定読取]"}
+            }
+          },
+          "text": {
+            "properties": {
+              "search_text": {
+                "pattern": "^(?:Image file: [^\\n]+\\n)?\\[暫定読取\\] [^\\n]*(?:\\n\\[暫定読取\\] [^\\n]*)*$"
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "unit_type": {"not": {"const": "image_text_packet"}}
+        },
+        "required": ["unit_type"]
+      },
+      "then": {
+        "properties": {
+          "context": {
+            "not": {
+              "anyOf": [
+                {"required": ["quality_tier"]},
+                {"required": ["agreement_types"]},
+                {"required": ["provisional_marker"]},
+                {"required": ["bbox_coordinate_system"]},
+                {"required": ["reading_order_method"]},
+                {"required": ["row_band_count"]}
+              ]
+            }
+          }
+        }
+      }
+    }
+  ]
 }

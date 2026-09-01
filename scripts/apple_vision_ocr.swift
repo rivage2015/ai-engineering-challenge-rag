@@ -20,9 +20,11 @@ private struct OCRResult: Codable {
     let runner: String
     let runner_version: String
     let request_revision: Int
+    let pass_name: String
     let width_px: Int?
     let height_px: Int?
     let source_orientation: Int?
+    let bbox_coordinate_system: String?
     let lines: [OCRLine]
     let warnings: [String]
     let error: String?
@@ -31,6 +33,13 @@ private struct OCRResult: Codable {
 private struct DecodedImage {
     let image: CGImage
     let orientation: CGImagePropertyOrientation
+}
+
+private struct OCRPass {
+    let name: String
+    let recognitionLevel: VNRequestTextRecognitionLevel
+    let usesLanguageCorrection: Bool
+    let automaticallyDetectsLanguage: Bool
 }
 
 private struct EngineInfo: Codable {
@@ -54,7 +63,10 @@ private func emit<T: Encodable>(_ value: T) throws {
     FileHandle.standardOutput.write(Data([0x0a]))
 }
 
-private func quantizedBox(_ box: CGRect) -> [Int] {
+private func quantizedDisplayOrientedBox(_ box: CGRect) -> [Int] {
+    // VNImageRequestHandler applies source_orientation while recognizing the
+    // image. Keep Vision's resulting, display-oriented frame explicit instead
+    // of presenting it as the encoded raster frame used by Tesseract TSV.
     let left = max(0.0, min(1.0, box.origin.x))
     let top = max(0.0, min(1.0, 1.0 - box.origin.y - box.size.height))
     let right = max(left, min(1.0, box.origin.x + box.size.width))
@@ -95,15 +107,48 @@ private func decodeImage(_ data: Data) throws -> DecodedImage {
     return DecodedImage(image: image, orientation: orientation)
 }
 
-private func recognize(_ data: Data) throws -> OCRResult {
+private func passConfiguration(_ name: String) throws -> OCRPass {
+    switch name {
+    case "primary":
+        return OCRPass(
+            name: name,
+            recognitionLevel: .accurate,
+            usesLanguageCorrection: true,
+            automaticallyDetectsLanguage: false
+        )
+    case "literal":
+        return OCRPass(
+            name: name,
+            recognitionLevel: .accurate,
+            usesLanguageCorrection: false,
+            automaticallyDetectsLanguage: false
+        )
+    case "fast_sparse":
+        return OCRPass(
+            name: name,
+            recognitionLevel: .fast,
+            usesLanguageCorrection: false,
+            automaticallyDetectsLanguage: true
+        )
+    default:
+        throw NSError(
+            domain: "apple-vision-swift-ocr",
+            code: 5,
+            userInfo: [NSLocalizedDescriptionKey: "unsupported OCR pass: \(name)"]
+        )
+    }
+}
+
+private func recognize(_ data: Data, passName: String) throws -> OCRResult {
     let decoded = try decodeImage(data)
     let image = decoded.image
+    let pass = try passConfiguration(passName)
     let request = VNRecognizeTextRequest()
     request.revision = requestRevision
-    request.recognitionLevel = .accurate
+    request.recognitionLevel = pass.recognitionLevel
     request.recognitionLanguages = ["ja-JP", "en-US"]
-    request.usesLanguageCorrection = true
-    request.automaticallyDetectsLanguage = false
+    request.usesLanguageCorrection = pass.usesLanguageCorrection
+    request.automaticallyDetectsLanguage = pass.automaticallyDetectsLanguage
 
     let handler = VNImageRequestHandler(
         cgImage: image,
@@ -124,7 +169,7 @@ private func recognize(_ data: Data) throws -> OCRResult {
             OCRLine(
                 sequence: lines.count + 1,
                 raw_text: text,
-                bbox: quantizedBox(observation.boundingBox),
+                bbox: quantizedDisplayOrientedBox(observation.boundingBox),
                 confidence: max(0.0, min(1.0, Double(candidate.confidence)))
             )
         )
@@ -141,9 +186,11 @@ private func recognize(_ data: Data) throws -> OCRResult {
         runner: "apple-vision-swift-ocr",
         runner_version: runnerVersion,
         request_revision: Int(requestRevision),
+        pass_name: pass.name,
         width_px: image.width,
         height_px: image.height,
         source_orientation: Int(decoded.orientation.rawValue),
+        bbox_coordinate_system: "display_oriented_top_left_normalized_1000",
         lines: lines,
         warnings: warnings,
         error: nil
@@ -171,9 +218,14 @@ do {
         try emit(engineInfo())
         exit(EXIT_SUCCESS)
     }
-    guard CommandLine.arguments.count == 1 else {
+    let passName: String
+    if CommandLine.arguments.count == 1 {
+        passName = "primary"
+    } else if CommandLine.arguments.count == 3 && CommandLine.arguments[1] == "--pass" {
+        passName = CommandLine.arguments[2]
+    } else {
         FileHandle.standardError.write(
-            Data("usage: apple_vision_ocr [--engine-info]\nimage bytes are read from stdin\n".utf8)
+            Data("usage: apple_vision_ocr [--engine-info | --pass primary|literal|fast_sparse]\nimage bytes are read from stdin\n".utf8)
         )
         exit(2)
     }
@@ -185,16 +237,21 @@ do {
             userInfo: [NSLocalizedDescriptionKey: "stdin contained no image bytes"]
         )
     }
-    try emit(recognize(input))
+    try emit(recognize(input, passName: passName))
 } catch {
+    let requestedPass = (
+        CommandLine.arguments.count == 3 && CommandLine.arguments[1] == "--pass"
+    ) ? CommandLine.arguments[2] : "primary"
     let failed = OCRResult(
         status: "failed",
         runner: "apple-vision-swift-ocr",
         runner_version: runnerVersion,
         request_revision: Int(requestRevision),
+        pass_name: requestedPass,
         width_px: nil,
         height_px: nil,
         source_orientation: nil,
+        bbox_coordinate_system: nil,
         lines: [],
         warnings: ["Apple Vision OCR failed"],
         error: "\(type(of: error)): \(error.localizedDescription)"

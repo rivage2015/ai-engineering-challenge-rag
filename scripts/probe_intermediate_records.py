@@ -9,29 +9,75 @@ from __future__ import annotations
 
 import argparse
 import base64
+import codecs
 import csv
 import hashlib
 import io
 import json
 import mimetypes
+import posixpath
 import re
 import unicodedata
 import zipfile
 from datetime import date, datetime, timezone
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Any, Callable
 from xml.etree import ElementTree
+
+from evidence_text_chunking import (
+    MAX_QUESTION_EVIDENCE_CHARS,
+    exact_text_chunks,
+)
 
 
 SCHEMA_VERSION = "0.1"
 EXTRACTOR = "intermediate-record-probe"
-EXTRACTOR_VERSION = "0.3.0"
+EXTRACTOR_VERSION = "0.5.0"
+FORMULA_CACHED_VALUE_STATUS = "stored_in_file_not_recalculated"
 
 PLAIN_TEXT_SUFFIXES = {
     ".md", ".txt", ".py", ".toml", ".yaml", ".yml", ".rst", ".sql", ".sh", ".command",
 }
 IMAGE_SUFFIXES = {".png", ".jpg", ".jpeg", ".tif", ".tiff", ".bmp"}
+OCR_QUALITY_BY_AGREEMENT = {
+    "independent_agreement": "high",
+    "same_engine_agreement": "provisional",
+    "provisional_single_pass": "provisional",
+}
+PROVISIONAL_OCR_MARKER = "[暫定読取]"
+OCR_BBOX_COORDINATE_SYSTEMS = {
+    "raw_raster_top_left_normalized_1000",
+    "display_oriented_top_left_normalized_1000",
+    "source_orientation_1_top_left_normalized_1000",
+}
 CODE_SUFFIXES = {".py", ".toml", ".yaml", ".yml", ".sql", ".sh", ".command"}
+DIRECT_TEXT_SUFFIXES = PLAIN_TEXT_SUFFIXES | {".csv", ".tsv", ".json", ".xml", ".ipynb"}
+MAX_DIRECT_TEXT_BYTES = 64 * 1024 * 1024
+STREAM_TEXT_READ_CHARS = 64 * 1024
+MAX_STREAM_TEXT_READ_BLOCKS = 4096
+TEXT_ENCODING_SNIFF_BYTES = 64 * 1024
+TEXT_ENCODING_SCAN_BYTES = 1024 * 1024
+MAX_OOXML_ARCHIVE_BYTES = 256 * 1024 * 1024
+MAX_OOXML_ZIP_ENTRIES = 10_000
+MAX_OOXML_MEMBER_BYTES = 128 * 1024 * 1024
+MAX_OOXML_TOTAL_BYTES = 512 * 1024 * 1024
+MAX_OOXML_COMPRESSION_RATIO = 500.0
+OOXML_FORBIDDEN_XML = (b"<!DOCTYPE", b"<!ENTITY")
+DOCX_REQUIRED_OOXML_MEMBERS = frozenset({
+    "[Content_Types].xml",
+    "_rels/.rels",
+    "word/document.xml",
+})
+PPTX_REQUIRED_OOXML_MEMBERS = frozenset({
+    "[Content_Types].xml",
+    "_rels/.rels",
+    "ppt/presentation.xml",
+    "ppt/_rels/presentation.xml.rels",
+})
+XML_DECLARATION_ENCODING = re.compile(
+    r"<\?xml\s+[^>]{0,512}?\bencoding\s*=\s*(['\"])([A-Za-z][A-Za-z0-9._-]*)\1",
+    re.IGNORECASE,
+)
 DATA_URI_PATTERN = re.compile(
     r"data:(image/[A-Za-z0-9.+-]+);base64,([A-Za-z0-9+/=\r\n\t ]+)",
     re.IGNORECASE,
@@ -84,25 +130,231 @@ def normalize_text(value: str) -> str:
     return "\n".join(compact)
 
 
-def read_text(path: Path) -> tuple[str, str]:
-    """Read common native-text encodings while reporting the selected encoding."""
-    raw = path.read_bytes()
+def detect_text_encoding(raw: bytes, *, partial_sample: bool = False) -> str:
+    """Detect a common native-text encoding from bounded or complete bytes."""
+    def decodes(encoding: str) -> bool:
+        try:
+            decoder = codecs.getincrementaldecoder(encoding)(errors="strict")
+            decoder.decode(raw, final=not partial_sample)
+            return True
+        except UnicodeDecodeError:
+            return False
+
     if raw.startswith((b"\xff\xfe", b"\xfe\xff")):
-        return raw.decode("utf-16"), "utf-16"
+        return "utf-16"
     if raw and raw.count(b"\x00") / len(raw) > 0.1:
         odd_nuls = raw[1::2].count(0)
         even_nuls = raw[0::2].count(0)
         likely_utf16 = "utf-16-le" if odd_nuls >= even_nuls else "utf-16-be"
-        try:
-            return raw.decode(likely_utf16), likely_utf16
-        except UnicodeDecodeError:
-            pass
+        if decodes(likely_utf16):
+            return likely_utf16
     for encoding in ("utf-8-sig", "cp932"):
+        if decodes(encoding):
+            return encoding
+    return "utf-8-replacement"
+
+
+def detect_text_file_encoding(path: Path) -> str:
+    """Select a text encoding after a bounded-memory full-file validation.
+
+    An ASCII prefix cannot distinguish UTF-8 from CP932. Choosing from only a
+    prefix would corrupt Japanese that appears later in a large file, so every
+    candidate decoder is advanced over the complete byte stream while keeping
+    only decoder state in memory.
+    """
+    with path.open("rb") as handle:
+        sample = handle.read(TEXT_ENCODING_SNIFF_BYTES)
+    if sample.startswith((b"\xff\xfe", b"\xfe\xff")):
+        candidates = ["utf-16"]
+    elif sample and sample.count(b"\x00") / len(sample) > 0.1:
+        odd_nuls = sample[1::2].count(0)
+        even_nuls = sample[0::2].count(0)
+        likely_utf16 = "utf-16-le" if odd_nuls >= even_nuls else "utf-16-be"
+        candidates = [likely_utf16, "utf-8-sig", "cp932"]
+    else:
+        candidates = ["utf-8-sig", "cp932"]
+
+    decoders = {
+        encoding: codecs.getincrementaldecoder(encoding)(errors="strict")
+        for encoding in candidates
+    }
+    with path.open("rb") as handle:
+        while block := handle.read(TEXT_ENCODING_SCAN_BYTES):
+            for encoding in list(decoders):
+                try:
+                    decoders[encoding].decode(block, final=False)
+                except UnicodeDecodeError:
+                    del decoders[encoding]
+            if not decoders:
+                return "utf-8-replacement"
+    for encoding in list(decoders):
         try:
-            return raw.decode(encoding), encoding
+            decoders[encoding].decode(b"", final=True)
         except UnicodeDecodeError:
-            continue
-    return raw.decode("utf-8", errors="replace"), "utf-8-replacement"
+            del decoders[encoding]
+    return next((encoding for encoding in candidates if encoding in decoders), "utf-8-replacement")
+
+
+def read_text(path: Path) -> tuple[str, str]:
+    """Read bounded native text while reporting the selected encoding.
+
+    ``Probe.extract`` routes larger text-like files to the streaming reader
+    before this helper is called. Keeping this helper simple preserves exact
+    decoding for ordinary files without exposing the adaptive pipeline to an
+    unbounded allocation.
+    """
+    if path.stat().st_size > MAX_DIRECT_TEXT_BYTES:
+        raise ValueError("direct_text_resource_limit")
+    raw = path.read_bytes()
+    encoding = detect_text_encoding(raw)
+    if encoding == "utf-8-replacement":
+        return raw.decode("utf-8", errors="replace"), encoding
+    return raw.decode(encoding), encoding
+
+
+def validate_ooxml_archive(
+    source: str | Path | io.BytesIO,
+    *,
+    required_members: frozenset[str],
+) -> None:
+    """Fail closed before parsing OOXML with the standard library.
+
+    The fallback must not turn a ZIP bomb, encrypted member, duplicate/path
+    ambiguity, or XML entity payload into an extraction-time resource attack.
+    Validation reads XML parts only after their declared sizes and compression
+    ratios have passed bounded checks.
+    """
+    if isinstance(source, io.BytesIO):
+        archive_bytes = source.getbuffer().nbytes
+        source.seek(0)
+    else:
+        archive_bytes = Path(source).stat().st_size
+    if not 0 < archive_bytes <= MAX_OOXML_ARCHIVE_BYTES:
+        raise ValueError("ooxml_archive_resource_limit")
+
+    try:
+        with zipfile.ZipFile(source) as archive:
+            infos = archive.infolist()
+            if not 1 <= len(infos) <= MAX_OOXML_ZIP_ENTRIES:
+                raise ValueError("ooxml_archive_invalid")
+            seen: set[str] = set()
+            logical_paths: set[str] = set()
+            total = 0
+            for info in infos:
+                name = info.filename
+                directory = info.is_dir()
+                logical_name = name[:-1] if directory else name
+                pure = PurePosixPath(logical_name)
+                if (
+                    not logical_name
+                    or "\\" in name
+                    or pure.is_absolute()
+                    or any(part in {"", ".", ".."} for part in pure.parts)
+                    or posixpath.normpath(logical_name) != logical_name
+                    or name in seen
+                    or logical_name in logical_paths
+                    or info.flag_bits & 0x1
+                ):
+                    raise ValueError("ooxml_archive_invalid")
+                seen.add(name)
+                logical_paths.add(logical_name)
+                if directory:
+                    if info.file_size != 0:
+                        raise ValueError("ooxml_archive_invalid")
+                    continue
+                if not 0 <= info.file_size <= MAX_OOXML_MEMBER_BYTES:
+                    raise ValueError("ooxml_archive_resource_limit")
+                if info.file_size and info.compress_size == 0:
+                    raise ValueError("ooxml_archive_invalid")
+                if (
+                    info.compress_size
+                    and info.file_size / info.compress_size > MAX_OOXML_COMPRESSION_RATIO
+                ):
+                    raise ValueError("ooxml_archive_resource_limit")
+                total += info.file_size
+                if total > MAX_OOXML_TOTAL_BYTES:
+                    raise ValueError("ooxml_archive_resource_limit")
+                if name.casefold().endswith((".xml", ".rels")):
+                    validate_xml_bytes(archive.read(info))
+            if not required_members.issubset(seen):
+                raise ValueError("ooxml_archive_invalid")
+    finally:
+        if isinstance(source, io.BytesIO):
+            source.seek(0)
+
+
+def xml_storage_encoding(value: bytes) -> tuple[str, int]:
+    """Return the XML byte encoding selected by BOM/signature sniffing."""
+    prefix = value[:4]
+    if prefix.startswith(b"\x00\x00\xfe\xff"):
+        return "utf-32-be", 4
+    if prefix.startswith(b"\xff\xfe\x00\x00"):
+        return "utf-32-le", 4
+    if prefix.startswith(b"\xfe\xff"):
+        return "utf-16-be", 2
+    if prefix.startswith(b"\xff\xfe"):
+        return "utf-16-le", 2
+    if prefix.startswith(b"\xef\xbb\xbf"):
+        return "utf-8", 3
+    if prefix == b"\x00\x00\x00<":
+        return "utf-32-be", 0
+    if prefix == b"<\x00\x00\x00":
+        return "utf-32-le", 0
+    if prefix == b"\x00<\x00?":
+        return "utf-16-be", 0
+    if prefix == b"<\x00?\x00":
+        return "utf-16-le", 0
+    return "ascii-compatible", 0
+
+
+def normalized_xml_encoding(value: str) -> str:
+    return re.sub(r"[^a-z0-9]", "", value.casefold())
+
+
+def validate_xml_bytes(value: bytes) -> None:
+    """Reject DTD/entity declarations before ElementTree sees any XML bytes.
+
+    OOXML normally uses UTF-8, but XML also permits BOM/signature-selected
+    UTF-16 and UTF-32.  Searching only ASCII bytes leaves those encodings as a
+    bypass, so wide encodings are scanned with their exact code-unit layout.
+    The XML declaration, when present, must agree with the detected family.
+    """
+    encoding, bom_bytes = xml_storage_encoding(value)
+    if encoding == "ascii-compatible":
+        if b"\x00" in value[:512]:
+            raise ValueError("ooxml_xml_encoding_invalid")
+        upper = value.upper()
+        if any(marker in upper for marker in OOXML_FORBIDDEN_XML):
+            raise ValueError("ooxml_xml_unsafe")
+        prolog = value[:2048].decode("ascii", errors="ignore")
+        declaration = XML_DECLARATION_ENCODING.search(prolog)
+        if declaration:
+            declared = normalized_xml_encoding(declaration.group(2))
+            if declared in {"utf16", "utf16le", "utf16be", "utf32", "utf32le", "utf32be"}:
+                raise ValueError("ooxml_xml_encoding_invalid")
+        return
+
+    if encoding == "utf-8":
+        if any(marker in value.upper() for marker in OOXML_FORBIDDEN_XML):
+            raise ValueError("ooxml_xml_unsafe")
+    elif any(marker.decode("ascii").encode(encoding) in value for marker in OOXML_FORBIDDEN_XML):
+        raise ValueError("ooxml_xml_unsafe")
+    try:
+        prolog = value[bom_bytes:2048].decode(encoding, errors="strict")
+    except UnicodeDecodeError as exc:
+        raise ValueError("ooxml_xml_encoding_invalid") from exc
+    declaration = XML_DECLARATION_ENCODING.search(prolog)
+    if not declaration:
+        return
+    declared = normalized_xml_encoding(declaration.group(2))
+    family = (
+        "utf32" if encoding.startswith("utf-32")
+        else "utf16" if encoding.startswith("utf-16")
+        else "utf8"
+    )
+    compatible = {family, normalized_xml_encoding(encoding)}
+    if declared not in compatible:
+        raise ValueError("ooxml_xml_encoding_invalid")
 
 
 def discover_password_candidates(root: Path) -> tuple[str, ...]:
@@ -413,7 +665,9 @@ class Probe:
 
     def extract(self, path: Path) -> None:
         suffix = path.suffix.lower()
-        if suffix == ".docx":
+        if suffix in DIRECT_TEXT_SUFFIXES and path.stat().st_size > MAX_DIRECT_TEXT_BYTES:
+            self.extract_large_text(path)
+        elif suffix == ".docx":
             self.extract_docx(path)
         elif suffix == ".xlsx":
             self.extract_xlsx(path)
@@ -436,6 +690,92 @@ class Probe:
         else:
             self.extract_other(path)
         self.finalize_document()
+
+    def extract_large_text(self, path: Path) -> None:
+        """Retain searchable text from a large file with bounded memory.
+
+        Structural parsers for JSON, XML, notebooks and delimited files first
+        materialize the complete source. For a large source, preserving the
+        text in deterministic chunks is more useful than either crashing or
+        pretending that the structure was fully parsed. The explicit partial
+        status lets a later specialized reader replace this fallback.
+        """
+        doc = self.add_document(path, "bounded-text-stream")
+        doc_id = doc["document_id"]
+        self.mark_partial(
+            doc,
+            "large text-like file read with bounded streaming; native structure remains unresolved",
+        )
+        detected = detect_text_file_encoding(path)
+        decoding = "utf-8" if detected == "utf-8-replacement" else detected
+        replacement_count = 0
+        character_offset = 0
+        read_block_count = 0
+        chunk_count = 0
+        stopped_at_item_limit = False
+        with path.open("r", encoding=decoding, errors="replace", newline="") as handle:
+            while True:
+                if read_block_count >= MAX_STREAM_TEXT_READ_BLOCKS:
+                    if handle.read(1):
+                        self.mark_partial(
+                            doc,
+                            "streaming extraction stopped after "
+                            f"{MAX_STREAM_TEXT_READ_BLOCKS} read blocks",
+                        )
+                    break
+                block = handle.read(STREAM_TEXT_READ_CHARS)
+                if not block:
+                    break
+                read_block_count += 1
+                replacement_count += block.count("\ufffd")
+                for question_chunk in exact_text_chunks(block):
+                    if not self.may_add_leaf(doc_id):
+                        self.mark_partial(
+                            doc,
+                            "streaming extraction stopped at the configured item limit",
+                        )
+                        stopped_at_item_limit = True
+                        break
+                    chunk_count += 1
+                    start = character_offset + question_chunk.start
+                    end = character_offset + question_chunk.end
+                    evidence_type = (
+                        "code_block"
+                        if path.suffix.lower() in CODE_SUFFIXES else "text_block"
+                    )
+                    ev = self.add_evidence(
+                        doc_id,
+                        evidence_type,
+                        {
+                            "object_index": chunk_count,
+                            "locator_text": f"characters={start + 1}-{end}",
+                        },
+                        content(raw_text=question_chunk.text),
+                        ordinal=chunk_count,
+                        native_properties={
+                            "encoding": detected,
+                            "character_start": start,
+                            "character_end": end,
+                            "character_offset_basis": "zero_based_half_open",
+                            "source_stream_read_block": read_block_count,
+                            "source_structure_status": "unresolved",
+                        },
+                        method="bounded_streaming_text",
+                        warning=(
+                            "native structure was not parsed for this large text-like source"
+                        ),
+                    )
+                    self.contain_document(doc_id, ev["evidence_id"])
+                character_offset += len(block)
+                if stopped_at_item_limit:
+                    break
+        if not chunk_count:
+            self.mark_partial(doc, "large text-like file contained no decodable text")
+        if replacement_count:
+            self.mark_partial(
+                doc,
+                f"streaming decoder inserted {replacement_count} replacement character(s)",
+            )
 
     def office_source(self, path: Path) -> tuple[str | io.BytesIO, bool]:
         if zipfile.is_zipfile(path):
@@ -465,6 +805,10 @@ class Probe:
         from docx.text.paragraph import Paragraph
 
         source, decrypted = self.office_source(path)
+        validate_ooxml_archive(
+            source,
+            required_members=DOCX_REQUIRED_OOXML_MEMBERS,
+        )
         parsed = Document(source)
         doc = self.add_document(path, "python-docx")
         doc_id = doc["document_id"]
@@ -618,16 +962,36 @@ class Probe:
                 self.contain_document(doc_id, ev["evidence_id"])
 
     def extract_xlsx(self, path: Path) -> None:
-        from openpyxl import load_workbook
+        try:
+            from openpyxl import load_workbook
+        except ImportError:
+            self.extract_xlsx_ooxml(path)
+            return
 
         source, decrypted = self.office_source(path)
+        validate_ooxml_archive(
+            source,
+            required_members=frozenset({
+                "[Content_Types].xml",
+                "xl/workbook.xml",
+                "xl/_rels/workbook.xml.rels",
+            }),
+        )
         workbook = load_workbook(source, data_only=False, read_only=False)
+        if isinstance(source, io.BytesIO):
+            source.seek(0)
+        # ``data_only=True`` exposes the result saved in the XLSX package.  It
+        # does not calculate the formula, so every downstream representation
+        # labels it as a stored, not-recalculated value.
+        cached_workbook = load_workbook(source, data_only=True, read_only=True)
         doc = self.add_document(path, "openpyxl+ooxml")
         doc_id = doc["document_id"]
         if decrypted:
             doc["extraction"]["warnings"].append("password-protected Office source decrypted in memory")
         sheet_ids: dict[str, str] = {}
         for sheet_index, sheet in enumerate(workbook.worksheets, 1):
+            cached_sheet = cached_workbook[sheet.title]
+            cached_rows = iter(cached_sheet.iter_rows())
             sheet_ev = self.add_evidence(
                 doc_id, "worksheet", {"sheet_name": sheet.title},
                 content(raw_value={"title": sheet.title, "max_row": sheet.max_row, "max_column": sheet.max_column}),
@@ -636,6 +1000,12 @@ class Probe:
             sheet_ids[sheet.title] = sheet_ev["evidence_id"]
             self.contain_document(doc_id, sheet_ev["evidence_id"])
             for row in sheet.iter_rows():
+                cached_row = next(cached_rows, ())
+                cached_by_coordinate = {
+                    item.coordinate: item.value
+                    for item in cached_row
+                    if getattr(item, "coordinate", None)
+                }
                 for cell_obj in row:
                     if cell_obj.value is None:
                         continue
@@ -658,16 +1028,36 @@ class Probe:
                             style["font_size_pt"] = float(cell_obj.font.sz)
                     if cell_obj.fill and cell_obj.fill.fill_type:
                         style["fill_type"] = cell_obj.fill.fill_type
+                    is_formula = cell_obj.data_type == "f"
+                    cached_value = (
+                        cached_by_coordinate.get(cell_obj.coordinate)
+                        if is_formula else None
+                    )
+                    cell_value = cached_value if is_formula else cell_obj.value
+                    native_properties: dict[str, Any] = {
+                        "data_type": cell_obj.data_type,
+                    }
+                    if is_formula:
+                        native_properties.update({
+                            "cached_value": json_value(cached_value),
+                            "cached_value_available": cached_value is not None,
+                            "cached_value_status": FORMULA_CACHED_VALUE_STATUS,
+                        })
                     cell_ev = self.add_evidence(
                         doc_id, "table_cell", {"sheet_name": sheet.title, "cell": cell_obj.coordinate},
-                        content(raw_value=cell_obj.value), parent_id=sheet_ev["evidence_id"],
+                        content(raw_value=cell_value), parent_id=sheet_ev["evidence_id"],
                         style=style,
-                        native_properties={"data_type": cell_obj.data_type},
+                        native_properties=native_properties,
                     )
-                    if cell_obj.data_type == "f":
+                    if is_formula:
                         self.add_evidence(
                             doc_id, "formula", {"sheet_name": sheet.title, "cell": cell_obj.coordinate},
                             content(raw_text=str(cell_obj.value)), parent_id=cell_ev["evidence_id"],
+                            native_properties={
+                                "cached_value": json_value(cached_value),
+                                "cached_value_available": cached_value is not None,
+                                "cached_value_status": FORMULA_CACHED_VALUE_STATUS,
+                            },
                         )
                     if cell_obj.comment is not None:
                         self.add_evidence(
@@ -784,12 +1174,317 @@ class Probe:
                     native_properties={"embedded_sha256": digest_bytes(raw), "size_bytes": len(raw)},
                 )
                 self.contain_document(doc_id, ev["evidence_id"])
+        cached_workbook.close()
         workbook.close()
+
+    def extract_xlsx_ooxml(self, path: Path) -> None:
+        """Read core XLSX structure using only OOXML and the standard library.
+
+        This fallback deliberately reports ``partial`` because it does not
+        resolve the complete Excel formatting/comment/pivot object model.  It
+        still preserves the native sheet name, cell coordinate, formula,
+        merge, filter, validation, chart, and embedded-image source binding so
+        downstream SearchUnits do not collapse the workbook into flat text.
+        """
+        source, decrypted = self.office_source(path)
+        validate_ooxml_archive(
+            source,
+            required_members=frozenset({
+                "[Content_Types].xml",
+                "xl/workbook.xml",
+                "xl/_rels/workbook.xml.rels",
+            }),
+        )
+        doc = self.add_document(path, "ooxml-stdlib-xlsx-fallback")
+        doc_id = doc["document_id"]
+        self.mark_partial(
+            doc,
+            "openpyxl unavailable; OOXML fallback preserves core workbook structure but limits comments, pivots, and resolved formatting",
+        )
+        if decrypted:
+            doc["extraction"]["warnings"].append("password-protected Office source decrypted in memory")
+
+        def child(element: ElementTree.Element, local_name: str) -> ElementTree.Element | None:
+            return next((item for item in element if item.tag.endswith("}" + local_name) or item.tag == local_name), None)
+
+        def attr_by_local_name(element: ElementTree.Element, local_name: str) -> str | None:
+            return next((value for key, value in element.attrib.items() if key == local_name or key.endswith("}" + local_name)), None)
+
+        def numeric(raw: str) -> Any:
+            # Python floats would round the OOXML decimal lexeme. Preserve
+            # decimal/scientific values verbatim; arbitrary-size integers are
+            # exact, and every numeric cell also records ``raw_lexeme`` below.
+            if not re.fullmatch(r"[+-]?\d+", raw):
+                return raw
+            try:
+                return int(raw)
+            except ValueError:
+                return raw
+
+        def cell_value(
+            cell: ElementTree.Element,
+            shared: list[str],
+        ) -> tuple[Any, str, str | None, Any, str | None]:
+            kind = cell.attrib.get("t", "n")
+            formula_node = child(cell, "f")
+            value_node = child(cell, "v")
+            formula = formula_node.text if formula_node is not None and formula_node.text is not None else None
+            raw_value = value_node.text if value_node is not None and value_node.text is not None else ""
+            cached: Any = None
+            if formula is not None:
+                if not raw_value:
+                    cached = None
+                elif kind == "b":
+                    cached = raw_value == "1"
+                elif kind in {"str", "e", "d"}:
+                    cached = raw_value
+                else:
+                    cached = numeric(raw_value)
+                return cached, "f", formula, cached, raw_value or None
+            if kind == "inlineStr":
+                value = "".join(item.text or "" for item in cell.iter() if item.tag.endswith("}t") or item.tag == "t")
+                return value, "inlineStr", None, None, None
+            if kind == "s":
+                try:
+                    return shared[int(raw_value)], "s", None, None, None
+                except (ValueError, IndexError):
+                    return raw_value, "s", None, None, None
+            if kind == "b":
+                return raw_value == "1", "b", None, None, None
+            if kind in {"str", "e", "d"}:
+                return raw_value, kind, None, None, None
+            return numeric(raw_value), kind, None, None, raw_value or None
+
+        if isinstance(source, io.BytesIO):
+            source.seek(0)
+        with zipfile.ZipFile(source) as archive:
+            names = set(archive.namelist())
+            if "xl/workbook.xml" not in names:
+                raise ValueError("XLSX package has no xl/workbook.xml")
+
+            shared: list[str] = []
+            if "xl/sharedStrings.xml" in names:
+                shared_root = ElementTree.fromstring(archive.read("xl/sharedStrings.xml"))
+                for item in shared_root.iter():
+                    if item.tag.endswith("}si") or item.tag == "si":
+                        shared.append("".join(
+                            node.text or "" for node in item.iter()
+                            if node.tag.endswith("}t") or node.tag == "t"
+                        ))
+
+            custom_formats: dict[str, str] = {}
+            cell_formats: list[dict[str, str]] = []
+            if "xl/styles.xml" in names:
+                styles_root = ElementTree.fromstring(archive.read("xl/styles.xml"))
+                for item in styles_root.iter():
+                    if item.tag.endswith("}numFmt") or item.tag == "numFmt":
+                        if item.attrib.get("numFmtId") and item.attrib.get("formatCode"):
+                            custom_formats[item.attrib["numFmtId"]] = item.attrib["formatCode"]
+                    if item.tag.endswith("}cellXfs") or item.tag == "cellXfs":
+                        cell_formats = [dict(node.attrib) for node in item if node.tag.endswith("}xf") or node.tag == "xf"]
+
+            relationships: dict[str, str] = {}
+            rels_name = "xl/_rels/workbook.xml.rels"
+            if rels_name in names:
+                rels_root = ElementTree.fromstring(archive.read(rels_name))
+                for relation in rels_root:
+                    identifier = relation.attrib.get("Id")
+                    target = relation.attrib.get("Target")
+                    if not identifier or not target or relation.attrib.get("TargetMode") == "External":
+                        continue
+                    member = posixpath.normpath(
+                        target.lstrip("/") if target.startswith("/")
+                        else posixpath.join("xl", target)
+                    )
+                    if member.startswith("xl/") and ".." not in PurePosixPath(member).parts:
+                        relationships[identifier] = member
+
+            workbook_root = ElementTree.fromstring(archive.read("xl/workbook.xml"))
+            sheets = [
+                item for item in workbook_root.iter()
+                if item.tag.endswith("}sheet") or item.tag == "sheet"
+            ]
+            for sheet_index, sheet in enumerate(sheets, 1):
+                title = sheet.attrib.get("name") or f"Sheet{sheet_index}"
+                relation_id = attr_by_local_name(sheet, "id")
+                member = relationships.get(relation_id or "", f"xl/worksheets/sheet{sheet_index}.xml")
+                if member not in names:
+                    self.mark_partial(doc, f"worksheet OOXML part unavailable for sheet index {sheet_index}")
+                    continue
+                sheet_root = ElementTree.fromstring(archive.read(member))
+                cells = [
+                    item for item in sheet_root.iter()
+                    if item.tag.endswith("}c") or item.tag == "c"
+                ]
+                row_numbers: list[int] = []
+                column_numbers: list[int] = []
+                for cell in cells:
+                    coordinate = cell.attrib.get("r", "")
+                    match = re.fullmatch(r"([A-Z]{1,4})([1-9][0-9]*)", coordinate)
+                    if not match:
+                        continue
+                    letters, row_text = match.groups()
+                    column = 0
+                    for character in letters:
+                        column = column * 26 + ord(character) - ord("A") + 1
+                    column_numbers.append(column)
+                    row_numbers.append(int(row_text))
+                sheet_ev = self.add_evidence(
+                    doc_id, "worksheet", {"sheet_name": title},
+                    content(raw_value={
+                        "title": title,
+                        "max_row": max(row_numbers, default=0),
+                        "max_column": max(column_numbers, default=0),
+                    }),
+                    ordinal=sheet_index,
+                    native_properties={"source_member": member, "state": sheet.attrib.get("state", "visible")},
+                )
+                self.contain_document(doc_id, sheet_ev["evidence_id"])
+                for cell in cells:
+                    coordinate = cell.attrib.get("r")
+                    if not coordinate or not self.may_add_leaf(doc_id):
+                        continue
+                    value, data_type, formula, cached, raw_lexeme = cell_value(cell, shared)
+                    if value in {None, ""} and formula is None:
+                        continue
+                    style_id = cell.attrib.get("s", "0")
+                    style: dict[str, Any] = {"source_style_id": style_id}
+                    try:
+                        style_record = cell_formats[int(style_id)]
+                    except (ValueError, IndexError):
+                        style_record = {}
+                    number_format_id = style_record.get("numFmtId")
+                    if number_format_id is not None:
+                        style["number_format"] = custom_formats.get(number_format_id, f"builtin:{number_format_id}")
+                    native_properties: dict[str, Any] = {"data_type": data_type, "source_member": member}
+                    if raw_lexeme is not None:
+                        native_properties[
+                            "cached_raw_lexeme" if formula is not None else "raw_lexeme"
+                        ] = raw_lexeme
+                    if cached is not None:
+                        native_properties["cached_value"] = cached
+                    if formula is not None:
+                        native_properties.update({
+                            "cached_value_available": cached is not None,
+                            "cached_value_status": FORMULA_CACHED_VALUE_STATUS,
+                        })
+                    cell_ev = self.add_evidence(
+                        doc_id, "table_cell", {"sheet_name": title, "cell": coordinate},
+                        content(raw_value=value), parent_id=sheet_ev["evidence_id"],
+                        style=style, native_properties=native_properties,
+                    )
+                    if formula is not None:
+                        self.add_evidence(
+                            doc_id, "formula", {"sheet_name": title, "cell": coordinate},
+                            content(raw_text="=" + formula), parent_id=cell_ev["evidence_id"],
+                            native_properties={
+                                "cached_value": cached,
+                                "cached_value_available": cached is not None,
+                                "cached_value_status": FORMULA_CACHED_VALUE_STATUS,
+                                **({"cached_raw_lexeme": raw_lexeme} if raw_lexeme is not None else {}),
+                            },
+                        )
+                for merged_index, merged in enumerate(
+                    (item for item in sheet_root.iter() if item.tag.endswith("}mergeCell") or item.tag == "mergeCell"),
+                    1,
+                ):
+                    reference = merged.attrib.get("ref")
+                    if reference:
+                        self.add_evidence(
+                            doc_id, "merged_range", {"sheet_name": title, "range": reference},
+                            content(raw_text=reference), parent_id=sheet_ev["evidence_id"], ordinal=merged_index,
+                        )
+                auto_filter = next(
+                    (item for item in sheet_root.iter() if item.tag.endswith("}autoFilter") or item.tag == "autoFilter"),
+                    None,
+                )
+                if auto_filter is not None and auto_filter.attrib.get("ref"):
+                    self.add_evidence(
+                        doc_id, "filter", {"sheet_name": title, "range": auto_filter.attrib["ref"]},
+                        content(raw_value={
+                            "ref": auto_filter.attrib["ref"],
+                            "filter_columns": [dict(item.attrib) for item in auto_filter],
+                        }),
+                        parent_id=sheet_ev["evidence_id"],
+                    )
+                for validation_index, validation in enumerate(
+                    (item for item in sheet_root.iter() if item.tag.endswith("}dataValidation") or item.tag == "dataValidation"),
+                    1,
+                ):
+                    formula1 = child(validation, "formula1")
+                    formula2 = child(validation, "formula2")
+                    reference = validation.attrib.get("sqref", "unknown")
+                    self.add_evidence(
+                        doc_id, "data_validation",
+                        {"sheet_name": title, "object_index": validation_index, "range": reference},
+                        content(raw_value={
+                            "type": validation.attrib.get("type"),
+                            "formula1": formula1.text if formula1 is not None else None,
+                            "formula2": formula2.text if formula2 is not None else None,
+                            "operator": validation.attrib.get("operator"),
+                        }),
+                        parent_id=sheet_ev["evidence_id"], ordinal=validation_index,
+                    )
+
+            defined_names = [
+                item for item in workbook_root.iter()
+                if item.tag.endswith("}definedName") or item.tag == "definedName"
+            ]
+            for name_index, defined_name in enumerate(defined_names, 1):
+                name = defined_name.attrib.get("name") or str(name_index)
+                ev = self.add_evidence(
+                    doc_id, "defined_name", {"object_index": name_index, "object_id": name},
+                    content(raw_value={
+                        "name": name,
+                        "attr_text": defined_name.text,
+                        "local_sheet_id": defined_name.attrib.get("localSheetId"),
+                    }), ordinal=name_index,
+                )
+                self.contain_document(doc_id, ev["evidence_id"])
+
+            chart_members = sorted(name for name in names if name.startswith("xl/charts/") and name.endswith(".xml"))
+            for chart_index, member in enumerate(chart_members, 1):
+                raw = archive.read(member)
+                try:
+                    chart_root = ElementTree.fromstring(raw)
+                    formulas = [node.text.strip() for node in chart_root.iter() if node.tag.endswith("}f") and node.text]
+                    labels = [node.text.strip() for node in chart_root.iter() if node.tag.endswith("}v") and node.text]
+                except ElementTree.ParseError:
+                    formulas, labels = [], []
+                chart_ev = self.add_evidence(
+                    doc_id, "chart", {"source_member": member, "object_index": chart_index},
+                    content(raw_value={
+                        "source_member": member, "xml_sha256": digest_bytes(raw),
+                        "formulas": formulas, "cached_labels": labels,
+                    }), ordinal=chart_index,
+                    native_properties={"ooxml_part": member, "extended_chart": "/chartEx" in member},
+                )
+                self.contain_document(doc_id, chart_ev["evidence_id"])
+                for series_index, formula in enumerate(formulas, 1):
+                    self.add_evidence(
+                        doc_id, "chart_series",
+                        {"source_member": member, "object_index": chart_index, "series_index": series_index},
+                        content(raw_text=formula), parent_id=chart_ev["evidence_id"], ordinal=series_index,
+                    )
+            media_members = sorted(name for name in names if name.startswith("xl/media/") and not name.endswith("/"))
+            for image_index, member in enumerate(media_members, 1):
+                raw = archive.read(member)
+                ev = self.add_evidence(
+                    doc_id, "image", {"source_member": member, "object_index": image_index},
+                    content(content_ref=f"{doc['source']['relative_path']}::{member}", mime_type=mimetypes.guess_type(member)[0]),
+                    ordinal=image_index,
+                    native_properties={"embedded_sha256": digest_bytes(raw), "size_bytes": len(raw)},
+                )
+                self.contain_document(doc_id, ev["evidence_id"])
 
     def extract_pptx(self, path: Path) -> None:
         from pptx import Presentation
 
         source, decrypted = self.office_source(path)
+        validate_ooxml_archive(
+            source,
+            required_members=PPTX_REQUIRED_OOXML_MEMBERS,
+        )
         presentation = Presentation(source)
         doc = self.add_document(path, "python-pptx")
         doc_id = doc["document_id"]
@@ -978,12 +1673,16 @@ class Probe:
             self.mark_partial(doc, f"OCR deferred for {pages_without_text} page(s) without a text layer")
 
     def extract_image(self, path: Path) -> None:
-        """Preserve an image and expose only strict local OCR consensus."""
-        from local_image_ocr import extract
-
-        doc = self.add_document(path, "apple-vision+tesseract-strict-consensus")
+        """Preserve every located reading and distinguish its support tier."""
+        doc = self.add_document(path, "adaptive-local-image-reader-v0.3")
         doc_id = doc["document_id"]
         try:
+            from local_image_ocr import (
+                MAX_UNLOCATED_TRANSCRIPT_TOKENS,
+                UNLOCATED_TRANSCRIPT_MODEL,
+                UNLOCATED_TRANSCRIPT_PROMPT_SHA256,
+                extract,
+            )
             observation = extract(path)
         except Exception as exc:
             self.mark_partial(doc, f"local image OCR unavailable: {type(exc).__name__}: {exc}")
@@ -1027,12 +1726,42 @@ class Probe:
             method="verified_image_bytes",
         )
         self.contain_document(doc_id, image_ev["evidence_id"])
-        for line_index, line in enumerate(observation["consensus_lines"], 1):
+        read_lines = observation.get("read_lines", observation["consensus_lines"])
+        for line_index, line in enumerate(read_lines, 1):
             bbox = line["bbox"]
             confidence_values = [
                 value for value in (line["primary_confidence"], line["audit_confidence"])
                 if value is not None
             ]
+            agreement_type = line.get("agreement_type", "independent_agreement")
+            expected_quality_tier = OCR_QUALITY_BY_AGREEMENT.get(agreement_type)
+            if expected_quality_tier is None:
+                raise ValueError(f"unsupported OCR agreement type: {agreement_type!r}")
+            quality_tier = line.get("quality_tier", expected_quality_tier)
+            if quality_tier != expected_quality_tier:
+                raise ValueError(
+                    "OCR quality tier disagrees with engine independence: "
+                    f"{agreement_type!r} cannot be {quality_tier!r}"
+                )
+            upstream_marker = line.get("provisional_marker")
+            if quality_tier == "provisional":
+                if upstream_marker != PROVISIONAL_OCR_MARKER:
+                    raise ValueError("provisional OCR marker is missing or not canonical")
+            elif upstream_marker is not None:
+                raise ValueError("high OCR evidence must not carry a provisional marker")
+            if quality_tier == "high" and observation["independent_engines"] is not True:
+                raise ValueError("high OCR evidence requires independent engine groups")
+            bbox_coordinate_system = line.get("bbox_coordinate_system")
+            if bbox_coordinate_system not in OCR_BBOX_COORDINATE_SYSTEMS:
+                raise ValueError("OCR bbox coordinate system is missing or unsupported")
+            if (
+                quality_tier == "high"
+                and bbox_coordinate_system
+                != "source_orientation_1_top_left_normalized_1000"
+            ):
+                raise ValueError(
+                    "high OCR evidence requires a shared source-orientation-1 frame"
+                )
             self.add_evidence(
                 doc_id,
                 "ocr_line",
@@ -1050,22 +1779,119 @@ class Probe:
                     "height": bbox[3],
                 },
                 native_properties={
-                    "consensus_method": "strict-spatial-nfc-exact",
+                    "consensus_method": "spatial-nfc-exact-or-provisional",
+                    "agreement_type": agreement_type,
+                    "quality_tier": quality_tier,
+                    "bbox_coordinate_system": bbox_coordinate_system,
+                    **(
+                        {"provisional_marker": PROVISIONAL_OCR_MARKER}
+                        if quality_tier == "provisional" else {}
+                    ),
                     "spatial_overlap": line["overlap"],
                     "primary_confidence": line["primary_confidence"],
                     "audit_confidence": line["audit_confidence"],
                     "independent_engines": observation["independent_engines"],
+                    "observation_provenance": line.get("provenance", {}),
                 },
-                method="dual_local_ocr_consensus",
+                method=(
+                    "dual_local_ocr_consensus"
+                    if quality_tier == "high"
+                    else "adaptive_local_ocr_provisional"
+                ),
                 confidence=min(confidence_values) if confidence_values else 0.0,
                 deterministic=False,
             )
-        if not observation["consensus_lines"]:
-            self.mark_partial(doc, "dual-engine OCR produced no exact spatial consensus lines")
+        unlocated = observation.get("unlocated_transcript")
+        if unlocated is not None:
+            if not isinstance(unlocated, dict):
+                raise ValueError("unlocated transcript must be an object")
+            transcript = unlocated.get("text")
+            model_digest = unlocated.get("model_digest")
+            prompt_sha256 = unlocated.get("prompt_sha256")
+            normalized_model_digest = (
+                model_digest.removeprefix("sha256:")
+                if isinstance(model_digest, str) else ""
+            )
+            if not isinstance(transcript, str) or not transcript.strip():
+                raise ValueError("unlocated transcript text is missing")
+            if (
+                unlocated.get("location_status") != "unlocated"
+                or unlocated.get("quality_tier") != "provisional"
+                or unlocated.get("provisional_marker") != PROVISIONAL_OCR_MARKER
+                or unlocated.get("question_independent") is not True
+                or unlocated.get("transcript_type")
+                != "whole_image_faithful_transcript"
+                or unlocated.get("model") != UNLOCATED_TRANSCRIPT_MODEL
+                or unlocated.get("runner") != "ollama_loopback_chat"
+                or unlocated.get("host") != "127.0.0.1"
+                or not isinstance(model_digest, str)
+                or not re.fullmatch(r"[0-9a-f]{64}", normalized_model_digest)
+                or prompt_sha256 != UNLOCATED_TRANSCRIPT_PROMPT_SHA256
+                or unlocated.get("temperature") != 0
+                or unlocated.get("num_predict")
+                != MAX_UNLOCATED_TRANSCRIPT_TOKENS
+            ):
+                raise ValueError("unlocated transcript provenance is invalid")
+            transcript_value = transcript.strip()
+            marker_prefix = f"{PROVISIONAL_OCR_MARKER}\n"
+            transcript_chunks = exact_text_chunks(
+                transcript_value,
+                max_chars=MAX_QUESTION_EVIDENCE_CHARS - len(marker_prefix),
+            )
+            transcript_sha256 = digest_bytes(transcript_value.encode("utf-8"))
+            base_ordinal = len(read_lines)
+            for chunk_index, question_chunk in enumerate(transcript_chunks, 1):
+                self.add_evidence(
+                    doc_id,
+                    "text_block",
+                    {
+                        "object_index": base_ordinal + chunk_index,
+                        "locator_text": (
+                            "location_status=unlocated;source=image;"
+                            f"chunk={chunk_index}/{len(transcript_chunks)};"
+                            f"characters={question_chunk.start + 1}-{question_chunk.end}"
+                        ),
+                    },
+                    content(raw_text=marker_prefix + question_chunk.text),
+                    parent_id=image_ev["evidence_id"],
+                    ordinal=base_ordinal + chunk_index,
+                    native_properties={
+                        "location_status": "unlocated",
+                        "quality_tier": "provisional",
+                        "provisional_marker": PROVISIONAL_OCR_MARKER,
+                        "transcript_type": unlocated.get("transcript_type"),
+                        "question_independent": True,
+                        "model": unlocated.get("model"),
+                        "model_digest": model_digest,
+                        "prompt_sha256": prompt_sha256,
+                        "runner": unlocated.get("runner"),
+                        "host": "127.0.0.1",
+                        "temperature": unlocated.get("temperature"),
+                        "num_predict": unlocated.get("num_predict"),
+                        "transcript_sha256": transcript_sha256,
+                        "transcript_chunk_index": chunk_index,
+                        "transcript_chunk_count": len(transcript_chunks),
+                        "character_start": question_chunk.start,
+                        "character_end": question_chunk.end,
+                        "character_offset_basis": "zero_based_half_open",
+                    },
+                    method="local_vlm_unlocated_transcript_provisional",
+                    confidence=0.0,
+                    deterministic=False,
+                    warning=(
+                        "whole-image transcript has no coordinates and is provisional only"
+                    ),
+                )
+            self.mark_partial(
+                doc,
+                "unlocated whole-image transcript retained as provisional Evidence",
+            )
+        if not read_lines:
+            self.mark_partial(doc, "adaptive local OCR produced no located text observations")
         if observation["unresolved_count"]:
             self.mark_partial(
                 doc,
-                f"{observation['unresolved_count']} OCR engine reading(s) remain unresolved and unindexed",
+                f"{observation['unresolved_count']} OCR reading(s) remain provisional but are retained",
             )
 
     def extract_delimited(self, path: Path) -> None:

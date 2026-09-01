@@ -12,7 +12,21 @@ import urllib.request
 from pathlib import Path
 
 
-ANSWER_ENGINE_PATH = Path(__file__).resolve().parents[1] / "engine" / "answer_local_memory.py"
+def resolve_answer_engine_path(audit_script: Path) -> Path:
+    """Locate the answer engine in packaged and source-tree layouts."""
+    script_dir = audit_script.resolve().parent
+    candidates = (
+        script_dir / "engine" / "answer_local_memory.py",
+        script_dir.parent / "engine" / "answer_local_memory.py",
+    )
+    for candidate in candidates:
+        if candidate.is_file():
+            return candidate
+    attempted = ", ".join(str(candidate) for candidate in candidates)
+    raise ImportError(f"cannot locate answer validator; tried: {attempted}")
+
+
+ANSWER_ENGINE_PATH = resolve_answer_engine_path(Path(__file__))
 ANSWER_ENGINE_SPEC = importlib.util.spec_from_file_location("final_audit_answer_engine", ANSWER_ENGINE_PATH)
 if ANSWER_ENGINE_SPEC is None or ANSWER_ENGINE_SPEC.loader is None:
     raise ImportError(f"cannot load answer validator: {ANSWER_ENGINE_PATH}")
@@ -25,6 +39,15 @@ if CLAIM_VALIDATOR_SPEC is None or CLAIM_VALIDATOR_SPEC.loader is None:
     raise ImportError(f"cannot load claim validator: {CLAIM_VALIDATOR_PATH}")
 claim_validator = importlib.util.module_from_spec(CLAIM_VALIDATOR_SPEC)
 CLAIM_VALIDATOR_SPEC.loader.exec_module(claim_validator)
+
+QUESTION_GRAPH_PATH = ANSWER_ENGINE_PATH.with_name("question_evidence_graph.py")
+QUESTION_GRAPH_SPEC = importlib.util.spec_from_file_location(
+    "final_audit_question_evidence_graph", QUESTION_GRAPH_PATH
+)
+if QUESTION_GRAPH_SPEC is None or QUESTION_GRAPH_SPEC.loader is None:
+    raise ImportError(f"cannot load question graph validator: {QUESTION_GRAPH_PATH}")
+question_graph = importlib.util.module_from_spec(QUESTION_GRAPH_SPEC)
+QUESTION_GRAPH_SPEC.loader.exec_module(question_graph)
 
 
 SCHEMA = {
@@ -59,6 +82,29 @@ def evidence(index: Path, ids: list[str]) -> list[dict]:
         connection.close()
 
 
+def graph_evidence(index: Path) -> list[dict]:
+    """Reload all hash-bound Evidence used by the pre-answer graph."""
+    connection = sqlite3.connect(f"file:{index}?mode=ro", uri=True)
+    try:
+        return [
+            {
+                "evidence_id": evidence_id,
+                "document_id": document_id,
+                "relative_path": relative_path,
+                "locator": json.loads(locator_json),
+                "text": observed_text,
+                "observed_sha256": observed_sha256,
+            }
+            for evidence_id, document_id, relative_path, locator_json, observed_text, observed_sha256
+            in connection.execute(
+                "SELECT evidence_id, document_id, relative_path, locator_json, "
+                "observed_text, observed_sha256 FROM evidence"
+            )
+        ]
+    finally:
+        connection.close()
+
+
 def ollama_seconds(value: object) -> float:
     """Convert Ollama nanosecond durations into rounded seconds."""
     try:
@@ -80,11 +126,16 @@ def audit(
         "items": graph_context.get("question_contract", {}).get("items", []),
         "claims": graph_context.get("claim_graph", {}).get("claims", []),
         "warnings": graph_context.get("validation", {}).get("warnings", []),
+        "question_evidence_graph": graph_context.get("question_evidence_graph", {}),
+        "question_evidence_graph_validation": graph_context.get(
+            "question_evidence_graph_validation", {}
+        ),
     }
     answer_body = str(answer.get("answer", ""))
     prompt = f"""以下の質問、回答本文、Evidenceを敵対的に監査してください。
 別のモデルが作った回答なので、正しいと仮定してはいけません。
 Evidenceに直接支持されない事実、対象取り違え、時点・版の混同、否定・条件の見落としを探してください。
+[暫定読取]と記された画像OCRは診断用であり、確定主張の支持Evidenceには含めません。確定主張は暂定表示のないEvidenceだけで直接支持されるかを確認してください。
 監査対象は「回答本文」が実際に断言した主張だけです。質問文、項目名、機械検証情報は主張ではありません。
 回答にない「のみ」「すべて」「現在地」「時系列順」などの強い意味を追加して監査してはいけません。
 順序・網羅性・唯一性は、回答がそれを明示的に主張し、かつ質問が求める場合だけ検査してください。
@@ -234,24 +285,46 @@ def main() -> int:
     record = json.loads(Path(args.record).read_text(encoding="utf-8"))
     answer = record["answer"]
     ids = list(dict.fromkeys(answer.get("evidence_ids", []) + answer.get("diagnostic_evidence_ids", [])))
-    packets = evidence(Path(args.index), ids)
-    contract, graph, validation = claim_validator.build_and_validate(record, packets)
+    index_path = Path(args.index)
+    all_graph_evidence = graph_evidence(index_path)
+    question_graph_artifact = record.get("question_evidence_graph", {})
+    question_graph_validation = question_graph.validate_question_evidence_graph(
+        record.get("query", ""), all_graph_evidence, question_graph_artifact
+    )
+    record["question_evidence_graph_validation"] = question_graph_validation
+    graph_validation_ids = list(
+        (question_graph_artifact.get("selection") or {}).get("validation_evidence_ids", [])
+    ) if isinstance(question_graph_artifact, dict) else []
+    claim_packets = evidence(index_path, list(dict.fromkeys(ids + graph_validation_ids)))
+    # The final auditor must see the complete arithmetic proof path, not only
+    # the answer cell or a sample of non-zero rows.  This is still local and
+    # bounded by the explicit formula range selected by the question graph.
+    packets = evidence(index_path, list(dict.fromkeys(ids + graph_validation_ids)))
+    contract, graph, validation = claim_validator.build_and_validate(record, claim_packets)
     record["question_contract"] = contract
     record["claim_graph"] = graph
     record["deterministic_claim_validation"] = validation
-    if validation["status"] == "blocked":
+    if question_graph_validation["status"] == "blocked" or validation["status"] == "blocked":
         result = {
             "verdict": "rejected",
-            "reason": "機械検証で主張とEvidenceの対応に不整合が見つかりました。",
+            "reason": "機械検証で質問・集計・主張とEvidenceの対応に不整合が見つかりました。",
             "unsupported_claims": [
                 str(item.get("detail", "")) for item in validation.get("failures", [])
                 if str(item.get("detail", "")).strip()
-            ][:6],
+            ][:4] + [
+                str(item.get("detail", ""))
+                for item in question_graph_validation.get("failures", [])
+                if str(item.get("detail", "")).strip()
+            ][:2],
         }
         audit_performance = {
             "wall_seconds": 0.0,
             "skipped": True,
-            "skip_reason": "deterministic_claim_validation_blocked",
+            "skip_reason": (
+                "question_evidence_graph_validation_blocked"
+                if question_graph_validation["status"] == "blocked"
+                else "deterministic_claim_validation_blocked"
+            ),
             "evidence_count": len(packets),
             "evidence_characters": sum(len(str(packet.get("text", ""))) for packet in packets),
         }
@@ -262,7 +335,19 @@ def main() -> int:
             answer,
             packets,
             args.timeout,
-            {"question_contract": contract, "claim_graph": graph, "validation": validation},
+            {
+                "question_contract": contract,
+                "claim_graph": graph,
+                "validation": validation,
+                "question_evidence_graph": {
+                    "artifact_id": question_graph_artifact.get("artifact_id"),
+                    "status": question_graph_artifact.get("status"),
+                    "intent": question_graph_artifact.get("intent"),
+                    "primary_path": question_graph_artifact.get("primary_path"),
+                    "selection": question_graph_artifact.get("selection"),
+                },
+                "question_evidence_graph_validation": question_graph_validation,
+            },
         )
     record.setdefault("models", {})["independent_final_auditor"] = args.model
     record["independent_final_audit"] = result

@@ -52,8 +52,9 @@ def security_exclusion_notice() -> str:
     """Render transparent, non-sensitive information about gated Evidence."""
     config = bootstrap.load_json(bootstrap.CONFIG)
     workspace = Path(config.get("workspace", bootstrap.SUPPORT / "data"))
-    state_path = workspace / "03-security" / "content-security-state.json"
-    exclusions_path = workspace / "03-security" / "content-security-exclusions.jsonl"
+    security = Path(config.get("security_path", workspace / "03-security"))
+    state_path = security / "content-security-state.json"
+    exclusions_path = security / "content-security-exclusions.jsonl"
     if not state_path.is_file() or not exclusions_path.is_file():
         return ""
     try:
@@ -87,7 +88,7 @@ def security_exclusion_notice() -> str:
 def home(message: str = "") -> bytes:
     diagnosis = bootstrap.diagnose()
     current = state()
-    ready = diagnosis["index_ready"]
+    ready = diagnosis["index_ready"] and current.get("phase") in {"ready", "ready_with_limits"}
     models = " / ".join(diagnosis["models"]) or "未確認"
     notices = "".join(f'<p class="warn">{html.escape(item)}</p>' for item in diagnosis["warnings"])
     transient = f'<p class="ok">{html.escape(message)}</p>' if message else ""
@@ -97,7 +98,10 @@ def home(message: str = "") -> bytes:
     elif current["phase"] == "error":
         setup = f'<p class="bad">{html.escape(current["message"])}<br><span class="small">{html.escape(current.get("error", ""))}</span></p><form method="post" action="/build"><button>再実行</button></form>'
     elif not ready:
-        setup = '<p>初回だけ、ローカルモデルの確認と索引作成を行います。ファイルは外部へ送信しません。</p><form method="post" action="/build"><button>初回セットアップを開始</button></form>'
+        setup = '<p>初回だけ、ローカルモデルの確認と索引作成を行います。このボタンで、不足モデルがある場合の公式Ollama経由の取得を開始します。ファイルは外部へ送信しません。</p><form method="post" action="/build"><button>初回セットアップを開始</button></form>'
+    elif current["phase"] == "ready_with_limits":
+        limitations = html.escape(json.dumps(current.get("reader_limitations", {}), ensure_ascii=False, sort_keys=True))
+        setup = f'<p class="warn">{html.escape(current["message"])}<br><span class="small">{limitations}</span></p>'
     else:
         setup = '<p class="ok">準備完了。曖昧な記憶のまま質問できます。</p>'
     ask = "" if not ready else """
@@ -113,7 +117,7 @@ def home(message: str = "") -> bytes:
     <div class="metric">チップ<b>{html.escape(diagnosis['architecture'])}</b></div><div class="metric">Ollama<b>{'起動中' if diagnosis['ollama_online'] else '停止中/未導入'}</b></div></div>
     <p class="small">検索対象: {html.escape(diagnosis['source_root'] or '未選択')}<br>モデル: {html.escape(models)}</p>{setup}</section>{ask}
     {security_exclusion_notice()}
-    <section class="card"><details><summary>プライバシーと制限</summary><p class="small">質問・回答・索引は <code>~/Library/Application Support/LocalMemorySearch</code> に保存されます。通常利用中のAI処理は127.0.0.1のOllamaのみです。初回のOllama導入・モデル取得にはインターネットが必要です。画像・音声・動画は現在、ファイル名とメタデータだけを索引化します。</p></details></section>
+    <section class="card"><details><summary>プライバシーと制限</summary><p class="small">質問・回答・索引は <code>~/Library/Application Support/LocalMemorySearch</code> に保存されます。通常利用中のAI処理は127.0.0.1のOllamaのみです。初回のOllama導入・モデル取得にはインターネットが必要です。画像はまずローカルOCRで位置付き文字を取り出し、位置付き結果が空の場合だけGemmaの座標なし文字起こしを暫定情報として残します。音声・動画は未対応です。</p></details></section>
     """, refresh=refresh)
 
 
@@ -154,6 +158,7 @@ def answer_query(query: str) -> dict:
     pipeline_started = time.perf_counter()
     config = bootstrap.load_json(bootstrap.CONFIG)
     index = Path(config["index_path"])
+    bootstrap.start_ollama()
     log = bootstrap.SUPPORT / "logs" / "answers.jsonl"
     cache = bootstrap.SUPPORT / "data" / "answer-cache-v2.jsonl"
     command = [
@@ -236,6 +241,9 @@ class Handler(BaseHTTPRequestHandler):
             self.send(home("セットアップを開始しました。"))
             return
         if self.path == "/ask":
+            if state().get("phase") not in {"ready", "ready_with_limits"}:
+                self.send(home("索引の世代が完了していないため、質問を保留しました。"), 409)
+                return
             query = str(form.get("query", [""])[0]).strip()
             if not query:
                 self.send(home("質問を入力してください。"), 400)
@@ -273,6 +281,7 @@ def main() -> int:
     args = parser.parse_args()
     if args.host not in {"127.0.0.1", "localhost"}:
         raise SystemExit("remote binding is forbidden")
+    bootstrap.recover_interrupted_build()
     server = ThreadingHTTPServer((args.host, args.port), Handler)
     server.serve_forever()
     return 0

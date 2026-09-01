@@ -2,8 +2,10 @@
 from __future__ import annotations
 
 import importlib.util
+import hashlib
 import json
 import os
+import shutil
 import subprocess
 import tempfile
 import unittest
@@ -13,6 +15,65 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 ENGINE = ROOT / "engine"
+
+
+def write_stdlib_two_sheet_xlsx(path: Path) -> None:
+    """Create a valid core workbook without openpyxl or an optional styles part."""
+    members = {
+        "[Content_Types].xml": (
+            '<?xml version="1.0" encoding="UTF-8"?>'
+            '<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">'
+            '<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>'
+            '<Default Extension="xml" ContentType="application/xml"/>'
+            '<Override PartName="/xl/workbook.xml" '
+            'ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/>'
+            '<Override PartName="/xl/worksheets/sheet1.xml" '
+            'ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>'
+            '<Override PartName="/xl/worksheets/sheet2.xml" '
+            'ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>'
+            '</Types>'
+        ),
+        "_rels/.rels": (
+            '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'
+            '<Relationship Id="rId1" '
+            'Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" '
+            'Target="xl/workbook.xml"/></Relationships>'
+        ),
+        "xl/workbook.xml": (
+            '<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" '
+            'xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">'
+            '<sheets><sheet name="First" sheetId="1" r:id="rId1"/>'
+            '<sheet name="Second" sheetId="2" r:id="rId2"/></sheets></workbook>'
+        ),
+        "xl/_rels/workbook.xml.rels": (
+            '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'
+            '<Relationship Id="rId1" '
+            'Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" '
+            'Target="worksheets/sheet1.xml"/>'
+            '<Relationship Id="rId2" '
+            'Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" '
+            'Target="worksheets/sheet2.xml"/></Relationships>'
+        ),
+        "xl/worksheets/sheet1.xml": (
+            '<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetData>'
+            '<row r="1"><c r="A1" t="inlineStr"><is><t>Header A</t></is></c>'
+            '<c r="B1" t="inlineStr"><is><t>Header B</t></is></c></row>'
+            '<row r="2"><c r="A2" t="inlineStr"><is><t>fallback-alpha</t></is></c>'
+            '<c r="B2"><v>7</v></c></row></sheetData></worksheet>'
+        ),
+        "xl/worksheets/sheet2.xml": (
+            '<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetData>'
+            '<row r="1"><c r="A1" t="inlineStr"><is><t>Header C</t></is></c>'
+            '<c r="B1" t="inlineStr"><is><t>Header D</t></is></c></row>'
+            '<row r="2"><c r="A2" t="inlineStr"><is><t>fallback-beta</t></is></c>'
+            '<c r="B2"><f>SUM(1,2)</f><v>3</v></c></row></sheetData></worksheet>'
+        ),
+    }
+    with zipfile.ZipFile(path, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+        for directory in ("_rels/", "xl/", "xl/_rels/", "xl/worksheets/"):
+            archive.writestr(directory, b"")
+        for name, value in members.items():
+            archive.writestr(name, value)
 
 
 def load_engine(name: str):
@@ -121,8 +182,46 @@ class PackageTests(unittest.TestCase):
         )
         self.assertEqual(unknown_report["status"], "pass")
 
+    def test_claim_graph_keeps_provisional_packets_out_of_supported_claims(self) -> None:
+        validator = load_app("claim_graph_validator")
+        provisional_only = self.claim_record(
+            "記載された実績は？", "記載された実績", "部門優勝", ["E1"],
+        )
+        _, _, blocked = validator.build_and_validate(
+            provisional_only,
+            [{"evidence_id": "E1", "text": "[暫定読取] 実績: 部門優勝"}],
+        )
+        self.assertEqual(blocked["status"], "blocked")
+        self.assertIn("provisional_evidence_only", {item["code"] for item in blocked["failures"]})
+
+        independently_supported = self.claim_record(
+            "記載された実績は？", "記載された実績", "部門優勝", ["E2"],
+        )
+        _, _, accepted = validator.build_and_validate(independently_supported, [
+            {"evidence_id": "E1", "text": "[暫定読取] 実績: 部門優勝"},
+            {"evidence_id": "E2", "text": "公式記録に実績として部門優勝と記載。"},
+        ])
+        self.assertEqual(accepted["status"], "pass")
+
+        laundered_relation = self.claim_record(
+            "記載された実績は？", "記載された実績", "部門優勝", ["E1", "E2"],
+        )
+        _, _, laundering_blocked = validator.build_and_validate(
+            laundered_relation,
+            [
+                {"evidence_id": "E1", "text": "[暫定読取] 実績: 部門優勝"},
+                {"evidence_id": "E2", "text": "部門優勝者には景品を渡す。"},
+            ],
+        )
+        self.assertEqual(laundering_blocked["status"], "blocked")
+        self.assertIn(
+            "provisional_evidence_only",
+            {item["code"] for item in laundering_blocked["failures"]},
+        )
+
     def test_final_audit_rejection_projects_schema_valid_unknown_answer(self) -> None:
         final_audit = load_app("final_answer_audit")
+        self.assertEqual(final_audit.ANSWER_ENGINE_PATH, ENGINE / "answer_local_memory.py")
         original = {
             "answer_status": "answered",
             "answer_mode": "grounded",
@@ -153,6 +252,27 @@ class PackageTests(unittest.TestCase):
         self.assertEqual(fallback["answer"], "わかりません")
         self.assertEqual(fallback["non_answer_reason"]["code"], "machine_validation_failure")
         self.assertEqual(fallback["diagnostic_evidence_ids"], ["E1"])
+
+    def test_final_audit_loads_from_packaged_resources_layout(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            resources = Path(temporary) / "Local Memory.app" / "Contents" / "Resources"
+            packaged_engine = resources / "engine"
+            packaged_engine.mkdir(parents=True)
+            shutil.copy2(ROOT / "app" / "final_answer_audit.py", resources)
+            shutil.copy2(ROOT / "app" / "claim_graph_validator.py", resources)
+            shutil.copy2(ENGINE / "answer_local_memory.py", packaged_engine)
+            shutil.copy2(ENGINE / "question_evidence_graph.py", packaged_engine)
+
+            staged_audit = resources / "final_answer_audit.py"
+            result = subprocess.run(
+                [os.sys.executable, str(staged_audit), "--help"],
+                check=False,
+                capture_output=True,
+                text=True,
+            )
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertIn("--record", result.stdout)
+            self.assertIn("--index", result.stdout)
 
     def test_fast_plan_recognizes_remote_operation_location_question(self) -> None:
         answer = load_engine("answer_local_memory_v2")
@@ -286,6 +406,270 @@ class PackageTests(unittest.TestCase):
             ], check=True, capture_output=True)
             state = json.loads((security_out / "content-security-state.json").read_text(encoding="utf-8"))
             self.assertEqual(state["execution_policy"], "never_execute")
+
+    def test_adaptive_reader_preflight_names_missing_pdf_dependency(self) -> None:
+        bridge = load_engine("build_adaptive_semantic_graph")
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            source = root / "fixture.pdf"
+            source.write_bytes(b"%PDF-1.4\n%%EOF\n")
+            selected = [{"relative_path": source.name}]
+            missing = bridge.missing_dependencies(root, selected, finder=lambda _name: None)
+            self.assertEqual(missing, [{
+                "module": "pypdf", "package": "pypdf", "formats": [".pdf"],
+            }])
+
+    @unittest.skipUnless(importlib.util.find_spec("openpyxl"), "openpyxl is required for the native XLSX integration test")
+    def test_adaptive_reader_xlsx_reaches_security_gate_with_sheet_row_locators(self) -> None:
+        from openpyxl import Workbook
+
+        with tempfile.TemporaryDirectory() as temporary:
+            base = Path(temporary)
+            source_root = base / "source"
+            source_root.mkdir()
+            workbook_path = source_root / "two-sheets.xlsx"
+            workbook = Workbook()
+            first = workbook.active
+            first.title = "Summary"
+            first.append(["Item", "Value"])
+            first.append(["alpha-field", 24])
+            second = workbook.create_sheet("Details")
+            second.append(["Task", "Hours"])
+            second.append(["beta-field", "=SUM(2,3)"])
+            workbook.save(workbook_path)
+            before_hash = hashlib.sha256(workbook_path.read_bytes()).hexdigest()
+
+            path_output = base / "path"
+            semantic_output = base / "semantic"
+            security_output = base / "security"
+            security_output.mkdir()
+            subprocess.run([
+                os.sys.executable, str(ENGINE / "build_path_graph.py"), str(source_root),
+                "--output-dir", str(path_output),
+            ], check=True, capture_output=True, text=True)
+            subprocess.run([
+                os.sys.executable, str(ENGINE / "validate_path_graph.py"),
+                str(path_output / "path-evidence-graph.json"),
+                str(path_output / "path-source-inventory.jsonl"),
+            ], check=True, capture_output=True, text=True)
+            build = subprocess.run([
+                os.sys.executable, str(ENGINE / "build_adaptive_semantic_graph.py"),
+                "--inventory", str(path_output / "path-source-inventory.jsonl"),
+                "--source-root", str(source_root), "--output-dir", str(semantic_output),
+            ], check=False, capture_output=True, text=True)
+            self.assertEqual(build.returncode, 0, build.stderr)
+            self.assertNotIn("alpha-field", build.stdout + build.stderr)
+            self.assertNotIn("beta-field", build.stdout + build.stderr)
+            validate = subprocess.run([
+                os.sys.executable, str(ENGINE / "validate_adaptive_semantic_graph.py"),
+                "--output-dir", str(semantic_output), "--source-root", str(source_root),
+                "--inventory", str(path_output / "path-source-inventory.jsonl"),
+            ], check=False, capture_output=True, text=True)
+            self.assertEqual(validate.returncode, 0, validate.stderr)
+
+            evidence = [
+                json.loads(line)
+                for line in (semantic_output / "semantic-evidence.jsonl").read_text(encoding="utf-8").splitlines()
+                if line.strip()
+            ]
+            rows = [
+                item for item in evidence
+                if item.get("adapter", {}).get("unit_type") == "table_row"
+            ]
+            self.assertTrue(rows)
+            self.assertEqual({item["locator"]["sheet_name"] for item in rows}, {"Summary", "Details"})
+            self.assertTrue(all(isinstance(item["locator"].get("row_index"), int) for item in rows))
+
+            subprocess.run([
+                os.sys.executable, str(ENGINE / "content_security_gate.py"),
+                "--evidence", str(semantic_output / "semantic-evidence.jsonl"),
+                "--documents", str(semantic_output / "semantic-documents.jsonl"),
+                "--output-dir", str(security_output),
+            ], check=True, capture_output=True, text=True)
+            subprocess.run([
+                os.sys.executable, str(ENGINE / "validate_content_security_gate.py"),
+                "--evidence", str(semantic_output / "semantic-evidence.jsonl"),
+                "--documents", str(semantic_output / "semantic-documents.jsonl"),
+                "--gate-dir", str(security_output),
+            ], check=True, capture_output=True, text=True)
+            safe = (security_output / "safe-answer-evidence.jsonl").read_text(encoding="utf-8").splitlines()
+            self.assertTrue(safe)
+            self.assertEqual(hashlib.sha256(workbook_path.read_bytes()).hexdigest(), before_hash)
+
+    def test_adaptive_reader_xlsx_stdlib_fallback_on_dependency_free_python(self) -> None:
+        reader_python = shutil.which("python3") or os.sys.executable
+        version = subprocess.run(
+            [reader_python, "-c", "import sys;raise SystemExit(0 if sys.version_info >= (3,10) else 1)"],
+            capture_output=True, check=False,
+        )
+        if version.returncode:
+            self.skipTest("no Python 3.10+ interpreter is available")
+        reader_command = [reader_python, "-S"]
+        dependency_check = subprocess.run([
+            *reader_command, "-c",
+            "import importlib.util;raise SystemExit(0 if importlib.util.find_spec('openpyxl') is None else 1)",
+        ], capture_output=True, check=False)
+        self.assertEqual(dependency_check.returncode, 0, dependency_check.stderr)
+
+        with tempfile.TemporaryDirectory() as temporary:
+            base = Path(temporary)
+            source_root = base / "source"
+            source_root.mkdir()
+            workbook_path = source_root / "fallback.xlsx"
+            write_stdlib_two_sheet_xlsx(workbook_path)
+            before_hash = hashlib.sha256(workbook_path.read_bytes()).hexdigest()
+
+            path_output = base / "path"
+            semantic_output = base / "semantic"
+            subprocess.run([
+                *reader_command, str(ENGINE / "build_path_graph.py"), str(source_root),
+                "--output-dir", str(path_output),
+            ], check=True, capture_output=True, text=True)
+            build = subprocess.run([
+                *reader_command, str(ENGINE / "build_adaptive_semantic_graph.py"),
+                "--inventory", str(path_output / "path-source-inventory.jsonl"),
+                "--source-root", str(source_root), "--output-dir", str(semantic_output),
+            ], check=False, capture_output=True, text=True)
+            self.assertEqual(build.returncode, 0, build.stderr)
+            self.assertNotIn("fallback-alpha", build.stdout + build.stderr)
+            self.assertNotIn("fallback-beta", build.stdout + build.stderr)
+            state = json.loads((semantic_output / "adaptive-reader-state.json").read_text(encoding="utf-8"))
+            self.assertEqual(state["status"], "complete_with_limits")
+            self.assertEqual(state["limitations"]["partial_documents"], 1)
+            documents = [
+                json.loads(line)
+                for line in (semantic_output / "semantic-documents.jsonl").read_text(encoding="utf-8").splitlines()
+                if line.strip()
+            ]
+            self.assertEqual(documents[0]["extraction_method"], "ooxml-stdlib-xlsx-fallback")
+            evidence = [
+                json.loads(line)
+                for line in (semantic_output / "semantic-evidence.jsonl").read_text(encoding="utf-8").splitlines()
+                if line.strip()
+            ]
+            rows = [item for item in evidence if item.get("adapter", {}).get("unit_type") == "table_row"]
+            self.assertEqual({item["locator"]["sheet_name"] for item in rows}, {"First", "Second"})
+            self.assertTrue(any(item.get("adapter", {}).get("source_record_type") == "formula" for item in evidence))
+            validation = subprocess.run([
+                *reader_command, str(ENGINE / "validate_adaptive_semantic_graph.py"),
+                "--output-dir", str(semantic_output), "--source-root", str(source_root),
+                "--inventory", str(path_output / "path-source-inventory.jsonl"),
+            ], check=False, capture_output=True, text=True)
+            self.assertEqual(validation.returncode, 0, validation.stderr)
+            self.assertEqual(hashlib.sha256(workbook_path.read_bytes()).hexdigest(), before_hash)
+
+    def test_adaptive_reader_keeps_readable_documents_when_one_extraction_fails(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            base = Path(temporary)
+            source_root = base / "source"
+            source_root.mkdir()
+            (source_root / "readable.txt").write_text("readable-marker", encoding="utf-8")
+            (source_root / "broken.pdf").write_bytes(b"not-a-pdf")
+            path_output = base / "path"
+            semantic_output = base / "semantic"
+            security_output = base / "security"
+            security_output.mkdir()
+            subprocess.run([
+                os.sys.executable, str(ENGINE / "build_path_graph.py"), str(source_root),
+                "--output-dir", str(path_output),
+            ], check=True, capture_output=True, text=True)
+            build = subprocess.run([
+                os.sys.executable, str(ENGINE / "build_adaptive_semantic_graph.py"),
+                "--inventory", str(path_output / "path-source-inventory.jsonl"),
+                "--source-root", str(source_root), "--output-dir", str(semantic_output),
+            ], check=False, capture_output=True, text=True)
+            self.assertEqual(build.returncode, 0, build.stderr)
+            self.assertNotIn("readable-marker", build.stdout + build.stderr)
+            state = json.loads((semantic_output / "adaptive-reader-state.json").read_text(encoding="utf-8"))
+            self.assertEqual(state["status"], "complete_with_limits")
+            self.assertEqual(state["limitations"]["failed_documents"], 1)
+            documents = [
+                json.loads(line)
+                for line in (semantic_output / "semantic-documents.jsonl").read_text(encoding="utf-8").splitlines()
+                if line.strip()
+            ]
+            self.assertEqual(len(documents), 2)
+            self.assertEqual({item["status"] for item in documents}, {"extracted", "extraction_failed"})
+            subprocess.run([
+                os.sys.executable, str(ENGINE / "validate_adaptive_semantic_graph.py"),
+                "--output-dir", str(semantic_output), "--source-root", str(source_root),
+                "--inventory", str(path_output / "path-source-inventory.jsonl"),
+            ], check=True, capture_output=True, text=True)
+            subprocess.run([
+                os.sys.executable, str(ENGINE / "content_security_gate.py"),
+                "--evidence", str(semantic_output / "semantic-evidence.jsonl"),
+                "--documents", str(semantic_output / "semantic-documents.jsonl"),
+                "--output-dir", str(security_output),
+            ], check=True, capture_output=True, text=True)
+            safe_text = (security_output / "safe-answer-evidence.jsonl").read_text(encoding="utf-8")
+            self.assertIn("readable-marker", safe_text)
+
+    def test_bootstrap_uses_adaptive_reader_before_model_download(self) -> None:
+        bootstrap = (ROOT / "app" / "bootstrap.py").read_text(encoding="utf-8")
+        build_body = bootstrap[bootstrap.index("def build_index") : bootstrap.index("def main")]
+        semantic_body = bootstrap[
+            bootstrap.index("def run_semantic_pipeline") : bootstrap.index("def semantic_contains_images")
+        ]
+        self.assertIn('build_adaptive_semantic_graph.py', semantic_body)
+        self.assertIn('validate_adaptive_semantic_graph.py', semantic_body)
+        self.assertNotIn('build_semantic_graph.py', build_body)
+        self.assertLess(build_body.index('run_semantic_pipeline('), build_body.index('ensure_models('))
+        self.assertLess(semantic_body.index('validate_adaptive_semantic_graph.py'), semantic_body.index('content_security_gate.py'))
+        self.assertIn('validate_content_security_gate.py', semantic_body)
+        self.assertIn('02-semantic-model-ready', build_body)
+        self.assertIn('not image_fallback_available_before_reader', build_body)
+        self.assertIn('image_fallback_available_after_models', build_body)
+        self.assertNotIn('reader_dependencies_missing:', build_body)
+
+    def test_bootstrap_publishes_only_a_complete_generation(self) -> None:
+        bootstrap = (ROOT / "app" / "bootstrap.py").read_text(encoding="utf-8")
+        build_body = bootstrap[bootstrap.index("def build_index") : bootstrap.index("def main")]
+        index_build = build_body.index('build_local_semantic_index.py')
+        publish = build_body.index('published_config.update')
+        self.assertLess(index_build, publish)
+        self.assertIn('"active_generation": generation.name', build_body[publish:])
+        self.assertIn('"semantic_path": str(semantic)', build_body[publish:])
+        self.assertIn('"security_path": str(security)', build_body[publish:])
+        self.assertIn('"index_path": str(index)', build_body[publish:])
+        self.assertIn('if not generation_published and generation.exists():', build_body)
+        self.assertIn('shutil.rmtree(generation)', build_body)
+
+    def test_server_never_queries_an_incomplete_generation(self) -> None:
+        server = (ROOT / "app" / "local_memory_server.py").read_text(encoding="utf-8")
+        self.assertIn('current.get("phase") in {"ready", "ready_with_limits"}', server)
+        self.assertIn('state().get("phase") not in {"ready", "ready_with_limits"}', server)
+        self.assertIn('security_path', server)
+
+    def test_package_bundles_layer1_bridge_tools(self) -> None:
+        package = (ROOT / "build" / "build_package.sh").read_text(encoding="utf-8")
+        app_copy = next(
+            line for line in package.splitlines()
+            if line.startswith('cp "$SOURCE/app/bootstrap.py"')
+        )
+        for name in (
+            "bootstrap.py", "claim_graph_validator.py", "final_answer_audit.py",
+            "local_memory_server.py", "launch.sh",
+        ):
+            self.assertIn(name, app_copy)
+        for name in (
+            "build_intermediate_records.py", "probe_intermediate_records.py",
+            "evidence_text_chunking.py",
+            "build_search_units.py", "validate_search_units.py",
+            "validate_intermediate_records.py",
+            "validate_intermediate_records_streaming.py",
+            "adapt_layer1_to_local_memory.py", "local_image_ocr.py",
+        ):
+            self.assertIn(name, package)
+        self.assertIn('engine/layer1/scripts', package)
+        self.assertTrue((ENGINE / "question_evidence_graph.py").is_file())
+        self.assertIn('cp "$SOURCE/engine/"*.py', package)
+        for name in (
+            "document.schema.json", "evidence.schema.json", "relation.schema.json",
+            "search-unit.schema.json",
+            "ocr-observation.schema.json", "visual-classification.schema.json",
+        ):
+            self.assertIn(name, package)
+        self.assertIn('engine/layer1/schemas', package)
 
     def test_server_binds_loopback_only(self) -> None:
         text = (ROOT / "app" / "local_memory_server.py").read_text(encoding="utf-8")
