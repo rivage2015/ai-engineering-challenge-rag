@@ -14,12 +14,14 @@ import hashlib
 import json
 import re
 import unicodedata
+from collections import deque
 from decimal import Decimal, InvalidOperation
 from typing import Any, Iterable, Mapping
 
 
-GRAPH_VERSION = "1.0"
-VALIDATOR_VERSION = "1.0"
+GRAPH_VERSION = "1.2"
+VALIDATOR_VERSION = "1.2"
+STORED_GRAPH_BINDING_VERSION = "1.0"
 PROVISIONAL_MARKER = "[暫定読取]"
 COUNT_SURFACES = (
     "何回", "回数", "何枠", "枠数", "何件", "件数", "総数", "合計",
@@ -314,6 +316,396 @@ def _reference_records(records: list[dict[str, Any]], candidate: Mapping[str, An
     return result
 
 
+def _prepare_stored_graph_traversal(
+    source_graph: Mapping[str, Any],
+    records: list[dict[str, Any]],
+) -> tuple[dict[str, Any] | None, dict[str, Any] | None]:
+    """Traverse the validated persistent provenance graph from each Document.
+
+    ``contains`` is followed in its stored direction.  ``derived_from`` points
+    from a SearchUnit to its source Evidence, so provenance discovery follows
+    that relation in reverse.  The returned predecessor tree is canonical and
+    later binds every Evidence used by the question overlay to concrete stored
+    relation IDs.
+    """
+    if not isinstance(source_graph, Mapping):
+        return None, {"code": "source_graph_missing", "detail": "Stored Graph is missing."}
+    nodes = source_graph.get("nodes")
+    edges = source_graph.get("edges")
+    if not isinstance(nodes, list) or not isinstance(edges, list):
+        return None, {"code": "source_graph_shape_invalid", "detail": "Stored Graph nodes/edges are invalid."}
+
+    node_by_id: dict[str, dict[str, Any]] = {}
+    for raw in nodes:
+        if not isinstance(raw, Mapping):
+            return None, {"code": "source_graph_node_invalid", "detail": "Stored Graph Node is not an object."}
+        node_id = str(raw.get("node_id", "")).strip()
+        if not node_id or node_id in node_by_id:
+            return None, {"code": "source_graph_node_id_invalid", "detail": node_id}
+        node = dict(raw)
+        if node.get("node_type") not in {"document", "evidence"}:
+            return None, {"code": "source_graph_node_type_invalid", "detail": node_id}
+        node_by_id[node_id] = node
+
+    edge_by_id: dict[str, dict[str, Any]] = {}
+    transitions: dict[str, list[tuple[str, str, str]]] = {}
+    for raw in edges:
+        if not isinstance(raw, Mapping):
+            return None, {"code": "source_graph_edge_invalid", "detail": "Stored Graph Edge is not an object."}
+        relation_id = str(raw.get("relation_id", "")).strip()
+        source = str(raw.get("from_node_id", "")).strip()
+        target = str(raw.get("to_node_id", "")).strip()
+        if (
+            not relation_id or relation_id in edge_by_id
+            or source not in node_by_id or target not in node_by_id
+        ):
+            return None, {"code": "source_graph_edge_binding_invalid", "detail": relation_id}
+        edge = dict(raw)
+        edge_by_id[relation_id] = edge
+        if edge.get("status") != "verified" or edge.get("basis_kind") != "explicit":
+            continue
+        if (
+            edge.get("relation_type") == "contains"
+            and edge.get("relation_class") == "structural"
+        ):
+            transitions.setdefault(source, []).append((target, relation_id, "forward"))
+        elif (
+            edge.get("relation_type") == "derived_from"
+            and edge.get("relation_class") == "lineage"
+        ):
+            transitions.setdefault(target, []).append((source, relation_id, "reverse"))
+    for values in transitions.values():
+        values.sort(key=lambda item: (item[1], item[0], item[2]))
+
+    root_ids = sorted(
+        node_id for node_id, node in node_by_id.items()
+        if node.get("node_type") == "document"
+    )
+    if not root_ids:
+        return None, {"code": "source_graph_document_missing", "detail": "No Document root exists."}
+
+    records_by_id = {record["evidence_id"]: record for record in records}
+    claimed_eligible = source_graph.get("eligible_evidence_ids")
+    if isinstance(claimed_eligible, list):
+        eligible_ids = {str(value) for value in claimed_eligible}
+    else:
+        eligible_ids = {
+            node_id for node_id, node in node_by_id.items()
+            if node.get("node_type") == "evidence"
+            and node.get("status") in {"observed", "verified"}
+        }
+    if eligible_ids != set(records_by_id):
+        return None, {
+            "code": "source_graph_evidence_universe_mismatch",
+            "detail": {
+                "missing_records": sorted(eligible_ids - set(records_by_id))[:8],
+                "unbound_records": sorted(set(records_by_id) - eligible_ids)[:8],
+            },
+        }
+
+    paths: dict[str, dict[str, Any]] = {}
+    for root_id in root_ids:
+        predecessor: dict[str, tuple[str, str, str] | None] = {root_id: None}
+        queue: deque[str] = deque([root_id])
+        while queue:
+            current = queue.popleft()
+            for target, relation_id, direction in transitions.get(current, []):
+                if target in predecessor:
+                    continue
+                predecessor[target] = (current, relation_id, direction)
+                queue.append(target)
+        for evidence_id, record in records_by_id.items():
+            if record["document_id"] != root_id or evidence_id not in predecessor:
+                continue
+            node_ids = [evidence_id]
+            relation_ids: list[str] = []
+            directions: list[str] = []
+            cursor = evidence_id
+            while cursor != root_id:
+                step = predecessor.get(cursor)
+                if step is None:
+                    break
+                parent, relation_id, direction = step
+                relation_ids.append(relation_id)
+                directions.append(direction)
+                node_ids.append(parent)
+                cursor = parent
+            if cursor != root_id:
+                continue
+            paths[evidence_id] = {
+                "evidence_id": evidence_id,
+                "root_document_id": root_id,
+                "node_ids": list(reversed(node_ids)),
+                "relation_ids": list(reversed(relation_ids)),
+                "directions": list(reversed(directions)),
+            }
+
+    unreachable = sorted(set(records_by_id) - set(paths))
+    return {
+        "source_graph": dict(source_graph),
+        "node_by_id": node_by_id,
+        "edge_by_id": edge_by_id,
+        "paths": paths,
+        "unreachable_evidence_ids": unreachable,
+    }, None
+
+
+def _structured_aggregate_lineage(
+    traversal: Mapping[str, Any],
+    records: list[dict[str, Any]],
+    evidence_universe: list[dict[str, Any]],
+    candidate: Mapping[str, Any],
+    companions: list[dict[str, Any]],
+) -> tuple[dict[str, Any] | None, list[dict[str, Any]], dict[str, Any] | None]:
+    """Require the stored lineage that gives table text its aggregate meaning."""
+    record_by_id = {record["evidence_id"]: record for record in records}
+    edge_by_id = traversal["edge_by_id"]
+
+    def lineage_from(evidence_id: str) -> list[dict[str, Any]]:
+        return sorted([
+            edge for edge in edge_by_id.values()
+            if edge.get("from_node_id") == evidence_id
+            and edge.get("relation_type") == "derived_from"
+            and edge.get("relation_class") == "lineage"
+            and edge.get("status") == "verified"
+            and edge.get("basis_kind") == "explicit"
+        ], key=lambda edge: edge["relation_id"])
+
+    candidate_id = candidate["record"]["evidence_id"]
+    candidate_edges = lineage_from(candidate_id)
+    candidate_targets = {
+        edge["to_node_id"]: edge for edge in candidate_edges
+    }
+    expected_cell = f"{candidate['column']}{candidate['row_index']}".upper()
+    formula_records = [
+        record for record in companions
+        if re.sub(r"\s+", "", unicodedata.normalize("NFKC", record["text"]).upper())
+        == re.sub(r"\s+", "", unicodedata.normalize("NFKC", candidate["formula"]).upper())
+    ]
+    saved_records = [
+        record for record in companions
+        if _decimal(record["text"]) == candidate["saved_value"]
+    ]
+    if len(formula_records) != 1 or len(saved_records) != 1:
+        return None, [], {
+            "code": "aggregate_source_cardinality_invalid",
+            "detail": {
+                "formula_sources": [record["evidence_id"] for record in formula_records],
+                "saved_sources": [record["evidence_id"] for record in saved_records],
+            },
+        }
+    formula_id = formula_records[0]["evidence_id"]
+    saved_id = saved_records[0]["evidence_id"]
+    if formula_id not in candidate_targets or saved_id not in candidate_targets:
+        return None, [], {
+            "code": "aggregate_source_lineage_missing",
+            "detail": {"formula_id": formula_id, "saved_value_id": saved_id},
+        }
+
+    header_cell = f"{candidate['column']}1".upper()
+    header_records = []
+    for target_id in candidate_targets:
+        record = record_by_id.get(target_id)
+        if record is None:
+            continue
+        locator = record["locator"]
+        same_location = (
+            record["document_id"] == candidate["record"]["document_id"]
+            and locator.get("sheet_name") == candidate["sheet_name"]
+            and (
+                str(locator.get("cell", "")).upper() == header_cell
+                or locator.get("row_index") == 1
+            )
+        )
+        if same_location and normalize(candidate["label"]) in normalize(record["text"]):
+            header_records.append(record)
+    if len(header_records) != 1:
+        return None, [], {
+            "code": "target_header_lineage_invalid",
+            "detail": [record["evidence_id"] for record in header_records],
+        }
+    header_id = header_records[0]["evidence_id"]
+
+    relation_ids = {
+        candidate_targets[formula_id]["relation_id"],
+        candidate_targets[saved_id]["relation_id"],
+        candidate_targets[header_id]["relation_id"],
+    }
+    source_evidence_ids = {formula_id, saved_id, header_id}
+    row_bindings = []
+    row_records = []
+    for row_index in range(candidate["start_row"], candidate["end_row"] + 1):
+        location_records = [
+            record for record in records
+            if record["document_id"] == candidate["record"]["document_id"]
+            and record["locator"].get("sheet_name") == candidate["sheet_name"]
+            and record["locator"].get("row_index") == row_index
+        ]
+        linked = []
+        for record in location_records:
+            edges_to_header = [
+                edge for edge in lineage_from(record["evidence_id"])
+                if edge["to_node_id"] == header_id
+            ]
+            if edges_to_header:
+                linked.append((record, edges_to_header[0]))
+        if len(linked) != 1:
+            return None, [], {
+                "code": "range_row_lineage_cardinality_invalid",
+                "detail": {
+                    "row_index": row_index,
+                    "linked_evidence_ids": [record["evidence_id"] for record, _ in linked],
+                },
+            }
+        row_record, header_edge = linked[0]
+        row_records.append(row_record)
+        relation_ids.add(header_edge["relation_id"])
+
+        field_values = [
+            value for value in _fields(row_record["text"]).get(str(candidate["label"]), [])
+            if value and not value.startswith("=")
+        ]
+        parsed_values = [_decimal(value) for value in field_values]
+        if any(value is None for value in parsed_values):
+            return None, [], {
+                "code": "range_row_value_invalid",
+                "detail": {"row_index": row_index, "values": field_values},
+            }
+        distinct_values = {value for value in parsed_values if value is not None}
+        if len(distinct_values) > 1:
+            return None, [], {
+                "code": "range_row_value_conflict",
+                "detail": {"row_index": row_index, "values": field_values},
+            }
+
+        target_cell = f"{candidate['column']}{row_index}".upper()
+        cell_records = [
+            record for record in evidence_universe
+            if record["document_id"] == candidate["record"]["document_id"]
+            and record["locator"].get("sheet_name") == candidate["sheet_name"]
+            and str(record["locator"].get("cell", "")).upper() == target_cell
+        ]
+        target_sources = []
+        for edge in lineage_from(row_record["evidence_id"]):
+            target_record = record_by_id.get(edge["to_node_id"])
+            if target_record is None:
+                continue
+            locator = target_record["locator"]
+            if (
+                target_record["document_id"] == candidate["record"]["document_id"]
+                and locator.get("sheet_name") == candidate["sheet_name"]
+                and str(locator.get("cell", "")).upper() == target_cell
+            ):
+                target_sources.append((target_record, edge))
+        value = next(iter(distinct_values)) if distinct_values else Decimal(0)
+        if distinct_values:
+            source_ids = [record["evidence_id"] for record, _ in target_sources]
+            cell_ids = [record["evidence_id"] for record in cell_records]
+            if (
+                len(cell_records) != 1
+                or len(target_sources) != 1
+                or source_ids != cell_ids
+                or _decimal(cell_records[0]["text"]) != value
+            ):
+                return None, [], {
+                    "code": "range_row_source_value_mismatch",
+                    "detail": {
+                        "row_index": row_index,
+                        "row_value": _decimal_text(value),
+                        "cell_ids": cell_ids,
+                        "source_ids": source_ids,
+                    },
+                }
+        elif cell_records or target_sources:
+            return None, [], {
+                "code": "blank_row_has_target_source",
+                "detail": {
+                    "row_index": row_index,
+                    "cell_ids": [record["evidence_id"] for record in cell_records],
+                    "source_ids": [record["evidence_id"] for record, _ in target_sources],
+                },
+            }
+
+        target_id = None
+        target_relation_id = None
+        if target_sources:
+            target_record, target_edge = target_sources[0]
+            target_id = target_record["evidence_id"]
+            target_relation_id = target_edge["relation_id"]
+            source_evidence_ids.add(target_id)
+            relation_ids.add(target_relation_id)
+        row_bindings.append({
+            "row_index": row_index,
+            "search_unit_id": row_record["evidence_id"],
+            "header_relation_id": header_edge["relation_id"],
+            "value": _decimal_text(value),
+            "target_cell_id": target_id,
+            "target_cell_relation_id": target_relation_id,
+        })
+
+    lineage = {
+        "aggregate_search_unit_id": candidate_id,
+        "target_header_id": header_id,
+        "formula_id": formula_id,
+        "saved_value_id": saved_id,
+        "expected_cell": expected_cell,
+        "row_bindings": row_bindings,
+        "source_evidence_ids": sorted(source_evidence_ids),
+        "relation_ids": sorted(relation_ids),
+    }
+    return lineage, row_records, None
+
+
+def _stored_graph_binding(
+    traversal: Mapping[str, Any],
+    required_evidence_ids: list[str],
+    structured_lineage: Mapping[str, Any] | None = None,
+) -> dict[str, Any]:
+    source_graph = traversal["source_graph"]
+    node_by_id = traversal["node_by_id"]
+    edge_by_id = traversal["edge_by_id"]
+    paths = [traversal["paths"][evidence_id] for evidence_id in required_evidence_ids]
+    relation_ids = {
+        relation_id for path in paths for relation_id in path["relation_ids"]
+    }
+    if structured_lineage is not None:
+        relation_ids.update(structured_lineage.get("relation_ids", []))
+    relation_ids = sorted(relation_ids)
+    node_ids = {node_id for path in paths for node_id in path["node_ids"]}
+    for relation_id in relation_ids:
+        edge = edge_by_id[relation_id]
+        node_ids.add(edge["from_node_id"])
+        node_ids.add(edge["to_node_id"])
+    node_ids = sorted(node_ids)
+    body = {
+        "binding_version": STORED_GRAPH_BINDING_VERSION,
+        "graph_sha256": source_graph.get("graph_sha256"),
+        "partition_sha256": source_graph.get("partition_sha256"),
+        "eligible_evidence_set_sha256": source_graph.get(
+            "eligible_evidence_set_sha256"
+        ),
+        "required_evidence_ids": list(required_evidence_ids),
+        "evidence_paths": paths,
+        "traversed_node_ids": node_ids,
+        "traversed_relation_ids": relation_ids,
+        "traversed_node_hashes": [
+            {"node_id": node_id, "record_sha256": node_by_id[node_id].get("record_sha256")}
+            for node_id in node_ids
+        ],
+        "traversed_edge_hashes": [
+            {
+                "relation_id": relation_id,
+                "record_sha256": edge_by_id[relation_id].get("record_sha256"),
+            }
+            for relation_id in relation_ids
+        ],
+        "structured_aggregate_lineage": (
+            dict(structured_lineage) if structured_lineage is not None else None
+        ),
+    }
+    return {**body, "traversal_sha256": stable_hash(body)}
+
+
 def _artifact_body(artifact: Mapping[str, Any]) -> dict[str, Any]:
     return {
         key: artifact[key]
@@ -332,9 +724,11 @@ def _finish(body: dict[str, Any]) -> dict[str, Any]:
 
 
 def build_question_evidence_graph(
-    question: str, evidence_records: Iterable[Mapping[str, Any]]
+    question: str,
+    evidence_records: Iterable[Mapping[str, Any]],
+    source_graph: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
-    """Compile an immutable pre-answer graph from question and Evidence text."""
+    """Compile an immutable question overlay over Evidence and its source Graph."""
     records = []
     seen_ids = set()
     invalid_ids = []
@@ -385,6 +779,7 @@ def build_question_evidence_graph(
         "primary_path": [],
         "selected_evidence_ids": [],
         "selection": None,
+        "stored_graph_binding": None,
         "audit": [],
     }
     if not applicable:
@@ -410,6 +805,42 @@ def build_question_evidence_graph(
                 "details": integrity_errors[:8],
             }],
         })
+
+    stored_traversal = None
+    evidence_universe = records
+    if source_graph is not None:
+        stored_traversal, traversal_error = _prepare_stored_graph_traversal(
+            source_graph, records
+        )
+        if traversal_error is not None:
+            return _finish({
+                **base,
+                "status": "hold",
+                "reason": "stored_graph_traversal_failed",
+                "audit": [{
+                    "check": "stored_graph_traversal",
+                    "status": "fail",
+                    "details": traversal_error,
+                }],
+            })
+        records = [
+            record for record in records
+            if record["evidence_id"] in stored_traversal["paths"]
+        ]
+        if not records:
+            return _finish({
+                **base,
+                "status": "hold",
+                "reason": "stored_graph_traversal_failed",
+                "audit": [{
+                    "check": "stored_graph_traversal",
+                    "status": "fail",
+                    "details": {
+                        "code": "source_graph_reachable_evidence_missing",
+                        "detail": stored_traversal["unreachable_evidence_ids"][:8],
+                    },
+                }],
+            })
 
     candidates = _candidate_rows(records, question, scope)
     if not candidates:
@@ -442,7 +873,53 @@ def build_question_evidence_graph(
         item["record"]["document_id"], item["record"]["relative_path"],
         item["sheet_name"], item["row_index"], item["record"]["evidence_id"],
     ))[0]
-    projection = _row_projection(records, candidate)
+    selected_signature = next(iter(distinct))
+    competing_signatures = {
+        (
+            other["record"]["document_id"],
+            other["record"]["relative_path"],
+            other["record"]["evidence_id"],
+            other["sheet_name"],
+            other["row_index"],
+            other["label"],
+            other["formula"],
+            _decimal_text(other["saved_value"]),
+        )
+        for other in candidates
+        if other["score"] >= max(0.35, best_score * 0.60)
+    } - {selected_signature}
+    if competing_signatures:
+        return _finish({
+            **base,
+            "status": "hold",
+            "reason": "aggregate_candidate_competing",
+            "audit": [{
+                "check": "candidate_competition",
+                "status": "fail",
+                "details": sorted(map(str, competing_signatures))[:8],
+            }],
+        })
+    companions = _cell_companions(records, candidate)
+    structured_lineage = None
+    projection_records = records
+    if stored_traversal is not None:
+        structured_lineage, projection_records, lineage_error = (
+            _structured_aggregate_lineage(
+                stored_traversal, records, evidence_universe, candidate, companions
+            )
+        )
+        if lineage_error is not None:
+            return _finish({
+                **base,
+                "status": "hold",
+                "reason": "stored_graph_lineage_failed",
+                "audit": [{
+                    "check": "stored_graph_structured_lineage",
+                    "status": "fail",
+                    "details": lineage_error,
+                }],
+            })
+    projection = _row_projection(projection_records, candidate)
     if not projection["complete"]:
         return _finish({
             **base, "status": "hold", "reason": "aggregation_coverage_incomplete",
@@ -464,7 +941,6 @@ def build_question_evidence_graph(
             }],
         })
 
-    companions = _cell_companions(records, candidate)
     references = _reference_records(records, candidate)
     aggregate_ids = [candidate["record"]["evidence_id"]] + [
         record["evidence_id"] for record in companions
@@ -478,6 +954,14 @@ def build_question_evidence_graph(
         aggregate_ids + projection["validation_evidence_ids"]
         + [record["evidence_id"] for record in references]
     ))
+    stored_binding = None
+    if stored_traversal is not None:
+        binding_ids = list(dict.fromkeys(
+            validation_ids + structured_lineage["source_evidence_ids"]
+        ))
+        stored_binding = _stored_graph_binding(
+            stored_traversal, binding_ids, structured_lineage
+        )
     record_by_id = {record["evidence_id"]: record for record in records}
     provisional = [
         evidence_id for evidence_id in validation_ids
@@ -511,7 +995,7 @@ def build_question_evidence_graph(
             "locator": record["locator"],
             "observed_sha256": record["observed_sha256"],
         })
-    edges = [
+    common_edges = [
         {
             "edge_id": "edge_question_requires_count",
             "source": question_node, "predicate": "requires", "target": operation_node,
@@ -525,42 +1009,171 @@ def build_question_evidence_graph(
                 "evidence_ids": [candidate["record"]["evidence_id"]],
             },
         },
-        {
-            "edge_id": "edge_formula_aggregates_rows",
-            "source": candidate["record"]["evidence_id"], "predicate": "aggregates", "target": target_node,
-            "basis": {
-                "kind": "explicit", "rule": "sum_formula_range",
-                "evidence_ids": aggregate_ids,
-            },
-        },
-        {
-            "edge_id": "edge_rows_support_value",
-            "source": target_node, "predicate": "recomputed_as", "target": value_node,
-            "basis": {
-                "kind": "inference", "rule": "complete_structured_range_sum",
-                "evidence_ids": projection["validation_evidence_ids"],
-            },
-        },
-        {
-            "edge_id": "edge_value_answers_question",
-            "source": value_node, "predicate": "answers", "target": question_node,
-            "basis": {
-                "kind": "inference", "rule": "saved_and_recomputed_values_agree",
-                "evidence_ids": aggregate_ids + projection["nonzero_evidence_ids"],
-            },
-        },
     ]
+    if stored_binding is None:
+        edges = common_edges + [
+            {
+                "edge_id": "edge_formula_aggregates_rows",
+                "source": candidate["record"]["evidence_id"], "predicate": "aggregates", "target": target_node,
+                "basis": {
+                    "kind": "explicit", "rule": "sum_formula_range",
+                    "evidence_ids": aggregate_ids,
+                },
+            },
+            {
+                "edge_id": "edge_rows_support_value",
+                "source": target_node, "predicate": "recomputed_as", "target": value_node,
+                "basis": {
+                    "kind": "inference", "rule": "complete_structured_range_sum",
+                    "evidence_ids": projection["validation_evidence_ids"],
+                },
+            },
+            {
+                "edge_id": "edge_value_answers_question",
+                "source": value_node, "predicate": "answers", "target": question_node,
+                "basis": {
+                    "kind": "inference", "rule": "saved_and_recomputed_values_agree",
+                    "evidence_ids": aggregate_ids + projection["nonzero_evidence_ids"],
+                },
+            },
+        ]
+        primary_path = [question_node, operation_node, target_node, value_node]
+    else:
+        range_text = (
+            f"{candidate['column']}{candidate['start_row']}:"
+            f"{candidate['column']}{candidate['end_row']}"
+        )
+        range_node = "node_range_" + stable_hash({
+            "document_id": candidate["record"]["document_id"],
+            "sheet_name": candidate["sheet_name"],
+            "range": range_text,
+        })[:16]
+        saved_value_node = "node_saved_value_" + stable_hash(value_text)[:16]
+        nodes.extend([
+            {
+                "node_id": range_node,
+                "node_type": "range",
+                "sheet_name": candidate["sheet_name"],
+                "value": range_text,
+            },
+            {
+                "node_id": saved_value_node,
+                "node_type": "saved_value",
+                "value": value_text,
+                "unit": "回",
+            },
+        ])
+        formula_ids = [
+            record["evidence_id"] for record in companions
+            if SUM_FORMULA.search(unicodedata.normalize("NFKC", record["text"]))
+        ]
+        saved_ids = [
+            record["evidence_id"] for record in companions
+            if _decimal(record["text"]) == candidate["saved_value"]
+        ]
+        edges = common_edges + [
+            {
+                "edge_id": "edge_target_uses_range",
+                "source": target_node,
+                "predicate": "uses_range",
+                "target": range_node,
+                "basis": {
+                    "kind": "explicit",
+                    "rule": "sum_formula_range",
+                    "evidence_ids": [candidate["record"]["evidence_id"], *formula_ids],
+                },
+            },
+        ]
+        for evidence_id in projection["validation_evidence_ids"]:
+            row_index = record_by_id[evidence_id]["locator"].get("row_index")
+            edges.extend([
+                {
+                    "edge_id": f"edge_range_includes_{evidence_id}",
+                    "source": range_node,
+                    "predicate": "includes",
+                    "target": evidence_id,
+                    "basis": {
+                        "kind": "explicit",
+                        "rule": "sum_formula_row_membership",
+                        "evidence_ids": [candidate["record"]["evidence_id"], evidence_id],
+                    },
+                },
+                {
+                    "edge_id": f"edge_row_contributes_{evidence_id}",
+                    "source": evidence_id,
+                    "predicate": "contributes_to",
+                    "target": value_node,
+                    "basis": {
+                        "kind": "inference",
+                        "rule": "structured_row_numeric_projection",
+                        "evidence_ids": [evidence_id],
+                        "row_index": row_index,
+                    },
+                },
+            ])
+        for evidence_id in saved_ids:
+            edges.append({
+                "edge_id": f"edge_saved_value_{evidence_id}",
+                "source": evidence_id,
+                "predicate": "asserts",
+                "target": saved_value_node,
+                "basis": {
+                    "kind": "explicit",
+                    "rule": "stored_workbook_value",
+                    "evidence_ids": [evidence_id],
+                },
+            })
+        edges.extend([
+            {
+                "edge_id": "edge_range_recomputed_as_value",
+                "source": range_node,
+                "predicate": "recomputed_as",
+                "target": value_node,
+                "basis": {
+                    "kind": "inference",
+                    "rule": "complete_structured_range_sum",
+                    "evidence_ids": projection["validation_evidence_ids"],
+                },
+            },
+            {
+                "edge_id": "edge_saved_agrees_with_recomputed",
+                "source": saved_value_node,
+                "predicate": "agrees_with",
+                "target": value_node,
+                "basis": {
+                    "kind": "inference",
+                    "rule": "saved_and_recomputed_values_agree",
+                    "evidence_ids": aggregate_ids + projection["validation_evidence_ids"],
+                },
+            },
+            {
+                "edge_id": "edge_value_answers_question",
+                "source": value_node,
+                "predicate": "answers",
+                "target": question_node,
+                "basis": {
+                    "kind": "inference",
+                    "rule": "verified_graph_aggregate_answers_count_question",
+                    "evidence_ids": aggregate_ids + projection["validation_evidence_ids"],
+                },
+            },
+        ])
+        primary_path = [
+            question_node, operation_node, target_node, range_node, value_node,
+        ]
     body = {
         **base,
         "status": "ready",
         "reason": "aggregate_graph_verified",
         "nodes": nodes,
         "edges": edges,
-        "primary_path": [question_node, operation_node, target_node, value_node],
+        "primary_path": primary_path,
         "selected_evidence_ids": selected_ids,
         "selection": {
             "candidate_id": candidate["candidate_id"],
             "value": value_text,
+            "saved_value": value_text,
+            "recomputed_value": projection["recomputed_value"],
             "unit": "回",
             "method": "explicit_sum_and_complete_structured_recomputation",
             "target_label": candidate["label"],
@@ -578,6 +1191,7 @@ def build_question_evidence_graph(
             },
             "matching_reference_evidence_ids": [record["evidence_id"] for record in references],
         },
+        "stored_graph_binding": stored_binding,
         "audit": [
             {"check": "target_binding", "status": "pass", "details": candidate["label"]},
             {
@@ -597,6 +1211,7 @@ def validate_question_evidence_graph(
     question: str,
     evidence_records: Iterable[Mapping[str, Any]],
     artifact: Mapping[str, Any],
+    source_graph: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Independently rebuild and compare a Question Evidence Graph Artifact."""
     failures: list[dict[str, Any]] = []
@@ -616,7 +1231,9 @@ def validate_question_evidence_graph(
     if artifact.get("query_sha256") != expected_query_hash:
         failures.append({"code": "query_hash_mismatch", "detail": "Question hash mismatch."})
 
-    rebuilt = build_question_evidence_graph(question, evidence_records)
+    rebuilt = build_question_evidence_graph(
+        question, evidence_records, source_graph=source_graph
+    )
     if canonical_json(_artifact_body(artifact)) != canonical_json(_artifact_body(rebuilt)):
         failures.append({"code": "artifact_rebuild_mismatch", "detail": "Graph does not match current Evidence."})
 
@@ -638,6 +1255,78 @@ def validate_question_evidence_graph(
         basis = edge.get("basis")
         if not isinstance(basis, Mapping) or basis.get("kind") not in {"explicit", "inference"} or not basis.get("rule"):
             failures.append({"code": "edge_basis_missing", "detail": str(edge.get("edge_id", ""))})
+
+    primary_path = artifact.get("primary_path")
+    if artifact.get("status") == "ready":
+        if not isinstance(primary_path, list) or len(primary_path) < 2:
+            failures.append({
+                "code": "primary_path_invalid",
+                "detail": "Ready Graph must declare a non-empty primary path.",
+            })
+        else:
+            missing_path_nodes = [
+                node_id for node_id in primary_path if node_id not in known_nodes
+            ]
+            if missing_path_nodes:
+                failures.append({
+                    "code": "primary_path_node_missing",
+                    "detail": str(missing_path_nodes[:6]),
+                })
+            edge_pairs = {
+                (edge.get("source"), edge.get("target"))
+                for edge in edges if isinstance(edge, Mapping)
+            }
+            for source, target in zip(primary_path, primary_path[1:]):
+                if (source, target) not in edge_pairs:
+                    failures.append({
+                        "code": "primary_path_edge_missing",
+                        "detail": f"{source} -> {target}",
+                    })
+
+    binding = artifact.get("stored_graph_binding")
+    binding_required = (
+        artifact.get("intent", {}).get("operation") == "aggregate_count"
+        if isinstance(artifact.get("intent"), Mapping) else False
+    )
+    if source_graph is not None and binding_required:
+        if not isinstance(binding, Mapping):
+            failures.append({
+                "code": "stored_graph_binding_missing",
+                "detail": "Question overlay is not bound to the stored Graph.",
+            })
+        else:
+            binding_body = {
+                key: binding[key] for key in binding if key != "traversal_sha256"
+            }
+            if binding.get("traversal_sha256") != stable_hash(binding_body):
+                failures.append({
+                    "code": "stored_graph_traversal_hash_mismatch",
+                    "detail": "Stored Graph traversal hash mismatch.",
+                })
+            for binding_key, graph_key in (
+                ("graph_sha256", "graph_sha256"),
+                ("partition_sha256", "partition_sha256"),
+                ("eligible_evidence_set_sha256", "eligible_evidence_set_sha256"),
+            ):
+                if binding.get(binding_key) != source_graph.get(graph_key):
+                    failures.append({
+                        "code": "stored_graph_snapshot_mismatch",
+                        "detail": binding_key,
+                    })
+            graph_relation_ids = {
+                str(edge.get("relation_id"))
+                for edge in source_graph.get("edges", [])
+                if isinstance(edge, Mapping)
+            }
+            traversed_relation_ids = binding.get("traversed_relation_ids")
+            if (
+                not isinstance(traversed_relation_ids, list)
+                or set(map(str, traversed_relation_ids)) - graph_relation_ids
+            ):
+                failures.append({
+                    "code": "stored_graph_relation_unknown",
+                    "detail": "Traversal refers to an unknown stored relation.",
+                })
 
     artifact_status = artifact.get("status")
     if artifact_status == "hold":

@@ -168,16 +168,17 @@ def jsonl_bytes(records: list[dict]) -> bytes:
     return ("".join(json.dumps(item, ensure_ascii=False, sort_keys=True) + "\n" for item in records)).encode("utf-8")
 
 
-def main() -> int:
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--evidence", required=True)
-    parser.add_argument("--documents", required=True)
-    parser.add_argument("--output-dir", required=True)
-    args = parser.parse_args()
-
-    evidence_path = Path(args.evidence).resolve(strict=True)
-    documents_path = Path(args.documents).resolve(strict=True)
-    output_dir = Path(args.output_dir).resolve(strict=True)
+def build(
+    evidence_path: Path,
+    documents_path: Path,
+    output_dir: Path,
+    *,
+    created_at: str | None = None,
+) -> dict:
+    """Build the deterministic security partition for independent replay."""
+    evidence_path = evidence_path.resolve(strict=True)
+    documents_path = documents_path.resolve(strict=True)
+    output_dir = output_dir.resolve(strict=True)
     evidence = [json.loads(line) for line in evidence_path.read_text(encoding="utf-8").splitlines() if line.strip()]
     documents = [json.loads(line) for line in documents_path.read_text(encoding="utf-8").splitlines() if line.strip()]
     document_by_id = {item["document_id"]: item for item in documents}
@@ -334,7 +335,7 @@ def main() -> int:
     state = {
         "schema_version": SCHEMA_VERSION,
         "policy_version": POLICY_VERSION,
-        "created_at": datetime.now().astimezone().isoformat(timespec="seconds"),
+        "created_at": created_at or datetime.now().astimezone().isoformat(timespec="seconds"),
         "classifier": "deterministic_content_security_gate",
         "question_independent": True,
         "llm_used_for_classification": False,
@@ -361,6 +362,18 @@ def main() -> int:
         "quarantine_index_allowed": False,
     }
     atomic_write(output_dir / "content-security-state.json", (json.dumps(state, ensure_ascii=False, indent=2, sort_keys=True) + "\n").encode("utf-8"))
+    return state
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--evidence", required=True)
+    parser.add_argument("--documents", required=True)
+    parser.add_argument("--output-dir", required=True)
+    args = parser.parse_args()
+    state = build(
+        Path(args.evidence), Path(args.documents), Path(args.output_dir),
+    )
     print(json.dumps(state["counts"], ensure_ascii=False, sort_keys=True))
     return 0
 

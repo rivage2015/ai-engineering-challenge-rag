@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import copy
 import importlib.util
 import unittest
 from pathlib import Path
@@ -131,6 +132,24 @@ class QuestionEvidenceGraphTests(unittest.TestCase):
         )
         self.assertEqual(forward["artifact_hash"], reverse["artifact_hash"])
 
+    def test_competing_lower_score_aggregate_in_another_document_holds(self) -> None:
+        primary = fixture(2, 1)
+        competing = fixture(2, 3)
+        for item in competing:
+            item["evidence_id"] = "doc2_" + item["evidence_id"]
+            item["document_id"] = "doc_2"
+            item["relative_path"] = "2026.08_second-work-report.xlsx"
+            item["text"] = item["text"].replace("作業枠", "作業枠数")
+
+        artifact = qeg.build_question_evidence_graph(
+            self.QUESTION, primary + competing
+        )
+
+        self.assertEqual(
+            (artifact["status"], artifact["reason"]),
+            ("hold", "aggregate_candidate_competing"),
+        )
+
     def test_provisional_total_cannot_be_confirmed(self) -> None:
         records = fixture()
         for item in records:
@@ -242,6 +261,25 @@ class QuestionEvidenceGraphTests(unittest.TestCase):
             for edge in graph["edges"]
         ))
         self.assertEqual(contract["items"][0]["time_scope"], "specified_period")
+
+        mismatched = copy.deepcopy(answer_record)
+        mismatched_artifact = mismatched["question_evidence_graph"]
+        mismatched_artifact["selection"]["value"] = "4"
+        mismatched_body = {
+            key: value
+            for key, value in mismatched_artifact.items()
+            if key not in {"artifact_hash", "artifact_id"}
+        }
+        mismatched_hash = qeg.stable_hash(mismatched_body)
+        mismatched_artifact["artifact_hash"] = mismatched_hash
+        mismatched_artifact["artifact_id"] = f"qeg_{mismatched_hash[:24]}"
+        _, _, mismatched_report = claim_validator.build_and_validate(
+            mismatched, packets
+        )
+        self.assertIn(
+            "question_graph_selection_recomputed_mismatch",
+            {failure["code"] for failure in mismatched_report["failures"]},
+        )
 
         dangling = {**graph, "edges": [dict(edge) for edge in graph["edges"]]}
         dangling["edges"][0]["target"] = "missing_node"

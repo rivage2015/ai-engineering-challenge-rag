@@ -90,15 +90,15 @@
 | 起動・初期設定 | `app/bootstrap.py`、`app/launch.sh` | 環境診断、モデル確認、索引構築 |
 | ローカル画面 | `app/local_memory_server.py` | loopback限定の検索画面と処理統括 |
 | 回答生成v2 | `engine/answer_local_memory_v2.py` | 質問分解、検索、項目監査、回答投影 |
-| Question Evidence Graph | `engine/question_evidence_graph.py` | 回数・合計質問の対象、範囲、coverage、再集計と保存値を結ぶ |
+| Question Evidence Graph | `engine/question_evidence_graph.py` | 永続GraphのRelationを辿り、回数・合計質問の対象、範囲、各行、再集計と保存値を結ぶ |
 | 主張グラフValidator | `app/claim_graph_validator.py` | LLM監査前の決定論的な関係検証 |
-| 最終監査 | `app/final_answer_audit.py` | 別コンテキストで回答とEvidenceを敵対的に点検 |
+| 最終監査 | `app/final_answer_audit.py` | 機械検証と別コンテキスト監査を再実行し、Orchestratorの最終採否を記録 |
 | パスグラフ | `engine/build_path_graph.py` | ファイルとフォルダの案内板を作る |
 | 意味グラフ | `engine/build_semantic_graph.py` | 資料内容をEvidenceとして構造化する |
 | 適応型Reader接続 | `engine/build_adaptive_semantic_graph.py` | 形式別Readerの中間記録を現行semantic境界へ接続する |
 | 適応型Reader検証 | `engine/validate_adaptive_semantic_graph.py` | 由来、hash、対応範囲、安全境界をfail-closedで検査する |
 | 安全分離 | `engine/content_security_gate.py` | 資料中の命令らしい記述を回答用Evidenceから隔離する |
-| 意味索引 | `engine/build_local_semantic_index.py` | ローカル埋め込み索引と、未接続のGraph schema/projectorを作る |
+| 意味索引 | `engine/build_local_semantic_index.py` | ローカル埋め込みと検証済みsafe Graphを一つのSQLite世代へ原子的に作る |
 | パッケージ生成 | `build/build_package.sh` | 未署名DMG／ZIPを作る |
 
 ### 4. General Memory評価セット
@@ -206,5 +206,5 @@ git log --oneline -15
 - `scripts/`、`schemas/`、`tests/`が汎用基盤であり、特定問題への回答値を埋め込む場所ではありません。
 - `design/`は実装ではなく、設計判断と検証結果です。
 - `evaluation/general-memory-v0.1/`は試験問題であり、利用者のナレッジではありません。
-- SQLiteの`graph_nodes`・`graph_edges`と独立projectorは実装済みですが、検索経路はまだ`schema_only`で無効です。
+- safe-answer SQLiteは独立projectorの検証済みGraphだけを公開し、回答検索・Question Evidence Graph・cache・最終監査が同じretrievable Evidence集合を使います。`unresolved` Nodeと`schema_only`索引は回答経路で拒否します。
 - DMG、モデル、利用者資料がGitHubに入っているわけではありません。

@@ -35,7 +35,7 @@ if QUESTION_GRAPH_SPEC is None or QUESTION_GRAPH_SPEC.loader is None:
 question_graph = importlib.util.module_from_spec(QUESTION_GRAPH_SPEC)
 QUESTION_GRAPH_SPEC.loader.exec_module(question_graph)
 
-ENGINE_CACHE_VERSION = "v2-speed-3-question-evidence-graph"
+ENGINE_CACHE_VERSION = "v2-speed-5-deterministic-aggregate-cache"
 
 
 PLAN_SCHEMA = {
@@ -292,20 +292,21 @@ def expand_retrieval_query(value: str) -> str:
 def retrieve_hybrid(index_path: Path, query: str, top_k: int, timeout: int) -> tuple[dict, list[dict]]:
     connection = sqlite3.connect(f"file:{index_path}?mode=ro", uri=True)
     try:
-        metadata = {key: json.loads(value) for key, value in connection.execute("SELECT key, value FROM metadata")}
-        if metadata.get("content_security_gate") is not True:
-            raise ValueError("unsafe_legacy_index_refused")
-        if metadata.get("index_purpose") != "safe_answer" or metadata.get("answer_generation_allowed") is not True:
-            raise ValueError("non_answer_index_refused")
-        if metadata.get("content_security_execution_policy") != "never_execute":
-            raise ValueError("content_security_policy_invalid")
+        connection.execute("BEGIN")
+        metadata = base.load_index_metadata(connection)
+        base.validate_answer_graph_contract(connection, metadata)
+        base.assert_current_embedding_space(metadata, timeout)
         query_vector = base.embed_query(metadata["model"], query, timeout)
         candidates = []
         rows = connection.execute(
             """
             SELECT e.evidence_id, e.document_id, e.relative_path, e.locator_json,
                    e.observed_text, v.dimension, v.vector_f32
-            FROM evidence e JOIN embeddings v USING(evidence_id)
+            FROM evidence e
+            JOIN embeddings v USING(evidence_id)
+            JOIN graph_nodes g ON g.node_id = e.evidence_id
+            WHERE g.node_type = 'evidence'
+              AND g.status IN ('observed', 'verified')
             """
         )
         for evidence_id, document_id, relative_path, locator_json, observed_text, dimension, blob in rows:
@@ -353,26 +354,23 @@ def retrieve_hybrid(index_path: Path, query: str, top_k: int, timeout: int) -> t
 
 def load_index_evidence_records(index_path: Path) -> tuple[list[dict], dict[str, dict]]:
     """Load immutable Evidence text records for deterministic graph traversal."""
-    connection = sqlite3.connect(f"file:{index_path}?mode=ro", uri=True)
-    try:
-        records = [
-            {
-                "evidence_id": evidence_id,
-                "document_id": document_id,
-                "relative_path": relative_path,
-                "locator": json.loads(locator_json),
-                "text": observed_text,
-                "observed_sha256": observed_sha256,
-            }
-            for evidence_id, document_id, relative_path, locator_json, observed_text, observed_sha256
-            in connection.execute(
-                "SELECT evidence_id, document_id, relative_path, locator_json, "
-                "observed_text, observed_sha256 FROM evidence"
-            )
-        ]
-    finally:
-        connection.close()
+    records, _policy = base.load_answer_evidence_records(index_path)
     return records, {record["evidence_id"]: record for record in records}
+
+
+def load_index_evidence_graph(
+    index_path: Path,
+) -> tuple[list[dict], dict[str, dict], dict]:
+    """Load Evidence and its validated persistent Graph in one read snapshot."""
+    records, policy = base.load_answer_evidence_records(index_path)
+    source_graph = policy.get("source_graph")
+    if not isinstance(source_graph, dict):
+        raise ValueError("validated_source_graph_missing")
+    return (
+        records,
+        {record["evidence_id"]: record for record in records},
+        source_graph,
+    )
 
 
 def augment_with_question_graph(
@@ -385,7 +383,9 @@ def augment_with_question_graph(
     for evidence_id in artifact.get("selected_evidence_ids", []):
         source = evidence_by_id.get(evidence_id)
         if source is None:
-            continue
+            raise ValueError(
+                f"question_graph_selected_evidence_not_retrievable:{evidence_id}"
+            )
         selected.append({
             "score": 1.0,
             "rerank_score": 1.0,
@@ -805,7 +805,10 @@ def append_log(path: Path, record: dict) -> None:
 def index_metadata(index_path: Path) -> dict:
     connection = sqlite3.connect(f"file:{index_path}?mode=ro", uri=True)
     try:
-        return {key: json.loads(value) for key, value in connection.execute("SELECT key, value FROM metadata")}
+        connection.execute("BEGIN")
+        metadata = base.load_index_metadata(connection)
+        base.validate_answer_graph_contract(connection, metadata)
+        return metadata
     finally:
         connection.close()
 
@@ -813,28 +816,33 @@ def index_metadata(index_path: Path) -> dict:
 def answer_cache_key(
     query: str, metadata: dict, model: str, top_k: int, audit_mode: str, fast_plan: bool = False,
 ) -> str:
-    normalized_query = re.sub(r"\s+", " ", unicodedata.normalize("NFKC", query)).strip().rstrip("。？！?!")
     payload = {
-        "version": ENGINE_CACHE_VERSION, "query": normalized_query,
+        "version": ENGINE_CACHE_VERSION,
+        "query_sha256": hashlib.sha256(query.encode("utf-8")).hexdigest(),
         "question_graph_version": question_graph.GRAPH_VERSION,
         "evidence_sha256": metadata["evidence_sha256"], "model": model,
+        "graph_sha256": metadata["graph_sha256"],
+        "graph_security_partition_sha256": metadata[
+            "graph_security_partition_sha256"
+        ],
+        "graph_retrievable_evidence_set_sha256": metadata[
+            "graph_retrievable_evidence_set_sha256"
+        ],
+        "graph_embeddings_sha256": metadata["graph_embeddings_sha256"],
         "top_k": top_k, "audit_mode": audit_mode, "fast_plan": fast_plan,
     }
     return hashlib.sha256(json.dumps(payload, ensure_ascii=False, sort_keys=True).encode("utf-8")).hexdigest()
 
 
-def load_cached_record(path: Path, key: str) -> dict | None:
-    if not path.exists():
-        return None
-    rows = path.read_text(encoding="utf-8").splitlines()
-    for line in reversed(rows):
-        try:
-            entry = json.loads(line)
-        except json.JSONDecodeError:
-            continue
-        if entry.get("cache_key") == key and isinstance(entry.get("record"), dict):
-            return entry["record"]
-    return None
+def cached_record_matches_answer_graph(
+    record: dict,
+    metadata: dict,
+    index_path: Path,
+    query: str | None = None,
+) -> bool:
+    """Fail closed until answers can be rebuilt canonically from current Graph data."""
+    del record, metadata, index_path, query
+    return False
 
 
 def emit_record(record: dict, as_json: bool) -> None:
@@ -869,36 +877,22 @@ def main() -> int:
 
     total_started = time.perf_counter()
     index_path = Path(args.index).resolve(strict=True)
-    initial_metadata = index_metadata(index_path)
-    cache_path = None if args.no_cache else Path(args.cache).resolve() if args.cache else index_path.with_name("answer-cache-v2.jsonl")
-    cache_key = answer_cache_key(
-        args.query, initial_metadata, args.model, args.top_k, args.audit_mode, args.fast_plan
-    )
-    if cache_path is not None:
-        cached = load_cached_record(cache_path, cache_key)
-        if cached is not None:
-            cached = dict(cached)
-            cached["created_at"] = datetime.now().astimezone().isoformat(timespec="seconds")
-            cached["performance"] = {
-                **cached.get("performance", {}), "cache_hit": True,
-                "total_seconds": round(time.perf_counter() - total_started, 3),
-            }
-            if args.log:
-                append_log(Path(args.log).resolve(), cached)
-            emit_record(cached, args.json)
-            return 0
+    index_metadata(index_path)
     plan_started = time.perf_counter()
     fast_plan = try_fast_plan(args.query) if args.fast_plan else None
     planning_mode = "deterministic" if fast_plan is not None else "llm"
     plan = sanitize_plan(fast_plan or plan_question(args.model, args.query, args.timeout), args.query)
     plan_seconds = time.perf_counter() - plan_started
     graph_started = time.perf_counter()
-    graph_evidence, graph_evidence_by_id = load_index_evidence_records(index_path)
+    graph_evidence, graph_evidence_by_id, stored_source_graph = (
+        load_index_evidence_graph(index_path)
+    )
     question_evidence_graph = question_graph.build_question_evidence_graph(
-        args.query, graph_evidence
+        args.query, graph_evidence, source_graph=stored_source_graph
     )
     question_evidence_graph_validation = question_graph.validate_question_evidence_graph(
-        args.query, graph_evidence, question_evidence_graph
+        args.query, graph_evidence, question_evidence_graph,
+        source_graph=stored_source_graph,
     )
     graph_seconds = time.perf_counter() - graph_started
     all_retrieved: dict[str, dict] = {}
@@ -1085,7 +1079,18 @@ def main() -> int:
             )} | ({"retrieval_source": item["retrieval_source"]} if "retrieval_source" in item else {})
             for item in all_retrieved.values()
         ],
-        "index": {"path": str(index_path), "evidence_sha256": metadata["evidence_sha256"]},
+        "index": {
+            "path": str(index_path),
+            "evidence_sha256": metadata["evidence_sha256"],
+            "graph_sha256": metadata["graph_sha256"],
+            "graph_security_partition_sha256": metadata[
+                "graph_security_partition_sha256"
+            ],
+            "graph_retrievable_evidence_set_sha256": metadata[
+                "graph_retrievable_evidence_set_sha256"
+            ],
+            "graph_embeddings_sha256": metadata["graph_embeddings_sha256"],
+        },
         "models": {"embedding": metadata["model"], "planner": args.model, "field_auditor": args.model, "answer": args.model},
         "separation": "same model, separate context",
         "performance": {
@@ -1099,13 +1104,12 @@ def main() -> int:
             "audit_seconds": round(audit_seconds, 3),
             "total_seconds": round(time.perf_counter() - total_started, 3),
             "cache_hit": False,
+            "cache_policy": "disabled_fail_closed",
         },
         "external_network_required": False,
     }
     if args.log:
         append_log(Path(args.log).resolve(), record)
-    if cache_path is not None:
-        append_log(cache_path, {"cache_key": cache_key, "record": record})
     emit_record(record, args.json)
     return 0
 

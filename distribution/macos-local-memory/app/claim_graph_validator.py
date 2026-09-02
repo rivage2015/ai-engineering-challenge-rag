@@ -165,6 +165,52 @@ def validate_question_graph_binding(
         failures.append({"code": "question_graph_hash_mismatch", "detail": "集計Graphのhashが一致しません。"})
         return
     selection = artifact.get("selection") or {}
+    stored_binding = artifact.get("stored_graph_binding")
+    record_index = record.get("index") if isinstance(record.get("index"), dict) else {}
+    record_graph_sha256 = record_index.get("graph_sha256")
+    if stored_binding is not None or record_graph_sha256 is not None:
+        if not isinstance(stored_binding, dict):
+            failures.append({
+                "code": "stored_graph_binding_missing",
+                "detail": "回数主張が保存済みGraphのTraversalへ接続されていません。",
+            })
+            return
+        binding_body = {
+            key: value for key, value in stored_binding.items()
+            if key != "traversal_sha256"
+        }
+        if stored_binding.get("traversal_sha256") != stable_hash(binding_body):
+            failures.append({
+                "code": "stored_graph_traversal_hash_mismatch",
+                "detail": "保存済みGraph Traversalのhashが一致しません。",
+            })
+        if stored_binding.get("graph_sha256") != record_graph_sha256:
+            failures.append({
+                "code": "stored_graph_snapshot_mismatch",
+                "detail": "質問Graphと回答記録が異なる保存済みGraphを参照しています。",
+            })
+        if not stored_binding.get("traversed_relation_ids"):
+            failures.append({
+                "code": "stored_graph_relations_missing",
+                "detail": "回数主張へ到達する保存済みRelation IDがありません。",
+            })
+    saved_value = numeric_value(selection.get("saved_value"))
+    recomputed_value = numeric_value(selection.get("recomputed_value"))
+    if saved_value is None or recomputed_value is None or saved_value != recomputed_value:
+        failures.append({
+            "code": "question_graph_saved_recomputed_mismatch",
+            "detail": "保存値と行範囲の再集計値が一致しません。",
+        })
+    selected_value = numeric_value(selection.get("value"))
+    if (
+        selected_value is None
+        or recomputed_value is None
+        or selected_value != recomputed_value
+    ):
+        failures.append({
+            "code": "question_graph_selection_recomputed_mismatch",
+            "detail": "回答用の選択値と行範囲の再集計値が一致しません。",
+        })
     validation_ids = set(selection.get("validation_evidence_ids", []))
     missing_ids = sorted(validation_ids - set(packet_map))
     if missing_ids:
@@ -172,7 +218,7 @@ def validate_question_graph_binding(
             "code": "question_graph_evidence_missing",
             "detail": f"集計GraphのEvidenceが不足: {missing_ids[:6]}",
         })
-    expected_value = numeric_value(selection.get("value"))
+    expected_value = selected_value
     mandatory_ids = set(selection.get("mandatory_aggregation_evidence_ids", []))
     for claim in graph.get("claims", []):
         if claim.get("field_id") not in count_fields:

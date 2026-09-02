@@ -5,7 +5,9 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import importlib.util
 import json
+import tempfile
 from collections import Counter
 from pathlib import Path
 
@@ -27,18 +29,30 @@ def fail(condition: bool, message: str) -> None:
         raise ValueError(message)
 
 
-def main() -> int:
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--evidence", required=True)
-    parser.add_argument("--documents", required=True)
-    parser.add_argument("--gate-dir", required=True)
-    args = parser.parse_args()
+def _load_gate_builder():
+    builder_path = Path(__file__).resolve().with_name("content_security_gate.py")
+    specification = importlib.util.spec_from_file_location(
+        "content_security_gate_replay", builder_path,
+    )
+    if specification is None or specification.loader is None:
+        raise RuntimeError("content_security_gate_builder_unavailable")
+    module = importlib.util.module_from_spec(specification)
+    specification.loader.exec_module(module)
+    return module
 
-    evidence_path = Path(args.evidence).resolve(strict=True)
-    documents_path = Path(args.documents).resolve(strict=True)
-    gate_dir = Path(args.gate_dir).resolve(strict=True)
+
+def validate(
+    evidence_path: Path,
+    documents_path: Path,
+    gate_dir: Path,
+) -> dict:
+    """Validate the partition and independently replay its classifications."""
+    evidence_path = evidence_path.resolve(strict=True)
+    documents_path = documents_path.resolve(strict=True)
+    gate_dir = gate_dir.resolve(strict=True)
     state_path = gate_dir / "content-security-state.json"
-    state = json.loads(state_path.read_text(encoding="utf-8"))
+    state_bytes = state_path.read_bytes()
+    state = json.loads(state_bytes.decode("utf-8"))
     fail(state.get("schema_version") != "0.1", "state_schema_version")
     fail(state.get("policy_version") != "0.2.0", "state_policy_version")
     fail(state.get("classifier") != "deterministic_content_security_gate", "state_classifier")
@@ -49,6 +63,22 @@ def main() -> int:
     fail(state.get("quarantine_index_allowed") is not False, "state_quarantine_index")
     fail(state["source_evidence"]["sha256"] != sha256_file(evidence_path), "source_evidence_sha")
     fail(state["source_documents"]["sha256"] != sha256_file(documents_path), "source_documents_sha")
+
+    gate_builder = _load_gate_builder()
+    with tempfile.TemporaryDirectory(prefix="content-security-replay-") as temporary:
+        replay_dir = Path(temporary)
+        replay_state = gate_builder.build(
+            evidence_path,
+            documents_path,
+            replay_dir,
+            created_at=state.get("created_at"),
+        )
+        fail(replay_state != state, "independent_replay_state_mismatch")
+        for name in replay_state["outputs"]:
+            fail(
+                (replay_dir / name).read_bytes() != (gate_dir / name).read_bytes(),
+                f"independent_replay_output_mismatch:{name}",
+            )
 
     source = load_jsonl(evidence_path)
     documents = load_jsonl(documents_path)
@@ -117,7 +147,31 @@ def main() -> int:
     fail(counts["document_dispositions"] != dict(sorted(Counter(doc_disposition.values()).items())), "count_document_dispositions")
     fail(state["source_evidence"]["count"] != len(source), "source_evidence_count")
     fail(state["source_documents"]["count"] != len(documents), "source_document_count")
-    print(json.dumps({"status": "PASS", "counts": counts}, ensure_ascii=False, sort_keys=True))
+    return {
+        "status": "PASS",
+        "counts": counts,
+        "attestation": {
+            "state_sha256": hashlib.sha256(state_bytes).hexdigest(),
+            "source_evidence_sha256": state["source_evidence"]["sha256"],
+            "source_documents_sha256": state["source_documents"]["sha256"],
+            "output_sha256": {
+                name: value["sha256"]
+                for name, value in sorted(state["outputs"].items())
+            },
+        },
+    }
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--evidence", required=True)
+    parser.add_argument("--documents", required=True)
+    parser.add_argument("--gate-dir", required=True)
+    args = parser.parse_args()
+    report = validate(
+        Path(args.evidence), Path(args.documents), Path(args.gate_dir),
+    )
+    print(json.dumps(report, ensure_ascii=False, sort_keys=True))
     return 0
 
 

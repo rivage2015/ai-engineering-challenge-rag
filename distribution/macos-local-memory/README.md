@@ -28,13 +28,18 @@ DMGにはユーザーデータ、既存索引、回答ログ、モデル本体�
 - AIを読取に使ったかはLayer 1 Evidenceのprovenanceから派生し、semantic stateの申告とvalidatorで照合する。
 - 初回はReader/security検証後にモデルを取得し、Gemmaが新規取得され画像がある場合だけ、別の空ディレクトリでsemantic/securityを再構築・再検証してから公開する。
 - 世代にbuild IDとowner PIDを持たせ、起動時に中断を判定する。未公開の中断世代だけを整理して再実行へ案内し、公開済み世代はreadyに復旧する。
-- SQLite index schema `0.3`は、後続のEvidence Graph投入用に空の`graph_nodes`と`graph_edges`を持つ。現段階は`graph_status=schema_only`、`graph_retrieval_enabled=false`で、既存の回答検索には使用しない。
-- 認可済みDocument／Evidenceと検証済みnative structural Relationの独立projectorはfixture検証までとし、索引builder・bootstrap・回答経路へはまだ接続しない。
+- SQLite safe-answer index schema `0.3`は、検証済みの`graph_nodes`と`graph_edges`、Graph hash、安全partitionを埋め込みと同じ未公開DBへ書き、全検査成功後だけ`graph_status=validated_safe_partition`、`graph_retrieval_enabled=true`として原子的に公開する。prompt-library indexは`schema_only`のまま回答には使わない。
+- semantic validatorはSearchUnitとLayer 1 Evidenceから`derived_from`を独立再構築し、完全なfan-inだけを`semantic-lineage-relations.jsonl`へ昇格する。長文shardや未投影binaryを含むfan-inは理由付きで保留する。
+- native structural RelationはLayer 1の`parent_evidence_id`と`preceding_heading_evidence_id`から再構築し、IDだけでなくRelation全フィールドと集合の完全一致を要求する。呼び出し側が`structural`や許可済みproducer名を自己申告してもEvidence間Edgeに昇格できない。
+- ChartTable containmentは専用のsource-bound再構築contractができるまで`not_explicit`として保留する。producer名だけでverified Edgeにしない。
+- Content Security Gateのvalidatorは入力から分類と6成果物を独立再生成し、自己整合した偽の`safe-answer-evidence.jsonl`も拒否する。safe Graphは安全な枝だけを残し、1つでも除外sourceを含むlineage fan-inは全Edgeを原子的に保留する。
+- 保留されたderived Evidenceが回答用safe streamに残る場合、Nodeは削除せず`unresolved`と理由を付ける。除外Evidenceをendpoint/supportに持つstructural Relationは付け替えず保留し、全明示Relationを`promoted`または`held`のどちらかに完全分割する。
+- 認可済みDocument／Evidenceと、source-bound validatorをprojector自身が再実行して得たnative structural／verified lineage Relationを、索引builderとbootstrapへ接続する。回答v1/v2、Question Evidence Graph、最終監査は同じGraph hash・安全partition・埋め込み空間を再検査し、`unresolved` Evidenceを取得・再挿入・引用できない。回答cacheは、現在のGraphからcanonical回答を完全再構築する契約ができるまでfail-closedで無効化する。呼び出し側が作ったPASS辞書だけではRelationを投入できない。
 - 回答は `gemma4:12b`、別コンテキストの最終監査も `gemma4:12b`、埋め込みは `embeddinggemma:latest`。
-- 回数・合計質問は、ベクトル検索の前にQuestion Evidence Graphを作る。質問の対象、`SUM`範囲、全行coverage、再集計値、保存値をNode/Edgeで結び、一致したEvidenceを回答実行者へ先頭挿入する。
+- 回数・合計質問は、ベクトル検索の前にQuestion Evidence Graphを作る。同じSQLite read snapshotの永続GraphをDocumentから`contains`順方向・`derived_from`逆方向へ実際に辿り、使用したNode hashとRelation IDを質問Graphへ固定する。その上で質問の対象、`SUM`範囲、各行、再集計値、保存値をNode/Edgeで結び、一致したEvidenceを回答実行者へ先頭挿入する。
 - 構造化集計がない、範囲が欠ける、暫定読取を含む、保存値と再集計が違う、または複数候補が曖昧な回数質問は `hold`にし、通常検索へ逃がさない。
 - 回答と監査の間で、質問契約・主張グラフ・Evidence参照を決定論的に検証する。
-- 最終監査は回答セルだけでなく、Question Evidence Graphが指定した全集計EvidenceをSQLiteから再読込し、Graph hash、Claim Node、Edge端点、数値一致を機械検査してから別コンテキスト監査を行う。
+- 最終監査は回答セルだけでなく、Question Evidence Graphが指定した全集計EvidenceをSQLiteから再読込し、保存Graph traversalを再構築してから、Graph hash、Claim Node、Edge端点、保存値と再集計値を機械検査する。別コンテキスト監査まで含む全ゲートがPASSした場合だけOrchestratorが回答をacceptする。
 - 監査完了後のログに、回答コンテキストと最終監査コンテキストの実行役割を別々に記録する。
 - WebとOllamaはloopbackに限定。HomebrewのCLI-only Ollamaも検出し、daemon停止時は専用ログ付きで`ollama serve`をloopback起動する。
 - 資料内の命令文は命令として実行しない。

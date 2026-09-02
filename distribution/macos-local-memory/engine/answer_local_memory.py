@@ -18,6 +18,18 @@ from pathlib import Path
 
 OLLAMA_EMBED_URL = "http://127.0.0.1:11434/api/embed"
 OLLAMA_CHAT_URL = "http://127.0.0.1:11434/api/chat"
+MAX_EMBED_CHARS = 4_000
+EMBEDDING_SPACE_PROBE_VERSION = "local-memory-embedding-space-v1"
+EMBEDDING_SPACE_PROBE_TEXT = "local memory embedding space integrity probe v1"
+INDEX_SCHEMA_VERSION = "0.3"
+GRAPH_SCHEMA_VERSION = "0.1"
+GRAPH_READY_STATUS = "validated_safe_partition"
+GRAPH_PARTITIONER = "content-security-graph-partitioner"
+GRAPH_PARTITIONER_VERSION = "0.1.0"
+GRAPH_RETRIEVABLE_EVIDENCE_STATUSES = {"observed", "verified"}
+GRAPH_ALLOWED_EVIDENCE_STATUSES = (
+    GRAPH_RETRIEVABLE_EVIDENCE_STATUSES | {"unresolved"}
+)
 INSTRUCTION_LIKE_PATTERNS = (
     re.compile(r"#\s*role\b", re.IGNORECASE),
     re.compile(r"\bstep\s*1\b", re.IGNORECASE),
@@ -139,23 +151,447 @@ def cosine(left: list[float], right: array.array) -> float:
     return dot / (left_norm * right_norm) if left_norm and right_norm else 0.0
 
 
+def canonical_json(value: object) -> str:
+    return json.dumps(
+        value, ensure_ascii=False, sort_keys=True, separators=(",", ":"),
+        allow_nan=False,
+    )
+
+
+def record_sha256(value: object) -> str:
+    return hashlib.sha256(canonical_json(value).encode("utf-8")).hexdigest()
+
+
+def load_index_metadata(connection: sqlite3.Connection) -> dict:
+    return {
+        key: json.loads(value)
+        for key, value in connection.execute("SELECT key, value FROM metadata")
+    }
+
+
+def validate_answer_graph_contract(
+    connection: sqlite3.Connection,
+    metadata: dict | None = None,
+) -> dict:
+    """Validate the immutable answer graph and return its retrievable set.
+
+    A schema-only, stale, or internally inconsistent graph is refused.  In
+    particular, an Evidence Node held as ``unresolved`` can never enter the
+    retrievable set, the Question Evidence Graph, or a final audit packet.
+    """
+    metadata = metadata if metadata is not None else load_index_metadata(connection)
+    if metadata.get("schema_version") != INDEX_SCHEMA_VERSION:
+        raise ValueError("answer_index_schema_invalid")
+    if metadata.get("content_security_gate") is not True:
+        raise ValueError("unsafe_legacy_index_refused")
+    if (
+        metadata.get("index_purpose") != "safe_answer"
+        or metadata.get("answer_generation_allowed") is not True
+    ):
+        raise ValueError("non_answer_index_refused")
+    if metadata.get("content_security_execution_policy") != "never_execute":
+        raise ValueError("content_security_policy_invalid")
+    if (
+        metadata.get("graph_schema_version") != GRAPH_SCHEMA_VERSION
+        or metadata.get("graph_status") != GRAPH_READY_STATUS
+        or metadata.get("graph_retrieval_enabled") is not True
+    ):
+        raise ValueError("graph_projection_required")
+
+    partition = metadata.get("graph_security_partition")
+    if not isinstance(partition, dict):
+        raise ValueError("graph_answer_policy_invalid:partition_missing")
+    partition_hash = partition.get("partition_sha256")
+    partition_content = dict(partition)
+    partition_content.pop("partition_sha256", None)
+    if (
+        not isinstance(partition_hash, str)
+        or record_sha256(partition_content) != partition_hash
+        or metadata.get("graph_security_partition_sha256") != partition_hash
+        or metadata.get("content_security_state_sha256")
+        != partition.get("security_state_sha256")
+        or metadata.get("evidence_sha256")
+        != partition.get("safe_answer_evidence_sha256")
+        or partition.get("partitioner") != GRAPH_PARTITIONER
+        or partition.get("partitioner_version") != GRAPH_PARTITIONER_VERSION
+        or partition.get("status") != "pass"
+        or partition.get("question_independent") is not True
+    ):
+        raise ValueError("graph_answer_policy_invalid:partition")
+
+    node_rows: list[dict] = []
+    evidence_nodes: dict[str, dict] = {}
+    for node_id, node_type, payload_json, status, stored_hash in connection.execute(
+        "SELECT node_id, node_type, payload_json, status, record_sha256 "
+        "FROM graph_nodes "
+        "ORDER BY CASE node_type WHEN 'document' THEN 0 ELSE 1 END, node_id"
+    ):
+        try:
+            payload = json.loads(payload_json)
+        except (TypeError, json.JSONDecodeError) as exc:
+            raise ValueError(f"graph_node_payload_invalid:{node_id}") from exc
+        node = {
+            "node_id": node_id,
+            "node_type": node_type,
+            "payload": payload,
+            "status": status,
+        }
+        if record_sha256(node) != stored_hash:
+            raise ValueError(f"graph_node_record_hash_mismatch:{node_id}")
+        if (
+            not isinstance(payload, dict)
+            or payload.get("record_id") != node_id
+            or payload.get("record_type") != node_type
+        ):
+            raise ValueError(f"graph_node_payload_binding_mismatch:{node_id}")
+        node["record_sha256"] = stored_hash
+        node_rows.append(node)
+        if node_type == "evidence":
+            if status not in GRAPH_ALLOWED_EVIDENCE_STATUSES:
+                raise ValueError(
+                    f"graph_evidence_status_not_answerable:{node_id}:{status}"
+                )
+            if node_id in evidence_nodes:
+                raise ValueError(f"graph_evidence_node_duplicate:{node_id}")
+            evidence_nodes[node_id] = node
+        elif node_type != "document":
+            raise ValueError(f"graph_node_type_invalid:{node_id}:{node_type}")
+
+    edge_rows: list[dict] = []
+    for (
+        relation_id, from_node_id, relation_type, to_node_id, relation_class,
+        basis_kind, basis_rule, basis_json, properties_json, status, stored_hash,
+    ) in connection.execute(
+        "SELECT relation_id, from_node_id, relation_type, to_node_id, "
+        "relation_class, basis_kind, basis_rule, basis_json, properties_json, "
+        "status, record_sha256 FROM graph_edges ORDER BY relation_id"
+    ):
+        try:
+            basis = json.loads(basis_json)
+            properties = json.loads(properties_json)
+        except (TypeError, json.JSONDecodeError) as exc:
+            raise ValueError(f"graph_edge_payload_invalid:{relation_id}") from exc
+        edge = {
+            "relation_id": relation_id,
+            "from_node_id": from_node_id,
+            "relation_type": relation_type,
+            "to_node_id": to_node_id,
+            "relation_class": relation_class,
+            "basis_kind": basis_kind,
+            "basis_rule": basis_rule,
+            "basis": basis,
+            "properties": properties,
+            "status": status,
+        }
+        if record_sha256(edge) != stored_hash:
+            raise ValueError(f"graph_edge_record_hash_mismatch:{relation_id}")
+        edge["record_sha256"] = stored_hash
+        edge_rows.append(edge)
+
+    graph = {
+        "graph_schema_version": GRAPH_SCHEMA_VERSION,
+        "nodes": node_rows,
+        "edges": edge_rows,
+    }
+    if record_sha256(graph) != metadata.get("graph_sha256"):
+        raise ValueError("graph_sha256_mismatch")
+    if (
+        metadata.get("graph_node_count") != len(node_rows)
+        or metadata.get("graph_edge_count") != len(edge_rows)
+        or metadata.get("graph_document_node_count")
+        != sum(node["node_type"] == "document" for node in node_rows)
+        or metadata.get("graph_evidence_node_count") != len(evidence_nodes)
+    ):
+        raise ValueError("graph_answer_policy_invalid:counts")
+
+    evidence_rows = {
+        evidence_id: (
+            document_id, relative_path, locator_json, observed_text,
+            embedding_text, embedding_input_truncated, observed_sha256,
+        )
+        for (
+            evidence_id, document_id, relative_path, locator_json,
+            observed_text, embedding_text, embedding_input_truncated,
+            observed_sha256,
+        )
+        in connection.execute(
+            "SELECT evidence_id, document_id, relative_path, locator_json, "
+            "observed_text, embedding_text, embedding_input_truncated, "
+            "observed_sha256 "
+            "FROM evidence"
+        )
+    }
+    if set(evidence_rows) != set(evidence_nodes):
+        raise ValueError("graph_evidence_universe_mismatch")
+    for evidence_id, (
+        document_id, relative_path, locator_json, observed_text,
+        stored_embedding_text, embedding_input_truncated, observed_hash,
+    ) in evidence_rows.items():
+        node = evidence_nodes[evidence_id]
+        payload = node["payload"]
+        source_record = payload.get("source_record")
+        try:
+            locator = json.loads(locator_json)
+        except (TypeError, json.JSONDecodeError) as exc:
+            raise ValueError(f"graph_indexed_locator_invalid:{evidence_id}") from exc
+        source = source_record.get("source") if isinstance(source_record, dict) else None
+        actual_hash = hashlib.sha256(observed_text.encode("utf-8")).hexdigest()
+        embedding_prefix = (
+            f"ファイル: {relative_path}\n"
+            f"場所: {json.dumps(locator, ensure_ascii=False, sort_keys=True)}\n"
+            "内容:\n"
+        )
+        remaining = max(0, MAX_EMBED_CHARS - len(embedding_prefix))
+        expected_embedding_text = embedding_prefix + observed_text[:remaining]
+        expected_truncated = int(len(observed_text) > remaining)
+        if (
+            not isinstance(source_record, dict)
+            or source_record.get("document_id") != document_id
+            or source_record.get("locator") != locator
+            or not isinstance(source, dict)
+            or source.get("relative_path") != relative_path
+            or observed_hash != actual_hash
+            or payload.get("observed_sha256") != actual_hash
+            or stored_embedding_text != expected_embedding_text
+            or embedding_input_truncated != expected_truncated
+        ):
+            raise ValueError(f"graph_evidence_payload_binding_mismatch:{evidence_id}")
+
+    embedding_rows = []
+    embedding_ids: set[str] = set()
+    for evidence_id, dimension, vector_f32 in connection.execute(
+        "SELECT evidence_id, dimension, vector_f32 "
+        "FROM embeddings ORDER BY evidence_id"
+    ):
+        vector = array.array("f")
+        try:
+            vector.frombytes(vector_f32)
+        except (TypeError, ValueError) as exc:
+            raise ValueError(f"stored_embedding_invalid:{evidence_id}") from exc
+        if len(vector) != dimension:
+            raise ValueError(f"stored_dimension_mismatch:{evidence_id}")
+        embedding_ids.add(evidence_id)
+        embedding_rows.append({
+            "evidence_id": evidence_id,
+            "dimension": dimension,
+            "vector_f32_sha256": hashlib.sha256(bytes(vector_f32)).hexdigest(),
+        })
+    if embedding_ids != set(evidence_nodes):
+        raise ValueError("graph_embedding_universe_mismatch")
+    probe_binding = {
+        "version": metadata.get("embedding_space_probe_version"),
+        "text_sha256": metadata.get("embedding_space_probe_text_sha256"),
+        "dimension": metadata.get("embedding_space_probe_dimension"),
+        "vector_f32_sha256": metadata.get(
+            "embedding_space_probe_vector_f32_sha256"
+        ),
+    }
+    if (
+        probe_binding["version"] != EMBEDDING_SPACE_PROBE_VERSION
+        or probe_binding["text_sha256"]
+        != hashlib.sha256(EMBEDDING_SPACE_PROBE_TEXT.encode("utf-8")).hexdigest()
+        or probe_binding["dimension"] != metadata.get("embedding_dimension")
+        or not isinstance(probe_binding["vector_f32_sha256"], str)
+        or re.fullmatch(r"[0-9a-f]{64}", probe_binding["vector_f32_sha256"])
+        is None
+    ):
+        raise ValueError("embedding_space_probe_metadata_invalid")
+    if record_sha256({
+        "model": metadata.get("model"),
+        "probe": probe_binding,
+        "records": embedding_rows,
+    }) != metadata.get("graph_embeddings_sha256"):
+        raise ValueError("graph_embeddings_sha256_mismatch")
+
+    held_records = partition.get("held_derived_evidence")
+    if not isinstance(held_records, list):
+        raise ValueError("graph_answer_policy_invalid:held_records")
+    held_ids: set[str] = set()
+    for held in held_records:
+        if not isinstance(held, dict) or not isinstance(held.get("evidence_id"), str):
+            raise ValueError("graph_answer_policy_invalid:held_record")
+        if held["evidence_id"] in held_ids:
+            raise ValueError("graph_answer_policy_invalid:held_duplicate")
+        held_ids.add(held["evidence_id"])
+    unresolved_ids = {
+        evidence_id
+        for evidence_id, node in evidence_nodes.items()
+        if node["status"] == "unresolved"
+    }
+    indexed_held_ids = held_ids & set(evidence_nodes)
+    if unresolved_ids != indexed_held_ids:
+        raise ValueError("graph_answer_policy_invalid:held_unresolved_mismatch")
+    for evidence_id, node in evidence_nodes.items():
+        hold = node["payload"].get("security_graph_hold")
+        if evidence_id in unresolved_ids:
+            if (
+                not isinstance(hold, dict)
+                or hold.get("partition_sha256") != partition_hash
+            ):
+                raise ValueError(f"graph_unresolved_hold_invalid:{evidence_id}")
+        elif hold is not None:
+            raise ValueError(f"graph_retrievable_hold_present:{evidence_id}")
+
+    promoted_relation_ids = partition.get("promoted_relation_ids")
+    if (
+        not isinstance(promoted_relation_ids, list)
+        or len(promoted_relation_ids) != len(set(promoted_relation_ids))
+        or set(promoted_relation_ids)
+        != {edge["relation_id"] for edge in edge_rows}
+    ):
+        raise ValueError("graph_answer_policy_invalid:promoted_relations")
+    counts = partition.get("counts")
+    if (
+        not isinstance(counts, dict)
+        or counts.get("safe_evidence") != len(evidence_nodes)
+        or counts.get("promoted_relations") != len(edge_rows)
+        or counts.get("held_derived_evidence") != len(held_ids)
+        or metadata.get("graph_held_derived_evidence_count") != len(held_ids)
+        or metadata.get("graph_nonindexed_held_derived_evidence_count")
+        != len(held_ids - set(evidence_nodes))
+        or metadata.get("graph_source_relation_input_count")
+        != counts.get("source_relations")
+    ):
+        raise ValueError("graph_answer_policy_invalid:partition_counts")
+
+    eligible_rows = [
+        {
+            "evidence_id": evidence_id,
+            "status": evidence_nodes[evidence_id]["status"],
+            "record_sha256": evidence_nodes[evidence_id]["record_sha256"],
+        }
+        for evidence_id in sorted(evidence_nodes)
+        if evidence_nodes[evidence_id]["status"]
+        in GRAPH_RETRIEVABLE_EVIDENCE_STATUSES
+    ]
+    eligible_hash = record_sha256(eligible_rows)
+    if (
+        metadata.get("graph_retrievable_evidence_count") != len(eligible_rows)
+        or metadata.get("graph_unresolved_evidence_count") != len(unresolved_ids)
+        or metadata.get("graph_retrievable_evidence_set_sha256") != eligible_hash
+    ):
+        raise ValueError("graph_answer_policy_invalid:retrievable_set")
+    if connection.execute("PRAGMA foreign_key_check").fetchall():
+        raise ValueError("graph_foreign_key_check_failed")
+    source_graph = {
+        "graph_schema_version": GRAPH_SCHEMA_VERSION,
+        "graph_sha256": metadata["graph_sha256"],
+        "partition_sha256": partition_hash,
+        "eligible_evidence_set_sha256": eligible_hash,
+        "eligible_evidence_ids": [row["evidence_id"] for row in eligible_rows],
+        "nodes": [
+            {
+                "node_id": node["node_id"],
+                "node_type": node["node_type"],
+                "status": node["status"],
+                "record_sha256": node["record_sha256"],
+            }
+            for node in node_rows
+        ],
+        "edges": [
+            {
+                "relation_id": edge["relation_id"],
+                "from_node_id": edge["from_node_id"],
+                "relation_type": edge["relation_type"],
+                "to_node_id": edge["to_node_id"],
+                "relation_class": edge["relation_class"],
+                "basis_kind": edge["basis_kind"],
+                "basis_rule": edge["basis_rule"],
+                "status": edge["status"],
+                "record_sha256": edge["record_sha256"],
+            }
+            for edge in edge_rows
+        ],
+    }
+    return {
+        "metadata": metadata,
+        "eligible_evidence_ids": frozenset(
+            row["evidence_id"] for row in eligible_rows
+        ),
+        "eligible_evidence_set_sha256": eligible_hash,
+        "graph_sha256": metadata["graph_sha256"],
+        "partition_sha256": partition_hash,
+        # This is a validated, read-only projection of the same SQLite
+        # transaction as the Evidence rows.  Query-time graphs may traverse it
+        # without reopening the database or silently falling back to flat text.
+        "source_graph": source_graph,
+    }
+
+
+def load_answer_evidence_records(
+    index_path: Path,
+    evidence_ids: list[str] | None = None,
+) -> tuple[list[dict], dict]:
+    """Load only graph-eligible Evidence under one read snapshot."""
+    connection = sqlite3.connect(f"file:{index_path}?mode=ro", uri=True)
+    try:
+        connection.execute("BEGIN")
+        policy = validate_answer_graph_contract(connection)
+        records = [
+            {
+                "evidence_id": evidence_id,
+                "document_id": document_id,
+                "relative_path": relative_path,
+                "locator": json.loads(locator_json),
+                "text": observed_text,
+                "observed_sha256": observed_sha256,
+            }
+            for (
+                evidence_id, document_id, relative_path, locator_json,
+                observed_text, observed_sha256,
+            ) in connection.execute(
+                "SELECT e.evidence_id, e.document_id, e.relative_path, "
+                "e.locator_json, e.observed_text, e.observed_sha256 "
+                "FROM evidence e JOIN graph_nodes g ON g.node_id = e.evidence_id "
+                "WHERE g.node_type = 'evidence' "
+                "AND g.status IN ('observed', 'verified') ORDER BY e.evidence_id"
+            )
+        ]
+        if {record["evidence_id"] for record in records} != set(
+            policy["eligible_evidence_ids"]
+        ):
+            raise ValueError("graph_retrievable_query_mismatch")
+    finally:
+        connection.close()
+    if evidence_ids is None:
+        return records, policy
+    by_id = {record["evidence_id"]: record for record in records}
+    ordered = [by_id[value] for value in dict.fromkeys(evidence_ids) if value in by_id]
+    return ordered, policy
+
+
+def assert_current_embedding_space(metadata: dict, timeout: int) -> None:
+    """Detect a retagged or otherwise changed local embedding model."""
+    vector = embed_query(
+        metadata["model"], EMBEDDING_SPACE_PROBE_TEXT, timeout
+    )
+    packed = array.array("f", (float(value) for value in vector)).tobytes()
+    if (
+        len(vector) != metadata.get("embedding_space_probe_dimension")
+        or hashlib.sha256(packed).hexdigest()
+        != metadata.get("embedding_space_probe_vector_f32_sha256")
+    ):
+        raise ValueError("embedding_space_changed_rebuild_required")
+
+
 def retrieve(index_path: Path, query: str, top_k: int, timeout: int) -> tuple[dict, list[dict]]:
     connection = sqlite3.connect(f"file:{index_path}?mode=ro", uri=True)
     try:
-        metadata = {key: json.loads(value) for key, value in connection.execute("SELECT key, value FROM metadata")}
-        if metadata.get("content_security_gate") is not True:
-            raise ValueError("unsafe_legacy_index_refused")
-        if metadata.get("index_purpose") != "safe_answer" or metadata.get("answer_generation_allowed") is not True:
-            raise ValueError("non_answer_index_refused")
-        if metadata.get("content_security_execution_policy") != "never_execute":
-            raise ValueError("content_security_policy_invalid")
+        connection.execute("BEGIN")
+        metadata = load_index_metadata(connection)
+        validate_answer_graph_contract(connection, metadata)
+        assert_current_embedding_space(metadata, timeout)
         query_vector = embed_query(metadata["model"], query, timeout)
         candidates = []
         rows = connection.execute(
             """
             SELECT e.evidence_id, e.document_id, e.relative_path, e.locator_json,
                    e.observed_text, v.dimension, v.vector_f32
-            FROM evidence e JOIN embeddings v USING(evidence_id)
+            FROM evidence e
+            JOIN embeddings v USING(evidence_id)
+            JOIN graph_nodes g ON g.node_id = e.evidence_id
+            WHERE g.node_type = 'evidence'
+              AND g.status IN ('observed', 'verified')
             """
         )
         for evidence_id, document_id, relative_path, locator_json, observed_text, dimension, blob in rows:
@@ -634,7 +1070,18 @@ def main() -> int:
         "packet_id_map": packet_ids,
         "reported_supplements": supplements,
         "answerability_audit": audit,
-        "index": {"path": str(index_path), "evidence_sha256": metadata["evidence_sha256"]},
+        "index": {
+            "path": str(index_path),
+            "evidence_sha256": metadata["evidence_sha256"],
+            "graph_sha256": metadata["graph_sha256"],
+            "graph_security_partition_sha256": metadata[
+                "graph_security_partition_sha256"
+            ],
+            "graph_retrievable_evidence_set_sha256": metadata[
+                "graph_retrievable_evidence_set_sha256"
+            ],
+            "graph_embeddings_sha256": metadata["graph_embeddings_sha256"],
+        },
         "models": {"embedding": metadata["model"], "answer": args.model},
         "generation": generation,
         "audit_generation": audit_generation,

@@ -558,6 +558,8 @@ def build_index() -> None:
                 "--evidence", str(security / "safe-answer-evidence.jsonl"),
                 "--documents", str(semantic / "semantic-documents.jsonl"),
                 "--security-state", str(security / "content-security-state.json"),
+                "--source-root", str(source),
+                "--source-inventory", str(paths / "path-source-inventory.jsonl"),
                 "--index-purpose", "safe_answer", "--model", config["embedding_model"],
                 "--output", str(index),
             ], log)

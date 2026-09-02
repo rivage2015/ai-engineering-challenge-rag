@@ -6,7 +6,6 @@ from __future__ import annotations
 import argparse
 import importlib.util
 import json
-import sqlite3
 import time
 import urllib.request
 from pathlib import Path
@@ -67,42 +66,22 @@ SCHEMA = {
 def evidence(index: Path, ids: list[str]) -> list[dict]:
     if not ids:
         return []
-    connection = sqlite3.connect(f"file:{index}?mode=ro", uri=True)
-    try:
-        rows = []
-        for evidence_id in ids:
-            row = connection.execute(
-                "SELECT evidence_id, relative_path, locator_json, observed_text FROM evidence WHERE evidence_id = ?",
-                (evidence_id,),
-            ).fetchone()
-            if row:
-                rows.append({"evidence_id": row[0], "path": row[1], "locator": json.loads(row[2]), "text": row[3]})
-        return rows
-    finally:
-        connection.close()
+    records, _policy = answer_engine.load_answer_evidence_records(index, ids)
+    return [
+        {
+            "evidence_id": record["evidence_id"],
+            "path": record["relative_path"],
+            "locator": record["locator"],
+            "text": record["text"],
+        }
+        for record in records
+    ]
 
 
 def graph_evidence(index: Path) -> list[dict]:
     """Reload all hash-bound Evidence used by the pre-answer graph."""
-    connection = sqlite3.connect(f"file:{index}?mode=ro", uri=True)
-    try:
-        return [
-            {
-                "evidence_id": evidence_id,
-                "document_id": document_id,
-                "relative_path": relative_path,
-                "locator": json.loads(locator_json),
-                "text": observed_text,
-                "observed_sha256": observed_sha256,
-            }
-            for evidence_id, document_id, relative_path, locator_json, observed_text, observed_sha256
-            in connection.execute(
-                "SELECT evidence_id, document_id, relative_path, locator_json, "
-                "observed_text, observed_sha256 FROM evidence"
-            )
-        ]
-    finally:
-        connection.close()
+    records, _policy = answer_engine.load_answer_evidence_records(index)
+    return records
 
 
 def ollama_seconds(value: object) -> float:
@@ -184,19 +163,26 @@ Evidence:
     result = json.loads(raw["message"]["content"])
     if result.get("verdict") not in {"verified", "qualified", "rejected"}:
         raise ValueError("audit_verdict_invalid")
-    if result["verdict"] == "qualified" and not any(
-        str(value).strip() for value in result.get("unsupported_claims", [])
+    raw_unsupported_claims = result.get("unsupported_claims")
+    if (
+        "unsupported_claims" not in result
+        or not isinstance(raw_unsupported_claims, list)
     ):
+        raise ValueError("audit_unsupported_claims_invalid")
+    unsupported_claims = [
+        str(value).strip()
+        for value in raw_unsupported_claims
+        if str(value).strip().lower() not in {"", "なし", "無し", "none"}
+    ]
+    result["unsupported_claims"] = unsupported_claims
+    if result["verdict"] == "qualified" and not unsupported_claims:
         if answer_body.strip() == "わかりません":
             result["verdict"] = "verified"
             result["reason"] = "回答本文は事実を断言せず、根拠不足時の安全な不回答です。"
         else:
             raise ValueError("qualified_without_unsupported_claim")
-    if result["verdict"] == "verified" and all(
-        str(value).strip().lower() in {"", "なし", "無し", "none"}
-        for value in result.get("unsupported_claims", [])
-    ):
-        result["unsupported_claims"] = []
+    if result["verdict"] == "verified" and unsupported_claims:
+        raise ValueError("verified_with_unsupported_claim")
     performance = {
         "wall_seconds": round(wall_seconds, 3),
         "total_seconds": ollama_seconds(raw.get("total_duration")),
@@ -286,42 +272,125 @@ def main() -> int:
     answer = record["answer"]
     ids = list(dict.fromkeys(answer.get("evidence_ids", []) + answer.get("diagnostic_evidence_ids", [])))
     index_path = Path(args.index)
-    all_graph_evidence = graph_evidence(index_path)
+    all_graph_evidence, answer_graph_policy = (
+        answer_engine.load_answer_evidence_records(index_path)
+    )
+    eligible_ids = set(answer_graph_policy["eligible_evidence_ids"])
+    current_metadata = answer_graph_policy["metadata"]
+    record_index = record.get("index")
+    binding_fields = (
+        "evidence_sha256",
+        "graph_sha256",
+        "graph_security_partition_sha256",
+        "graph_retrievable_evidence_set_sha256",
+        "graph_embeddings_sha256",
+    )
+    answer_graph_failures = []
+    if not isinstance(record_index, dict):
+        answer_graph_failures.append("回答記録に索引の結合情報がありません。")
+    else:
+        for field in binding_fields:
+            if record_index.get(field) != current_metadata.get(field):
+                answer_graph_failures.append(
+                    f"回答記録と現在の索引で{field}が一致しません。"
+                )
     question_graph_artifact = record.get("question_evidence_graph", {})
     question_graph_validation = question_graph.validate_question_evidence_graph(
-        record.get("query", ""), all_graph_evidence, question_graph_artifact
+        record.get("query", ""), all_graph_evidence, question_graph_artifact,
+        source_graph=answer_graph_policy.get("source_graph"),
     )
     record["question_evidence_graph_validation"] = question_graph_validation
-    graph_validation_ids = list(
-        (question_graph_artifact.get("selection") or {}).get("validation_evidence_ids", [])
-    ) if isinstance(question_graph_artifact, dict) else []
-    claim_packets = evidence(index_path, list(dict.fromkeys(ids + graph_validation_ids)))
+    graph_selection = (
+        question_graph_artifact.get("selection")
+        if isinstance(question_graph_artifact, dict)
+        else None
+    )
+    graph_selection = graph_selection if isinstance(graph_selection, dict) else {}
+    graph_validation_value = graph_selection.get("validation_evidence_ids")
+    graph_validation_ids = (
+        list(graph_validation_value)
+        if isinstance(graph_validation_value, list)
+        else []
+    )
+    graph_selected_value = (
+        question_graph_artifact.get("selected_evidence_ids")
+        if isinstance(question_graph_artifact, dict)
+        else None
+    )
+    graph_selected_ids = (
+        list(graph_selected_value)
+        if isinstance(graph_selected_value, list)
+        else []
+    )
+    requested_packet_ids = list(dict.fromkeys(
+        ids + graph_validation_ids + graph_selected_ids
+    ))
+    nonretrievable_ids = sorted(set(requested_packet_ids) - eligible_ids)
+    if nonretrievable_ids:
+        answer_graph_failures.append(
+            "回答記録が回答対象外のEvidenceを参照しています: "
+            + ", ".join(nonretrievable_ids[:8])
+        )
+    safe_packet_ids = [
+        evidence_id for evidence_id in requested_packet_ids
+        if evidence_id in eligible_ids
+    ]
+    record["answer_graph_validation"] = {
+        "status": "blocked" if answer_graph_failures else "pass",
+        "graph_sha256": answer_graph_policy["graph_sha256"],
+        "partition_sha256": answer_graph_policy["partition_sha256"],
+        "eligible_evidence_set_sha256": answer_graph_policy[
+            "eligible_evidence_set_sha256"
+        ],
+        "failures": answer_graph_failures,
+    }
+    graph_evidence_by_id = {
+        item["evidence_id"]: item for item in all_graph_evidence
+    }
+    claim_packets = [
+        {
+            "evidence_id": graph_evidence_by_id[evidence_id]["evidence_id"],
+            "path": graph_evidence_by_id[evidence_id]["relative_path"],
+            "locator": graph_evidence_by_id[evidence_id]["locator"],
+            "text": graph_evidence_by_id[evidence_id]["text"],
+        }
+        for evidence_id in safe_packet_ids
+    ]
     # The final auditor must see the complete arithmetic proof path, not only
     # the answer cell or a sample of non-zero rows.  This is still local and
     # bounded by the explicit formula range selected by the question graph.
-    packets = evidence(index_path, list(dict.fromkeys(ids + graph_validation_ids)))
+    packets = list(claim_packets)
     contract, graph, validation = claim_validator.build_and_validate(record, claim_packets)
     record["question_contract"] = contract
     record["claim_graph"] = graph
     record["deterministic_claim_validation"] = validation
-    if question_graph_validation["status"] == "blocked" or validation["status"] == "blocked":
+    if (
+        answer_graph_failures
+        or question_graph_validation["status"] == "blocked"
+        or validation["status"] == "blocked"
+    ):
         result = {
             "verdict": "rejected",
-            "reason": "機械検証で質問・集計・主張とEvidenceの対応に不整合が見つかりました。",
-            "unsupported_claims": [
+            "reason": (
+                "機械検証で回答索引・質問・集計・主張とEvidenceの対応に"
+                "不整合が見つかりました。"
+            ),
+            "unsupported_claims": (answer_graph_failures[:2] + [
                 str(item.get("detail", "")) for item in validation.get("failures", [])
                 if str(item.get("detail", "")).strip()
             ][:4] + [
                 str(item.get("detail", ""))
                 for item in question_graph_validation.get("failures", [])
                 if str(item.get("detail", "")).strip()
-            ][:2],
+            ][:2])[:6],
         }
         audit_performance = {
             "wall_seconds": 0.0,
             "skipped": True,
             "skip_reason": (
-                "question_evidence_graph_validation_blocked"
+                "answer_graph_validation_blocked"
+                if answer_graph_failures
+                else "question_evidence_graph_validation_blocked"
                 if question_graph_validation["status"] == "blocked"
                 else "deterministic_claim_validation_blocked"
             ),
@@ -355,9 +424,50 @@ def main() -> int:
     if result["verdict"] in {"qualified", "rejected"}:
         record["pre_final_audit_answer"] = json.loads(json.dumps(answer, ensure_ascii=False))
         try:
-            record["answer"] = project_rejected_answer(answer, result, ids)
+            record["answer"] = project_rejected_answer(
+                answer,
+                result,
+                [evidence_id for evidence_id in ids if evidence_id in eligible_ids],
+            )
         except Exception as exc:
-            record["answer"] = project_validation_failure(answer, ids, exc)
+            record["answer"] = project_validation_failure(
+                answer,
+                [evidence_id for evidence_id in ids if evidence_id in eligible_ids],
+                exc,
+            )
+    acceptance_checks = {
+        "answer_graph": record["answer_graph_validation"]["status"] == "pass",
+        "question_graph": question_graph_validation["status"] in {
+            "pass", "not_applicable",
+        },
+        "deterministic_claims": validation["status"] == "pass",
+        "independent_audit": (
+            result["verdict"] == "verified"
+            and not result.get("unsupported_claims")
+        ),
+    }
+    accepted = all(acceptance_checks.values())
+    record["orchestration_decision"] = {
+        "status": "accepted" if accepted else "rejected",
+        "checks": acceptance_checks,
+        "answer_status": record["answer"].get("answer_status"),
+        "answer_mode": record["answer"].get("answer_mode"),
+    }
+    if record["answer"].get("answer_status") == "answered" and not accepted:
+        record["pre_orchestration_gate_answer"] = json.loads(
+            json.dumps(record["answer"], ensure_ascii=False)
+        )
+        record["answer"] = project_validation_failure(
+            record["answer"],
+            [evidence_id for evidence_id in ids if evidence_id in eligible_ids],
+            ValueError("orchestration_acceptance_gate_failed"),
+        )
+        record["orchestration_decision"]["answer_status"] = record["answer"].get(
+            "answer_status"
+        )
+        record["orchestration_decision"]["answer_mode"] = record["answer"].get(
+            "answer_mode"
+        )
     print(json.dumps(record, ensure_ascii=False, indent=2))
     return 0
 

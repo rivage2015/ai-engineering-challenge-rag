@@ -7,7 +7,11 @@ import argparse
 import copy
 import hashlib
 import json
+import os
+import re
+import tempfile
 from collections import Counter, defaultdict
+from datetime import datetime
 from pathlib import Path, PurePosixPath
 from typing import Any
 
@@ -28,6 +32,17 @@ ADAPTER_VERSION = "0.6.0"
 SCHEMA_VERSION = "0.1"
 QUESTION_SHARD_VERSION = "question-evidence-shard-v1"
 MAX_QUESTION_EVIDENCE_CHARS = 1_600
+LINEAGE_VALIDATOR = "adaptive-semantic-lineage-validator"
+LINEAGE_VALIDATOR_VERSION = "0.1.0"
+LINEAGE_CONTRACT_VERSION = "search-unit-source-lineage-v1"
+LINEAGE_RULE = "independent SearchUnit lineage reconstruction"
+LINEAGE_RELATIONS_FILE = "semantic-lineage-relations.jsonl"
+LINEAGE_VALIDATION_FILE = "semantic-lineage-validation.json"
+NATIVE_STRUCTURAL_PRODUCERS = {
+    ("intermediate-record-extractor", "0.7.0"),
+    ("intermediate-record-extractor", "0.8.0"),
+}
+NATIVE_STRUCTURAL_RULE = "native containment"
 QUESTION_SHARD_KEYS = {
     "version",
     "source_projection_id",
@@ -49,6 +64,21 @@ IMAGE_QUALITY_KEYS = {
     "reading_order_method",
     "row_band_count",
 }
+RFC3339_PATTERN = re.compile(
+    r"^[0-9]{4}-[0-9]{2}-[0-9]{2}T"
+    r"[0-9]{2}:[0-9]{2}:[0-9]{2}(?:\.[0-9]+)?"
+    r"(?:Z|[+-][0-9]{2}:[0-9]{2})$"
+)
+
+
+def is_rfc3339_timestamp(value: object) -> bool:
+    if not isinstance(value, str) or RFC3339_PATTERN.fullmatch(value) is None:
+        return False
+    try:
+        datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError:
+        return False
+    return True
 
 
 def canonical(value: Any) -> str:
@@ -364,6 +394,560 @@ def sha256_file(path: Path) -> str:
     return digest.hexdigest()
 
 
+def canonical_sha256(value: Any) -> str:
+    return sha256_text(canonical(value))
+
+
+def record_source_set_sha256(
+    records: list[dict[str, Any]], id_key: str,
+) -> str:
+    indexed: dict[str, dict[str, Any]] = {}
+    for record in records:
+        record_id = record.get(id_key)
+        fail(
+            not isinstance(record_id, str)
+            or not record_id
+            or record_id in indexed,
+            f"lineage_{id_key}_source_set_invalid",
+        )
+        indexed[record_id] = record
+    return canonical_sha256([indexed[value] for value in sorted(indexed)])
+
+
+def _expected_search_unit_id(unit: dict[str, Any]) -> str:
+    provenance = unit.get("provenance", {})
+    text = unit.get("text", {})
+    return stable_id("su", {
+        "document_id": unit.get("document_id"),
+        "unit_type": unit.get("unit_type"),
+        "source_evidence_ids": unit.get("source_evidence_ids"),
+        "locator": unit.get("locator"),
+        "text_sha256": text.get("sha256"),
+        "builder": provenance.get("builder"),
+        "builder_version": provenance.get("builder_version"),
+    })
+
+
+def _expected_search_unit_projection_id(unit: dict[str, Any]) -> str:
+    return stable_id("ev", {
+        "adapter": ADAPTER_NAME,
+        "adapter_version": ADAPTER_VERSION,
+        "source_search_unit_id": unit.get("search_unit_id"),
+        "document_id": unit.get("document_id"),
+        "unit_type": unit.get("unit_type"),
+        "source_evidence_ids": unit.get("source_evidence_ids"),
+        "locator": unit.get("locator"),
+        "text_sha256": unit.get("text", {}).get("sha256"),
+    })
+
+
+def _stable_lineage_relation_id(
+    from_ref: dict[str, str], to_ref: dict[str, str],
+) -> str:
+    return stable_id("rel", {
+        "class": "lineage",
+        "type": "derived_from",
+        "from": from_ref,
+        "to": to_ref,
+        "generator": LINEAGE_VALIDATOR,
+        "generator_version": LINEAGE_VALIDATOR_VERSION,
+    })
+
+
+def _native_structural_relation(
+    *,
+    relation_type: str,
+    from_ref: dict[str, str],
+    to_ref: dict[str, str],
+    extractor: str,
+    extractor_version: str,
+    generated_at: str,
+) -> dict[str, Any]:
+    identity = {
+        "class": "structural",
+        "type": relation_type,
+        "from": from_ref,
+        "to": to_ref,
+        "generator": extractor,
+        "generator_version": extractor_version,
+    }
+    return {
+        "schema_version": SCHEMA_VERSION,
+        "record_type": "relation",
+        "relation_id": stable_id("rel", identity),
+        "relation_class": "structural",
+        "relation_type": relation_type,
+        "from_ref": from_ref,
+        "to_ref": to_ref,
+        "properties": {},
+        "supporting_evidence_ids": [],
+        "provenance": {
+            "generated_by": extractor,
+            "generator_version": extractor_version,
+            "generated_at": generated_at,
+            "deterministic": True,
+            "confidence": 1.0,
+            "rule_or_model": NATIVE_STRUCTURAL_RULE,
+            "warnings": [],
+        },
+        "status": "verified",
+    }
+
+
+def derive_native_structural_relations(
+    layer_documents: list[dict[str, Any]],
+    layer_evidence: list[dict[str, Any]],
+    intermediate_state: dict[str, Any],
+) -> list[dict[str, Any]]:
+    """Rebuild native containment from Layer 1 records, not Relation claims."""
+    extractor = intermediate_state.get("extractor")
+    extractor_version = intermediate_state.get("extractor_version")
+    generated_at = intermediate_state.get("run_at")
+    fail(
+        (extractor, extractor_version) not in NATIVE_STRUCTURAL_PRODUCERS
+        or not is_rfc3339_timestamp(generated_at),
+        "native_structural_producer_invalid",
+    )
+
+    documents: dict[str, dict[str, Any]] = {}
+    for record in layer_documents:
+        document_id = record.get("document_id")
+        fail(
+            not isinstance(document_id, str)
+            or not document_id
+            or document_id in documents,
+            "native_structural_document_id_invalid",
+        )
+        extraction = record.get("extraction", {})
+        fail(
+            not isinstance(extraction, dict)
+            or extraction.get("extracted_at") != generated_at,
+            f"native_structural_document_run_mismatch:{document_id}",
+        )
+        documents[document_id] = record
+
+    evidence_by_id: dict[str, dict[str, Any]] = {}
+    for record in layer_evidence:
+        evidence_id = record.get("evidence_id")
+        fail(
+            not isinstance(evidence_id, str)
+            or not evidence_id
+            or evidence_id in evidence_by_id,
+            "native_structural_evidence_id_invalid",
+        )
+        provenance = record.get("provenance", {})
+        fail(
+            not isinstance(provenance, dict)
+            or provenance.get("extractor") != extractor
+            or provenance.get("extractor_version") != extractor_version
+            or provenance.get("extracted_at") != generated_at,
+            f"native_structural_evidence_run_mismatch:{evidence_id}",
+        )
+        evidence_by_id[evidence_id] = record
+
+    for evidence_id in sorted(evidence_by_id):
+        ancestry: set[str] = set()
+        current_id: str | None = evidence_id
+        while current_id is not None:
+            fail(
+                current_id in ancestry,
+                f"native_structural_parent_cycle:{evidence_id}",
+            )
+            ancestry.add(current_id)
+            parent_id = evidence_by_id[current_id].get("parent_evidence_id")
+            fail(
+                parent_id is not None
+                and (
+                    not isinstance(parent_id, str)
+                    or parent_id not in evidence_by_id
+                ),
+                f"native_structural_parent_invalid:{current_id}",
+            )
+            current_id = parent_id
+
+    relations: dict[str, dict[str, Any]] = {}
+
+    def add(
+        relation_type: str,
+        from_ref: dict[str, str],
+        to_ref: dict[str, str],
+    ) -> None:
+        relation = _native_structural_relation(
+            relation_type=relation_type,
+            from_ref=from_ref,
+            to_ref=to_ref,
+            extractor=str(extractor),
+            extractor_version=str(extractor_version),
+            generated_at=generated_at,
+        )
+        relation_id = relation["relation_id"]
+        fail(
+            relation_id in relations,
+            f"native_structural_relation_duplicate:{relation_id}",
+        )
+        relations[relation_id] = relation
+
+    for evidence_id, record in sorted(evidence_by_id.items()):
+        document_id = record.get("document_id")
+        fail(
+            not isinstance(document_id, str) or document_id not in documents,
+            f"native_structural_document_missing:{evidence_id}",
+        )
+        parent_id = record.get("parent_evidence_id")
+        if parent_id is None:
+            from_ref = {"record_type": "document", "record_id": document_id}
+        else:
+            fail(
+                not isinstance(parent_id, str)
+                or parent_id == evidence_id
+                or parent_id not in evidence_by_id
+                or evidence_by_id[parent_id].get("document_id") != document_id,
+                f"native_structural_parent_invalid:{evidence_id}",
+            )
+            from_ref = {"record_type": "evidence", "record_id": parent_id}
+        to_ref = {"record_type": "evidence", "record_id": evidence_id}
+        add("contains", from_ref, to_ref)
+
+        native_properties = record.get("native_properties", {})
+        fail(
+            not isinstance(native_properties, dict),
+            f"native_structural_properties_invalid:{evidence_id}",
+        )
+        heading_id = native_properties.get("preceding_heading_evidence_id")
+        if heading_id is None:
+            continue
+        fail(
+            not isinstance(heading_id, str)
+            or heading_id == evidence_id
+            or heading_id not in evidence_by_id
+            or evidence_by_id[heading_id].get("document_id") != document_id,
+            f"native_structural_heading_invalid:{evidence_id}",
+        )
+        heading = evidence_by_id[heading_id]
+        fail(
+            record.get("evidence_type") != "table"
+            or heading.get("evidence_type") != "paragraph"
+            or native_properties.get("preceding_heading_text")
+            != heading.get("content", {}).get("raw_text"),
+            f"native_structural_heading_binding_mismatch:{evidence_id}",
+        )
+        add(
+            "section_contains",
+            {"record_type": "evidence", "record_id": heading_id},
+            to_ref,
+        )
+
+    return [relations[relation_id] for relation_id in sorted(relations)]
+
+
+def _assert_acyclic_lineage(relations: list[dict[str, Any]]) -> None:
+    adjacency: dict[str, list[str]] = defaultdict(list)
+    for relation in relations:
+        source = relation["from_ref"]["record_id"]
+        target = relation["to_ref"]["record_id"]
+        fail(source == target, "lineage_self_loop")
+        adjacency[source].append(target)
+    visiting: set[str] = set()
+    visited: set[str] = set()
+
+    def visit(node_id: str) -> None:
+        fail(node_id in visiting, "lineage_cycle")
+        if node_id in visited:
+            return
+        visiting.add(node_id)
+        for target_id in adjacency.get(node_id, []):
+            visit(target_id)
+        visiting.remove(node_id)
+        visited.add(node_id)
+
+    for node_id in sorted(adjacency):
+        visit(node_id)
+
+
+def derive_verified_lineage_relations(
+    search_units: list[dict[str, Any]],
+    semantic_evidence: list[dict[str, Any]],
+    layer_evidence: list[dict[str, Any]],
+) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    """Independently derive complete SearchUnit lineage over final Evidence.
+
+    A derived Evidence fan-in is promoted only when every source endpoint is a
+    final semantic Evidence in the same document. Known binary omissions and
+    projection shards are held explicitly; unexplained gaps fail closed.
+    """
+    semantic_by_id: dict[str, dict[str, Any]] = {}
+    derived_by_unit: dict[str, list[dict[str, Any]]] = defaultdict(list)
+    source_projection_shards: dict[str, list[dict[str, Any]]] = defaultdict(list)
+    for record in semantic_evidence:
+        evidence_id = record.get("evidence_id")
+        fail(
+            not isinstance(evidence_id, str)
+            or not evidence_id
+            or evidence_id in semantic_by_id,
+            "lineage_semantic_evidence_id_invalid",
+        )
+        semantic_by_id[evidence_id] = record
+        adapter = record.get("adapter", {})
+        if isinstance(adapter, dict):
+            source_unit_id = adapter.get("source_search_unit_id")
+            if isinstance(source_unit_id, str) and source_unit_id:
+                derived_by_unit[source_unit_id].append(record)
+            shard = adapter.get("question_shard")
+            if isinstance(shard, dict):
+                source_projection_id = shard.get("source_projection_id")
+                if isinstance(source_projection_id, str) and source_projection_id:
+                    source_projection_shards[source_projection_id].append(record)
+
+    layer_by_id: dict[str, dict[str, Any]] = {}
+    for record in layer_evidence:
+        evidence_id = record.get("evidence_id")
+        fail(
+            not isinstance(evidence_id, str)
+            or not evidence_id
+            or evidence_id in layer_by_id,
+            "lineage_layer_evidence_id_invalid",
+        )
+        layer_by_id[evidence_id] = record
+
+    relation_by_id: dict[str, dict[str, Any]] = {}
+    held: list[dict[str, Any]] = []
+    eligible_derived_count = 0
+    source_reference_count = 0
+    held_source_reference_count = 0
+    seen_units: set[str] = set()
+    projected_units = [
+        unit for unit in search_units
+        if unit.get("unit_type") in {"table_row", "image_text_packet"}
+    ]
+    for unit in projected_units:
+        search_unit_id = unit.get("search_unit_id")
+        fail(
+            not isinstance(search_unit_id, str)
+            or not search_unit_id
+            or search_unit_id in seen_units,
+            "lineage_search_unit_id_invalid",
+        )
+        seen_units.add(search_unit_id)
+        fail(
+            search_unit_id != _expected_search_unit_id(unit),
+            f"lineage_search_unit_id_unstable:{search_unit_id}",
+        )
+        document_id = unit.get("document_id")
+        source_ids = unit.get("source_evidence_ids")
+        fail(
+            not isinstance(document_id, str)
+            or not document_id
+            or not isinstance(source_ids, list)
+            or not source_ids
+            or any(not isinstance(value, str) or not value for value in source_ids)
+            or len(source_ids) != len(set(source_ids)),
+            f"lineage_search_unit_sources_invalid:{search_unit_id}",
+        )
+        source_reference_count += len(source_ids)
+        provenance = unit.get("provenance", {})
+        generated_at = provenance.get("generated_at")
+        fail(
+            provenance.get("builder") != "search-unit-builder"
+            or provenance.get("deterministic") is not True
+            or not is_rfc3339_timestamp(generated_at),
+            f"lineage_search_unit_provenance_invalid:{search_unit_id}",
+        )
+
+        expected_projection_id = _expected_search_unit_projection_id(unit)
+        derived_records = sorted(
+            derived_by_unit.get(search_unit_id, []),
+            key=lambda item: str(item.get("evidence_id", "")),
+        )
+        fail(
+            not derived_records,
+            f"lineage_derived_projection_missing:{search_unit_id}",
+        )
+        for derived in derived_records:
+            adapter = derived.get("adapter", {})
+            fail(
+                not isinstance(adapter, dict)
+                or adapter.get("name") != ADAPTER_NAME
+                or adapter.get("version") != ADAPTER_VERSION
+                or adapter.get("source_record_type") != "search_unit"
+                or adapter.get("source_search_unit_id") != search_unit_id
+                or adapter.get("source_evidence_ids") != source_ids
+                or adapter.get("unit_type") != unit.get("unit_type"),
+                f"lineage_derived_projection_binding_invalid:{search_unit_id}",
+            )
+
+        derived_is_sharded = any(
+            isinstance(item.get("adapter", {}).get("question_shard"), dict)
+            for item in derived_records
+        )
+        if derived_is_sharded:
+            fail(
+                any(
+                    item["adapter"]["question_shard"].get("source_projection_id")
+                    != expected_projection_id
+                    for item in derived_records
+                ),
+                f"lineage_derived_shard_anchor_invalid:{search_unit_id}",
+            )
+        else:
+            fail(
+                len(derived_records) != 1
+                or derived_records[0].get("evidence_id") != expected_projection_id,
+                f"lineage_derived_projection_id_invalid:{search_unit_id}",
+            )
+
+        hold_reasons: set[str] = set()
+        unresolved_source_ids: list[str] = []
+        if derived_is_sharded:
+            hold_reasons.add("requires_projection_anchor")
+        resolved_sources: list[dict[str, Any]] = []
+        for source_id in source_ids:
+            layer_source = layer_by_id.get(source_id)
+            fail(
+                layer_source is None,
+                f"lineage_source_unexplained_missing:{search_unit_id}:{source_id}",
+            )
+            fail(
+                layer_source.get("document_id") != document_id,
+                f"lineage_source_cross_document:{search_unit_id}:{source_id}",
+            )
+            semantic_source = semantic_by_id.get(source_id)
+            if semantic_source is not None:
+                fail(
+                    semantic_source.get("document_id") != document_id,
+                    f"lineage_semantic_source_cross_document:{search_unit_id}:{source_id}",
+                )
+                resolved_sources.append(semantic_source)
+                continue
+            content = layer_source.get("content", {})
+            if isinstance(content, dict) and isinstance(content.get("content_ref"), str):
+                hold_reasons.add("non_projected_binary_source")
+                unresolved_source_ids.append(source_id)
+            elif source_projection_shards.get(source_id):
+                hold_reasons.add("requires_projection_anchor")
+                unresolved_source_ids.append(source_id)
+            else:
+                raise ValueError(
+                    f"lineage_source_unexplained_missing:{search_unit_id}:{source_id}"
+                )
+
+        if hold_reasons:
+            held_source_reference_count += len(source_ids)
+            held.append({
+                "source_search_unit_id": search_unit_id,
+                "derived_evidence_ids": [
+                    str(item["evidence_id"]) for item in derived_records
+                ],
+                "reasons": sorted(hold_reasons),
+                "unresolved_source_evidence_ids": sorted(unresolved_source_ids),
+            })
+            continue
+
+        fail(
+            len(resolved_sources) != len(source_ids),
+            f"lineage_partial_fan_in:{search_unit_id}",
+        )
+        eligible_derived_count += 1
+        derived = derived_records[0]
+        derived_id = str(derived["evidence_id"])
+        fan_in_sha256 = canonical_sha256(source_ids)
+        for ordinal, source in enumerate(resolved_sources, 1):
+            source_id = str(source["evidence_id"])
+            from_ref = {"record_type": "evidence", "record_id": derived_id}
+            to_ref = {"record_type": "evidence", "record_id": source_id}
+            relation_id = _stable_lineage_relation_id(from_ref, to_ref)
+            fail(
+                relation_id in relation_by_id,
+                f"lineage_relation_id_duplicate:{relation_id}",
+            )
+            relation = {
+                "schema_version": SCHEMA_VERSION,
+                "record_type": "relation",
+                "relation_id": relation_id,
+                "relation_class": "lineage",
+                "relation_type": "derived_from",
+                "from_ref": from_ref,
+                "to_ref": to_ref,
+                "properties": {
+                    "lineage_contract": LINEAGE_CONTRACT_VERSION,
+                    "source_search_unit_id": search_unit_id,
+                    "source_search_unit_sha256": canonical_sha256(unit),
+                    "source_evidence_ordinal": ordinal,
+                    "source_evidence_count": len(source_ids),
+                    "fan_in_sha256": fan_in_sha256,
+                    "derived_evidence_sha256": canonical_sha256(derived),
+                },
+                "supporting_evidence_ids": [source_id],
+                "provenance": {
+                    "generated_by": LINEAGE_VALIDATOR,
+                    "generator_version": LINEAGE_VALIDATOR_VERSION,
+                    "generated_at": generated_at,
+                    "deterministic": True,
+                    "confidence": 1.0,
+                    "rule_or_model": LINEAGE_RULE,
+                    "warnings": [],
+                },
+                "status": "verified",
+            }
+            relation_by_id[relation_id] = relation
+
+    relations = [relation_by_id[value] for value in sorted(relation_by_id)]
+    _assert_acyclic_lineage(relations)
+    coverage = {
+        "projected_search_unit_count": len(projected_units),
+        "source_reference_count": source_reference_count,
+        "eligible_derived_count": eligible_derived_count,
+        "verified_derived_count": eligible_derived_count,
+        "verified_relation_count": len(relations),
+        "held_derived_count": len(held),
+        "held_source_reference_count": held_source_reference_count,
+        "held": held,
+    }
+    return relations, coverage
+
+
+def _clear_lineage_artifacts(output: Path) -> None:
+    for name in (LINEAGE_RELATIONS_FILE, LINEAGE_VALIDATION_FILE):
+        (output / name).unlink(missing_ok=True)
+
+
+def _publish_lineage_artifacts(
+    output: Path,
+    relations: list[dict[str, Any]],
+    validation_state: dict[str, Any],
+) -> None:
+    relation_bytes = "".join(
+        canonical(record) + "\n" for record in relations
+    ).encode("utf-8")
+    state_bytes = (canonical(validation_state) + "\n").encode("utf-8")
+    destinations = (
+        (output / LINEAGE_RELATIONS_FILE, relation_bytes),
+        (output / LINEAGE_VALIDATION_FILE, state_bytes),
+    )
+    temporary_paths: list[Path] = []
+    try:
+        for destination, payload in destinations:
+            descriptor, temporary_name = tempfile.mkstemp(
+                prefix=f".{destination.name}.", suffix=".tmp", dir=output,
+            )
+            temporary = Path(temporary_name)
+            temporary_paths.append(temporary)
+            with os.fdopen(descriptor, "wb") as handle:
+                handle.write(payload)
+                handle.flush()
+                os.fsync(handle.fileno())
+        for temporary, (destination, _payload) in zip(
+            temporary_paths, destinations,
+        ):
+            os.replace(temporary, destination)
+        temporary_paths.clear()
+    except BaseException:
+        _clear_lineage_artifacts(output)
+        raise
+    finally:
+        for temporary in temporary_paths:
+            temporary.unlink(missing_ok=True)
+
+
 def read_jsonl(path: Path) -> list[dict[str, Any]]:
     return [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines() if line.strip()]
 
@@ -572,6 +1156,9 @@ def validate(output: Path, source_root: Path, inventory: Path) -> dict[str, Any]
     output = output.resolve(strict=True)
     source_root = source_root.resolve(strict=True)
     inventory = inventory.resolve(strict=True)
+    # A failed revalidation must never leave a stale PASS artifact available
+    # to a later graph projection.
+    _clear_lineage_artifacts(output)
     state = json.loads((output / "adaptive-reader-state.json").read_text(encoding="utf-8"))
     fail(state.get("builder") != "adaptive-layer1-semantic-bridge", "builder_invalid")
     fail(state.get("status") not in {"complete", "complete_with_limits"}, "build_status_invalid")
@@ -633,6 +1220,8 @@ def validate(output: Path, source_root: Path, inventory: Path) -> dict[str, Any]
 
     layer_documents_path = output / "layer1-intermediate" / "documents.jsonl"
     layer_evidence_path = output / "layer1-intermediate" / "evidence.jsonl"
+    layer_relations_path = output / "layer1-intermediate" / "relations.jsonl"
+    search_state_path = output / "layer1-search" / "search-build-state.json"
     search_units_path = output / "layer1-search" / "search_units.jsonl"
     fail(
         adapter_state.get("inputs", {}).get("documents_sha256")
@@ -652,6 +1241,26 @@ def validate(output: Path, source_root: Path, inventory: Path) -> dict[str, Any]
 
     layer_documents = read_jsonl(layer_documents_path)
     layer_evidence = read_jsonl(layer_evidence_path)
+    layer_relations = read_jsonl(layer_relations_path)
+    expected_layer_relations = derive_native_structural_relations(
+        layer_documents, layer_evidence, intermediate_state,
+    )
+    layer_relation_by_id = {
+        record.get("relation_id"): record for record in layer_relations
+    }
+    expected_layer_relation_by_id = {
+        record["relation_id"]: record for record in expected_layer_relations
+    }
+    fail(
+        len(layer_relation_by_id) != len(layer_relations)
+        or layer_relation_by_id != expected_layer_relation_by_id,
+        "native_structural_relations_mismatch",
+    )
+    fail(
+        intermediate_state.get("totals", {}).get("relations")
+        != len(expected_layer_relations),
+        "native_structural_relation_count_mismatch",
+    )
     derived_llm_extraction = derive_llm_extraction(layer_evidence)
     fail(
         state.get("llm_used_for_extraction") is not derived_llm_extraction["used"],
@@ -668,6 +1277,14 @@ def validate(output: Path, source_root: Path, inventory: Path) -> dict[str, Any]
         "layer_evidence_ids_invalid",
     )
     layer_evidence_by_id = {item["evidence_id"]: item for item in layer_evidence}
+    search_state = json.loads(search_state_path.read_text(encoding="utf-8"))
+    search_generated_at = search_state.get("generated_at")
+    intermediate_run_at = intermediate_state.get("run_at")
+    fail(
+        not is_rfc3339_timestamp(search_generated_at)
+        or search_generated_at != intermediate_run_at,
+        "lineage_search_run_mismatch",
+    )
     search_units = read_jsonl(search_units_path)
     search_unit_ids = [item.get("search_unit_id") for item in search_units]
     fail(
@@ -676,6 +1293,12 @@ def validate(output: Path, source_root: Path, inventory: Path) -> dict[str, Any]
         "search_unit_ids_invalid",
     )
     search_units_by_id = {item["search_unit_id"]: item for item in search_units}
+    for item in search_units:
+        fail(
+            item.get("provenance", {}).get("generated_at")
+            != search_generated_at,
+            f"lineage_search_unit_run_mismatch:{item['search_unit_id']}",
+        )
 
     documents = read_jsonl(output / "semantic-documents.jsonl")
     evidence = read_jsonl(output / "semantic-evidence.jsonl")
@@ -812,6 +1435,69 @@ def validate(output: Path, source_root: Path, inventory: Path) -> dict[str, Any]
     limitations = state.get("limitations", {})
     has_limits = any(isinstance(value, int) and value > 0 for value in limitations.values())
     fail((state["status"] == "complete_with_limits") != has_limits, "limitation_status_mismatch")
+    relations, lineage_coverage = derive_verified_lineage_relations(
+        search_units, evidence, layer_evidence,
+    )
+    relation_payload = "".join(
+        canonical(record) + "\n" for record in relations
+    ).encode("utf-8")
+    generated_at = search_generated_at
+    fail(
+        not is_rfc3339_timestamp(generated_at),
+        "lineage_validation_generated_at_invalid",
+    )
+    validation_state = {
+        "schema_version": SCHEMA_VERSION,
+        "validator": LINEAGE_VALIDATOR,
+        "validator_version": LINEAGE_VALIDATOR_VERSION,
+        "status": "pass",
+        "question_independent": True,
+        "generated_at": generated_at,
+        "inputs": {
+            "layer1_build_state_sha256": sha256_file(
+                output / "layer1-intermediate" / "build-state.json"
+            ),
+            "layer1_documents_sha256": sha256_file(layer_documents_path),
+            "layer1_evidence_sha256": sha256_file(layer_evidence_path),
+            "layer1_relations_sha256": sha256_file(layer_relations_path),
+            "search_build_state_sha256": sha256_file(search_state_path),
+            "search_units_sha256": sha256_file(search_units_path),
+            "semantic_documents_sha256": sha256_file(
+                output / "semantic-documents.jsonl"
+            ),
+            "semantic_evidence_sha256": sha256_file(
+                output / "semantic-evidence.jsonl"
+            ),
+            "document_source_set_sha256": record_source_set_sha256(
+                documents, "document_id"
+            ),
+            "evidence_source_set_sha256": record_source_set_sha256(
+                evidence, "evidence_id"
+            ),
+            "layer_evidence_source_set_sha256": record_source_set_sha256(
+                layer_evidence, "evidence_id"
+            ),
+            "layer_relation_source_set_sha256": record_source_set_sha256(
+                layer_relations, "relation_id"
+            ),
+            "search_unit_source_set_sha256": record_source_set_sha256(
+                search_units, "search_unit_id"
+            ),
+        },
+        "output": {
+            "path": LINEAGE_RELATIONS_FILE,
+            "sha256": hashlib.sha256(relation_payload).hexdigest(),
+            "count": len(relations),
+            "verified_relation_ids": [
+                relation["relation_id"] for relation in relations
+            ],
+            "relation_source_set_sha256": record_source_set_sha256(
+                relations, "relation_id"
+            ),
+        },
+        "coverage": lineage_coverage,
+    }
+    _publish_lineage_artifacts(output, relations, validation_state)
     return {
         "status": "PASS",
         "build_status": state["status"],
@@ -820,6 +1506,13 @@ def validate(output: Path, source_root: Path, inventory: Path) -> dict[str, Any]
         "selected_files": len(paths),
         "limitations": limitations,
         "image_quality_counts": dict(sorted(image_quality_counts.items())),
+        "lineage_relations": len(relations),
+        "structural_relations": len(expected_layer_relations),
+        "lineage_held_derived": lineage_coverage["held_derived_count"],
+        "lineage_artifacts": {
+            "relations": LINEAGE_RELATIONS_FILE,
+            "validation": LINEAGE_VALIDATION_FILE,
+        },
     }
 
 
