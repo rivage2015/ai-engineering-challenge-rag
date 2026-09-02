@@ -16,6 +16,7 @@ import sys
 import time
 import unicodedata
 from datetime import datetime
+from decimal import Decimal, InvalidOperation
 from pathlib import Path
 
 
@@ -35,7 +36,12 @@ if QUESTION_GRAPH_SPEC is None or QUESTION_GRAPH_SPEC.loader is None:
 question_graph = importlib.util.module_from_spec(QUESTION_GRAPH_SPEC)
 QUESTION_GRAPH_SPEC.loader.exec_module(question_graph)
 
-ENGINE_CACHE_VERSION = "v2-speed-5-deterministic-aggregate-cache"
+ENGINE_CACHE_VERSION = "v2-speed-6-question-graph-routing"
+REQUIRED_QUESTION_GRAPH_OPERATIONS = frozenset(("aggregate_count", "record_lookup"))
+SAVED_VALUE_ANNOTATION = re.compile(
+    r"\s+\[保存値[^\]]*[:：]\s*"
+    r"[-+]?(?:\d+(?:\.\d+)?|\.\d+)\s*\]\s*$"
+)
 
 
 PLAN_SCHEMA = {
@@ -374,13 +380,14 @@ def load_index_evidence_graph(
 
 
 def augment_with_question_graph(
-    retrieved: list[dict], evidence_by_id: dict[str, dict], artifact: dict, validation: dict
+    retrieved: list[dict], evidence_by_id: dict[str, dict], artifact: dict, validation: dict,
+    item_id: str | None = None,
 ) -> tuple[list[dict], list[str]]:
     """Prepend primary-path Evidence before any LLM relation audit."""
     if artifact.get("status") != "ready" or validation.get("status") != "pass":
         return retrieved, []
     selected = []
-    for evidence_id in artifact.get("selected_evidence_ids", []):
+    for evidence_id in question_graph_primary_evidence_ids(artifact, item_id):
         source = evidence_by_id.get(evidence_id)
         if source is None:
             raise ValueError(
@@ -411,12 +418,316 @@ def augment_with_question_graph(
     return result, [item["evidence_id"] for item in selected]
 
 
-def question_graph_blocks_answer(artifact: dict, validation: dict) -> bool:
-    """Fail closed when a count question lacks a verified aggregate path."""
+def question_graph_operation(artifact: dict) -> str:
+    """Return the normalized operation label used by executor routing."""
+    intent = artifact.get("intent")
+    if not isinstance(intent, dict):
+        return "unknown"
+    operation = intent.get("operation")
+    return operation if isinstance(operation, str) and operation else "unknown"
+
+
+def question_graph_branch(artifact: dict, item_id: str | None) -> dict | None:
+    """Resolve one unambiguous record-lookup branch for a plan item."""
+    if item_id is None:
+        return None
+    branches = artifact.get("branches")
+    if not isinstance(branches, list):
+        return None
+    matches = [
+        branch for branch in branches
+        if isinstance(branch, dict) and branch.get("item_id") == item_id
+    ]
+    return matches[0] if len(matches) == 1 else None
+
+
+def question_graph_primary_evidence_ids(
+    artifact: dict, item_id: str | None = None,
+) -> list[str]:
+    """Select only the Evidence path authorized for this plan item.
+
+    Aggregate artifacts predate per-item branches, so their top-level selected
+    IDs remain the compatibility path. Record lookups must never use the
+    top-level union because that would leak one field's Evidence into another
+    field audit.
+    """
+    operation = question_graph_operation(artifact)
+    if operation == "record_lookup":
+        branch = question_graph_branch(artifact, item_id)
+        raw_ids = branch.get("selected_evidence_ids", []) if branch else []
+    elif operation == "aggregate_count" or not isinstance(artifact.get("intent"), dict):
+        raw_ids = artifact.get("selected_evidence_ids", [])
+    else:
+        raw_ids = []
+    if not isinstance(raw_ids, list):
+        return []
+    return [value for value in raw_ids if isinstance(value, str) and value]
+
+
+def question_graph_branch_id(artifact: dict, item_id: str | None = None) -> str | None:
+    """Return the branch traced by one field run."""
+    if question_graph_operation(artifact) == "record_lookup":
+        branch = question_graph_branch(artifact, item_id)
+        branch_id = branch.get("branch_id") if branch else None
+        return branch_id if isinstance(branch_id, str) and branch_id else None
+    artifact_id = artifact.get("artifact_id")
+    return artifact_id if isinstance(artifact_id, str) and artifact_id else None
+
+
+def _record_value_json_string(value: object) -> object:
+    if not isinstance(value, str):
+        return value
+    stripped = value.strip()
+    if not (len(stripped) >= 2 and stripped.startswith('"') and stripped.endswith('"')):
+        return value
+    try:
+        decoded = json.loads(stripped)
+    except (json.JSONDecodeError, TypeError):
+        return value
+    return decoded if isinstance(decoded, str) else value
+
+
+def _record_value_formula(value: object) -> str | None:
+    if not isinstance(value, str):
+        return None
+    formula = SAVED_VALUE_ANNOTATION.sub("", value.strip()).strip()
+    if not formula or unicodedata.normalize("NFKC", formula[0]) != "=":
+        return None
+
+    operators = set("=+-*/^&%(),:<>!")
+    output: list[str] = []
+    pending_space = False
+    last_kind: str | None = None
+
+    def emit(text: str, kind: str) -> None:
+        nonlocal pending_space, last_kind
+        if (
+            pending_space and output
+            and last_kind != "operator" and kind != "operator"
+        ):
+            output.append(" ")
+        output.append(text)
+        pending_space = False
+        last_kind = kind
+
+    index = 0
+    while index < len(formula):
+        char = formula[index]
+        if char.isspace():
+            pending_space = True
+            index += 1
+            continue
+        if char in {'"', "'"}:
+            quote = char
+            segment = [char]
+            index += 1
+            while index < len(formula):
+                current = formula[index]
+                segment.append(current)
+                index += 1
+                if current != quote:
+                    continue
+                if index < len(formula) and formula[index] == quote:
+                    segment.append(formula[index])
+                    index += 1
+                    continue
+                break
+            emit("".join(segment), "operand")
+            continue
+        if char == "[":
+            depth = 0
+            segment = []
+            while index < len(formula):
+                current = formula[index]
+                segment.append(current)
+                index += 1
+                if current == "[":
+                    depth += 1
+                elif current == "]":
+                    depth -= 1
+                    if depth == 0:
+                        break
+            emit("".join(segment), "operand")
+            continue
+
+        normalized = unicodedata.normalize("NFKC", char).casefold()
+        for current in normalized:
+            if current.isspace():
+                pending_space = True
+                continue
+            emit(
+                current,
+                "operator" if current in operators else "operand",
+            )
+        index += 1
+    return "".join(output)
+
+
+def _record_value_decimal(value: object) -> tuple[bool, Decimal | None]:
+    if not isinstance(value, str):
+        return False, None
+    try:
+        parsed = Decimal(unicodedata.normalize("NFKC", value).strip())
+    except (InvalidOperation, ValueError):
+        return False, None
+    return True, parsed if parsed.is_finite() else None
+
+
+def record_lookup_value_matches(observed: object, expected: object) -> bool:
+    """Compare Graph values without erasing decimal points or punctuation."""
+    observed = _record_value_json_string(observed)
+    expected = _record_value_json_string(expected)
+    observed_formula = _record_value_formula(observed)
+    expected_formula = _record_value_formula(expected)
+    if observed_formula is not None or expected_formula is not None:
+        return (
+            observed_formula is not None
+            and expected_formula is not None
+            and observed_formula == expected_formula
+        )
+    observed_is_decimal, observed_decimal = _record_value_decimal(observed)
+    expected_is_decimal, expected_decimal = _record_value_decimal(expected)
+    if observed_is_decimal or expected_is_decimal:
+        return (
+            observed_is_decimal
+            and expected_is_decimal
+            and observed_decimal is not None
+            and expected_decimal is not None
+            and observed_decimal == expected_decimal
+        )
+    if not isinstance(observed, str) or not isinstance(expected, str):
+        return False
+    normalized_observed = re.sub(
+        r"\s+", " ", unicodedata.normalize("NFKC", observed).strip()
+    ).casefold()
+    normalized_expected = re.sub(
+        r"\s+", " ", unicodedata.normalize("NFKC", expected).strip()
+    ).casefold()
+    return bool(normalized_observed) and normalized_observed == normalized_expected
+
+
+def question_graph_branch_value_evidence_id(branch: dict) -> str | None:
+    binding = branch.get("stored_graph_binding")
+    lineage = (
+        binding.get("structured_record_lookup_lineage")
+        if isinstance(binding, dict) else None
+    )
+    field = lineage.get("field") if isinstance(lineage, dict) else None
+    value_evidence_id = field.get("value_evidence_id") if isinstance(field, dict) else None
     return (
-        artifact.get("intent", {}).get("operation") == "aggregate_count"
+        value_evidence_id
+        if isinstance(value_evidence_id, str) and value_evidence_id else None
+    )
+
+
+def question_graph_blocks_answer(artifact: dict, validation: dict) -> bool:
+    """Fail closed when a graph-required question lacks a verified path."""
+    return (
+        question_graph_operation(artifact) in REQUIRED_QUESTION_GRAPH_OPERATIONS
         and (artifact.get("status") != "ready" or validation.get("status") != "pass")
     )
+
+
+def build_graph_route(artifact: dict, validation: dict, field_runs: list[dict]) -> dict:
+    """Summarize whether every required field actually consumed its Graph path."""
+    operation = question_graph_operation(artifact)
+    required = operation in REQUIRED_QUESTION_GRAPH_OPERATIONS
+    required_runs = [
+        row for row in field_runs
+        if row.get("item", {}).get("required", True)
+    ]
+    if not required_runs:
+        required_runs = list(field_runs)
+    used = (
+        required
+        and artifact.get("status") == "ready"
+        and validation.get("status") == "pass"
+        and bool(required_runs)
+        and all(
+            bool(row.get("graph_primary_evidence_ids"))
+            and row.get("graph_augmented_evidence_ids")
+            == row.get("graph_primary_evidence_ids")
+            for row in required_runs
+        )
+    )
+    return {"operation": operation, "required": required, "used": used}
+
+
+def graph_insufficient_audit(item: dict, reason: str) -> dict:
+    """Project any required Question Graph failure to a generic safe audit."""
+    return {
+        "item_id": item["item_id"],
+        "verdict": "insufficient",
+        "supported_value": "",
+        "supporting_packet_ids": [],
+        "competing_packet_ids": [],
+        "reason_code": "coverage_unknown",
+        "defect": f"Question Graphの機械検証が完了しませんでした: {reason}",
+        "missing_information": ["質問に必要な検証済みGraph経路と根拠"],
+    }
+
+
+def bind_record_lookup_value_evidence(
+    audit: dict,
+    item: dict,
+    artifact: dict,
+    evidence_by_id: dict[str, dict],
+) -> dict:
+    """Bind a supported lookup value to its exact Graph-selected value cell."""
+    if question_graph_operation(artifact) != "record_lookup":
+        return audit
+    if not isinstance(audit, dict) or audit.get("verdict") != "supported":
+        return audit
+    item_id = item.get("item_id")
+    branch = question_graph_branch(
+        artifact, item_id if isinstance(item_id, str) else None
+    )
+    if branch is None:
+        return graph_insufficient_audit(item, "record_lookup_branch_missing")
+    if branch.get("item_id") != item_id or audit.get("item_id") != item_id:
+        return graph_insufficient_audit(item, "record_lookup_audit_item_mismatch")
+    value_evidence_id = question_graph_branch_value_evidence_id(branch)
+    selected_ids = question_graph_primary_evidence_ids(artifact, item_id)
+    if value_evidence_id is None:
+        return graph_insufficient_audit(
+            item, "record_lookup_value_evidence_binding_missing"
+        )
+    if value_evidence_id not in selected_ids:
+        return graph_insufficient_audit(
+            item, "record_lookup_value_evidence_not_selected"
+        )
+    value_record = evidence_by_id.get(value_evidence_id)
+    if not isinstance(value_record, dict) or not record_lookup_value_matches(
+        value_record.get("text"), branch.get("value")
+    ):
+        return graph_insufficient_audit(
+            item, "record_lookup_value_evidence_text_mismatch"
+        )
+    if not record_lookup_value_matches(
+        audit.get("supported_value"), branch.get("value")
+    ):
+        return graph_insufficient_audit(
+            item, "record_lookup_supported_value_mismatch"
+        )
+    supporting_ids = audit.get("supporting_packet_ids")
+    if (
+        not isinstance(supporting_ids, list)
+        or any(
+            not isinstance(evidence_id, str) or evidence_id not in selected_ids
+            for evidence_id in supporting_ids
+        )
+    ):
+        return graph_insufficient_audit(
+            item, "record_lookup_support_outside_branch"
+        )
+    normalized_support = list(dict.fromkeys([
+        *supporting_ids, value_evidence_id,
+    ]))
+    if len(normalized_support) > 4:
+        return graph_insufficient_audit(
+            item, "record_lookup_value_support_limit_exceeded"
+        )
+    return {**audit, "supporting_packet_ids": normalized_support}
 
 
 def plan_question(model: str, query: str, timeout: int) -> dict:
@@ -519,6 +830,7 @@ supportedは、要求された対象・属性・時点の関係を原文が直�
 日本語の並列列挙で末尾の述語が前の各項にも文法的に係る場合は、同じ関係に属する全項を対象にしてください。
 地名の都道府県補完、略称展開、距離表現からの所在地推定など、Evidenceにない補完は禁止です。
 supported_valueはRequired claimへ答える最短の原文表現に限定し、Evidence全文や無関係な前後文をコピーしてはいけません。
+値を直接記載したセルEvidenceがある場合、supportedでは共有rowだけでなくその値セルのpacket IDをsupporting_packet_idsに必ず含めてください。
 拒否する場合は、具体的な欠陥をdefectへ、必要な情報をmissing_informationへ必ず記載してください。
 insufficient/ambiguous/contradictedなのに欠陥を具体化できない判定は無効です。
 supportedでは、Evidenceが直接示す値だけをsupported_valueへ転記し、supporting_packet_idsを必須とします。reason_codeはnone、defectとmissing_informationは空にします。
@@ -563,6 +875,7 @@ supportedは、要求された対象・属性・時点の関係を原文が直�
 日本語の並列列挙で末尾の述語が前の各項にも文法的に係る場合は、同じ関係に属する全項を対象にしてください。
 地名の都道府県補完、略称展開、距離表現からの所在地推定など、Evidenceにない補完は禁止です。
 supported_valueは各Required claimへ答える最短の原文表現に限定し、Evidence全文や無関係な前後文をコピーしてはいけません。
+値を直接記載したセルEvidenceがある場合、supportedでは共有rowだけでなく各項目の値セルpacket IDをsupporting_packet_idsに必ず含めてください。
 supportedでは直接示された値だけをsupported_valueへ転記し、supporting_packet_idsを必須にします。reason_codeはnone、defectとmissing_informationは空です。
 拒否する場合はsupported_valueを空にし、具体的な欠陥をdefectへ、必要な情報をmissing_informationへ記載してください。
 近接、類似、同じページだけを根拠に関係を作ってはいけません。入力された全item_idについて一件ずつ、同じ順序で返してください。"""
@@ -888,11 +1201,13 @@ def main() -> int:
         load_index_evidence_graph(index_path)
     )
     question_evidence_graph = question_graph.build_question_evidence_graph(
-        args.query, graph_evidence, source_graph=stored_source_graph
+        args.query, graph_evidence, source_graph=stored_source_graph,
+        question_plan=plan,
     )
     question_evidence_graph_validation = question_graph.validate_question_evidence_graph(
         args.query, graph_evidence, question_evidence_graph,
         source_graph=stored_source_graph,
+        question_plan=plan,
     )
     graph_seconds = time.perf_counter() - graph_started
     all_retrieved: dict[str, dict] = {}
@@ -913,6 +1228,7 @@ def main() -> int:
             retrieved, graph_augmented_ids = augment_with_question_graph(
                 retrieved, graph_evidence_by_id,
                 question_evidence_graph, question_evidence_graph_validation,
+                item_id=item["item_id"],
             )
             retrieval_seconds += time.perf_counter() - retrieval_started
             for evidence in retrieved:
@@ -921,6 +1237,9 @@ def main() -> int:
             field_inputs.append({
                 "item": item, "retrieved": retrieved, "context": context, "packet_ids": packet_ids,
                 "graph_augmented_evidence_ids": graph_augmented_ids,
+                "graph_primary_evidence_ids": question_graph_primary_evidence_ids(
+                    question_evidence_graph, item["item_id"]
+                ),
             })
         try:
             audits = audit_fields_batched(args.model, field_inputs, args.timeout)
@@ -943,12 +1262,20 @@ def main() -> int:
                     }
                 audits.append(audit)
         for field_input, audit in zip(field_inputs, audits):
+            audit = bind_record_lookup_value_evidence(
+                audit,
+                field_input["item"],
+                question_evidence_graph,
+                graph_evidence_by_id,
+            )
             field_runs.append({
                 "item": field_input["item"],
                 "retrieved_evidence_ids": [row["evidence_id"] for row in field_input["retrieved"]],
-                "question_graph_branch_id": question_evidence_graph.get("artifact_id"),
+                "question_graph_branch_id": question_graph_branch_id(
+                    question_evidence_graph, field_input["item"]["item_id"]
+                ),
                 "graph_augmented_evidence_ids": field_input["graph_augmented_evidence_ids"],
-                "graph_primary_evidence_ids": question_evidence_graph.get("selected_evidence_ids", []),
+                "graph_primary_evidence_ids": field_input["graph_primary_evidence_ids"],
                 "audit": audit,
             })
     elif args.audit_mode == "parallel":
@@ -962,6 +1289,7 @@ def main() -> int:
             retrieved, graph_augmented_ids = augment_with_question_graph(
                 retrieved, graph_evidence_by_id,
                 question_evidence_graph, question_evidence_graph_validation,
+                item_id=item["item_id"],
             )
             retrieval_seconds += time.perf_counter() - retrieval_started
             for evidence in retrieved:
@@ -970,6 +1298,9 @@ def main() -> int:
             field_inputs.append({
                 "item": item, "retrieved": retrieved, "context": context, "packet_ids": packet_ids,
                 "graph_augmented_evidence_ids": graph_augmented_ids,
+                "graph_primary_evidence_ids": question_graph_primary_evidence_ids(
+                    question_evidence_graph, item["item_id"]
+                ),
             })
         worker_count = min(2, len(field_inputs))
         with concurrent.futures.ThreadPoolExecutor(max_workers=worker_count) as executor:
@@ -979,12 +1310,20 @@ def main() -> int:
             ]
             audits = [future.result() for future in futures]
         for field_input, audit in zip(field_inputs, audits):
+            audit = bind_record_lookup_value_evidence(
+                audit,
+                field_input["item"],
+                question_evidence_graph,
+                graph_evidence_by_id,
+            )
             field_runs.append({
                 "item": field_input["item"],
                 "retrieved_evidence_ids": [row["evidence_id"] for row in field_input["retrieved"]],
-                "question_graph_branch_id": question_evidence_graph.get("artifact_id"),
+                "question_graph_branch_id": question_graph_branch_id(
+                    question_evidence_graph, field_input["item"]["item_id"]
+                ),
                 "graph_augmented_evidence_ids": field_input["graph_augmented_evidence_ids"],
-                "graph_primary_evidence_ids": question_evidence_graph.get("selected_evidence_ids", []),
+                "graph_primary_evidence_ids": field_input["graph_primary_evidence_ids"],
                 "audit": audit,
             })
     else:
@@ -999,6 +1338,7 @@ def main() -> int:
             retrieved, graph_augmented_ids = augment_with_question_graph(
                 retrieved, graph_evidence_by_id,
                 question_evidence_graph, question_evidence_graph_validation,
+                item_id=item["item_id"],
             )
             retrieval_seconds += time.perf_counter() - retrieval_started
             for evidence in retrieved:
@@ -1018,33 +1358,39 @@ def main() -> int:
                         "defect": f"項目監査の機械契約に失敗しました: {type(retry_exc).__name__}: {retry_exc}",
                         "missing_information": ["機械検証を通過した項目監査結果"],
                     }
+            audit = bind_record_lookup_value_evidence(
+                audit, item, question_evidence_graph, graph_evidence_by_id
+            )
             if audit["verdict"] == "supported" and audit.get("supported_value"):
                 verified_anchor_values.append(audit["supported_value"])
             field_runs.append({
                 "item": item,
                 "retrieved_evidence_ids": [row["evidence_id"] for row in retrieved],
-                "question_graph_branch_id": question_evidence_graph.get("artifact_id"),
+                "question_graph_branch_id": question_graph_branch_id(
+                    question_evidence_graph, item["item_id"]
+                ),
                 "graph_augmented_evidence_ids": graph_augmented_ids,
-                "graph_primary_evidence_ids": question_evidence_graph.get("selected_evidence_ids", []),
+                "graph_primary_evidence_ids": question_graph_primary_evidence_ids(
+                    question_evidence_graph, item["item_id"]
+                ),
                 "audit": audit,
             })
     audit_seconds = time.perf_counter() - audit_started - retrieval_seconds
 
+    graph_route = build_graph_route(
+        question_evidence_graph, question_evidence_graph_validation, field_runs
+    )
     if question_graph_blocks_answer(
         question_evidence_graph, question_evidence_graph_validation
-    ):
-        reason = str(question_evidence_graph.get("reason", "question_graph_validation_blocked"))
+    ) or (graph_route["required"] and not graph_route["used"]):
+        reason = str(
+            question_evidence_graph.get("reason", "question_graph_validation_blocked")
+            if question_evidence_graph.get("status") != "ready"
+            or question_evidence_graph_validation.get("status") != "pass"
+            else "question_graph_not_used"
+        )
         for row in field_runs:
-            row["audit"] = {
-                "item_id": row["item"]["item_id"],
-                "verdict": "insufficient",
-                "supported_value": "",
-                "supporting_packet_ids": [],
-                "competing_packet_ids": [],
-                "reason_code": "coverage_unknown",
-                "defect": f"集計Graphの機械検証が完了しませんでした: {reason}",
-                "missing_information": ["完全な集計範囲と一致する合計根拠"],
-            }
+            row["audit"] = graph_insufficient_audit(row["item"], reason)
 
     audits = [row["audit"] for row in field_runs]
     try:
@@ -1069,6 +1415,7 @@ def main() -> int:
         "question_plan": plan,
         "question_evidence_graph": question_evidence_graph,
         "question_evidence_graph_validation": question_evidence_graph_validation,
+        "graph_route": graph_route,
         "field_runs": field_runs,
         "answer": answer,
         "retrieved": [

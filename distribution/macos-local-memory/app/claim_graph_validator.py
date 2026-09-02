@@ -18,6 +18,11 @@ NAME_MARKERS = ("名前", "氏名", "パイロットネーム", "氏名は", "�
 PROVISIONAL_MARKER = "[暫定読取]"
 COUNT_MARKERS = ("何回", "回数", "何枠", "枠数", "何件", "件数", "総数", "合計")
 EXPLICIT_PERIOD = re.compile(r"20\d{2}\s*年\s*(?:1[0-2]|0?[1-9])\s*月")
+SAVED_VALUE_ANNOTATION = re.compile(
+    r"\s+\[保存値[^\]]*[:：]\s*"
+    r"[-+]?(?:\d+(?:\.\d+)?|\.\d+)\s*\]\s*$"
+)
+FORMULA_OPERATOR_CHARS = frozenset("=+-*/^&%(),:<>!")
 
 
 def normalize(value: object) -> str:
@@ -43,7 +48,176 @@ def infer_time_scope(query: str, label: str) -> str:
     return "unspecified"
 
 
-def infer_entity_type(query: str, label: str) -> str:
+def _quoted_formula_end(value: str, start: int, quote: str) -> int:
+    index = start + 1
+    while index < len(value):
+        if value[index] != quote:
+            index += 1
+            continue
+        if index + 1 < len(value) and value[index + 1] == quote:
+            index += 2
+            continue
+        return index + 1
+    return len(value)
+
+
+def _structured_reference_end(value: str, start: int) -> int:
+    depth = 1
+    index = start + 1
+    while index < len(value):
+        if value[index] in {'"', "'"}:
+            index = _quoted_formula_end(value, index, value[index])
+            continue
+        if value[index] == "[":
+            depth += 1
+        elif value[index] == "]":
+            depth -= 1
+            if depth == 0:
+                return index + 1
+        index += 1
+    return len(value)
+
+
+def formula_projection(value: object) -> str | None:
+    """Canonicalize formula syntax without erasing operand whitespace."""
+    if not isinstance(value, str):
+        return None
+    formula = SAVED_VALUE_ANNOTATION.sub("", value.strip())
+    if not formula or unicodedata.normalize("NFKC", formula[0]) != "=":
+        return None
+    tokens: list[tuple[str, str]] = []
+    index = 0
+    while index < len(formula):
+        char = formula[index]
+        if char in {'"', "'"}:
+            end = _quoted_formula_end(formula, index, char)
+            tokens.append(("protected", formula[index:end]))
+            index = end
+            continue
+        if char == "[":
+            end = _structured_reference_end(formula, index)
+            tokens.append(("protected", formula[index:end]))
+            index = end
+            continue
+        for normalized_char in unicodedata.normalize("NFKC", char).casefold():
+            kind = "space" if normalized_char.isspace() else "char"
+            if kind != "space" or not tokens or tokens[-1][0] != "space":
+                tokens.append((kind, " " if kind == "space" else normalized_char))
+        index += 1
+
+    canonical: list[str] = []
+    for token_index, (kind, token) in enumerate(tokens):
+        if kind != "space":
+            canonical.append(token)
+            continue
+        previous = tokens[token_index - 1] if token_index else None
+        following = (
+            tokens[token_index + 1]
+            if token_index + 1 < len(tokens) else None
+        )
+        if previous is None or following is None:
+            continue
+        if (
+            previous[0] == "char" and previous[1] in FORMULA_OPERATOR_CHARS
+        ) or (
+            following[0] == "char" and following[1] in FORMULA_OPERATOR_CHARS
+        ):
+            continue
+        canonical.append(" ")
+    return "".join(canonical)
+
+
+def decimal_projection(value: object) -> tuple[bool, Decimal | None]:
+    if not isinstance(value, str):
+        return False, None
+    try:
+        parsed = Decimal(unicodedata.normalize("NFKC", value).strip())
+    except (InvalidOperation, ValueError):
+        return False, None
+    return True, parsed if parsed.is_finite() else None
+
+
+def normalized_value_text(value: object) -> str:
+    if not isinstance(value, str):
+        return ""
+    return re.sub(
+        r"\s+", " ", unicodedata.normalize("NFKC", value).strip()
+    ).casefold()
+
+
+def record_lookup_value_matches(observed: object, expected: object) -> bool:
+    """Match formulas, then finite decimals, then punctuation-preserving text."""
+    observed_formula = formula_projection(observed)
+    expected_formula = formula_projection(expected)
+    if observed_formula is not None or expected_formula is not None:
+        return (
+            observed_formula is not None
+            and expected_formula is not None
+            and observed_formula == expected_formula
+        )
+    observed_is_decimal, observed_decimal = decimal_projection(observed)
+    expected_is_decimal, expected_decimal = decimal_projection(expected)
+    if observed_is_decimal or expected_is_decimal:
+        return (
+            observed_is_decimal
+            and expected_is_decimal
+            and observed_decimal is not None
+            and expected_decimal is not None
+            and observed_decimal == expected_decimal
+        )
+    observed_identity = normalized_value_text(observed)
+    return bool(observed_identity) and observed_identity == normalized_value_text(
+        expected
+    )
+
+
+def record_lookup_field_bindings(record: dict) -> dict[str, dict]:
+    """Return verified record-lookup branches keyed by question-plan item ID."""
+    artifact = record.get("question_evidence_graph")
+    validation = record.get("question_evidence_graph_validation")
+    if not isinstance(artifact, dict) or not isinstance(validation, dict):
+        return {}
+    if artifact.get("status") != "ready" or validation.get("status") != "pass":
+        return {}
+    intent = artifact.get("intent")
+    if not isinstance(intent, dict) or intent.get("operation") != "record_lookup":
+        return {}
+    body = {
+        key: value for key, value in artifact.items()
+        if key not in {"artifact_hash", "artifact_id"}
+    }
+    expected_hash = stable_hash(body)
+    if (
+        artifact.get("artifact_hash") != expected_hash
+        or artifact.get("artifact_id") != f"qeg_{expected_hash[:24]}"
+    ):
+        return {}
+    bindings: dict[str, dict] = {}
+    branches = artifact.get("branches")
+    if not isinstance(branches, list):
+        return {}
+    for branch in branches:
+        if not isinstance(branch, dict):
+            return {}
+        item_id = str(branch.get("item_id", "")).strip()
+        if not item_id or item_id in bindings:
+            return {}
+        bindings[item_id] = branch
+    return bindings
+
+
+def infer_entity_type(
+    query: str,
+    label: str,
+    record_lookup_binding: dict | None = None,
+) -> str:
+    if record_lookup_binding is not None:
+        is_decimal, decimal = decimal_projection(record_lookup_binding.get("value"))
+        return (
+            "numeric_value"
+            if is_decimal and decimal is not None
+            else "text_value"
+        )
     combined = query + " " + label
     if any(marker in combined for marker in COUNT_MARKERS):
         return "numeric_count"
@@ -59,19 +233,28 @@ def infer_entity_type(query: str, label: str) -> str:
     return "text_value"
 
 
-def build_question_contract(query: str, plan: dict) -> dict:
+def build_question_contract(
+    query: str,
+    plan: dict,
+    *,
+    record_lookup_bindings: dict[str, dict] | None = None,
+) -> dict:
+    record_lookup_bindings = record_lookup_bindings or {}
     items = []
     for item in plan.get("items", []):
+        field_id = str(item.get("item_id", ""))
         label = str(item.get("label", ""))
-        items.append({
-            "field_id": str(item.get("item_id", "")),
+        binding = record_lookup_bindings.get(field_id)
+        contract_item = {
+            "field_id": field_id,
             "label": label,
             "required_claim": str(item.get("required_claim", "")),
             "required": bool(item.get("required", False)),
-            "entity_type": infer_entity_type(query, label),
+            "entity_type": infer_entity_type(query, label, binding),
             "time_scope": infer_time_scope(query, label),
             "require_all": any(marker in query for marker in ALL_MARKERS),
-        })
+        }
+        items.append(contract_item)
     body = {"query": query, "items": items}
     return {"contract_version": "1.0", "contract_hash": stable_hash(body), **body}
 
@@ -239,8 +422,46 @@ def validate_question_graph_binding(
             })
 
 
+def validate_record_lookup_binding(
+    graph: dict,
+    bindings: dict[str, dict],
+    failures: list[dict],
+) -> None:
+    """Bind each record claim to its verified branch scalar and Evidence path."""
+    if not bindings:
+        return
+    for claim in graph.get("claims", []):
+        field_id = str(claim.get("field_id", ""))
+        binding = bindings.get(field_id)
+        if binding is None:
+            continue
+        claim_id = str(claim.get("claim_id", ""))
+        expected_value = binding.get("value", "")
+        actual_value = claim.get("value", "")
+        if not record_lookup_value_matches(actual_value, expected_value):
+            failures.append({
+                "code": "record_lookup_value_mismatch",
+                "claim_id": claim_id,
+                "detail": "主張値が検証済みのレコード項目値と一致しません。",
+            })
+        selected_ids = {
+            str(evidence_id)
+            for evidence_id in binding.get("selected_evidence_ids", [])
+        }
+        if not (set(claim.get("evidence_ids", [])) & selected_ids):
+            failures.append({
+                "code": "record_lookup_evidence_escape",
+                "claim_id": claim_id,
+                "detail": "主張が検証済みのレコード項目Evidenceを参照していません。",
+            })
+
+
 def build_claim_graph(record: dict, packets: list[dict], contract: dict | None = None) -> dict:
-    contract = contract or build_question_contract(record.get("query", ""), record.get("question_plan", {}))
+    contract = contract or build_question_contract(
+        record.get("query", ""),
+        record.get("question_plan", {}),
+        record_lookup_bindings=record_lookup_field_bindings(record),
+    )
     packet_ids = {str(packet.get("evidence_id", "")) for packet in packets}
     nodes = [{"node_id": "Q1", "node_type": "question", "value": record.get("query", "")}]
     edges = []
@@ -332,13 +553,14 @@ def validate_claim_graph(record: dict, packets: list[dict], contract: dict, grap
     failures = []
     warnings = []
     packet_map = {str(packet.get("evidence_id", "")): str(packet.get("text", "")) for packet in packets}
+    lookup_bindings = record_lookup_field_bindings(record)
     expected_contract = build_question_contract(contract.get("query", ""), {"items": [
         {
             "item_id": item.get("field_id", ""), "label": item.get("label", ""),
             "required_claim": item.get("required_claim", ""), "required": item.get("required", False),
         }
         for item in contract.get("items", [])
-    ]})
+    ]}, record_lookup_bindings=lookup_bindings)
     if contract.get("contract_hash") != expected_contract.get("contract_hash"):
         failures.append({"code": "contract_hash_mismatch", "detail": "質問契約が作成後に変更されています。"})
     graph_body = {key: graph.get(key) for key in ("contract_hash", "nodes", "edges", "claims")}
@@ -379,10 +601,14 @@ def validate_claim_graph(record: dict, packets: list[dict], contract: dict, grap
             "detail": f"主張を表すNodeがありません: {missing_claim_nodes}",
         })
 
-    field_ids = {item.get("field_id") for item in contract.get("items", [])}
+    contract_items = {
+        item.get("field_id"): item for item in contract.get("items", [])
+    }
+    field_ids = set(contract_items)
     answer_text = normalize(record.get("answer", {}).get("answer", ""))
     for claim in graph.get("claims", []):
         claim_id = claim.get("claim_id", "")
+        is_record_lookup_claim = claim.get("field_id") in lookup_bindings
         if claim.get("field_id") not in field_ids:
             failures.append({"code": "unknown_field_id", "claim_id": claim_id, "detail": "質問契約にない項目です。"})
         evidence_ids = claim.get("evidence_ids", [])
@@ -408,7 +634,10 @@ def validate_claim_graph(record: dict, packets: list[dict], contract: dict, grap
             non_provisional_text(packet_map[evidence_id]) for evidence_id in evidence_ids
         )
         for value_part in claim.get("value_parts", []):
-            if normalize(value_part) not in normalize(cited_text):
+            if (
+                not is_record_lookup_claim
+                and normalize(value_part) not in normalize(cited_text)
+            ):
                 failures.append({"code": "value_not_in_evidence", "claim_id": claim_id, "detail": f"原文にない値: {value_part}"})
             if _time_relation_conflicts(
                 str(claim.get("time_scope", "unspecified")),
@@ -436,11 +665,14 @@ def validate_claim_graph(record: dict, packets: list[dict], contract: dict, grap
         if item.get("require_all") and item.get("field_id") in supported_fields:
             warnings.append({"code": "coverage_requires_semantic_audit", "field_id": item.get("field_id"), "detail": "全件性は独立監査役がEvidenceの列挙範囲を再確認します。"})
 
+    validate_record_lookup_binding(
+        graph, lookup_bindings, failures,
+    )
     validate_question_graph_binding(record, contract, graph, packet_map, failures, warnings)
 
     status = "blocked" if failures else "pass"
     return {
-        "validator_version": "1.3",
+        "validator_version": "1.4",
         "status": status,
         "failures": failures,
         "warnings": warnings,
@@ -449,7 +681,11 @@ def validate_claim_graph(record: dict, packets: list[dict], contract: dict, grap
 
 
 def build_and_validate(record: dict, packets: list[dict]) -> tuple[dict, dict, dict]:
-    contract = build_question_contract(record.get("query", ""), record.get("question_plan", {}))
+    contract = build_question_contract(
+        record.get("query", ""),
+        record.get("question_plan", {}),
+        record_lookup_bindings=record_lookup_field_bindings(record),
+    )
     graph = build_claim_graph(record, packets, contract)
     report = validate_claim_graph(record, packets, contract, graph)
     return contract, graph, report

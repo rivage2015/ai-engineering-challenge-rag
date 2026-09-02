@@ -155,8 +155,10 @@ XLSX原本
   -> Layer 1 adapter
   -> content security gate
   -> local embedding index
-  -> 回数質問のQuestion Evidence Graph
-  -> 対象、SUM範囲、全行coverage、再集計値、保存値を機械検証
+  -> Question Evidence Graph
+     -> aggregate_count: 対象、SUM範囲、全行coverage、再集計値、保存値
+     -> record_lookup: 一意の対象行、状態、項目別row/header/value経路
+  -> 必須RelationとEvidenceを機械検証
   -> Graph選択Evidenceを実行者へ先頭挿入
   -> Claim Graphと別コンテキスト最終監査
   -> 回答、Evidence ID、sheet/row locator
@@ -174,7 +176,9 @@ XLSX原本
 - 座標付きReaderが1行も得られない画像は、導入済みの`gemma4:12b`に質問非依存の全画像転記を依頼する。座標を捏造せず`unlocated / provisional`として検索可能にし、model digest、prompt hash、実行条件を残す。モデル未導入時にこのReaderが自動downloadを行うことはない。
 - `provisional`は検索可能だが、`[暫定読取]`だけが値を支持する主張は、最終LLM監査の前に決定論的なclaim validatorが拒否する。
 - 回数・合計質問は`question_evidence_graph.py`で回答前Graphを作る。読取済みEvidence本文をNode、対象・数式・範囲・再集計・回答の関係を根拠付きEdgeにし、artifact hashとEvidence本文hashを独立再検証する。
+- 構造化レコード参照も`question_evidence_graph.py`を必須経路とする。現在は`owner / review_date / unit_cost / seats / budget`に限定し、質問に明記された項目と一意の構造化行を対応させ、必要なら`Approved / Final / Finalized`状態を確認する。各項目はverified explicit `derived_from`でrowからheaderとvalue Evidenceへ分岐し、検索・項目監査・最終監査が同じ枝を消費したことを機械検査する。
 - 回数質問でGraphを作れないときは未対応のまま通常検索へ逃がさず`hold`にする。合計候補の曖昧性、行欠落、値競合、暫定Evidence、本文hash不一致も同様に停止する。
+- 構造化レコード参照で質問要求の計画漏れ、未対応項目、状態の否定・非最終版指定、複数候補、または必須lineage欠落を検出した場合も`hold`にし、通常検索で部分回答しない。
 - 長文、長い表行、画像packetを形式ごとの例外にせず、adapterの質問境界で最大1,600文字のexact shardへ置き換える。元投影hash、`[start,end)`、chunk hashで全文復元を独立Validatorが検査し、埋め込み入力の打切りが1件でもあれば索引を公開しない。回答監査にEvidence IDを渡すときは、packet全文を入れるか全体を外し、途中切断を禁止する。
 - 一部ファイルの抽出失敗で全体を捨てない。失敗ファイルの中間Evidenceはファイル単位でrollbackし、他の読取可能なファイルを後段へ渡す。
 - 初回buildでGemmaが読取後に導入可能になった場合は、別の空semantic/security世代へ再読・再検証してから公開する。中断世代はbuild IDとPIDで復旧し、公開済みを削除しない。
@@ -182,6 +186,8 @@ XLSX原本
 2026-09-01の現行2シートXLSXでは、標準ライブラリ経路でcell `90/90`が行SearchUnitへ到達した。数式6件は式と保存値の対応を保持し、row SearchUnit `43`、semantic Evidence `146`、埋め込み打切り`0`、SQLite integrity `ok`。各シートから2件ずつ自動選択したretrievalはHit@1 `4/4`、Hit@5 `4/4`、数式保存値の追加1件はHit@1 `1/1`だった。
 
 非公開の検証用XLSXに対する回数質問では、Question Evidence Graphが`対象 -> SUM範囲 -> 全行coverage -> 再集計値 -> 保存値`の経路を作り、両値の一致を確認して回答を生成した。決定論的Claim Graph検証は`pass`、全集計Evidenceを見た別コンテキストの`gemma4:12b`最終監査は`verified`。これは同じモデルの手続き的分離であり、独立モデルによる監査ではない。また、1つの検証用XLSXに対するend-to-end成功であり、他形式・他数式への正答率を示すものではない。非公開資料のファイル名・質問文・実値はGitHubに収録しない。
+
+2026-09-03の非公開検証用XLSXに対する構造化レコード参照では、5項目それぞれに`row -> header -> value`のGraph枝を作り、回答実行者が値セルEvidenceを支持根拠として消費した。Question Evidence Graph、Graph retrieval trace、決定論的Claim Graph、別コンテキストの`gemma4:12b`監査はすべて`pass / verified`、Orchestratorは回答を`accepted`とした。これも1つの検証用XLSXと対応済み5項目に限るend-to-end成功であり、汎用GraphRAGや他形式への正答率を示すものではない。
 
 未完了事項:
 

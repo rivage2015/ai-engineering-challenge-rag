@@ -89,10 +89,10 @@
 |---|---|---|
 | 起動・初期設定 | `app/bootstrap.py`、`app/launch.sh` | 環境診断、モデル確認、索引構築 |
 | ローカル画面 | `app/local_memory_server.py` | loopback限定の検索画面と処理統括 |
-| 回答生成v2 | `engine/answer_local_memory_v2.py` | 質問分解、検索、項目監査、回答投影 |
-| Question Evidence Graph | `engine/question_evidence_graph.py` | 永続GraphのRelationを辿り、回数・合計質問の対象、範囲、各行、再集計と保存値を結ぶ |
+| 回答生成v2 | `engine/answer_local_memory_v2.py` | 質問分解、項目別Graph Evidenceの実消費、検索、項目監査、回答投影 |
+| Question Evidence Graph | `engine/question_evidence_graph.py` | 永続GraphのRelationを辿り、回数・合計の再集計経路と、対応済み構造化レコード参照の項目別`row -> header -> value`経路を作る |
 | 主張グラフValidator | `app/claim_graph_validator.py` | LLM監査前の決定論的な関係検証 |
-| 最終監査 | `app/final_answer_audit.py` | 機械検証と別コンテキスト監査を再実行し、Orchestratorの最終採否を記録 |
+| 最終監査 | `app/final_answer_audit.py` | Graph枝と項目実行・回答値・値Evidenceの対応、機械検証、別コンテキスト監査を再実行し、Orchestratorの最終採否を記録 |
 | パスグラフ | `engine/build_path_graph.py` | ファイルとフォルダの案内板を作る |
 | 意味グラフ | `engine/build_semantic_graph.py` | 資料内容をEvidenceとして構造化する |
 | 適応型Reader接続 | `engine/build_adaptive_semantic_graph.py` | 形式別Readerの中間記録を現行semantic境界へ接続する |

@@ -254,6 +254,7 @@ class QuestionEvidenceGraphTests(unittest.TestCase):
         ]
         contract, graph, report = claim_validator.build_and_validate(answer_record, packets)
         self.assertEqual(report["status"], "pass", report)
+        self.assertEqual(contract["items"][0]["entity_type"], "numeric_count")
         node_ids = {node["node_id"] for node in graph["nodes"]}
         self.assertIn("C1", node_ids)
         self.assertTrue(all(

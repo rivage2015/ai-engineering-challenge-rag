@@ -6,8 +6,11 @@ from __future__ import annotations
 import argparse
 import importlib.util
 import json
+import re
 import time
+import unicodedata
 import urllib.request
+from decimal import Decimal, InvalidOperation
 from pathlib import Path
 
 
@@ -62,6 +65,393 @@ SCHEMA = {
     },
 }
 
+SUPPORTED_QUESTION_GRAPH_OPERATIONS = frozenset({
+    "aggregate_count",
+    "record_lookup",
+})
+
+
+def _ordered_string_ids(value: object) -> list[str]:
+    """Return unique, non-empty Evidence IDs without inventing coercions."""
+    if not isinstance(value, list):
+        return []
+    return list(dict.fromkeys(
+        item for item in value if isinstance(item, str) and item.strip()
+    ))
+
+
+def _normalized_graph_item_id(value: object) -> str:
+    """Normalize ID presentation without erasing identity punctuation."""
+    if not isinstance(value, str):
+        return ""
+    return unicodedata.normalize("NFKC", value).strip().casefold()
+
+
+def _normalized_graph_value_text(value: object) -> str:
+    """Normalize Unicode and whitespace while retaining value punctuation."""
+    if not isinstance(value, str):
+        return ""
+    return re.sub(
+        r"\s+", " ", unicodedata.normalize("NFKC", value).strip()
+    ).casefold()
+
+
+def _formula_projection(value: object) -> str | None:
+    return claim_validator.formula_projection(value)
+
+
+def _decimal_projection(value: object) -> tuple[bool, Decimal | None]:
+    if not isinstance(value, str):
+        return False, None
+    try:
+        parsed = Decimal(unicodedata.normalize("NFKC", value).strip())
+    except (InvalidOperation, ValueError):
+        return False, None
+    return True, parsed if parsed.is_finite() else None
+
+
+def _branch_value_matches(observed: object, expected: object) -> bool:
+    """Match exact values while allowing formula-only saved-value projections."""
+    observed_formula = _formula_projection(observed)
+    expected_formula = _formula_projection(expected)
+    if observed_formula is not None or expected_formula is not None:
+        return (
+            observed_formula is not None
+            and expected_formula is not None
+            and observed_formula == expected_formula
+        )
+    observed_is_decimal, observed_decimal = _decimal_projection(observed)
+    expected_is_decimal, expected_decimal = _decimal_projection(expected)
+    if observed_is_decimal or expected_is_decimal:
+        return (
+            observed_is_decimal
+            and expected_is_decimal
+            and observed_decimal is not None
+            and expected_decimal is not None
+            and observed_decimal == expected_decimal
+        )
+    observed_identity = _normalized_graph_value_text(observed)
+    return bool(observed_identity) and observed_identity == _normalized_graph_value_text(
+        expected
+    )
+
+
+def _branch_value_evidence_ids(branch: dict) -> list[str]:
+    """Read only Evidence explicitly bound to the branch's value cell."""
+    value_ids = _ordered_string_ids(branch.get("value_evidence_ids"))
+    direct_value_id = branch.get("value_evidence_id")
+    if isinstance(direct_value_id, str) and direct_value_id.strip():
+        value_ids.append(direct_value_id)
+    binding = branch.get("stored_graph_binding")
+    lineage = (
+        binding.get("structured_record_lookup_lineage")
+        if isinstance(binding, dict) else None
+    )
+    field = lineage.get("field") if isinstance(lineage, dict) else None
+    if isinstance(field, dict):
+        value_ids.extend(_ordered_string_ids(field.get("value_evidence_ids")))
+        lineage_value_id = field.get("value_evidence_id")
+        if isinstance(lineage_value_id, str) and lineage_value_id.strip():
+            value_ids.append(lineage_value_id)
+    return list(dict.fromkeys(value_ids))
+
+
+def question_graph_scopes(artifact: object) -> list[dict]:
+    """Return the top-level Question Graph followed by every declared branch."""
+    if not isinstance(artifact, dict):
+        return []
+    scopes = [artifact]
+    branches = artifact.get("branches")
+    if isinstance(branches, list):
+        scopes.extend(branch for branch in branches if isinstance(branch, dict))
+    return scopes
+
+
+def question_graph_evidence_ids(artifact: object) -> tuple[list[str], list[str]]:
+    """Collect selected and validation Evidence from the overlay and all branches."""
+    selected: list[str] = []
+    validation: list[str] = []
+    for scope in question_graph_scopes(artifact):
+        selected.extend(_ordered_string_ids(scope.get("selected_evidence_ids")))
+        validation.extend(_ordered_string_ids(scope.get("validation_evidence_ids")))
+        selection = scope.get("selection")
+        if isinstance(selection, dict):
+            selected.extend(_ordered_string_ids(selection.get("selected_evidence_ids")))
+            validation.extend(_ordered_string_ids(
+                selection.get("validation_evidence_ids")
+            ))
+    return list(dict.fromkeys(selected)), list(dict.fromkeys(validation))
+
+
+def question_graph_operations(
+    artifact: object,
+    question_plan: object,
+    graph_route: object,
+) -> frozenset[str]:
+    """Read graph operations from independently recorded planning surfaces."""
+    operations: set[str] = set()
+
+    def add_from(value: object) -> None:
+        if not isinstance(value, dict):
+            return
+        operation = value.get("operation")
+        if isinstance(operation, str) and operation.strip():
+            operations.add(operation)
+        intent = value.get("intent")
+        if isinstance(intent, dict):
+            intent_operation = intent.get("operation")
+            if isinstance(intent_operation, str) and intent_operation.strip():
+                operations.add(intent_operation)
+
+    for scope in question_graph_scopes(artifact):
+        add_from(scope)
+    add_from(question_plan)
+    if isinstance(question_plan, dict):
+        items = question_plan.get("items")
+        if isinstance(items, list):
+            for item in items:
+                add_from(item)
+    add_from(graph_route)
+    return frozenset(operations)
+
+
+def question_graph_validation_is_acceptable(
+    validation: object,
+    operations: frozenset[str],
+) -> bool:
+    """Require PASS for supported operations; generic questions may be N/A."""
+    status = validation.get("status") if isinstance(validation, dict) else None
+    if operations & SUPPORTED_QUESTION_GRAPH_OPERATIONS:
+        return status == "pass"
+    return status in {"pass", "not_applicable"}
+
+
+def validate_graph_retrieval_trace(
+    record: dict,
+    artifact: object,
+    operations: frozenset[str],
+) -> dict:
+    """Prove that record lookup fields actually consumed their graph branches."""
+    if "record_lookup" not in operations:
+        return {
+            "status": "not_applicable",
+            "operation": "",
+            "failures": [],
+            "branches": [],
+        }
+
+    failures: list[dict] = []
+    branch_traces: list[dict] = []
+    graph_route = record.get("graph_route")
+    if not isinstance(graph_route, dict):
+        failures.append({
+            "code": "graph_route_missing",
+            "detail": "record_lookup graph route is missing.",
+        })
+    else:
+        if graph_route.get("operation") != "record_lookup":
+            failures.append({
+                "code": "graph_route_operation_mismatch",
+                "detail": str(graph_route.get("operation", "")),
+            })
+        if graph_route.get("required") is not True:
+            failures.append({
+                "code": "graph_route_not_required",
+                "detail": "record_lookup must require the Question Graph.",
+            })
+        if graph_route.get("used") is not True:
+            failures.append({
+                "code": "graph_route_not_used",
+                "detail": "record_lookup did not record graph use.",
+            })
+
+    branches_value = artifact.get("branches") if isinstance(artifact, dict) else None
+    branches = (
+        [branch for branch in branches_value if isinstance(branch, dict)]
+        if isinstance(branches_value, list)
+        else []
+    )
+    if not branches:
+        failures.append({
+            "code": "record_lookup_branches_missing",
+            "detail": "record_lookup has no Question Graph branches.",
+        })
+
+    field_runs_value = record.get("field_runs")
+    field_runs = (
+        [run for run in field_runs_value if isinstance(run, dict)]
+        if isinstance(field_runs_value, list)
+        else []
+    )
+    if not isinstance(field_runs_value, list):
+        failures.append({
+            "code": "field_runs_invalid",
+            "detail": "record_lookup field runs are missing.",
+        })
+
+    known_branch_ids: set[str] = set()
+    for branch in branches:
+        branch_failure_count = len(failures)
+        branch_id = branch.get("branch_id")
+        item_id = branch.get("item_id")
+        if not isinstance(branch_id, str) or not branch_id:
+            failures.append({
+                "code": "record_lookup_branch_id_invalid",
+                "detail": str(branch_id or ""),
+            })
+            continue
+        if branch_id in known_branch_ids:
+            failures.append({
+                "code": "record_lookup_branch_id_duplicate",
+                "detail": branch_id,
+            })
+            continue
+        known_branch_ids.add(branch_id)
+        selected = _ordered_string_ids(branch.get("selected_evidence_ids"))
+        if not selected:
+            failures.append({
+                "code": "record_lookup_branch_selection_missing",
+                "detail": branch_id,
+            })
+        matching_runs = [
+            run for run in field_runs
+            if run.get("question_graph_branch_id") == branch_id
+        ]
+        if len(matching_runs) != 1:
+            failures.append({
+                "code": "record_lookup_field_run_binding_invalid",
+                "detail": f"{branch_id}:{len(matching_runs)}",
+            })
+            branch_traces.append({
+                "branch_id": branch_id,
+                "item_id": item_id,
+                "selected_evidence_ids": selected,
+                "status": "blocked",
+            })
+            continue
+
+        run = matching_runs[0]
+        run_item = run.get("item")
+        normalized_item_id = _normalized_graph_item_id(item_id)
+        run_item_id = run_item.get("item_id") if isinstance(run_item, dict) else None
+        if (
+            not normalized_item_id
+            or _normalized_graph_item_id(run_item_id) != normalized_item_id
+        ):
+            failures.append({
+                "code": "record_lookup_field_item_mismatch",
+                "detail": branch_id,
+            })
+        primary = _ordered_string_ids(run.get("graph_primary_evidence_ids"))
+        augmented = _ordered_string_ids(run.get("graph_augmented_evidence_ids"))
+        retrieved = _ordered_string_ids(run.get("retrieved_evidence_ids"))
+        audit_record = run.get("audit")
+        supporting = _ordered_string_ids(
+            audit_record.get("supporting_packet_ids")
+            if isinstance(audit_record, dict) else None
+        )
+        audit_item_id = (
+            audit_record.get("item_id") if isinstance(audit_record, dict) else None
+        )
+        if _normalized_graph_item_id(audit_item_id) != normalized_item_id:
+            failures.append({
+                "code": "record_lookup_audit_item_mismatch",
+                "detail": branch_id,
+            })
+        if (
+            not isinstance(audit_record, dict)
+            or audit_record.get("verdict") != "supported"
+        ):
+            failures.append({
+                "code": "record_lookup_audit_verdict_invalid",
+                "detail": branch_id,
+            })
+        supported_value = (
+            audit_record.get("supported_value")
+            if isinstance(audit_record, dict) else None
+        )
+        if not _branch_value_matches(supported_value, branch.get("value")):
+            failures.append({
+                "code": "record_lookup_supported_value_mismatch",
+                "detail": branch_id,
+            })
+        value_evidence_ids = _branch_value_evidence_ids(branch)
+        if not value_evidence_ids:
+            failures.append({
+                "code": "record_lookup_value_evidence_missing",
+                "detail": branch_id,
+            })
+        elif set(value_evidence_ids) - set(selected):
+            failures.append({
+                "code": "record_lookup_value_evidence_outside_selection",
+                "detail": branch_id,
+            })
+        if primary != selected:
+            failures.append({
+                "code": "record_lookup_primary_selection_mismatch",
+                "detail": branch_id,
+            })
+        if augmented != selected:
+            failures.append({
+                "code": "record_lookup_augmentation_mismatch",
+                "detail": branch_id,
+            })
+        if retrieved[:len(selected)] != selected:
+            failures.append({
+                "code": "record_lookup_retrieval_prefix_mismatch",
+                "detail": branch_id,
+            })
+        if not supporting:
+            failures.append({
+                "code": "record_lookup_support_missing",
+                "detail": branch_id,
+            })
+        outside_support = sorted(set(supporting) - set(selected))
+        if outside_support:
+            failures.append({
+                "code": "record_lookup_support_outside_branch",
+                "detail": f"{branch_id}:{','.join(outside_support[:8])}",
+            })
+        if value_evidence_ids and not set(supporting) & set(value_evidence_ids):
+            failures.append({
+                "code": "record_lookup_value_support_missing",
+                "detail": branch_id,
+            })
+        branch_traces.append({
+            "branch_id": branch_id,
+            "item_id": item_id,
+            "value": branch.get("value"),
+            "selected_evidence_ids": selected,
+            "value_evidence_ids": value_evidence_ids,
+            "supporting_packet_ids": supporting,
+            "supported_value": supported_value,
+            "status": (
+                "pass" if len(failures) == branch_failure_count else "blocked"
+            ),
+        })
+
+    extra_branch_ids = set()
+    for run in field_runs:
+        run_branch_id = run.get("question_graph_branch_id")
+        if not isinstance(run_branch_id, str) or not run_branch_id:
+            failures.append({
+                "code": "record_lookup_field_branch_id_invalid",
+                "detail": str(run_branch_id or ""),
+            })
+        elif run_branch_id not in known_branch_ids:
+            extra_branch_ids.add(run_branch_id)
+    if extra_branch_ids:
+        failures.append({
+            "code": "record_lookup_field_run_outside_branch",
+            "detail": ",".join(sorted(extra_branch_ids)[:8]),
+        })
+    return {
+        "status": "blocked" if failures else "pass",
+        "operation": "record_lookup",
+        "failures": failures,
+        "branches": branch_traces,
+    }
+
 
 def evidence(index: Path, ids: list[str]) -> list[dict]:
     if not ids:
@@ -108,6 +498,9 @@ def audit(
         "question_evidence_graph": graph_context.get("question_evidence_graph", {}),
         "question_evidence_graph_validation": graph_context.get(
             "question_evidence_graph_validation", {}
+        ),
+        "graph_retrieval_trace": graph_context.get(
+            "graph_retrieval_trace", {}
         ),
     }
     answer_body = str(answer.get("answer", ""))
@@ -294,33 +687,31 @@ def main() -> int:
                 answer_graph_failures.append(
                     f"回答記録と現在の索引で{field}が一致しません。"
                 )
+    question_plan = record.get("question_plan")
     question_graph_artifact = record.get("question_evidence_graph", {})
     question_graph_validation = question_graph.validate_question_evidence_graph(
         record.get("query", ""), all_graph_evidence, question_graph_artifact,
         source_graph=answer_graph_policy.get("source_graph"),
+        question_plan=question_plan,
     )
     record["question_evidence_graph_validation"] = question_graph_validation
-    graph_selection = (
-        question_graph_artifact.get("selection")
-        if isinstance(question_graph_artifact, dict)
-        else None
+    graph_operations = question_graph_operations(
+        question_graph_artifact,
+        question_plan,
+        record.get("graph_route"),
     )
-    graph_selection = graph_selection if isinstance(graph_selection, dict) else {}
-    graph_validation_value = graph_selection.get("validation_evidence_ids")
-    graph_validation_ids = (
-        list(graph_validation_value)
-        if isinstance(graph_validation_value, list)
-        else []
+    question_graph_accepted = question_graph_validation_is_acceptable(
+        question_graph_validation,
+        graph_operations,
     )
-    graph_selected_value = (
-        question_graph_artifact.get("selected_evidence_ids")
-        if isinstance(question_graph_artifact, dict)
-        else None
+    graph_retrieval_trace = validate_graph_retrieval_trace(
+        record,
+        question_graph_artifact,
+        graph_operations,
     )
-    graph_selected_ids = (
-        list(graph_selected_value)
-        if isinstance(graph_selected_value, list)
-        else []
+    record["graph_retrieval_trace"] = graph_retrieval_trace
+    graph_selected_ids, graph_validation_ids = question_graph_evidence_ids(
+        question_graph_artifact
     )
     requested_packet_ids = list(dict.fromkeys(
         ids + graph_validation_ids + graph_selected_ids
@@ -356,9 +747,8 @@ def main() -> int:
         }
         for evidence_id in safe_packet_ids
     ]
-    # The final auditor must see the complete arithmetic proof path, not only
-    # the answer cell or a sample of non-zero rows.  This is still local and
-    # bounded by the explicit formula range selected by the question graph.
+    # The final auditor must see every branch-selected and validation packet,
+    # not only the answer citations or top-level Graph union.
     packets = list(claim_packets)
     contract, graph, validation = claim_validator.build_and_validate(record, claim_packets)
     record["question_contract"] = contract
@@ -366,23 +756,30 @@ def main() -> int:
     record["deterministic_claim_validation"] = validation
     if (
         answer_graph_failures
-        or question_graph_validation["status"] == "blocked"
+        or not question_graph_accepted
+        or graph_retrieval_trace["status"] == "blocked"
         or validation["status"] == "blocked"
     ):
         result = {
             "verdict": "rejected",
             "reason": (
-                "機械検証で回答索引・質問・集計・主張とEvidenceの対応に"
+                "機械検証で回答索引・質問経路・主張とEvidenceの対応に"
                 "不整合が見つかりました。"
             ),
             "unsupported_claims": (answer_graph_failures[:2] + [
+                str(item.get("detail", ""))
+                for item in graph_retrieval_trace.get("failures", [])
+                if str(item.get("detail", "")).strip()
+            ][:2] + [
                 str(item.get("detail", "")) for item in validation.get("failures", [])
                 if str(item.get("detail", "")).strip()
-            ][:4] + [
+            ][:2] + [
                 str(item.get("detail", ""))
                 for item in question_graph_validation.get("failures", [])
                 if str(item.get("detail", "")).strip()
-            ][:2])[:6],
+            ][:1] + ([] if question_graph_accepted else [
+                "対応済みの質問操作にはQuestion Evidence GraphのPASSが必要です。"
+            ]))[:6],
         }
         audit_performance = {
             "wall_seconds": 0.0,
@@ -391,7 +788,9 @@ def main() -> int:
                 "answer_graph_validation_blocked"
                 if answer_graph_failures
                 else "question_evidence_graph_validation_blocked"
-                if question_graph_validation["status"] == "blocked"
+                if not question_graph_accepted
+                else "graph_retrieval_trace_blocked"
+                if graph_retrieval_trace["status"] == "blocked"
                 else "deterministic_claim_validation_blocked"
             ),
             "evidence_count": len(packets),
@@ -416,6 +815,7 @@ def main() -> int:
                     "selection": question_graph_artifact.get("selection"),
                 },
                 "question_evidence_graph_validation": question_graph_validation,
+                "graph_retrieval_trace": graph_retrieval_trace,
             },
         )
     record.setdefault("models", {})["independent_final_auditor"] = args.model
@@ -437,7 +837,8 @@ def main() -> int:
             )
     acceptance_checks = {
         "answer_graph": record["answer_graph_validation"]["status"] == "pass",
-        "question_graph": question_graph_validation["status"] in {
+        "question_graph": question_graph_accepted,
+        "graph_retrieval_trace": graph_retrieval_trace["status"] in {
             "pass", "not_applicable",
         },
         "deterministic_claims": validation["status"] == "pass",
