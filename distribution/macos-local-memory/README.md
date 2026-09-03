@@ -1,5 +1,9 @@
 # Local Memory Search macOS package
 
+> **開発マイルストーン:** Adaptive Document Reader v4 — OCR Phase 2
+>
+> **配布状態:** source-integrated / offline runtime bundle pending
+
 非技術者向けの未署名macOS試作パッケージです。GitHubの操作は不要です。
 
 ## ビルド
@@ -14,7 +18,9 @@
 - `deliverables/Local-Memory-Search-macOS-unsigned.zip`
 - `deliverables/Local-Memory-Search-macOS-unsigned.sha256.txt`
 
-DMGにはユーザーデータ、既存索引、回答ログ、モデル本体を含めません。
+DMGにはユーザーデータ、既存索引、回答ログ、モデル本体を含めません。PaddleOCRについても、workerと固定版ロック・モデル照合manifestのみを含み、Python仮想環境、wheel、cache、モデルバイナリは同梱しません。
+
+PaddleOCRを使うには、固定されたPython 3.12環境と照合済みモデルの一回限りの別途ローカル導入が必要です。導入されていない場合は、PaddleOCRは自動取得せず利用不可として停止します。導入後の推論はローカルで実行し、72依存のlock、2モデルのhash、CPU実行設定が一致しなければfail-closedに停止します。workerは暗黙のdownloadを持たず、macOSの`deny network` sandboxとPython socket guardの二重で推論中のIP通信を禁止します。
 
 ## 設計上の境界
 

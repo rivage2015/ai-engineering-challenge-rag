@@ -1,6 +1,6 @@
 # 適応型Document Reader v4
 
-最終更新: 2026-09-01
+最終更新: 2026-09-03
 
 ## 結論
 
@@ -171,9 +171,11 @@ XLSX原本
 
 - Macアプリのbootstrapは、旧来の単純抽出器ではなく、棚卸し→Layer 1抽出→検証→SearchUnit→adapter→安全判定→索引の経路を使う。
 - XLSXは`openpyxl`がある場合のnative Readerに加え、配布Macの標準ライブラリだけで動くOOXML Readerを持つ。sheet、cell座標、raw数値表記、数式、結合範囲、defined nameを抽出する。数式は式と「ファイル保存時の値・未再計算」を別Evidenceで保持し、どちらもcellとrowの質問経路へ渡す。
-- 画像はApple Visionの`primary / literal / fast_sparse`と、利用可能な場合のTesseract `PSM 3 / PSM 6`を失敗原因で切り替える。Pillowのない配布PythonでもPNG/JPEG/TIFF/BMPの安全検査とサイズ取得を行える。
+- 画像は原本を変更せず、macOS標準のImageIO/CoreGraphicsでEXIF 1〜8を画素へ適用した白背景・8-bit sRGB PNGを一時生成する。原本と派生画像のSHA、寸法、向き、変換ランナーを分離して残し、Apple VisionとTesseractに同じ派生バイト列を渡す。
+- 画像はApple Visionの`primary / literal / fast_sparse`と、利用可能な場合のTesseract `PSM 3 / PSM 6 / PSM 11`を失敗原因で切り替える。`PSM 11`は独立合意がないか、未照合の座標付き行が残るときだけ実行する。Pillowのない配布PythonでもPNG/JPEG/TIFF/BMPの安全検査とサイズ取得を行える。
 - 独立したengine群の文字・位置一致だけを`high`とし、同一engine内の一致と単独観測は`provisional`として残す。両者は別の`image_text_packet`へ分離し、tierと出典のschema・validatorを持つ。
 - 座標付きReaderが1行も得られない画像は、導入済みの`gemma4:12b`に質問非依存の全画像転記を依頼する。座標を捏造せず`unlocated / provisional`として検索可能にし、model digest、prompt hash、実行条件を残す。モデル未導入時にこのReaderが自動downloadを行うことはない。
+- OCR単体の性能比較では`allow_vlm=False`を指定し、座標付き読取が0行でもOllamaループバックAPIを呼ばない。これは評価経路の分離であり、完成アプリのローカルVLM補助を削除するものではない。
 - `provisional`は検索可能だが、`[暫定読取]`だけが値を支持する主張は、最終LLM監査の前に決定論的なclaim validatorが拒否する。
 - 回数・合計質問は`question_evidence_graph.py`で回答前Graphを作る。読取済みEvidence本文をNode、対象・数式・範囲・再集計・回答の関係を根拠付きEdgeにし、artifact hashとEvidence本文hashを独立再検証する。
 - 構造化レコード参照も`question_evidence_graph.py`を必須経路とする。現在は`owner / review_date / unit_cost / seats / budget`に限定し、質問に明記された項目と一意の構造化行を対応させ、必要なら`Approved / Final / Finalized`状態を確認する。各項目はverified explicit `derived_from`でrowからheaderとvalue Evidenceへ分岐し、検索・項目監査・最終監査が同じ枝を消費したことを機械検査する。
@@ -189,13 +191,20 @@ XLSX原本
 
 2026-09-03の非公開検証用XLSXに対する構造化レコード参照では、5項目それぞれに`row -> header -> value`のGraph枝を作り、回答実行者が値セルEvidenceを支持根拠として消費した。Question Evidence Graph、Graph retrieval trace、決定論的Claim Graph、別コンテキストの`gemma4:12b`監査はすべて`pass / verified`、Orchestratorは回答を`accepted`とした。これも1つの検証用XLSXと対応済み5項目に限るend-to-end成功であり、汎用GraphRAGや他形式への正答率を示すものではない。
 
+### 画像OCR Phase 2（現行）
+
+- Paddle経路は、`PaddleOCR 3.7.0`、`PaddlePaddle 3.3.0`、`PP-OCRv6_medium_det / PP-OCRv6_medium_rec`をPython 3.12の隔離runtimeで実行する。72 package全件のlockと、各model directoryの全relative path・size・SHAから成るexact manifestを実行前に照合する。
+- 実行時はmacOS sandboxの`deny network*`とPythonのsocket guardを重ねる。Paddleをaccuracy passとして有効にした場合は、先行OCRの一致数にかかわらず必ず実行する。合意行には各Readerのraw supporterを残し、Probeがtext、bbox、overlap、independence groupを再計算する。`independent_engines`は独立group間の実一致がある場合だけ`true`とし、複数groupが別々に観測された状態は`multiple_engine_groups_observed`へ分離した。
+- 2026-09-03のCC0中野駅写真をアプリ相当経路で実行した結果は、事前定義した13 exact span中10 span、high 15行だった。Paddleは空認識候補1件をwarning付きで除外して24行を返し、end-to-endは約20〜24秒。同じ検証系列で先に測定したpeak child RSSは参考値約6.0 GiBだった。中間成果物はDocument 1件、Evidence 54件、Relation 54件で、validatorは`OK`だった。
+- 残る未回収exact spanは`T 01 / 나카노 / 損していませんか。`の3件。ただし最後の文は`損して`と`いませんか。`の2 high行に分かれており、文字自体は回収済みである。隣接行の結合とregion/crop処理、および約20〜24秒の処理時間と約6.0 GiBのpeak child RSSの削減は次段階であり、Phase 2では未解決である。
+
 未完了事項:
 
 - `region/observation/quality_tier/coverage`の正式schemaを追加する。
 - XLSXのheaderを「最初の非空行」だけで決めず、複数候補と結合・書式・型から判定する。
 - DOCX/PPTX/PDFのnative Reader依存を未導入Macへ同梱するか、形式ごとの標準ライブラリReaderを追加する。
 - Office埋込画像、PDFの領域混合、chart/diagram Readerを質問経路へ接続する。
-- 一部の座標付きOCR行は得られたがcoverageが低い画像に対し、局所crop、前処理、全画像VLMをどの条件で追加するかを実装する。現行の全画像Gemma fallbackは座標付き読取が0行のときだけ起動する。
+- Phase 2で未回収の3 exact spanに対し、隣接行結合、region/crop処理、前処理を比較する。全画像Gemma fallbackは座標付き読取が0行のときだけ起動する現行条件を維持し、読取精度と処理時間・peak child RSSを別々に評価する。
 - 未使用・held-out画像群で、読取coverage、CER、位置対応、確定回答の誤昇格率を評価する。
 - 上記1問に加え、値競合、欠落範囲、複数集計候補、`SUM`以外の数式、OCRのみの表を含むend-to-end質問評価を拡張する。
 

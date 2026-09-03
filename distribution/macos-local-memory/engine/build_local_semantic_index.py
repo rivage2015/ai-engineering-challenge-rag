@@ -35,6 +35,7 @@ RELATION_STATUSES = {"proposed", "verified", "rejected"}
 EXPLICIT_STRUCTURAL_PRODUCERS = {
     ("intermediate-record-extractor", "0.7.0", "native containment"),
     ("intermediate-record-extractor", "0.8.0", "native containment"),
+    ("intermediate-record-extractor", "0.9.0", "native containment"),
 }
 # ChartTable containment remains fail-closed until it has its own source-bound
 # reconstruction contract; a producer-name allowlist alone is not attestation.

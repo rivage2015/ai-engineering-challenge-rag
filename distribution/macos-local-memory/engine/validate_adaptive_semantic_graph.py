@@ -41,6 +41,7 @@ LINEAGE_VALIDATION_FILE = "semantic-lineage-validation.json"
 NATIVE_STRUCTURAL_PRODUCERS = {
     ("intermediate-record-extractor", "0.7.0"),
     ("intermediate-record-extractor", "0.8.0"),
+    ("intermediate-record-extractor", "0.9.0"),
 }
 NATIVE_STRUCTURAL_RULE = "native containment"
 QUESTION_SHARD_KEYS = {

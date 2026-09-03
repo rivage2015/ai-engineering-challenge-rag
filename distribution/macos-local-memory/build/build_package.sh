@@ -31,11 +31,13 @@ cp \
   "$ROOT/scripts/lexical_search_common.py" \
   "$ROOT/scripts/adapt_layer1_to_local_memory.py" \
   "$ROOT/scripts/local_image_ocr.py" \
+  "$ROOT/scripts/local_paddle_ocr.py" \
   "$ROOT/scripts/extract_ocr_observations.py" \
   "$ROOT/scripts/classify_visual_assets.py" \
   "$ROOT/scripts/validate_ocr_observations.py" \
   "$ROOT/scripts/validate_visual_classifications.py" \
   "$ROOT/scripts/ollama_embedding_common.py" \
+  "$ROOT/scripts/image_canonicalizer.swift" \
   "$ROOT/scripts/apple_vision_ocr.swift" \
   "$RESOURCES/engine/layer1/scripts/"
 cp \
@@ -46,6 +48,10 @@ cp \
   "$ROOT/schemas/ocr-observation.schema.json" \
   "$ROOT/schemas/visual-classification.schema.json" \
   "$RESOURCES/engine/layer1/schemas/"
+cp \
+  "$SOURCE/paddleocr-requirements.lock.txt" \
+  "$SOURCE/paddleocr-model-manifest.json" \
+  "$RESOURCES/"
 cp "$SOURCE/docs/はじめにお読みください.md" "$STAGE/導入ガイド/"
 cp "$SOURCE/docs/START-HERE.html" "$STAGE/START-HERE.html"
 chmod +x "$RESOURCES/launch.sh" "$RESOURCES/"*.py "$RESOURCES/engine/"*.py "$RESOURCES/engine/layer1/scripts/"*.py

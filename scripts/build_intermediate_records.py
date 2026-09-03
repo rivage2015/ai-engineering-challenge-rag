@@ -36,7 +36,7 @@ SUPPORTED_SUFFIXES = {
 }
 SKIP_DIRECTORY_NAMES = {".git", "__pycache__", ".ipynb_checkpoints", "node_modules"}
 EXTRACTOR = "intermediate-record-extractor"
-EXTRACTOR_VERSION = "0.8.0"
+EXTRACTOR_VERSION = "0.9.0"
 STATE_VERSION = "1"
 STATE_FILE = "build-state.json"
 LOCK_FILE = "build.lock"

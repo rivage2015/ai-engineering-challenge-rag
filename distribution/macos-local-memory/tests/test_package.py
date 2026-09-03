@@ -813,8 +813,19 @@ class PackageTests(unittest.TestCase):
             "validate_intermediate_records.py",
             "validate_intermediate_records_streaming.py",
             "adapt_layer1_to_local_memory.py", "local_image_ocr.py",
+            "local_paddle_ocr.py", "image_canonicalizer.swift",
         ):
             self.assertIn(name, package)
+        for name in (
+            "paddleocr-requirements.lock.txt",
+            "paddleocr-model-manifest.json",
+        ):
+            self.assertIn(name, package)
+        for excluded in (
+            ".venv-paddleocr", ".local-runtime", "wheelhouse", ".whl",
+            "PP-OCRv6_medium_det/", "PP-OCRv6_medium_rec/",
+        ):
+            self.assertNotIn(excluded, package)
         self.assertIn('engine/layer1/scripts', package)
         self.assertTrue((ENGINE / "question_evidence_graph.py").is_file())
         self.assertIn('cp "$SOURCE/engine/"*.py', package)
@@ -825,6 +836,27 @@ class PackageTests(unittest.TestCase):
         ):
             self.assertIn(name, package)
         self.assertIn('engine/layer1/schemas', package)
+
+    def test_packaged_paddle_contract_pins_runtime_and_model_identity(self) -> None:
+        lock = (ROOT / "paddleocr-requirements.lock.txt").read_text(encoding="utf-8")
+        for requirement in (
+            "paddlepaddle==3.3.0",
+            "paddleocr==3.7.0",
+            "paddlex==3.7.0",
+        ):
+            self.assertIn(requirement, lock.splitlines())
+        manifest = json.loads(
+            (ROOT / "paddleocr-model-manifest.json").read_text(encoding="utf-8")
+        )
+        models = {item["name"]: item for item in manifest["models"]}
+        self.assertEqual(
+            models["PP-OCRv6_medium_det"]["manifest_sha256"],
+            "fa0db359feda0ef4ac2cde281d1581cdfca6d64147e78150fdef42d955678081",
+        )
+        self.assertEqual(
+            models["PP-OCRv6_medium_rec"]["manifest_sha256"],
+            "afcfe045967e34462496a245242e05ed1067ec05fd5726093acb1af764f7624b",
+        )
 
     def test_server_binds_loopback_only(self) -> None:
         text = (ROOT / "app" / "local_memory_server.py").read_text(encoding="utf-8")

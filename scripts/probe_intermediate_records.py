@@ -32,7 +32,7 @@ from evidence_text_chunking import (
 
 SCHEMA_VERSION = "0.1"
 EXTRACTOR = "intermediate-record-probe"
-EXTRACTOR_VERSION = "0.5.0"
+EXTRACTOR_VERSION = "0.6.0"
 FORMULA_CACHED_VALUE_STATUS = "stored_in_file_not_recalculated"
 
 PLAIN_TEXT_SUFFIXES = {
@@ -49,6 +49,15 @@ OCR_BBOX_COORDINATE_SYSTEMS = {
     "raw_raster_top_left_normalized_1000",
     "display_oriented_top_left_normalized_1000",
     "source_orientation_1_top_left_normalized_1000",
+}
+OCR_ENGINE_BY_PASS = {
+    "apple_vision_primary": "apple_vision",
+    "apple_vision_literal": "apple_vision",
+    "apple_vision_fast_sparse": "apple_vision",
+    "paddleocr_primary": "paddleocr",
+    "tesseract_psm3": "tesseract",
+    "tesseract_psm6": "tesseract",
+    "tesseract_psm11": "tesseract",
 }
 CODE_SUFFIXES = {".py", ".toml", ".yaml", ".yml", ".sql", ".sh", ".command"}
 DIRECT_TEXT_SUFFIXES = PLAIN_TEXT_SUFFIXES | {".csv", ".tsv", ".json", ".xml", ".ipynb"}
@@ -89,6 +98,140 @@ ALIAS_DATE_PATTERN = re.compile(r"([A-Za-z]{2,})[-_]?((?:20)\d{6})")
 
 def canonical_json(value: Any) -> str:
     return json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+
+
+def ocr_engine(pass_name: object) -> str:
+    if not isinstance(pass_name, str):
+        raise ValueError("OCR provenance pass name is missing")
+    try:
+        return OCR_ENGINE_BY_PASS[pass_name]
+    except KeyError as exc:
+        raise ValueError(f"unsupported OCR provenance pass: {pass_name!r}") from exc
+
+
+def ocr_independence_group(pass_name: object) -> str:
+    return ocr_engine(pass_name)
+
+
+def _ocr_match_text(value: object) -> str:
+    if not isinstance(value, str) or not value.strip():
+        raise ValueError("OCR supporter raw text is missing")
+    return unicodedata.normalize("NFC", value).strip()
+
+
+def _ocr_bbox(value: object) -> list[int]:
+    if (
+        not isinstance(value, list)
+        or len(value) != 4
+        or any(isinstance(item, bool) or not isinstance(item, int) for item in value)
+        or value[0] < 0
+        or value[1] < 0
+        or value[2] <= 0
+        or value[3] <= 0
+        or value[0] + value[2] > 1000
+        or value[1] + value[3] > 1000
+    ):
+        raise ValueError("OCR supporter bbox is invalid")
+    return list(value)
+
+
+def _ocr_overlap(first: list[int], second: list[int]) -> float:
+    left = max(first[0], second[0])
+    top = max(first[1], second[1])
+    right = min(first[0] + first[2], second[0] + second[2])
+    bottom = min(first[1] + first[3], second[1] + second[3])
+    if right <= left or bottom <= top:
+        return 0.0
+    intersection = (right - left) * (bottom - top)
+    smaller = min(first[2] * first[3], second[2] * second[3])
+    return intersection / smaller if smaller else 0.0
+
+
+def validate_ocr_supporters(
+    line: dict[str, Any],
+    provenance: dict[str, Any],
+    *,
+    primary_pass: str,
+    primary_engine: str,
+    primary_group: str,
+    audit_pass: str | None,
+    audit_engine: str | None,
+    audit_group: str | None,
+    agreement_type: str,
+) -> None:
+    """Recompute line agreement from the two raw engine observations."""
+    supporters = provenance.get("supporters")
+    expected_count = 1 if audit_pass is None else 2
+    if not isinstance(supporters, list) or len(supporters) != expected_count:
+        raise ValueError("OCR raw supporters are missing or incomplete")
+    expected = [
+        (
+            primary_pass,
+            primary_engine,
+            primary_group,
+            provenance.get("primary_line_id"),
+            provenance.get("primary_bbox_coordinate_system"),
+            line.get("primary_confidence"),
+        )
+    ]
+    if audit_pass is not None:
+        expected.append((
+            audit_pass,
+            audit_engine,
+            audit_group,
+            provenance.get("audit_line_id"),
+            provenance.get("audit_bbox_coordinate_system"),
+            line.get("audit_confidence"),
+        ))
+    boxes: list[list[int]] = []
+    line_text = _ocr_match_text(line.get("text"))
+    for supporter, contract in zip(supporters, expected):
+        if not isinstance(supporter, dict):
+            raise ValueError("OCR supporter must be an object")
+        pass_name, engine, group, line_id, coordinate_system, confidence = contract
+        if (
+            supporter.get("pass") != pass_name
+            or supporter.get("engine") != engine
+            or supporter.get("independence_group") != group
+            or supporter.get("line_id") != line_id
+            or supporter.get("bbox_coordinate_system") != coordinate_system
+        ):
+            raise ValueError("OCR supporter identity disagrees with provenance")
+        if _ocr_match_text(supporter.get("raw_text")) != line_text:
+            raise ValueError("OCR supporter text does not reproduce the consensus")
+        actual_confidence = supporter.get("confidence")
+        if (
+            isinstance(actual_confidence, bool)
+            or not isinstance(actual_confidence, (int, float))
+            or confidence is None
+            or float(actual_confidence) != float(confidence)
+        ):
+            raise ValueError("OCR supporter confidence disagrees with provenance")
+        boxes.append(_ocr_bbox(supporter.get("bbox")))
+    result_bbox = _ocr_bbox(line.get("bbox"))
+    union = [
+        min(box[0] for box in boxes),
+        min(box[1] for box in boxes),
+        max(box[0] + box[2] for box in boxes),
+        max(box[1] + box[3] for box in boxes),
+    ]
+    union[2] -= union[0]
+    union[3] -= union[1]
+    if result_bbox != union:
+        raise ValueError("OCR consensus bbox does not reproduce the supporter union")
+    claimed_overlap = line.get("overlap")
+    if expected_count == 1:
+        if claimed_overlap != 0.0 or agreement_type != "provisional_single_pass":
+            raise ValueError("single-pass OCR supporter contract is invalid")
+        return
+    recomputed_overlap = _ocr_overlap(boxes[0], boxes[1])
+    if (
+        isinstance(claimed_overlap, bool)
+        or not isinstance(claimed_overlap, (int, float))
+        or abs(float(claimed_overlap) - round(recomputed_overlap, 6)) > 0.000001
+        or recomputed_overlap < 0.5
+    ):
+        raise ValueError("OCR supporter overlap does not reproduce the consensus")
 
 
 def digest_bytes(value: bytes) -> str:
@@ -1674,7 +1817,7 @@ class Probe:
 
     def extract_image(self, path: Path) -> None:
         """Preserve every located reading and distinguish its support tier."""
-        doc = self.add_document(path, "adaptive-local-image-reader-v0.3")
+        doc = self.add_document(path, "adaptive-local-image-reader-v0.5")
         doc_id = doc["document_id"]
         try:
             from local_image_ocr import (
@@ -1719,6 +1862,13 @@ class Probe:
                 "source_sha256": observation["input_sha256"],
                 "image_format": observation["image_format"],
                 "orientation": observation["orientation"],
+                "orientation_source": observation["orientation_source"],
+                "source_dimensions": observation["source_dimensions"],
+                "ocr_input_sha256": observation["ocr_input_sha256"],
+                "ocr_input_dimensions": observation["ocr_input_dimensions"],
+                "ocr_input_orientation": observation["ocr_input_orientation"],
+                "coordinate_frame_policy": observation["coordinate_frame_policy"],
+                "canonicalization": observation["canonicalization"],
                 "ocr_engines": observation["engines"],
                 "independent_ocr_engines": observation["independent_engines"],
                 "unresolved_ocr_line_count": observation["unresolved_count"],
@@ -1749,6 +1899,51 @@ class Probe:
                     raise ValueError("provisional OCR marker is missing or not canonical")
             elif upstream_marker is not None:
                 raise ValueError("high OCR evidence must not carry a provisional marker")
+            provenance = line.get("provenance")
+            if not isinstance(provenance, dict):
+                raise ValueError("OCR observation provenance is missing")
+            primary_pass = provenance.get("primary_pass")
+            primary_engine = ocr_engine(primary_pass)
+            primary_group = ocr_independence_group(primary_pass)
+            if provenance.get("primary_engine") != primary_engine:
+                raise ValueError("OCR primary engine is invalid")
+            if provenance.get("primary_independence_group") != primary_group:
+                raise ValueError("OCR primary independence group is invalid")
+            audit_pass = provenance.get("audit_pass")
+            audit_engine = None
+            audit_group = None
+            if audit_pass is not None:
+                audit_engine = ocr_engine(audit_pass)
+                audit_group = ocr_independence_group(audit_pass)
+                if provenance.get("audit_engine") != audit_engine:
+                    raise ValueError("OCR audit engine is invalid")
+                if provenance.get("audit_independence_group") != audit_group:
+                    raise ValueError("OCR audit independence group is invalid")
+            if agreement_type == "independent_agreement" and (
+                audit_group is None or primary_group == audit_group
+            ):
+                raise ValueError(
+                    "high OCR evidence requires distinct line-level engine groups"
+                )
+            if agreement_type == "same_engine_agreement" and (
+                audit_group is None or primary_group != audit_group
+            ):
+                raise ValueError(
+                    "same-engine OCR evidence requires one line-level engine group"
+                )
+            if agreement_type == "provisional_single_pass" and audit_group is not None:
+                raise ValueError("single-pass OCR evidence must not claim an audit pass")
+            validate_ocr_supporters(
+                line,
+                provenance,
+                primary_pass=primary_pass,
+                primary_engine=primary_engine,
+                primary_group=primary_group,
+                audit_pass=audit_pass,
+                audit_engine=audit_engine,
+                audit_group=audit_group,
+                agreement_type=agreement_type,
+            )
             if quality_tier == "high" and observation["independent_engines"] is not True:
                 raise ValueError("high OCR evidence requires independent engine groups")
             bbox_coordinate_system = line.get("bbox_coordinate_system")
@@ -1791,7 +1986,7 @@ class Probe:
                     "primary_confidence": line["primary_confidence"],
                     "audit_confidence": line["audit_confidence"],
                     "independent_engines": observation["independent_engines"],
-                    "observation_provenance": line.get("provenance", {}),
+                    "observation_provenance": provenance,
                 },
                 method=(
                     "dual_local_ocr_consensus"

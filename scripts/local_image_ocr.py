@@ -13,6 +13,10 @@ import base64
 import hashlib
 import http.client
 import json
+import math
+import os
+import platform
+import shutil
 import stat
 import struct
 import subprocess
@@ -28,9 +32,60 @@ OVERLAP_THRESHOLD = 0.5
 PROVISIONAL_MARKER = "[暫定読取]"
 MAX_IMAGE_BYTES = int(getattr(ocr.contract, "MAX_IMAGE_BYTES", 200 * 1024 * 1024))
 MAX_IMAGE_PIXELS = int(getattr(ocr.contract, "MAX_IMAGE_PIXELS", 50_000_000))
+CANONICALIZER_SOURCE = Path(__file__).with_name("image_canonicalizer.swift")
+CANONICALIZER_RUNNER = "aiec-image-canonicalizer"
+CANONICALIZER_VERSION = "0.1"
+PADDLE_WORKER_SOURCE = Path(__file__).with_name("local_paddle_ocr.py")
+PADDLE_WORKER_RUNNER = "aiec-local-paddle-ocr"
+PADDLE_WORKER_VERSION = "0.1"
+PADDLE_WORKER_SCHEMA_VERSION = "0.1"
+PADDLE_ENGINE_NAME = "paddleocr_ppocrv6_medium_japan"
+PADDLE_ENGINE_VERSION = "PP-OCRv6 medium / PaddleOCR 3.7.0"
+PADDLE_PASS = "paddleocr_primary"
+PADDLE_INDEPENDENCE_GROUP = "paddleocr"
+PADDLE_RUNTIME_LOCK_SHA256 = (
+    "d20aaf7219335bbe016ef7232b3cfd56d409558cd291bfb6b869dd2d4aa8500e"
+)
+PADDLE_NETWORK_SANDBOX = Path("/usr/bin/sandbox-exec")
+PADDLE_NETWORK_PROFILE = "(version 1)(allow default)(deny network*)"
+PADDLE_PACKAGE_VERSIONS = {
+    "paddlepaddle": "3.3.0",
+    "paddleocr": "3.7.0",
+    "paddlex": "3.7.0",
+}
+PADDLE_MODEL_CONTRACTS = {
+    "text_detection": {
+        "name": "PP-OCRv6_medium_det",
+        "algorithm": "sha256(relative_path\\0size\\0file_sha256\\n)",
+        "file_count": 5,
+        "total_bytes": 62_298_334,
+        "manifest_sha256": (
+            "fa0db359feda0ef4ac2cde281d1581cdfca6d64147e78150fdef42d955678081"
+        ),
+    },
+    "text_recognition": {
+        "name": "PP-OCRv6_medium_rec",
+        "algorithm": "sha256(relative_path\\0size\\0file_sha256\\n)",
+        "file_count": 5,
+        "total_bytes": 76_862_530,
+        "manifest_sha256": (
+            "afcfe045967e34462496a245242e05ed1067ec05fd5726093acb1af764f7624b"
+        ),
+    },
+}
+MAX_PADDLE_OUTPUT_BYTES = 8 * 1024 * 1024
 RAW_BBOX_COORDINATE_SYSTEM = "raw_raster_top_left_normalized_1000"
 VISION_BBOX_COORDINATE_SYSTEM = "display_oriented_top_left_normalized_1000"
 ORIENTATION_1_COORDINATE_SYSTEM = "source_orientation_1_top_left_normalized_1000"
+OCR_ENGINE_BY_PASS = {
+    "apple_vision_primary": "apple_vision",
+    "apple_vision_literal": "apple_vision",
+    "apple_vision_fast_sparse": "apple_vision",
+    "tesseract_psm3": "tesseract",
+    "tesseract_psm6": "tesseract",
+    "tesseract_psm11": "tesseract",
+    PADDLE_PASS: PADDLE_INDEPENDENCE_GROUP,
+}
 OLLAMA_HOST = "127.0.0.1"
 OLLAMA_PORT = 11434
 UNLOCATED_TRANSCRIPT_MODEL = "gemma4:12b"
@@ -299,6 +354,632 @@ def read_checked_image_bytes(path: Path) -> bytes:
     return raw
 
 
+def _canonicalizer_target() -> str:
+    machine = platform.machine().lower()
+    if machine in {"arm64", "aarch64"}:
+        architecture = "arm64"
+    elif machine in {"x86_64", "amd64"}:
+        architecture = "x86_64"
+    else:
+        raise RuntimeError(f"unsupported macOS architecture: {machine}")
+    return f"{architecture}-apple-macosx13.0"
+
+
+def _swift_sdk_candidates(xcrun: Path, *, timeout: float) -> list[Path]:
+    """Return local SDK candidates, preferring xcrun's configured SDK."""
+    process = subprocess.run(
+        [str(xcrun), "--sdk", "macosx", "--show-sdk-path"],
+        capture_output=True,
+        text=True,
+        timeout=min(timeout, 30.0),
+        check=False,
+    )
+    candidates: list[Path] = []
+    if process.returncode == 0 and process.stdout.strip():
+        candidates.append(Path(process.stdout.strip()))
+    roots = {candidate.parent for candidate in candidates}
+    roots.add(Path("/Library/Developer/CommandLineTools/SDKs"))
+    for root in roots:
+        if root.is_dir():
+            candidates.extend(sorted(root.glob("MacOSX*.sdk"), reverse=True))
+    unique: list[Path] = []
+    seen: set[Path] = set()
+    for candidate in candidates:
+        try:
+            resolved = candidate.resolve(strict=True)
+        except OSError:
+            continue
+        if resolved.is_dir() and resolved not in seen:
+            seen.add(resolved)
+            unique.append(resolved)
+    if not unique:
+        raise RuntimeError("no local macOS SDK is available for image canonicalization")
+    return unique
+
+
+def _cached_canonicalizer(
+    binary: Path,
+    metadata_path: Path,
+    *,
+    expected: dict[str, Any],
+) -> bool:
+    if binary.is_symlink() or metadata_path.is_symlink():
+        raise ValueError("canonicalizer build cache must not contain symlinks")
+    if not binary.exists() and not metadata_path.exists():
+        return False
+    if not binary.is_file() or not metadata_path.is_file():
+        raise ValueError("canonicalizer build cache is incomplete")
+    try:
+        cached = json.loads(metadata_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise ValueError(f"invalid canonicalizer build metadata: {exc}") from exc
+    binary_sha256 = hashlib.sha256(binary.read_bytes()).hexdigest()
+    if cached != {**expected, "binary_sha256": binary_sha256}:
+        raise ValueError("canonicalizer build metadata or binary hash mismatch")
+    if not os.access(binary, os.X_OK):
+        raise ValueError("cached image canonicalizer is not executable")
+    return True
+
+
+def compile_image_canonicalizer(
+    source: Path,
+    build_dir: Path,
+    *,
+    timeout: float,
+) -> tuple[Path, dict[str, str]]:
+    """Compile the local macOS canonicalizer without downloading dependencies."""
+    if platform.system() != "Darwin":
+        raise RuntimeError("image canonicalization requires macOS")
+    if source.is_symlink() or not source.is_file():
+        raise ValueError("image canonicalizer source must be a regular non-symlink file")
+    source = source.resolve(strict=True)
+    xcrun = Path("/usr/bin/xcrun")
+    if not xcrun.is_file():
+        resolved = shutil.which("xcrun")
+        if not resolved:
+            raise RuntimeError("xcrun is required for local image canonicalization")
+        xcrun = Path(resolved)
+    version_process = subprocess.run(
+        [str(xcrun), "swiftc", "--version"],
+        capture_output=True,
+        text=True,
+        timeout=min(timeout, 30.0),
+        check=False,
+    )
+    if version_process.returncode != 0:
+        raise RuntimeError("cannot query the local Swift compiler")
+    swiftc_version = version_process.stdout.strip()
+    source_sha256 = hashlib.sha256(source.read_bytes()).hexdigest()
+    target = _canonicalizer_target()
+    build_dir.mkdir(mode=0o700, parents=True, exist_ok=True)
+    if build_dir.is_symlink() or not build_dir.is_dir():
+        raise ValueError("canonicalizer build directory must be a real directory")
+
+    failures: list[str] = []
+    for sdk in _swift_sdk_candidates(xcrun, timeout=timeout):
+        identity = {
+            "runner": CANONICALIZER_RUNNER,
+            "runner_version": CANONICALIZER_VERSION,
+            "source_sha256": source_sha256,
+            "swiftc_version": swiftc_version,
+            "target": target,
+            "sdk": str(sdk),
+        }
+        signature = hashlib.sha256(
+            json.dumps(identity, sort_keys=True, separators=(",", ":")).encode("utf-8")
+        ).hexdigest()
+        binary = build_dir / f"image_canonicalizer-{signature[:24]}"
+        metadata_path = binary.with_suffix(".json")
+        expected = {**identity, "build_signature": signature}
+        if _cached_canonicalizer(binary, metadata_path, expected=expected):
+            return binary, identity
+
+        module_cache = build_dir / f"swift-module-cache-{signature[:16]}"
+        if module_cache.is_symlink():
+            raise ValueError("canonicalizer module cache must not be a symlink")
+        module_cache.mkdir(mode=0o700, exist_ok=True)
+        with tempfile.TemporaryDirectory(
+            prefix="aiec-canonicalizer-build-", dir=build_dir
+        ) as temporary:
+            temporary_binary = Path(temporary) / "image_canonicalizer"
+            process = subprocess.run(
+                [
+                    str(xcrun),
+                    "swiftc",
+                    "-module-cache-path",
+                    str(module_cache),
+                    "-sdk",
+                    str(sdk),
+                    "-target",
+                    target,
+                    "-O",
+                    str(source),
+                    "-o",
+                    str(temporary_binary),
+                ],
+                capture_output=True,
+                text=True,
+                timeout=timeout,
+                check=False,
+            )
+            if process.returncode != 0:
+                failures.append(
+                    f"{sdk.name}: "
+                    + (process.stderr.strip() or process.stdout.strip())[:500]
+                )
+                continue
+            if temporary_binary.is_symlink() or not temporary_binary.is_file():
+                failures.append(f"{sdk.name}: swiftc produced no regular binary")
+                continue
+            os.chmod(temporary_binary, 0o755)
+            os.replace(temporary_binary, binary)
+        ocr.atomic_write_json(
+            metadata_path,
+            {
+                **expected,
+                "binary_sha256": hashlib.sha256(binary.read_bytes()).hexdigest(),
+            },
+        )
+        return binary, identity
+    detail = "; ".join(failures) if failures else "no compiler attempt completed"
+    raise RuntimeError(f"image canonicalizer compilation failed: {detail}")
+
+
+def canonicalize_image_bytes(
+    raw: bytes,
+    source_dimensions: dict[str, int],
+    build_dir: Path,
+    *,
+    timeout: float,
+) -> tuple[bytes, dict[str, Any]]:
+    """Bake EXIF orientation and emit one orientation-1, 8-bit sRGB PNG."""
+    binary, build_identity = compile_image_canonicalizer(
+        CANONICALIZER_SOURCE, build_dir, timeout=timeout
+    )
+    with tempfile.TemporaryDirectory(prefix="aiec-image-canonical-") as temporary:
+        output_path = Path(temporary) / "canonical.png"
+        process = subprocess.run(
+            [str(binary), "--output", str(output_path)],
+            input=raw,
+            capture_output=True,
+            timeout=timeout,
+            check=False,
+        )
+        try:
+            payload = json.loads(process.stdout.decode("utf-8"))
+        except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+            raise RuntimeError("image canonicalizer returned invalid JSON") from exc
+        if (
+            process.returncode != 0
+            or not isinstance(payload, dict)
+            or payload.get("status") != "completed"
+        ):
+            detail = payload.get("error") if isinstance(payload, dict) else None
+            raise RuntimeError(str(detail) if detail else "image canonicalization failed")
+        required_identity = {
+            "runner": CANONICALIZER_RUNNER,
+            "runner_version": CANONICALIZER_VERSION,
+            "output_format": "PNG",
+            "color_space": "sRGB",
+            "pixel_format": "RGBA8",
+            "alpha_policy": "flattened_on_white",
+            "canonical_orientation": 1,
+        }
+        if any(payload.get(key) != value for key, value in required_identity.items()):
+            raise RuntimeError("image canonicalizer identity or output contract mismatch")
+        source_width = payload.get("source_width_px")
+        source_height = payload.get("source_height_px")
+        orientation = payload.get("source_orientation")
+        if (
+            source_width != source_dimensions["width_px"]
+            or source_height != source_dimensions["height_px"]
+            or isinstance(orientation, bool)
+            or not isinstance(orientation, int)
+            or orientation not in range(1, 9)
+        ):
+            raise RuntimeError("image canonicalizer source metadata mismatch")
+        canonical_width = payload.get("canonical_width_px")
+        canonical_height = payload.get("canonical_height_px")
+        expected_dimensions = (
+            {"width_px": source_height, "height_px": source_width}
+            if orientation in {5, 6, 7, 8}
+            else {"width_px": source_width, "height_px": source_height}
+        )
+        if {
+            "width_px": canonical_width,
+            "height_px": canonical_height,
+        } != expected_dimensions:
+            raise RuntimeError("image canonicalizer output dimensions are invalid")
+        if output_path.is_symlink() or not output_path.is_file():
+            raise RuntimeError("image canonicalizer did not create a regular PNG")
+        output_size = output_path.stat().st_size
+        if not 0 < output_size <= MAX_IMAGE_BYTES:
+            raise RuntimeError("canonical image exceeds the local OCR safety limit")
+        with output_path.open("rb") as handle:
+            canonical_raw = handle.read(MAX_IMAGE_BYTES + 1)
+        if len(canonical_raw) != output_size:
+            raise RuntimeError("canonical image changed while reading")
+        canonical_metadata = inspect_image_bytes(canonical_raw)
+        if (
+            canonical_metadata["image_format"] != "PNG"
+            or canonical_metadata["orientation"] != 1
+            or canonical_metadata["dimensions"] != expected_dimensions
+        ):
+            raise RuntimeError("canonical PNG failed independent header validation")
+        return canonical_raw, {
+            "status": "completed",
+            "method": "coregraphics_imageio_exif_srgb_png",
+            "runner": CANONICALIZER_RUNNER,
+            "runner_version": CANONICALIZER_VERSION,
+            "source_orientation": orientation,
+            "source_dimensions": dict(source_dimensions),
+            "canonical_orientation": 1,
+            "canonical_dimensions": expected_dimensions,
+            "canonical_sha256": hashlib.sha256(canonical_raw).hexdigest(),
+            "format": "PNG",
+            "color_space": "sRGB",
+            "pixel_format": "RGBA8",
+            "alpha_policy": "flattened_on_white",
+            "source_sha256": hashlib.sha256(raw).hexdigest(),
+            "build": build_identity,
+        }
+
+
+def _paddle_runtime_candidates() -> list[tuple[str, Path, Path]]:
+    repository_root = Path(__file__).resolve().parents[1]
+    app_runtime = (
+        Path.home()
+        / "Library"
+        / "Application Support"
+        / "LocalMemorySearch"
+        / "paddleocr"
+    )
+    candidates: list[tuple[str, Path, Path]] = []
+    configured_python = os.environ.get("AIEC_PADDLE_PYTHON")
+    configured_models = os.environ.get("AIEC_PADDLE_MODEL_ROOT")
+    if bool(configured_python) != bool(configured_models):
+        raise ValueError(
+            "AIEC_PADDLE_PYTHON and AIEC_PADDLE_MODEL_ROOT must be set together"
+        )
+    if configured_python and configured_models:
+        candidates.append((
+            "environment",
+            Path(configured_python),
+            Path(configured_models),
+        ))
+    candidates.extend([
+        (
+            "repository_local",
+            repository_root / ".venv-paddleocr" / "bin" / "python",
+            repository_root
+            / ".local-runtime"
+            / "paddleocr"
+            / "paddlex-cache",
+        ),
+        (
+            "application_support",
+            app_runtime / "venv" / "bin" / "python",
+            app_runtime / "paddlex-cache",
+        ),
+    ])
+    return candidates
+
+
+def _resolve_paddle_runtime_lock() -> Path:
+    repository_root = Path(__file__).resolve().parents[1]
+    candidates = [
+        repository_root
+        / "distribution"
+        / "macos-local-memory"
+        / "paddleocr-requirements.lock.txt",
+        *(ancestor / "paddleocr-requirements.lock.txt"
+          for ancestor in PADDLE_WORKER_SOURCE.resolve().parents),
+    ]
+    seen: set[Path] = set()
+    for candidate in candidates:
+        if candidate in seen:
+            continue
+        seen.add(candidate)
+        if candidate.is_symlink() or not candidate.is_file():
+            continue
+        resolved = candidate.resolve(strict=True)
+        if hashlib.sha256(resolved.read_bytes()).hexdigest() != PADDLE_RUNTIME_LOCK_SHA256:
+            continue
+        return resolved
+    raise FileNotFoundError("approved PaddleOCR runtime lock is unavailable")
+
+
+def resolve_paddle_runtime() -> dict[str, Any]:
+    """Resolve only an explicit or known local Paddle runtime; never download."""
+    if PADDLE_WORKER_SOURCE.is_symlink() or not PADDLE_WORKER_SOURCE.is_file():
+        raise FileNotFoundError("local PaddleOCR worker source is unavailable")
+    worker = PADDLE_WORKER_SOURCE.resolve(strict=True)
+    if platform.system() != "Darwin":
+        raise FileNotFoundError("PaddleOCR no-network runtime requires macOS")
+    if (
+        PADDLE_NETWORK_SANDBOX.is_symlink()
+        or not PADDLE_NETWORK_SANDBOX.is_file()
+        or not os.access(PADDLE_NETWORK_SANDBOX, os.X_OK)
+    ):
+        raise FileNotFoundError("macOS network-denial launcher is unavailable")
+    runtime_lock = _resolve_paddle_runtime_lock()
+    failures: list[str] = []
+    for source, python_path, model_root in _paddle_runtime_candidates():
+        if not python_path.exists() or not model_root.exists():
+            failures.append(f"{source}:missing")
+            continue
+        try:
+            # Keep the venv launcher path intact.  Resolving its normal
+            # ``bin/python -> python3.12 -> base interpreter`` symlink chain
+            # would bypass pyvenv.cfg and silently lose the pinned packages.
+            # We still resolve and validate the final executable target below.
+            python_target = python_path.resolve(strict=True)
+            models = model_root.resolve(strict=True)
+        except OSError:
+            failures.append(f"{source}:unresolvable")
+            continue
+        if (
+            not python_path.is_file()
+            or not python_target.is_file()
+            or not os.access(python_path, os.X_OK)
+        ):
+            failures.append(f"{source}:python_not_executable")
+            continue
+        if model_root.is_symlink() or not models.is_dir():
+            failures.append(f"{source}:model_root_invalid")
+            continue
+        return {
+            "source": source,
+            "python": python_path.absolute(),
+            "python_target": python_target,
+            "worker": worker,
+            "model_root": models,
+            "runtime_lock": runtime_lock,
+            "network_sandbox": PADDLE_NETWORK_SANDBOX,
+            "network_profile": PADDLE_NETWORK_PROFILE,
+        }
+    raise FileNotFoundError(
+        "verified local PaddleOCR runtime is unavailable ("
+        + ", ".join(failures)
+        + ")"
+    )
+
+
+def _reject_duplicate_json_keys(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
+    value: dict[str, Any] = {}
+    for key, item in pairs:
+        if key in value:
+            raise ValueError(f"duplicate PaddleOCR worker JSON key: {key!r}")
+        value[key] = item
+    return value
+
+
+def _validated_paddle_lines(value: Any) -> list[dict[str, Any]]:
+    if not isinstance(value, list) or len(value) > 100_000:
+        raise RuntimeError("PaddleOCR worker lines are invalid")
+    lines: list[dict[str, Any]] = []
+    seen_ids: set[str] = set()
+    for sequence, line in enumerate(value, 1):
+        if not isinstance(line, dict):
+            raise RuntimeError("PaddleOCR worker line must be an object")
+        line_id = line.get("line_id")
+        raw_text = line.get("raw_text")
+        bbox = line.get("bbox")
+        confidence = line.get("confidence")
+        if (
+            not isinstance(line_id, str)
+            or not line_id
+            or line_id in seen_ids
+            or line.get("sequence") != sequence
+            or not isinstance(raw_text, str)
+            or not raw_text
+            or len(raw_text) > 32_000
+            or not isinstance(bbox, list)
+            or len(bbox) != 4
+            or any(isinstance(item, bool) or not isinstance(item, int) for item in bbox)
+            or bbox[0] < 0
+            or bbox[1] < 0
+            or bbox[2] <= 0
+            or bbox[3] <= 0
+            or bbox[0] + bbox[2] > 1000
+            or bbox[1] + bbox[3] > 1000
+            or isinstance(confidence, bool)
+            or not isinstance(confidence, (int, float))
+            or not 0 <= float(confidence) <= 1
+        ):
+            raise RuntimeError("PaddleOCR worker line violates the closed contract")
+        seen_ids.add(line_id)
+        lines.append({
+            "line_id": line_id,
+            "sequence": sequence,
+            "raw_text": raw_text,
+            "bbox": list(bbox),
+            "confidence": float(confidence),
+        })
+    return lines
+
+
+def _run_paddle_ocr(
+    runtime: dict[str, Any],
+    raw: bytes,
+    dimensions: dict[str, int],
+    *,
+    timeout: float,
+) -> tuple[
+    str,
+    list[dict[str, Any]],
+    list[str],
+    str | None,
+    dict[str, Any] | None,
+    dict[str, Any] | None,
+]:
+    """Run the network-denied Paddle worker in its isolated Python 3.12."""
+    with tempfile.TemporaryDirectory(prefix="aiec-local-paddle-ocr-") as temporary:
+        temporary_root = Path(temporary)
+        input_path = temporary_root / "input.png"
+        output_path = temporary_root / "result.json"
+        input_path.write_bytes(raw)
+        os.chmod(input_path, 0o600)
+        environment = {
+            "HOME": str(Path.home()),
+            "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
+            "TMPDIR": tempfile.gettempdir(),
+            "PYTHONNOUSERSITE": "1",
+            "PYTHONDONTWRITEBYTECODE": "1",
+            "PADDLE_PDX_DISABLE_MODEL_SOURCE_CHECK": "1",
+            "HF_HUB_OFFLINE": "1",
+            "TRANSFORMERS_OFFLINE": "1",
+            "HF_DATASETS_OFFLINE": "1",
+        }
+        process = subprocess.run(
+            [
+                str(runtime["network_sandbox"]),
+                "-p",
+                str(runtime["network_profile"]),
+                str(runtime["python"]),
+                str(runtime["worker"]),
+                "--input",
+                str(input_path),
+                "--output",
+                str(output_path),
+                "--model-root",
+                str(runtime["model_root"]),
+                "--runtime-lock",
+                str(runtime["runtime_lock"]),
+            ],
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            env=environment,
+            timeout=timeout,
+            check=False,
+        )
+        if output_path.is_symlink() or not output_path.is_file():
+            raise RuntimeError(
+                f"local PaddleOCR worker produced no result (exit {process.returncode})"
+            )
+        output_size = output_path.stat().st_size
+        if not 0 < output_size <= MAX_PADDLE_OUTPUT_BYTES:
+            raise RuntimeError("local PaddleOCR worker result exceeds the safety limit")
+        raw_output = output_path.read_bytes()
+        if len(raw_output) != output_size:
+            raise RuntimeError("local PaddleOCR worker result changed while reading")
+    try:
+        payload = json.loads(
+            raw_output.decode("utf-8"),
+            object_pairs_hook=_reject_duplicate_json_keys,
+        )
+    except (UnicodeDecodeError, json.JSONDecodeError, ValueError) as exc:
+        raise RuntimeError("local PaddleOCR worker returned invalid JSON") from exc
+    if (
+        not isinstance(payload, dict)
+        or payload.get("schema_version") != PADDLE_WORKER_SCHEMA_VERSION
+        or payload.get("runner") != PADDLE_WORKER_RUNNER
+        or payload.get("runner_version") != PADDLE_WORKER_VERSION
+        or payload.get("external_network_used") is not False
+        or payload.get("downloads_performed") is not False
+    ):
+        raise RuntimeError("local PaddleOCR worker identity or offline contract failed")
+    status = payload.get("status")
+    expected_code = 1 if status == "failed" else 0
+    if status not in {"completed", "needs_review", "failed"}:
+        raise RuntimeError("local PaddleOCR worker status is invalid")
+    if process.returncode != expected_code:
+        raise RuntimeError("local PaddleOCR worker exit status disagrees with its result")
+    if status == "failed":
+        error = payload.get("error")
+        detail = (
+            f"{error.get('type')}: {error.get('message')}"
+            if isinstance(error, dict)
+            else "local PaddleOCR worker failed"
+        )
+        return status, [], [], detail[:1000], None, None
+    input_metadata = payload.get("input")
+    if input_metadata != {
+        "sha256": hashlib.sha256(raw).hexdigest(),
+        "width_px": dimensions["width_px"],
+        "height_px": dimensions["height_px"],
+    }:
+        raise RuntimeError("local PaddleOCR worker input identity mismatch")
+    engine = payload.get("engine")
+    if (
+        not isinstance(engine, dict)
+        or engine.get("name") != PADDLE_ENGINE_NAME
+        or engine.get("version") != PADDLE_ENGINE_VERSION
+        or engine.get("pass") != PADDLE_PASS
+        or engine.get("independence_group") != PADDLE_INDEPENDENCE_GROUP
+        or not isinstance(engine.get("fingerprint_sha256"), str)
+        or len(engine["fingerprint_sha256"]) != 64
+    ):
+        raise RuntimeError("local PaddleOCR worker engine identity mismatch")
+    fingerprint = engine["fingerprint_sha256"]
+    fingerprint_payload = dict(engine)
+    fingerprint_payload.pop("fingerprint_sha256")
+    expected_fingerprint = hashlib.sha256(
+        json.dumps(
+            fingerprint_payload,
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+        ).encode("utf-8")
+    ).hexdigest()
+    expected_packages = {
+        name: {"version": version}
+        for name, version in PADDLE_PACKAGE_VERSIONS.items()
+    }
+    runtime_metadata = engine.get("runtime")
+    runtime_settings = (
+        runtime_metadata.get("settings")
+        if isinstance(runtime_metadata, dict) else None
+    )
+    offline_environment = (
+        runtime_metadata.get("offline_environment")
+        if isinstance(runtime_metadata, dict) else None
+    )
+    if (
+        fingerprint != expected_fingerprint
+        or engine.get("packages") != expected_packages
+        or engine.get("models") != PADDLE_MODEL_CONTRACTS
+        or engine.get("runtime_lock") != {
+            "sha256": PADDLE_RUNTIME_LOCK_SHA256,
+            "package_count": 72,
+            "fully_matched": True,
+        }
+        or not isinstance(runtime_metadata, dict)
+        or not isinstance(runtime_settings, dict)
+        or not isinstance(offline_environment, dict)
+        or runtime_metadata.get("model_download_permitted") is not False
+        or runtime_metadata.get("network_guard")
+        != "python_af_inet_and_af_inet6_denied"
+        or runtime_settings.get("device") != "cpu"
+        or runtime_settings.get("engine") != "paddle_static"
+        or offline_environment.get("PADDLE_PDX_DISABLE_MODEL_SOURCE_CHECK") != "1"
+        or offline_environment.get("HF_HUB_OFFLINE") != "1"
+    ):
+        raise RuntimeError("local PaddleOCR worker engine contract mismatch")
+    warnings = payload.get("warnings")
+    timing = payload.get("timing")
+    if (
+        not isinstance(warnings, list)
+        or any(not isinstance(item, str) for item in warnings)
+        or not isinstance(timing, dict)
+        or any(
+            isinstance(timing.get(name), bool)
+            or not isinstance(timing.get(name), (int, float))
+            or not math.isfinite(float(timing[name]))
+            or timing[name] < 0
+            for name in ("setup_ms", "inference_ms")
+        )
+    ):
+        raise RuntimeError("local PaddleOCR worker metadata is invalid")
+    lines = _validated_paddle_lines(payload.get("lines"))
+    if status == "completed" and not lines:
+        raise RuntimeError("completed PaddleOCR worker result has no lines")
+    if status == "needs_review" and lines:
+        raise RuntimeError("needs-review PaddleOCR worker result unexpectedly has lines")
+    return status, lines, warnings, None, engine, timing
+
+
 def _overlap(first: list[int], second: list[int]) -> float:
     left = max(first[0], second[0])
     top = max(first[1], second[1])
@@ -418,11 +1099,24 @@ def _run_vision_pass(
 
 
 def _pass_coordinate_system(pass_name: str) -> str:
-    if pass_name.startswith("apple_vision_"):
+    engine = _pass_engine(pass_name)
+    if engine == "apple_vision":
         return VISION_BBOX_COORDINATE_SYSTEM
-    if pass_name.startswith("tesseract_"):
+    if engine in {"tesseract", PADDLE_INDEPENDENCE_GROUP}:
         return RAW_BBOX_COORDINATE_SYSTEM
     raise ValueError(f"unknown OCR pass coordinate system: {pass_name!r}")
+
+
+def _pass_engine(pass_name: str) -> str:
+    try:
+        return OCR_ENGINE_BY_PASS[pass_name]
+    except KeyError as exc:
+        raise ValueError(f"unknown OCR pass engine: {pass_name!r}") from exc
+
+
+def _pass_independence_group(pass_name: str) -> str:
+    """Derive independence from the engine, never from a retry/pass label."""
+    return _pass_engine(pass_name)
 
 
 def _consistent_vision_orientation(
@@ -437,15 +1131,34 @@ def _consistent_vision_orientation(
     return candidate
 
 
+def _line_supporter(
+    line: dict[str, Any],
+    *,
+    pass_name: str,
+    coordinate_system: str,
+) -> dict[str, Any]:
+    return {
+        "pass": pass_name,
+        "engine": _pass_engine(pass_name),
+        "independence_group": _pass_independence_group(pass_name),
+        "line_id": line.get("line_id"),
+        "raw_text": line["raw_text"],
+        "bbox": list(line["bbox"]),
+        "bbox_coordinate_system": coordinate_system,
+        "confidence": line.get("confidence"),
+    }
+
+
 def _supported_line(
     primary_line: dict[str, Any],
     audit_line: dict[str, Any],
     overlap: float,
     *,
-    agreement_type: str,
     primary_pass: str,
     audit_pass: str,
     comparison_coordinate_system: str,
+    primary_coordinate_system: str | None = None,
+    audit_coordinate_system: str | None = None,
 ) -> dict[str, Any]:
     x = min(primary_line["bbox"][0], audit_line["bbox"][0])
     y = min(primary_line["bbox"][1], audit_line["bbox"][1])
@@ -457,9 +1170,20 @@ def _supported_line(
         primary_line["bbox"][1] + primary_line["bbox"][3],
         audit_line["bbox"][1] + audit_line["bbox"][3],
     )
-    quality_tier = (
-        "high" if agreement_type == "independent_agreement" else "provisional"
+    primary_engine = _pass_engine(primary_pass)
+    audit_engine = _pass_engine(audit_pass)
+    primary_group = _pass_independence_group(primary_pass)
+    audit_group = _pass_independence_group(audit_pass)
+    agreement_type = (
+        "independent_agreement"
+        if primary_group != audit_group
+        else "same_engine_agreement"
     )
+    quality_tier = "high" if agreement_type == "independent_agreement" else "provisional"
+    primary_coordinate_system = (
+        primary_coordinate_system or _pass_coordinate_system(primary_pass)
+    )
+    audit_coordinate_system = audit_coordinate_system or _pass_coordinate_system(audit_pass)
     result = {
         "text": _normalized(primary_line["raw_text"]),
         "bbox": [x, y, right - x, bottom - y],
@@ -472,11 +1196,27 @@ def _supported_line(
         "provenance": {
             "primary_pass": primary_pass,
             "audit_pass": audit_pass,
+            "primary_engine": primary_engine,
+            "audit_engine": audit_engine,
+            "primary_independence_group": primary_group,
+            "audit_independence_group": audit_group,
             "primary_line_id": primary_line.get("line_id"),
             "audit_line_id": audit_line.get("line_id"),
-            "primary_bbox_coordinate_system": _pass_coordinate_system(primary_pass),
-            "audit_bbox_coordinate_system": _pass_coordinate_system(audit_pass),
+            "primary_bbox_coordinate_system": primary_coordinate_system,
+            "audit_bbox_coordinate_system": audit_coordinate_system,
             "comparison_coordinate_system": comparison_coordinate_system,
+            "supporters": [
+                _line_supporter(
+                    primary_line,
+                    pass_name=primary_pass,
+                    coordinate_system=primary_coordinate_system,
+                ),
+                _line_supporter(
+                    audit_line,
+                    pass_name=audit_pass,
+                    coordinate_system=audit_coordinate_system,
+                ),
+            ],
         },
     }
     if quality_tier == "provisional":
@@ -488,10 +1228,11 @@ def _match_lines(
     primary_lines: list[dict[str, Any]],
     audit_lines: list[dict[str, Any]],
     *,
-    agreement_type: str,
     primary_pass: str,
     audit_pass: str,
     comparison_coordinate_system: str,
+    primary_coordinate_system: str | None = None,
+    audit_coordinate_system: str | None = None,
     blocked_primary: set[int] | None = None,
     blocked_audit: set[int] | None = None,
 ) -> tuple[list[dict[str, Any]], set[int], set[int]]:
@@ -517,10 +1258,11 @@ def _match_lines(
             primary_line,
             audit_line,
             overlap,
-            agreement_type=agreement_type,
             primary_pass=primary_pass,
             audit_pass=audit_pass,
             comparison_coordinate_system=comparison_coordinate_system,
+            primary_coordinate_system=primary_coordinate_system,
+            audit_coordinate_system=audit_coordinate_system,
         ))
     return matches, used_primary, used_audit
 
@@ -530,12 +1272,16 @@ def _provisional_line(
     *,
     pass_name: str,
     reason: str,
+    coordinate_system: str | None = None,
 ) -> dict[str, Any]:
     """Preserve a located reading without implying cross-pass agreement."""
+    engine = _pass_engine(pass_name)
+    independence_group = _pass_independence_group(pass_name)
+    coordinate_system = coordinate_system or _pass_coordinate_system(pass_name)
     return {
         "text": _normalized(line["raw_text"]),
         "bbox": list(line["bbox"]),
-        "bbox_coordinate_system": _pass_coordinate_system(pass_name),
+        "bbox_coordinate_system": coordinate_system,
         "overlap": 0.0,
         "primary_confidence": line.get("confidence"),
         "audit_confidence": None,
@@ -544,9 +1290,18 @@ def _provisional_line(
         "provisional_marker": PROVISIONAL_MARKER,
         "provenance": {
             "primary_pass": pass_name,
+            "primary_engine": engine,
+            "primary_independence_group": independence_group,
             "primary_line_id": line.get("line_id"),
-            "primary_bbox_coordinate_system": _pass_coordinate_system(pass_name),
+            "primary_bbox_coordinate_system": coordinate_system,
             "reason": reason,
+            "supporters": [
+                _line_supporter(
+                    line,
+                    pass_name=pass_name,
+                    coordinate_system=coordinate_system,
+                )
+            ],
         },
     }
 
@@ -602,21 +1357,81 @@ def _is_represented(
     )
 
 
-def extract(path: Path, *, timeout: float = 180.0) -> dict[str, Any]:
+def extract(
+    path: Path,
+    *,
+    timeout: float = 180.0,
+    canonicalize: bool = True,
+    allow_paddle: bool = True,
+    allow_vlm: bool = True,
+) -> dict[str, Any]:
     """Return located high-quality and provisional local OCR observations."""
     raw = read_checked_image_bytes(path)
     metadata = inspect_image_bytes(raw)
-    dimensions = metadata["dimensions"]
+    source_dimensions = dict(metadata["dimensions"])
+    dimensions = dict(source_dimensions)
     image_format = metadata["image_format"]
     orientation = metadata["orientation"]
+    orientation_source = "header_default"
     vision_orientation: int | None = None
 
-    cache = Path(tempfile.gettempdir()) / "aiec-intermediate-image-ocr-v0.2"
+    cache = Path(tempfile.gettempdir()) / "aiec-intermediate-image-ocr-v0.4"
     cache.mkdir(mode=0o700, parents=True, exist_ok=True)
-    build_dir = ocr.ensure_cache_subdirectory(cache, "_vision_build")
-
     engines: dict[str, dict[str, Any]] = {}
     reader_warnings: list[str] = []
+    ocr_raw = raw
+    canonicalization: dict[str, Any] = {
+        "status": "disabled",
+        "method": None,
+        "source_sha256": hashlib.sha256(raw).hexdigest(),
+        "source_dimensions": source_dimensions,
+        "source_orientation": None,
+        "canonical_sha256": None,
+        "canonical_dimensions": None,
+        "canonical_orientation": None,
+        "feature_enabled": bool(canonicalize),
+    }
+    if canonicalize:
+        try:
+            canonical_build_dir = ocr.ensure_cache_subdirectory(
+                cache, "_canonicalizer_build"
+            )
+            ocr_raw, canonicalization = canonicalize_image_bytes(
+                raw,
+                source_dimensions,
+                canonical_build_dir,
+                timeout=timeout,
+            )
+            canonicalization["feature_enabled"] = True
+            dimensions = dict(canonicalization["canonical_dimensions"])
+            orientation = canonicalization["source_orientation"]
+            orientation_source = "imageio_canonicalizer"
+        except Exception as exc:
+            canonicalization.update({
+                "status": "failed",
+                "failure_type": type(exc).__name__,
+                "failure": str(exc)[:500],
+            })
+            reader_warnings.append(
+                "image canonicalization failed; raw OCR remains provisional: "
+                f"{type(exc).__name__}: {exc}"
+            )
+    canonicalized = canonicalization["status"] == "completed"
+    ocr_input_sha256 = hashlib.sha256(ocr_raw).hexdigest()
+    vision_coordinate_system = (
+        ORIENTATION_1_COORDINATE_SYSTEM
+        if canonicalized else VISION_BBOX_COORDINATE_SYSTEM
+    )
+    tesseract_coordinate_system = (
+        ORIENTATION_1_COORDINATE_SYSTEM
+        if canonicalized else RAW_BBOX_COORDINATE_SYSTEM
+    )
+    paddle_coordinate_system = (
+        ORIENTATION_1_COORDINATE_SYSTEM
+        if canonicalized else RAW_BBOX_COORDINATE_SYSTEM
+    )
+    build_dir = ocr.ensure_cache_subdirectory(cache, "_vision_build")
+
     vision: Path | None = None
     primary_status, primary_lines, primary_warnings = "unavailable", [], []
     try:
@@ -636,12 +1451,18 @@ def extract(path: Path, *, timeout: float = 180.0) -> dict[str, Any]:
                 _,
                 pass_orientation,
             ) = _run_vision_pass(
-                vision, raw, dimensions, pass_name="primary", timeout=timeout
+                vision, ocr_raw, dimensions, pass_name="primary", timeout=timeout
             )
+            if canonicalized and pass_orientation != 1:
+                raise RuntimeError(
+                    "Apple Vision did not observe orientation 1 for canonical input"
+                )
             vision_orientation = _consistent_vision_orientation(
                 vision_orientation, pass_orientation
             )
-            orientation = vision_orientation
+            if not canonicalized:
+                orientation = vision_orientation
+                orientation_source = "apple_vision_imageio"
         except Exception as exc:
             primary_status, primary_lines = "failed", []
             primary_warnings = [
@@ -657,7 +1478,8 @@ def extract(path: Path, *, timeout: float = 180.0) -> dict[str, Any]:
         "layout": "accurate_language_corrected",
         "trigger": "always",
         "source_orientation": vision_orientation,
-        "bbox_coordinate_system": VISION_BBOX_COORDINATE_SYSTEM,
+        "bbox_coordinate_system": vision_coordinate_system,
+        "input_sha256": ocr_input_sha256,
     }
 
     tesseract: Path | None = None
@@ -665,7 +1487,7 @@ def extract(path: Path, *, timeout: float = 180.0) -> dict[str, Any]:
     try:
         tesseract = ocr.verify_tesseract("tesseract", timeout=timeout)
         audit_status, audit_lines, audit_warnings, _ = _run_tesseract_psm(
-            tesseract, raw, dimensions, psm=3, timeout=timeout
+            tesseract, ocr_raw, dimensions, psm=3, timeout=timeout
         )
     except Exception as exc:
         audit_warnings = [
@@ -682,19 +1504,23 @@ def extract(path: Path, *, timeout: float = 180.0) -> dict[str, Any]:
         "pass": "psm3",
         "layout": "automatic_page_segmentation",
         "trigger": "independent_verification",
-        "source_orientation": orientation,
-        "bbox_coordinate_system": RAW_BBOX_COORDINATE_SYSTEM,
+        "source_orientation": 1 if canonicalized else orientation,
+        "bbox_coordinate_system": tesseract_coordinate_system,
+        "input_sha256": ocr_input_sha256,
     }
 
-    cross_engine_spatial_comparison = vision_orientation == 1
+    cross_engine_spatial_comparison = (
+        canonicalized or (not canonicalize and vision_orientation == 1)
+    )
     if cross_engine_spatial_comparison:
         consensus, used_primary, used_psm3 = _match_lines(
             primary_lines,
             audit_lines,
-            agreement_type="independent_agreement",
             primary_pass="apple_vision_primary",
             audit_pass="tesseract_psm3",
             comparison_coordinate_system=ORIENTATION_1_COORDINATE_SYSTEM,
+            primary_coordinate_system=vision_coordinate_system,
+            audit_coordinate_system=tesseract_coordinate_system,
         )
     else:
         consensus, used_primary, used_psm3 = [], set(), set()
@@ -718,12 +1544,18 @@ def extract(path: Path, *, timeout: float = 180.0) -> dict[str, Any]:
                 _,
                 pass_orientation,
             ) = _run_vision_pass(
-                vision, raw, dimensions, pass_name=retry_name, timeout=timeout
+                vision, ocr_raw, dimensions, pass_name=retry_name, timeout=timeout
             )
+            if canonicalized and pass_orientation != 1:
+                raise RuntimeError(
+                    "Apple Vision did not observe orientation 1 for canonical input"
+                )
             vision_orientation = _consistent_vision_orientation(
                 vision_orientation, pass_orientation
             )
-            orientation = vision_orientation
+            if not canonicalized:
+                orientation = vision_orientation
+                orientation_source = "apple_vision_imageio"
         except Exception as exc:
             retry_status, retry_lines = "failed", []
             retry_warnings = [
@@ -745,10 +1577,15 @@ def extract(path: Path, *, timeout: float = 180.0) -> dict[str, Any]:
             "source_orientation": (
                 pass_orientation if retry_status != "failed" else None
             ),
-            "bbox_coordinate_system": VISION_BBOX_COORDINATE_SYSTEM,
+            "bbox_coordinate_system": vision_coordinate_system,
+            "input_sha256": ocr_input_sha256,
         }
-    cross_engine_spatial_comparison = vision_orientation == 1
-    engines["tesseract_psm3"]["source_orientation"] = orientation
+    cross_engine_spatial_comparison = (
+        canonicalized or (not canonicalize and vision_orientation == 1)
+    )
+    engines["tesseract_psm3"]["source_orientation"] = (
+        1 if canonicalized else orientation
+    )
 
     psm6_lines: list[dict[str, Any]] = []
     need_psm6 = (
@@ -762,7 +1599,7 @@ def extract(path: Path, *, timeout: float = 180.0) -> dict[str, Any]:
     if need_psm6:
         try:
             psm6_status, psm6_lines, psm6_warnings, _ = _run_tesseract_psm(
-                tesseract, raw, dimensions, psm=6, timeout=timeout
+                tesseract, ocr_raw, dimensions, psm=6, timeout=timeout
             )
         except Exception as exc:
             psm6_status, psm6_lines = "failed", []
@@ -778,18 +1615,20 @@ def extract(path: Path, *, timeout: float = 180.0) -> dict[str, Any]:
             "pass": "psm6",
             "layout": "single_uniform_block",
             "trigger": "psm3_empty_or_unmatched_lines",
-            "source_orientation": orientation,
-            "bbox_coordinate_system": RAW_BBOX_COORDINATE_SYSTEM,
+            "source_orientation": 1 if canonicalized else orientation,
+            "bbox_coordinate_system": tesseract_coordinate_system,
+            "input_sha256": ocr_input_sha256,
         }
 
     if psm6_lines and cross_engine_spatial_comparison:
         additions, used_primary, used_psm6 = _match_lines(
             primary_lines,
             psm6_lines,
-            agreement_type="independent_agreement",
             primary_pass="apple_vision_primary",
             audit_pass="tesseract_psm6",
             comparison_coordinate_system=ORIENTATION_1_COORDINATE_SYSTEM,
+            primary_coordinate_system=vision_coordinate_system,
+            audit_coordinate_system=tesseract_coordinate_system,
             blocked_primary=used_primary,
         )
         _append_unique(consensus, additions)
@@ -806,10 +1645,11 @@ def extract(path: Path, *, timeout: float = 180.0) -> dict[str, Any]:
             additions, retry_used, blocked_audit = _match_lines(
                 retry_lines,
                 independent_lines,
-                agreement_type="independent_agreement",
                 primary_pass=f"apple_vision_{retry_name}",
                 audit_pass=audit_pass,
                 comparison_coordinate_system=ORIENTATION_1_COORDINATE_SYSTEM,
+                primary_coordinate_system=vision_coordinate_system,
+                audit_coordinate_system=tesseract_coordinate_system,
                 blocked_primary=retry_used,
                 blocked_audit=blocked_audit,
             )
@@ -819,6 +1659,204 @@ def extract(path: Path, *, timeout: float = 180.0) -> dict[str, Any]:
                 used_psm6 = blocked_audit
             _append_unique(consensus, additions)
 
+    pre_psm11_sources = [
+        (primary_lines, vision_coordinate_system),
+        (retry_lines, vision_coordinate_system),
+        (audit_lines, tesseract_coordinate_system),
+        (psm6_lines, tesseract_coordinate_system),
+    ]
+    has_unmatched_located_reading = any(
+        not _is_represented(
+            line,
+            consensus,
+            source_coordinate_system=coordinate_system,
+        )
+        for lines, coordinate_system in pre_psm11_sources
+        for line in lines
+    )
+    psm11_lines: list[dict[str, Any]] = []
+    need_psm11 = (
+        tesseract is not None
+        and (not consensus or has_unmatched_located_reading)
+    )
+    if need_psm11:
+        psm11_trigger = (
+            "no_independent_agreement"
+            if not consensus else "unmatched_located_readings"
+        )
+        try:
+            psm11_status, psm11_lines, psm11_warnings, _ = _run_tesseract_psm(
+                tesseract, ocr_raw, dimensions, psm=11, timeout=timeout
+            )
+        except Exception as exc:
+            psm11_status, psm11_lines = "failed", []
+            psm11_warnings = [
+                f"optional Tesseract PSM 11 failed: {type(exc).__name__}: {exc}",
+            ]
+        engines["tesseract_psm11"] = {
+            "status": psm11_status,
+            "line_count": len(psm11_lines),
+            "warnings": psm11_warnings,
+            "engine": "tesseract",
+            "independence_group": "tesseract",
+            "pass": "psm11",
+            "layout": "sparse_text",
+            "trigger": psm11_trigger,
+            "source_orientation": 1 if canonicalized else orientation,
+            "bbox_coordinate_system": tesseract_coordinate_system,
+            "input_sha256": ocr_input_sha256,
+        }
+
+    used_psm11: set[int] = set()
+    if psm11_lines and cross_engine_spatial_comparison:
+        additions, used_primary, used_psm11 = _match_lines(
+            primary_lines,
+            psm11_lines,
+            primary_pass="apple_vision_primary",
+            audit_pass="tesseract_psm11",
+            comparison_coordinate_system=ORIENTATION_1_COORDINATE_SYSTEM,
+            primary_coordinate_system=vision_coordinate_system,
+            audit_coordinate_system=tesseract_coordinate_system,
+            blocked_primary=used_primary,
+        )
+        _append_unique(consensus, additions)
+        if retry_name is not None and retry_lines:
+            additions, retry_used, used_psm11 = _match_lines(
+                retry_lines,
+                psm11_lines,
+                primary_pass=f"apple_vision_{retry_name}",
+                audit_pass="tesseract_psm11",
+                comparison_coordinate_system=ORIENTATION_1_COORDINATE_SYSTEM,
+                primary_coordinate_system=vision_coordinate_system,
+                audit_coordinate_system=tesseract_coordinate_system,
+                blocked_primary=retry_used,
+                blocked_audit=used_psm11,
+            )
+            _append_unique(consensus, additions)
+
+    # Existing agreement proves correctness for detected lines, not that the
+    # page was read completely. Run the independent accuracy pass whenever it
+    # is enabled; a later performance phase may add a measured coverage gate.
+    need_paddle = bool(allow_paddle)
+    paddle_trigger = (
+        "disabled"
+        if not allow_paddle
+        else "enabled_accuracy_pass"
+    )
+    paddle_status = "disabled" if not allow_paddle else "not_run"
+    paddle_lines: list[dict[str, Any]] = []
+    paddle_warnings: list[str] = []
+    paddle_error: str | None = None
+    paddle_engine_metadata: dict[str, Any] | None = None
+    paddle_timing: dict[str, Any] | None = None
+    paddle_runtime_source: str | None = None
+    if need_paddle:
+        try:
+            paddle_runtime = resolve_paddle_runtime()
+            paddle_runtime_source = str(paddle_runtime["source"])
+            (
+                paddle_status,
+                paddle_lines,
+                paddle_warnings,
+                paddle_error,
+                paddle_engine_metadata,
+                paddle_timing,
+            ) = _run_paddle_ocr(
+                paddle_runtime,
+                ocr_raw,
+                dimensions,
+                timeout=timeout,
+            )
+        except FileNotFoundError as exc:
+            paddle_status = "unavailable"
+            paddle_error = str(exc)[:1000]
+            paddle_warnings = [f"optional PaddleOCR unavailable: {paddle_error}"]
+        except Exception as exc:
+            paddle_status = "failed"
+            paddle_error = f"{type(exc).__name__}: {exc}"[:1000]
+            paddle_warnings = [f"optional PaddleOCR failed: {paddle_error}"]
+    engines["paddleocr"] = {
+        "status": paddle_status,
+        "line_count": len(paddle_lines),
+        "warnings": paddle_warnings,
+        "error": paddle_error,
+        "engine": PADDLE_ENGINE_NAME,
+        "engine_version": PADDLE_ENGINE_VERSION,
+        "independence_group": PADDLE_INDEPENDENCE_GROUP,
+        "pass": "primary",
+        "layout": "ppocrv6_medium_detection_and_recognition",
+        "trigger": paddle_trigger,
+        "runtime_source": paddle_runtime_source,
+        "source_orientation": 1 if canonicalized else orientation,
+        "bbox_coordinate_system": paddle_coordinate_system,
+        "input_sha256": ocr_input_sha256,
+        "worker_engine": paddle_engine_metadata,
+        "timing": paddle_timing,
+        "network_enforcement": (
+            "macos_sandbox_deny_network_plus_python_socket_guard"
+            if paddle_runtime_source is not None else None
+        ),
+        "external_network_used": False,
+        "downloads_performed": False,
+    }
+
+    used_paddle: set[int] = set()
+    if paddle_lines and cross_engine_spatial_comparison:
+        additions, used_primary, used_paddle = _match_lines(
+            primary_lines,
+            paddle_lines,
+            primary_pass="apple_vision_primary",
+            audit_pass=PADDLE_PASS,
+            comparison_coordinate_system=ORIENTATION_1_COORDINATE_SYSTEM,
+            primary_coordinate_system=vision_coordinate_system,
+            audit_coordinate_system=paddle_coordinate_system,
+            blocked_primary=used_primary,
+            blocked_audit=used_paddle,
+        )
+        _append_unique(consensus, additions)
+        if retry_name is not None and retry_lines:
+            additions, retry_used, used_paddle = _match_lines(
+                retry_lines,
+                paddle_lines,
+                primary_pass=f"apple_vision_{retry_name}",
+                audit_pass=PADDLE_PASS,
+                comparison_coordinate_system=ORIENTATION_1_COORDINATE_SYSTEM,
+                primary_coordinate_system=vision_coordinate_system,
+                audit_coordinate_system=paddle_coordinate_system,
+                blocked_primary=retry_used,
+                blocked_audit=used_paddle,
+            )
+            _append_unique(consensus, additions)
+        for tesseract_pass, tesseract_lines in (
+            ("tesseract_psm3", audit_lines),
+            ("tesseract_psm6", psm6_lines),
+            ("tesseract_psm11", psm11_lines),
+        ):
+            if tesseract_pass == "tesseract_psm3":
+                used_tesseract = used_psm3
+            elif tesseract_pass == "tesseract_psm6":
+                used_tesseract = used_psm6
+            else:
+                used_tesseract = used_psm11
+            additions, used_tesseract, used_paddle = _match_lines(
+                tesseract_lines,
+                paddle_lines,
+                primary_pass=tesseract_pass,
+                audit_pass=PADDLE_PASS,
+                comparison_coordinate_system=ORIENTATION_1_COORDINATE_SYSTEM,
+                primary_coordinate_system=tesseract_coordinate_system,
+                audit_coordinate_system=paddle_coordinate_system,
+                blocked_primary=used_tesseract,
+                blocked_audit=used_paddle,
+            )
+            if tesseract_pass == "tesseract_psm3":
+                used_psm3 = used_tesseract
+            elif tesseract_pass == "tesseract_psm6":
+                used_psm6 = used_tesseract
+            else:
+                used_psm11 = used_tesseract
+            _append_unique(consensus, additions)
+
     same_engine: list[dict[str, Any]] = []
     if retry_name is not None and primary_lines and retry_lines:
         remaining_primary = [
@@ -826,7 +1864,7 @@ def extract(path: Path, *, timeout: float = 180.0) -> dict[str, Any]:
             if not _is_represented(
                 line,
                 consensus,
-                source_coordinate_system=VISION_BBOX_COORDINATE_SYSTEM,
+                source_coordinate_system=vision_coordinate_system,
             )
         ]
         remaining_retry = [
@@ -834,72 +1872,106 @@ def extract(path: Path, *, timeout: float = 180.0) -> dict[str, Any]:
             if not _is_represented(
                 line,
                 consensus,
-                source_coordinate_system=VISION_BBOX_COORDINATE_SYSTEM,
+                source_coordinate_system=vision_coordinate_system,
             )
         ]
         additions, _, _ = _match_lines(
             remaining_primary,
             remaining_retry,
-            agreement_type="same_engine_agreement",
             primary_pass="apple_vision_primary",
             audit_pass=f"apple_vision_{retry_name}",
-            comparison_coordinate_system=VISION_BBOX_COORDINATE_SYSTEM,
+            comparison_coordinate_system=vision_coordinate_system,
+            primary_coordinate_system=vision_coordinate_system,
+            audit_coordinate_system=vision_coordinate_system,
         )
         _append_unique(same_engine, additions)
 
-    if audit_lines and psm6_lines:
-        remaining_psm3 = [
-            line for line in audit_lines
-            if not _is_represented(
-                line,
-                consensus,
-                source_coordinate_system=RAW_BBOX_COORDINATE_SYSTEM,
+    tesseract_passes = [
+        ("tesseract_psm3", audit_lines),
+        ("tesseract_psm6", psm6_lines),
+        ("tesseract_psm11", psm11_lines),
+    ]
+    for first_index, (first_pass, first_lines) in enumerate(tesseract_passes):
+        for second_pass, second_lines in tesseract_passes[first_index + 1 :]:
+            if not first_lines or not second_lines:
+                continue
+            represented = [*consensus, *same_engine]
+            remaining_first = [
+                line for line in first_lines
+                if not _is_represented(
+                    line,
+                    represented,
+                    source_coordinate_system=tesseract_coordinate_system,
+                )
+            ]
+            remaining_second = [
+                line for line in second_lines
+                if not _is_represented(
+                    line,
+                    represented,
+                    source_coordinate_system=tesseract_coordinate_system,
+                )
+            ]
+            additions, _, _ = _match_lines(
+                remaining_first,
+                remaining_second,
+                primary_pass=first_pass,
+                audit_pass=second_pass,
+                comparison_coordinate_system=tesseract_coordinate_system,
+                primary_coordinate_system=tesseract_coordinate_system,
+                audit_coordinate_system=tesseract_coordinate_system,
             )
-        ]
-        remaining_psm6 = [
-            line for line in psm6_lines
-            if not _is_represented(
-                line,
-                consensus,
-                source_coordinate_system=RAW_BBOX_COORDINATE_SYSTEM,
-            )
-        ]
-        additions, _, _ = _match_lines(
-            remaining_psm3,
-            remaining_psm6,
-            agreement_type="same_engine_agreement",
-            primary_pass="tesseract_psm3",
-            audit_pass="tesseract_psm6",
-            comparison_coordinate_system=RAW_BBOX_COORDINATE_SYSTEM,
-        )
-        _append_unique(same_engine, additions)
+            _append_unique(same_engine, additions)
 
     provisional: list[dict[str, Any]] = []
     represented = [*consensus, *same_engine]
     source_passes = [
         ("apple_vision_primary", primary_lines),
-        (f"apple_vision_{retry_name}", retry_lines),
         ("tesseract_psm3", audit_lines),
         ("tesseract_psm6", psm6_lines),
+        ("tesseract_psm11", psm11_lines),
+        (PADDLE_PASS, paddle_lines),
     ]
+    if retry_name is not None:
+        source_passes.insert(1, (f"apple_vision_{retry_name}", retry_lines))
     for pass_name, lines in source_passes:
+        source_engine = _pass_engine(pass_name)
+        source_coordinate_system = (
+            vision_coordinate_system
+            if source_engine == "apple_vision"
+            else (
+                paddle_coordinate_system
+                if source_engine == PADDLE_INDEPENDENCE_GROUP
+                else tesseract_coordinate_system
+            )
+        )
         for line in lines:
             if not _is_represented(
                 line,
                 represented,
-                source_coordinate_system=_pass_coordinate_system(pass_name),
+                source_coordinate_system=source_coordinate_system,
             ):
                 _append_unique(provisional, [
                     _provisional_line(
                         line,
                         pass_name=pass_name,
                         reason="no_spatially_matching_reading_from_another_pass",
+                        coordinate_system=source_coordinate_system,
                     )
                 ])
 
-    independent_engines = bool(
-        (primary_lines or retry_lines) and (audit_lines or psm6_lines)
-    )
+    all_tesseract_lines = [*audit_lines, *psm6_lines, *psm11_lines]
+    observed_engine_groups = {
+        *({"apple_vision"} if primary_lines or retry_lines else set()),
+        *({"tesseract"} if all_tesseract_lines else set()),
+        *({PADDLE_INDEPENDENCE_GROUP} if paddle_lines else set()),
+    }
+    multiple_engine_groups_observed = len(observed_engine_groups) >= 2
+    independent_agreement_exists = bool(consensus)
+    # Retain the established field name, but make its value mean what the
+    # downstream validator historically assumed: an actual independent match.
+    independent_engines = independent_agreement_exists
+    reader_warnings.extend(paddle_warnings)
     if same_engine:
         reader_warnings.append(
             "same-engine agreement is retained separately from independent consensus"
@@ -908,18 +1980,22 @@ def extract(path: Path, *, timeout: float = 180.0) -> dict[str, Any]:
         reader_warnings.append(
             "single-pass readings are provisional and require downstream review"
         )
-    if vision_orientation not in (None, 1):
+    if not canonicalized and vision_orientation not in (None, 1):
         reader_warnings.append(
             "cross-engine spatial agreement is disabled because Apple Vision "
             "uses display-oriented coordinates while Tesseract uses raw raster "
             f"coordinates for source orientation {vision_orientation}"
         )
+    elif canonicalize and not canonicalized:
+        reader_warnings.append(
+            "cross-engine spatial agreement is disabled because canonicalization failed"
+        )
     read_lines = [*consensus, *same_engine, *provisional]
     unlocated_transcript: dict[str, Any] | None = None
-    if not read_lines:
+    if not read_lines and allow_vlm:
         try:
             unlocated_transcript = run_unlocated_transcript_fallback(
-                raw, timeout=timeout
+                ocr_raw, timeout=timeout
             )
             engines["gemma4_unlocated_transcript"] = {
                 "status": "completed",
@@ -934,6 +2010,7 @@ def extract(path: Path, *, timeout: float = 180.0) -> dict[str, Any]:
                 "trigger": "no_located_ocr_readings",
                 "model_digest": unlocated_transcript["model_digest"],
                 "prompt_sha256": unlocated_transcript["prompt_sha256"],
+                "input_sha256": ocr_input_sha256,
             }
             reader_warnings.append(
                 "whole-image local VLM transcript is retained without coordinates "
@@ -954,20 +2031,43 @@ def extract(path: Path, *, timeout: float = 180.0) -> dict[str, Any]:
                 "pass": "whole_image_transcript",
                 "layout": "unlocated",
                 "trigger": "no_located_ocr_readings",
+                "input_sha256": ocr_input_sha256,
             }
+    elif not read_lines:
+        engines["gemma4_unlocated_transcript"] = {
+            "status": "disabled",
+            "line_count": 0,
+            "warnings": [],
+            "engine": UNLOCATED_TRANSCRIPT_MODEL,
+            "independence_group": "local_vlm_unlocated_transcript",
+            "pass": "whole_image_transcript",
+            "layout": "unlocated",
+            "trigger": "ocr_only_mode",
+            "input_sha256": ocr_input_sha256,
+        }
 
     return {
         "input_sha256": hashlib.sha256(raw).hexdigest(),
+        "source_dimensions": source_dimensions,
         "dimensions": dimensions,
         "image_format": image_format,
         "orientation": orientation,
-        "orientation_source": (
-            "apple_vision_imageio" if vision_orientation is not None else "header_default"
-        ),
+        "orientation_source": orientation_source,
+        "canonicalization": canonicalization,
+        "ocr_input_sha256": ocr_input_sha256,
+        "ocr_input_dimensions": dimensions,
+        "ocr_input_orientation": 1 if canonicalized else orientation,
         "coordinate_system": "top_left_normalized_1000",
-        "coordinate_frame_policy": "per_line_provenance",
+        "coordinate_frame_policy": (
+            "canonical_orientation_1"
+            if canonicalized else "per_line_provenance"
+        ),
         "cross_engine_spatial_comparison": cross_engine_spatial_comparison,
+        "paddle_allowed": bool(allow_paddle),
+        "vlm_allowed": bool(allow_vlm),
         "independent_engines": independent_engines,
+        "multiple_engine_groups_observed": multiple_engine_groups_observed,
+        "independent_agreement_exists": independent_agreement_exists,
         "engines": engines,
         "consensus_lines": consensus,
         "same_engine_lines": same_engine,

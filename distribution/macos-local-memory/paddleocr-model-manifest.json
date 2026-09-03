@@ -1,0 +1,37 @@
+{
+  "schema_version": "0.1",
+  "verified_at": "2026-09-03",
+  "engine": "PaddleOCR 3.7.0 / PP-OCRv6 medium / paddle_static CPU",
+  "license": "Apache-2.0",
+  "manifest_algorithm": "sha256(relative_path\\0size\\0file_sha256\\n)",
+  "primary_wheels": [
+    {
+      "filename": "paddlepaddle-3.3.0-cp312-cp312-macosx_11_0_arm64.whl",
+      "sha256": "17aab6b90d8cef2ccf893f4be82cf05e906e21fe86c40a34fea6701937d7782b"
+    },
+    {
+      "filename": "paddleocr-3.7.0-py3-none-any.whl",
+      "sha256": "c0f0a81ad4112727f30c6fcf986ac0ef6a120d31ee0991a01fae0357ee32d338"
+    },
+    {
+      "filename": "paddlex-3.7.0-py3-none-any.whl",
+      "sha256": "70c5762d6bae7efe3a7db0e3264eb88e9ce1c3bf88d8e30cd32759924357acdc"
+    }
+  ],
+  "models": [
+    {
+      "name": "PP-OCRv6_medium_det",
+      "file_count": 5,
+      "total_bytes": 62298334,
+      "manifest_sha256": "fa0db359feda0ef4ac2cde281d1581cdfca6d64147e78150fdef42d955678081",
+      "source": "https://huggingface.co/PaddlePaddle/PP-OCRv6_medium_det"
+    },
+    {
+      "name": "PP-OCRv6_medium_rec",
+      "file_count": 5,
+      "total_bytes": 76862530,
+      "manifest_sha256": "afcfe045967e34462496a245242e05ed1067ec05fd5726093acb1af764f7624b",
+      "source": "https://huggingface.co/PaddlePaddle/PP-OCRv6_medium_rec"
+    }
+  ]
+}
