@@ -40,6 +40,16 @@ BINDING_FIELDS = (
     "graph_embeddings_sha256",
 )
 
+TEMPORAL_SCOPE = {
+    "expression": "5年前",
+    "reference_date": "2026-09-03",
+    "as_of": "2021-09-03",
+    "precision": "day",
+    "boundary": "inclusive",
+    "resolution_rule": "calendar_year_offset_clamp",
+    "timezone": "Asia/Tokyo",
+}
+
 
 def record_lookup_artifact() -> dict:
     return {
@@ -149,6 +159,23 @@ def record_lookup_record() -> dict:
         "models": {},
         "performance": {},
     }
+
+
+def temporal_record_lookup_record() -> dict:
+    record = record_lookup_record()
+    record["query"] = "5年前は誰が受付業務を担当していましたか？"
+    record["question_reference_date"] = TEMPORAL_SCOPE["reference_date"]
+    record["question_plan"].update({
+        "target": "受付業務",
+        "relation": "responsible_for",
+        "temporal_scope": copy.deepcopy(TEMPORAL_SCOPE),
+    })
+    record["question_evidence_graph"]["intent"].update({
+        "temporal_scope": copy.deepcopy(TEMPORAL_SCOPE),
+        "temporal_target": "受付業務",
+        "temporal_relation": "responsible_for",
+    })
+    return record
 
 
 class FinalAnswerGraphAuditTests(unittest.TestCase):
@@ -277,11 +304,123 @@ class FinalAnswerGraphAuditTests(unittest.TestCase):
             validate_graph.call_args.kwargs["question_plan"],
             record["question_plan"],
         )
+        self.assertIsNone(validate_graph.call_args.kwargs["reference_date"])
         packet_ids = [
             packet["evidence_id"]
             for packet in build_claims.call_args.args[1]
         ]
         self.assertEqual(packet_ids, ["E1", "E2", "E3", "E4", "ROW"])
+
+    def test_temporal_record_lookup_reuses_the_answer_run_reference_date(self) -> None:
+        record = temporal_record_lookup_record()
+
+        audited, validate_graph, _build_claims, independent_audit = self.run_main(
+            record
+        )
+
+        self.assertEqual(audited["temporal_reference_validation"]["status"], "pass")
+        self.assertEqual(audited["answer_graph_validation"]["status"], "pass")
+        self.assertEqual(audited["orchestration_decision"]["status"], "accepted")
+        self.assertEqual(
+            validate_graph.call_args.kwargs["reference_date"],
+            TEMPORAL_SCOPE["reference_date"],
+        )
+        independent_audit.assert_called_once()
+
+    def test_temporal_reference_mismatch_blocks_before_independent_audit(self) -> None:
+        cases = (
+            (
+                "answer_anchor",
+                lambda record: record.__setitem__(
+                    "question_reference_date", "2026-09-04"
+                ),
+                "temporal_reference_binding_mismatch",
+                "2026-09-04",
+            ),
+            (
+                "question_plan",
+                lambda record: record["question_plan"]["temporal_scope"].__setitem__(
+                    "reference_date", "2026-09-04"
+                ),
+                "temporal_reference_binding_mismatch",
+                "2026-09-03",
+            ),
+            (
+                "question_graph",
+                lambda record: record["question_evidence_graph"]["intent"][
+                    "temporal_scope"
+                ].__setitem__("reference_date", "2026-09-04"),
+                "temporal_reference_binding_mismatch",
+                "2026-09-03",
+            ),
+            (
+                "invalid_iso_anchor",
+                lambda record: record.__setitem__(
+                    "question_reference_date", "2026-9-3"
+                ),
+                "temporal_reference_date_invalid",
+                None,
+            ),
+            (
+                "plan_scope_missing",
+                lambda record: record["question_plan"].pop("temporal_scope"),
+                "temporal_reference_scope_missing",
+                "2026-09-03",
+            ),
+        )
+        for name, mutate, expected_code, expected_reference in cases:
+            with self.subTest(name=name):
+                record = temporal_record_lookup_record()
+                mutate(record)
+
+                audited, validate_graph, _build_claims, independent_audit = (
+                    self.run_main(record)
+                )
+
+                validation = audited["temporal_reference_validation"]
+                self.assertEqual(validation["status"], "blocked")
+                self.assertIn(
+                    expected_code,
+                    {failure["code"] for failure in validation["failures"]},
+                )
+                self.assertEqual(
+                    audited["answer_graph_validation"]["status"], "blocked"
+                )
+                self.assertEqual(
+                    audited["orchestration_decision"]["status"], "rejected"
+                )
+                self.assertEqual(
+                    audited["performance"]["independent_final_audit"][
+                        "skip_reason"
+                    ],
+                    "answer_graph_validation_blocked",
+                )
+                self.assertEqual(
+                    validate_graph.call_args.kwargs["reference_date"],
+                    expected_reference,
+                )
+                independent_audit.assert_not_called()
+
+    def test_temporal_reference_anchor_is_required(self) -> None:
+        record = temporal_record_lookup_record()
+        del record["question_reference_date"]
+
+        audited, validate_graph, _build_claims, independent_audit = self.run_main(
+            record
+        )
+
+        self.assertEqual(
+            audited["temporal_reference_validation"]["status"], "blocked"
+        )
+        self.assertIn(
+            "temporal_reference_date_missing",
+            {
+                failure["code"]
+                for failure in audited["temporal_reference_validation"]["failures"]
+            },
+        )
+        self.assertIsNone(validate_graph.call_args.kwargs["reference_date"])
+        independent_audit.assert_not_called()
 
     def test_out_of_branch_support_fails_before_independent_audit(self) -> None:
         record = record_lookup_record()

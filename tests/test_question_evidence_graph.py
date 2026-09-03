@@ -263,6 +263,28 @@ class QuestionEvidenceGraphTests(unittest.TestCase):
         ))
         self.assertEqual(contract["items"][0]["time_scope"], "specified_period")
 
+        for wrong_answer in (
+            "回数は3人です。",
+            "回数は3件です。",
+            "回数は3割です。",
+            "回数は3とは限りません。",
+            "回数が3かどうか不明です。",
+            "回数は3回または4回です。",
+        ):
+            with self.subTest(wrong_answer=wrong_answer):
+                mutated = copy.deepcopy(answer_record)
+                mutated["answer"]["answer"] = wrong_answer
+                _, _, mutated_report = claim_validator.build_and_validate(
+                    mutated, packets,
+                )
+                self.assertIn(
+                    "aggregate_answer_projection_mismatch",
+                    {
+                        failure["code"]
+                        for failure in mutated_report["failures"]
+                    },
+                )
+
         mismatched = copy.deepcopy(answer_record)
         mismatched_artifact = mismatched["question_evidence_graph"]
         mismatched_artifact["selection"]["value"] = "4"

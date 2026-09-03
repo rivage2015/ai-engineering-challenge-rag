@@ -10,6 +10,7 @@ import re
 import time
 import unicodedata
 import urllib.request
+from datetime import date
 from decimal import Decimal, InvalidOperation
 from pathlib import Path
 
@@ -224,6 +225,78 @@ def question_graph_validation_is_acceptable(
     if operations & SUPPORTED_QUESTION_GRAPH_OPERATIONS:
         return status == "pass"
     return status in {"pass", "not_applicable"}
+
+
+def validate_temporal_reference_binding(
+    record: object,
+    question_plan: object,
+    artifact: object,
+) -> dict:
+    """Bind a temporal QEG rebuild to the answer run's recorded date anchor."""
+    plan_scope = (
+        question_plan.get("temporal_scope")
+        if isinstance(question_plan, dict) else None
+    )
+    intent = artifact.get("intent") if isinstance(artifact, dict) else None
+    artifact_scope = (
+        intent.get("temporal_scope") if isinstance(intent, dict) else None
+    )
+    if plan_scope is None and artifact_scope is None:
+        return {
+            "status": "not_applicable",
+            "reference_date": None,
+            "failures": [],
+        }
+
+    failures = []
+    reference_date = (
+        record.get("question_reference_date")
+        if isinstance(record, dict) else None
+    )
+    if not isinstance(reference_date, str) or not reference_date.strip():
+        failures.append({
+            "code": "temporal_reference_date_missing",
+            "detail": "The answer record has no fixed question reference date.",
+        })
+        reference_date = None
+    else:
+        reference_date = reference_date.strip()
+        try:
+            parsed_reference = date.fromisoformat(reference_date)
+        except ValueError:
+            parsed_reference = None
+        if parsed_reference is None or parsed_reference.isoformat() != reference_date:
+            failures.append({
+                "code": "temporal_reference_date_invalid",
+                "detail": "The fixed question reference date is not strict ISO YYYY-MM-DD.",
+            })
+            reference_date = None
+
+    for surface, scope in (
+        ("question_plan", plan_scope),
+        ("question_evidence_graph", artifact_scope),
+    ):
+        if not isinstance(scope, dict):
+            failures.append({
+                "code": "temporal_reference_scope_missing",
+                "detail": f"{surface} has no temporal_scope object.",
+            })
+            continue
+        scoped_reference = scope.get("reference_date")
+        if reference_date is None or scoped_reference != reference_date:
+            failures.append({
+                "code": "temporal_reference_binding_mismatch",
+                "detail": (
+                    f"{surface}.temporal_scope.reference_date does not match "
+                    "the answer run anchor."
+                ),
+            })
+
+    return {
+        "status": "blocked" if failures else "pass",
+        "reference_date": reference_date,
+        "failures": failures,
+    }
 
 
 def validate_graph_retrieval_trace(
@@ -689,10 +762,22 @@ def main() -> int:
                 )
     question_plan = record.get("question_plan")
     question_graph_artifact = record.get("question_evidence_graph", {})
+    temporal_reference_validation = validate_temporal_reference_binding(
+        record,
+        question_plan,
+        question_graph_artifact,
+    )
+    record["temporal_reference_validation"] = temporal_reference_validation
+    if temporal_reference_validation["status"] == "blocked":
+        answer_graph_failures.extend(
+            str(failure.get("detail", "Temporal reference binding failed."))
+            for failure in temporal_reference_validation["failures"]
+        )
     question_graph_validation = question_graph.validate_question_evidence_graph(
         record.get("query", ""), all_graph_evidence, question_graph_artifact,
         source_graph=answer_graph_policy.get("source_graph"),
         question_plan=question_plan,
+        reference_date=temporal_reference_validation.get("reference_date"),
     )
     record["question_evidence_graph_validation"] = question_graph_validation
     graph_operations = question_graph_operations(

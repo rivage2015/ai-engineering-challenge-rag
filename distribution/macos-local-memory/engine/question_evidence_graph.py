@@ -15,12 +15,13 @@ import json
 import re
 import unicodedata
 from collections import deque
+from datetime import date
 from decimal import Decimal, InvalidOperation
 from typing import Any, Iterable, Mapping
 
 
-GRAPH_VERSION = "1.2"
-VALIDATOR_VERSION = "1.2"
+GRAPH_VERSION = "1.3"
+VALIDATOR_VERSION = "1.3"
 STORED_GRAPH_BINDING_VERSION = "1.0"
 PROVISIONAL_MARKER = "[暫定読取]"
 COUNT_SURFACES = (
@@ -76,7 +77,12 @@ NONFINAL_RECORD_SURFACE = re.compile(
     re.IGNORECASE,
 )
 RECORD_LOOKUP_FIELD_ALIASES = {
-    "owner": ("owner", "担当者", "担当", "責任者"),
+    "owner": (
+        "owner", "assignee", "person in charge",
+        "担当者", "担当者名", "担当者氏名", "担当", "主担当", "担当社員", "責任者",
+        "担当氏名", "責任者名", "assignee name", "受け持",
+        "副担当", "副担当者", "共同担当", "co-owner", "secondary owner",
+    ),
     "review_date": (
         "review date", "review_date", "reviewdate", "レビュー日", "確認日",
     ),
@@ -94,12 +100,332 @@ RECORD_STATUS_LABEL_ALIASES = (
 )
 RECORD_SUBJECT_LABEL_ALIASES = (
     "project", "project name", "subject", "name", "title", "initiative",
-    "プロジェクト", "案件", "件名", "対象", "名称",
+    "プロジェクト", "案件", "件名", "対象", "名称", "業務", "業務名", "作業", "タスク",
+)
+TEMPORAL_RECORD_SUBJECT_LABEL_ALIASES = (
+    "project", "project name", "project title", "initiative", "assignment",
+    "assignment name", "assignment subject", "assignment target",
+    "assigned project", "project target", "work target", "task target",
+    "work item", "work name", "task name",
+    "プロジェクト", "プロジェクト名", "プロジェクト名称", "プロジェクトの名称",
+    "案件", "案件名", "案件名称", "案件の名称",
+    "業務", "業務名", "業務名称", "担当業務", "担当案件",
+    "対象業務", "対象業務名", "対象業務名称", "作業", "作業名", "対象作業",
+    "作業名称", "作業の名称", "タスク", "タスク名", "タスクの名称",
+    "対象タスク", "対象プロジェクト",
+    "対象名", "対象名称", "担当対象", "業務の名称",
 )
 FINAL_RECORD_STATUSES = (
     "approved", "final", "finalized", "承認済み", "最終", "最終版", "最終確定",
 )
 NONFINAL_RECORD_STATUS_MARKERS = ("draft", "old", "superseded")
+TEMPORAL_START_LABEL_ALIASES = (
+    "assignment start date", "assignee start date",
+    "担当開始日", "担当開始年月日", "担当期間開始日", "着任日",
+)
+TEMPORAL_END_LABEL_ALIASES = (
+    "assignment end date", "assignee end date",
+    "担当終了日", "担当終了年月日", "担当期間終了日", "離任日",
+)
+POSSIBLE_PERIOD_START_LABEL_ALIASES = (
+    *TEMPORAL_START_LABEL_ALIASES,
+    "from", "start", "start date", "effective date",
+    "effective start date", "valid from",
+    "開始日", "開始年月日", "有効開始日", "有効開始年月日", "就任日",
+    "担当期間開始", "期間開始日",
+)
+POSSIBLE_PERIOD_END_LABEL_ALIASES = (
+    *TEMPORAL_END_LABEL_ALIASES,
+    "to", "end", "end date", "expiration date",
+    "effective end date", "valid to",
+    "終了日", "終了年月日", "有効終了日", "有効終了年月日", "退任日",
+    "担当期間終了", "期間終了日",
+)
+POSSIBLE_COMBINED_PERIOD_LABEL_ALIASES = (
+    "assignment period", "assignee period", "validity period",
+    "担当期間", "在任期間", "任期", "有効期間",
+)
+ASSIGNMENT_STATUS_LABEL_ALIASES = (
+    "assignment status", "assignee status", "assignment active",
+    "担当状態", "担当ステータス", "アサイン状態", "割当状態", "割り当て状態",
+    "担当有効", "アサイン有効", "割当有効",
+)
+RELATIVE_YEAR_SURFACE = re.compile(
+    r"(?<![0-9.+\-−〇零一二三四五六七八九十])"
+    r"(?P<expression>(?P<count>[0-9]+|[〇零一二三四五六七八九十]+)\s*年前)"
+)
+RELATIVE_YEAR_COUNT_SURFACE = r"(?:[0-9]+|[〇零一二三四五六七八九十]+)"
+RELATIVE_YEAR_APPROX_OR_RANGE = re.compile(
+    rf"(?:約|およそ|だいたい|概ね|ほぼ|少なくとも|少なくても|"
+    rf"最低でも|最大でも|遅くとも|早くとも)\s*"
+    rf"{RELATIVE_YEAR_COUNT_SURFACE}\s*年前"
+    rf"|{RELATIVE_YEAR_COUNT_SURFACE}\s*年前\s*"
+    rf"(?:から|以降|まで|以前|より後|より前|ごろ|頃|くらい|程度|あたり)"
+    rf"|{RELATIVE_YEAR_COUNT_SURFACE}\s*年前後"
+)
+RELATIVE_YEAR_BOUND_SURFACE = re.compile(
+    rf"{RELATIVE_YEAR_COUNT_SURFACE}\s*年\s*"
+    r"(?:以上|以下|未満|超|より)\s*前"
+)
+RELATIVE_YEAR_LIKE_SURFACE = re.compile(
+    rf"{RELATIVE_YEAR_COUNT_SURFACE}\s*年\s*"
+    rf"(?:ほど|くらい|ぐらい|程度)\s*前"
+)
+RELATIVE_YEAR_BROAD_SURFACE = re.compile(
+    rf"{RELATIVE_YEAR_COUNT_SURFACE}\s*年[^。?？!！]{{0,12}}?前"
+)
+UNPARSED_YEARS_AGO_SURFACE = re.compile(
+    r"年[^。?？!！\n]{0,8}?前"
+)
+NONCANONICAL_ASSIGNMENT_TIME_SURFACE = re.compile(
+    r"(?:一昨日|昨日|今日|明日|明後日|先日|当日|前日|翌日|"
+    r"先々週|先週|今週|来週|再来週|"
+    r"先々月|先月|今月|来月|再来月|"
+    r"一昨年度|昨年度|今年度|来年度|再来年度|"
+    r"一昨年|昨年|去年|今年|来年|再来年|"
+    r"現在|現時点|当時|その時|将来|今後|昔|過去|以前|以降|"
+    r"前任|後任)"
+    r"|(?:[0-9〇零一二三四五六七八九十百千万]+|数|半)\s*"
+    r"(?:年|ねん|か月|ヶ月|ヵ月|ケ月|月|週間?|日間?|時間|分|秒)\s*"
+    r"(?:前|まえ|後|あと)"
+    r"|(?:開始|終了|交代|交替|異動|退任|着任|入社|退社|就任|離任)"
+    r"(?:の)?(?:前|後|時点)"
+    r"|今(?=\s*(?:の|は|で|、|,|時点|現在))"
+)
+TARGET_ABSOLUTE_TIME_MODIFIER_SURFACE = re.compile(
+    rf"(?:[12]\d{{3}}\s*年\s*{RELATIVE_YEAR_COUNT_SURFACE}\s*月"
+    rf"(?:\s*{RELATIVE_YEAR_COUNT_SURFACE}\s*日)?|"
+    rf"(?:令和|平成|昭和)\s*(?:元|{RELATIVE_YEAR_COUNT_SURFACE})\s*年"
+    rf"(?:\s*{RELATIVE_YEAR_COUNT_SURFACE}\s*月)?|"
+    rf"[12]\d{{3}}\s*年|{RELATIVE_YEAR_COUNT_SURFACE}\s*月)"
+)
+TARGET_EVENT_TIME_MODIFIER_SURFACE = re.compile(
+    r"(?:開始|終了|退任|着任|引き継ぎ|引継ぎ|交代|交替|異動|入社|退社|就任|離任)"
+    r"(?:時|時点|前|後)"
+)
+OTHER_ASSIGNMENT_TIME_SURFACE = re.compile(
+    rf"過去\s*{RELATIVE_YEAR_COUNT_SURFACE}\s*年(?:間)?"
+    r"|(?:昨年度|一昨年度|昨年|去年|一昨年|先月|先週)"
+    r"(?=\s*(?:の|は|に|で|、|,|時点|$))"
+)
+NON_YEAR_RELATIVE_TIME_SURFACE = re.compile(
+    rf"{RELATIVE_YEAR_COUNT_SURFACE}\s*"
+    r"(?:か月|ヶ月|ヵ月|月|週|日)\s*前"
+)
+ABSOLUTE_DATE_SURFACE = re.compile(
+    r"(?<!\d)[12]\d{3}\s*[-/.]\s*\d{1,2}\s*[-/.]\s*\d{1,2}(?!\d)"
+)
+GENERIC_ASSIGNMENT_TIME_SURFACE = re.compile(
+    r"(?:時点|当時|その時|現在|現時点|過去|以前|以降|昔)"
+)
+ABSOLUTE_YEAR_SURFACE = re.compile(
+    r"(?<!\d)[12]\d{3}\s*年"
+    rf"|(?:令和|平成|昭和)\s*(?:元|{RELATIVE_YEAR_COUNT_SURFACE})\s*年"
+)
+CURRENT_TIME_SURFACE = re.compile(
+    r"(?:現在|現時点|今)(?=\s*(?:の|は|と|も|を|まで|担当|誰|、|,|$))"
+)
+EXPLICIT_CURRENT_RELATIVE_ANCHOR = re.compile(
+    rf"(?:現在|現時点|今)から\s*{RELATIVE_YEAR_COUNT_SURFACE}\s*年前"
+)
+RELATIVE_YEAR_CALENDAR_DETAIL = re.compile(
+    rf"{RELATIVE_YEAR_COUNT_SURFACE}\s*年前\s*"
+    r"(?:の\s*)?(?:時点(?:で|の)?\s*)?(?:は\s*)?(?:、|,)?\s*"
+    rf"(?:{RELATIVE_YEAR_COUNT_SURFACE}\s*月"
+    rf"(?:\s*{RELATIVE_YEAR_COUNT_SURFACE}\s*日)?"
+    r"(?:初|末|上旬|中旬|下旬)?|"
+    rf"{RELATIVE_YEAR_COUNT_SURFACE}\s*日|"
+    rf"第?\s*{RELATIVE_YEAR_COUNT_SURFACE}\s*週|"
+    rf"年度(?:初|末|上期|下期)?|"
+    rf"第?\s*{RELATIVE_YEAR_COUNT_SURFACE}\s*四半期|"
+    r"上期|下期|上半期|下半期|"
+    r"月初|月末|年初|年末|年末年始|"
+    r"元日|正月|同日|同月|同時期|今日|"
+    r"(?:月|火|水|木|金|土|日)曜日|"
+    r"午前|午後|正午|朝|昼|夕方|夜|深夜|"
+    r"春|夏|秋|冬)"
+    r"(?=\s*(?:頃|ごろ|あたり|前後|くらい|程度|"
+    r"から|まで|以降|以前|より後|より前|中|付|現在|"
+    r"午前|午後|正午|朝|昼|夕方|夜|深夜|"
+    r"の|時点|では|に|は|、|,|$))"
+)
+ADDITIONAL_TIME_DETAIL_SURFACE = re.compile(
+    rf"(?<![0-9A-Za-z]){RELATIVE_YEAR_COUNT_SURFACE}\s*"
+    rf"(?:月|日|週|時|分|秒)(?![0-9A-Za-z])"
+    rf"|(?<![0-9A-Za-z]){RELATIVE_YEAR_COUNT_SURFACE}\s*"
+    rf"(?:[/.\-]\s*{RELATIVE_YEAR_COUNT_SURFACE}){{1,2}}(?![0-9A-Za-z])"
+    r"|(?<![0-9A-Za-z])(?:Q[1-4]|[1-4]Q)(?![0-9A-Za-z])"
+    r"|(?:前日|翌日|前月|翌月|前週|翌週|前年度|翌年度|"
+    r"同日|同月|同時期|元日|正月|年末年始|"
+    r"上期|下期|上半期|下半期|四半期|"
+    r"月初|月末|年初|年末|上旬|中旬|下旬|"
+    r"午前|午後|正午|朝|昼|夕方|夜|深夜|"
+    r"(?:月|火|水|木|金|土|日)曜日)"
+)
+PURE_TEMPORAL_TARGET_SURFACE = re.compile(
+    rf"(?:{RELATIVE_YEAR_COUNT_SURFACE}\s*月"
+    rf"(?:\s*{RELATIVE_YEAR_COUNT_SURFACE}\s*日)?"
+    r"(?:初|末|上旬|中旬|下旬)?|"
+    rf"{RELATIVE_YEAR_COUNT_SURFACE}\s*日|"
+    rf"{RELATIVE_YEAR_COUNT_SURFACE}\s*"
+    rf"(?:[/.\-]\s*{RELATIVE_YEAR_COUNT_SURFACE}){{1,2}}|"
+    r"(?:Q[1-4]|[1-4]Q)|"
+    rf"第?\s*{RELATIVE_YEAR_COUNT_SURFACE}\s*(?:週|四半期)|"
+    r"(?:[12]\d{3}|(?:令和|平成|昭和)\s*"
+    rf"(?:元|{RELATIVE_YEAR_COUNT_SURFACE}))\s*年(?:度)?"
+    r"(?:初|末|上期|下期)?|"
+    r"年度(?:初|末|上期|下期)?|"
+    r"前日|翌日|前月|翌月|前週|翌週|前年度|翌年度|"
+    r"同日|同月|同時期|今日|元日|正月|年末年始|"
+    r"上期|下期|上半期|下半期|"
+    r"月初|月末|年初|年末|上旬|中旬|下旬|"
+    r"午前|午後|正午|朝|昼|夕方|夜|深夜|"
+    r"(?:月|火|水|木|金|土|日)曜日|春|夏|秋|冬)"
+    r"\s*(?:時点|現在|頃|ごろ|あたり|前後|くらい|程度|中|付)?\Z"
+)
+ASSIGNMENT_NEGATION_SURFACE = re.compile(
+    r"(?:担当|受け持|責任者)"
+    r"[^。?？!！\n]{0,40}?"
+    r"(?:ない|なかった|なく|ありません|ありませんでした|"
+    r"いません|いませんでした|おらず|おりません|"
+    r"わけでは|ことがない|ことはない|"
+    r"限りません|限らない|不明|未確認|不確か|かどうか|"
+    r"以外|除く|除いて|除外)"
+)
+UNSUPPORTED_ASSIGNMENT_EVENT_SURFACE = re.compile(
+    r"(?:担当|受け持|責任者)"
+    r"[^。?？!！\n]{0,24}?"
+    r"(?:始め|開始|着任|就任|交代|交替|変わ|変更|"
+    r"引き継|後任|前任|辞め|退任|離任|終了)"
+)
+ASSIGNMENT_WHO_SURFACE = re.compile(
+    r"(?:誰|どなた)|(?<![0-9A-Za-z])who(?![0-9A-Za-z])",
+    re.IGNORECASE,
+)
+UNSUPPORTED_ASSIGNMENT_OUTPUT_SURFACE = re.compile(
+    r"(?:何人|全員|全て|すべて|一覧|複数|"
+    r"メール(?:アドレス)?|e-?mail|連絡先|電話(?:番号)?|"
+    r"役職|部署|住所|所属|"
+    r"いつ|何年|何月|何日|どのくらい|何回)",
+    re.IGNORECASE,
+)
+POSITIVE_ASSIGNMENT_PREDICATE = re.compile(
+    r"(?:"
+    r"担当(?:を)?していました|担当(?:を)?していた|"
+    r"担当(?:を)?しています|担当(?:を)?している|"
+    r"担当(?:を)?しました|担当(?:を)?した|担当(?:を)?する|"
+    r"担当でした|担当だった|担当|"
+    r"受け持っていました|受け持っていた|"
+    r"受け持っています|受け持っている|"
+    r"受け持ちました|受け持った|受け持つ|受け持"
+    r")(?!者|名|候補)"
+)
+OWNER_ROLE_SURFACE = re.compile(
+    r"(?:担当者氏名|担当者名|担当社員|担当者|責任者|主担当|受け持ち?(?=は|が))"
+)
+ASSIGNMENT_RESPONSIBILITY_SURFACE = re.compile(r"(?:担当|責任者|受け持)")
+OWNER_PLACEHOLDER_SURFACE = re.compile(
+    r"(?:"
+    r"[-ー―—–]+|無|無し|なし(?:未定)?|"
+    r"該当なし|該当無し|該当者なし|該当者無し|"
+    r"不明|不詳|空欄|"
+    r"(?:現在)?(?:担当|担当者)?未(?:定|確定|決定|指定|設定|選任|確認|"
+    r"着任|配置|回答|選択|対応|登録|記入|入力|割当|割当て|"
+    r"割り当て|アサイン)"
+    r"(?:です|予定|状態)?|"
+    r"(?:担当|担当者)?(?:調整|確認|選定|検討|選任)"
+    r"(?:中|待ち|予定)|要(?:確認|調整|選定)|未選定|"
+    r"欠員|空席|募集中|保留|"
+    r"(?:担当|担当者|割当|アサイン)(?:なし|無し|不在)|"
+    r"notassigned|tobeassigned|noowner|vacant|"
+    r"tba|tbc|tbd|pending|na|nil|null(?:値)?|none|unknown(?:yet)?|unassigned"
+    r")\Z",
+    re.IGNORECASE,
+)
+OWNER_INSTRUCTION_SURFACE = re.compile(
+    r"ignore\s+(?:all\s+)?(?:previous|prior|above)\s+instructions?"
+    r"|(?:system|developer)\s+(?:prompt|message)"
+    r"|(?:reveal|print|show)\s+(?:the\s+)?(?:system\s+prompt|hidden\s+instructions?)"
+    r"|指示[^\n]{0,20}(?:無視|破棄)|(?:system|developer)プロンプト",
+    re.IGNORECASE,
+)
+OWNER_UNCERTAIN_SURFACE = re.compile(
+    r"[?？]|(?:[（(](?:予定|仮|候補|暫定|provisional)[）)])|"
+    r"(?:かも(?:しれない)?|候補|予定|暫定|"
+    r"(?<![0-9a-z])provisional|その他)\s*$|"
+    r"(?:または|もしくは|あるいは|(?<![0-9a-z])or(?![0-9a-z]))|"
+    r"(?:^|[/／])\s*(?:未定|不明|tba|tbc|tbd|unknown|unassigned)"
+    r"(?:\s*[/／]|$)|"
+    r"(?:未定|不明|tba|tbc|tbd|unknown|unassigned)\s*$",
+    re.IGNORECASE,
+)
+OWNER_NEGATED_SURFACE = re.compile(
+    r"(?:ではない|ではありません|ではございません|"
+    r"ではなかった|ではなく(?:て)?|でない|でなく|じゃない|じゃありません|"
+    r"じゃなく|以外|除く|除いて)"
+    r"|(?<![0-9a-z])(?:not|except)(?![0-9a-z])"
+    r"|(?<![0-9a-z])no\s+longer(?![0-9a-z])"
+    r"|(?<![0-9a-z])neither\b.+\bnor(?![0-9a-z])",
+    re.IGNORECASE,
+)
+OWNER_TRANSITION_SURFACE = re.compile(
+    r"(?:->|=>|[→⇒↦])"
+    r"|から.+へ"
+    r"|(?<![0-9a-z])from\s+.+\s+to(?![0-9a-z])"
+    r"|\s+to\s+",
+    re.IGNORECASE,
+)
+ISO_DATE = re.compile(r"\d{4}-\d{2}-\d{2}\Z")
+TEMPORAL_PRECISION = "day"
+TEMPORAL_BOUNDARY = "inclusive"
+TEMPORAL_RESOLUTION_RULE = "calendar_year_offset_clamp"
+TEMPORAL_TIMEZONE = "Asia/Tokyo"
+DEICTIC_ASSIGNMENT_TARGETS = frozenset((
+    "この業務", "その業務", "当該業務", "この仕事", "その仕事", "それ",
+))
+ASSIGNMENT_TARGET_PATTERNS = (
+    re.compile(
+        r"(?:the\s+)?owner\s+of\s+(?P<target>[^.。?？!！]{1,80}?)"
+        r"(?=\s*(?:[.。?？!！]|$))",
+        re.IGNORECASE,
+    ),
+    re.compile(
+        r"(?P<target>[^.。?？!！]{1,80}?)\s*['’]s\s+owner",
+        re.IGNORECASE,
+    ),
+    re.compile(
+        r"(?P<target>[^.。?？!！]{1,80}?)の\s*owner",
+        re.IGNORECASE,
+    ),
+    re.compile(
+        r"(?:誰|どなた)が(?P<target>[^,、。?？!！]{1,80}?)"
+        r"を(?:担当|受け持)"
+    ),
+    re.compile(
+        r"(?P<target>[^,、。?？!！]{1,80}?)の(?:"
+        r"担当者氏名|担当者名|担当社員|担当者|責任者|主担当|受け持ち?)"
+    ),
+    re.compile(
+        r"(?P<target>[^。?？!！]{1,80}?)"
+        r"は(?:誰|どなた)の(?:担当|受け持)"
+    ),
+    re.compile(
+        r"(?P<target>[^。?？!！]{1,80}?)"
+        r"の担当(?:は|が)?(?:誰|どなた)"
+    ),
+    re.compile(
+        r"(?P<target>[^。?？!！]{1,80}?)を(?:誰|どなた)が(?:担当|受け持)"
+    ),
+    re.compile(
+        r"(?P<target>[^.。?？!！]{1,80}?)"
+        r"(?:について(?:は)?|では|の場合(?:は)?|において(?:は)?|は)"
+        r"[^。?？!！]{0,60}?(?:誰|どなた)が(?:担当|受け持)"
+    ),
+    re.compile(
+        r"(?P<target>[^。?？!！]{1,80}?)を[^。?？!！]{0,60}?"
+        r"(?:担当|受け持)[^。?？!！]{0,40}?(?:誰|どなた)"
+    ),
+)
 
 
 def canonical_json(value: Any) -> str:
@@ -112,11 +438,705 @@ def stable_hash(value: Any) -> str:
     return hashlib.sha256(canonical_json(value).encode("utf-8")).hexdigest()
 
 
+def _canonical_text(value: object) -> str:
+    """Canonicalize one observed scalar before any identity comparison."""
+    text = str(value).strip()
+    if len(text) >= 2 and text.startswith('"') and text.endswith('"'):
+        try:
+            decoded = json.loads(text)
+        except (json.JSONDecodeError, TypeError):
+            decoded = text
+        if isinstance(decoded, str):
+            text = decoded
+    text = re.sub(
+        r"\\u([0-9a-fA-F]{4})",
+        lambda match: chr(int(match.group(1), 16)),
+        text,
+    )
+    text = "".join(
+        char
+        for char in unicodedata.normalize("NFKC", text)
+        if unicodedata.category(char) != "Cf"
+    )
+    return re.sub(r"\s+", " ", text).strip()
+
+
 def normalize(value: object) -> str:
     return "".join(
-        char for char in unicodedata.normalize("NFKC", str(value)).casefold()
+        char for char in _canonical_text(value).casefold()
         if char.isalnum() or "ぁ" <= char <= "鿿"
     )
+
+
+def assignment_target_identity(value: object) -> str:
+    """Normalize target presentation without erasing identity punctuation."""
+    return _canonical_text(value).casefold()
+
+
+def _clean_assignment_target_surface(value: str) -> str | None:
+    normalized = unicodedata.normalize("NFKC", value)
+    normalized = re.sub(
+        r"^(?:(?:\s|,|、)+(?:その時|当時|に|では?|の|は))+",
+        "",
+        normalized,
+    ).strip(" \t,、\"’'「」『』")
+    normalized = re.sub(
+        r"(?:について|では|の場合|において)\s*$", "", normalized,
+    )
+    normalized = normalized.strip(
+        " \t,、\"’'「」『』"
+    )
+    if not normalized:
+        return None
+    if assignment_target_identity(normalized) in {
+        assignment_target_identity(target) for target in DEICTIC_ASSIGNMENT_TARGETS
+    }:
+        return None
+    return normalized
+
+
+def extract_temporal_assignment_target(question: str) -> str | None:
+    """Extract one exact, explicit assignment target from common JP word orders."""
+    normalized = unicodedata.normalize("NFKC", question)
+    normalized = EXPLICIT_CURRENT_RELATIVE_ANCHOR.sub(" ", normalized)
+    normalized = RELATIVE_YEAR_SURFACE.sub(" ", normalized)
+    # Collapse the two possessives left by forms such as
+    # "Project Atlasの5年前の担当者".
+    normalized = re.sub(
+        r"の\s+の(?=\s*(?:担当者|責任者))", "の", normalized,
+    )
+    normalized = re.sub(
+        r"(?:その時|当時|(?:その)?時点(?:で|の)?|(?<!\S)における)",
+        " ",
+        normalized,
+    )
+    candidates: dict[str, str] = {}
+    for pattern in ASSIGNMENT_TARGET_PATTERNS:
+        for match in pattern.finditer(normalized):
+            candidate = _clean_assignment_target_surface(match.group("target"))
+            if candidate is not None:
+                candidates.setdefault(assignment_target_identity(candidate), candidate)
+    return next(iter(candidates.values())) if len(candidates) == 1 else None
+
+
+def _mask_explicit_assignment_target(question: str) -> tuple[str, str | None]:
+    """Hide exact target text before scanning the remaining temporal grammar."""
+    normalized = unicodedata.normalize("NFKC", question)
+    target = extract_temporal_assignment_target(normalized)
+    if target is None or PURE_TEMPORAL_TARGET_SURFACE.fullmatch(target):
+        return normalized, None
+    return normalized.replace(target, " " * len(target)), target
+
+
+def _record_status_scope_text(
+    question: str,
+    plan_items: Iterable[Mapping[str, Any]],
+    temporal_context: Mapping[str, Any] | None = None,
+    records: Iterable[Mapping[str, Any]] = (),
+) -> str:
+    """Exclude an owner target name from final/draft qualifier detection."""
+    normalized = unicodedata.normalize("NFKC", question)
+    owner_lookup = any(
+        item.get("field_name") == "owner" for item in plan_items
+    )
+    target = (
+        temporal_context.get("target")
+        if temporal_context is not None
+        else extract_temporal_assignment_target(normalized)
+        if owner_lookup and plain_assignment_owner_question_supported(normalized)
+        else _grounded_record_subject(normalized, records)
+    )
+    if not isinstance(target, str) or not target:
+        return normalized
+    return re.sub(
+        re.escape(unicodedata.normalize("NFKC", target)),
+        lambda match: " " * len(match.group(0)),
+        normalized,
+        flags=re.IGNORECASE,
+    )
+
+
+def _grounded_record_subject(
+    question: str,
+    records: Iterable[Mapping[str, Any]],
+) -> str | None:
+    """Find one structured subject value explicitly present in the question."""
+    normalized_question = unicodedata.normalize("NFKC", question)
+    candidates: dict[str, str] = {}
+    for record in records:
+        text = record.get("text")
+        if not isinstance(text, str):
+            continue
+        for label, values in _fields(text).items():
+            if not _preferred_subject_label(label) or len(values) != 1:
+                continue
+            value = _canonical_text(values[0])
+            identity = assignment_target_identity(value)
+            if (
+                len(normalize(value)) < 2
+                or FINAL_RECORD_SURFACE.fullmatch(value)
+                or NONFINAL_RECORD_SURFACE.fullmatch(value)
+            ):
+                continue
+            if re.search(
+                re.escape(unicodedata.normalize("NFKC", value)),
+                normalized_question,
+                flags=re.IGNORECASE,
+            ):
+                candidates.setdefault(identity, value)
+    return next(iter(candidates.values())) if len(candidates) == 1 else None
+
+
+def _tail_starts_with_target(tail: str, target: str) -> bool:
+    candidate = tail.lstrip(" \t\"'「『")
+    if not candidate.startswith(target):
+        return False
+    remainder = candidate[len(target):].lstrip(" \t\"'」』")
+    return (
+        not remainder
+        or remainder.startswith((
+            "の", "を", "は", "が", "で", "に", "について",
+            "、", ",", "。", ".", "?", "？", "!", "！",
+        ))
+    )
+
+
+def _target_has_owned_temporal_segment(target: str) -> bool:
+    """Detect a time qualifier embedded as one possessive target segment."""
+    segments = [
+        segment.strip()
+        for segment in re.split(r"\s*の\s*", unicodedata.normalize("NFKC", target))
+    ]
+    if len(segments) < 2:
+        return False
+    return any(
+        bool(PURE_TEMPORAL_TARGET_SURFACE.fullmatch(segment))
+        or segment in {"期首", "期末"}
+        for segment in segments
+        if segment
+    )
+
+
+def _temporal_owner_question_shape_supported(
+    question: str,
+    target: str | None,
+) -> bool:
+    """Accept only full clauses that ask for the owner at one time point."""
+    if target is None:
+        # Deictic/unresolved targets are rejected later by target validation,
+        # without silently promoting them here.
+        return True
+    skeleton = unicodedata.normalize("NFKC", question).replace(
+        target, "TARGET",
+    )
+    skeleton = RELATIVE_YEAR_SURFACE.sub("TIME", skeleton)
+    skeleton = re.sub(
+        r"(?:今|現在|現時点)から(?:ちょうど|まさに)?TIME",
+        "TIME",
+        skeleton,
+    )
+    skeleton = re.sub(r"(?:ちょうど|まさに)TIME", "TIME", skeleton)
+    skeleton = skeleton.translate(str.maketrans(
+        "", "", "\"'「」『』()（）[]【】 \t\r\n",
+    ))
+    skeleton = OWNER_ROLE_SURFACE.sub("ROLE", skeleton)
+    skeleton = POSITIVE_ASSIGNMENT_PREDICATE.sub("ASSIGN", skeleton)
+    skeleton = skeleton.rstrip("。.?？!！")
+    skeleton = re.sub(
+        r"(?:です|でした|でしょう)?か$", "", skeleton,
+    )
+    skeleton = re.sub(r"(?:です|でした)$", "", skeleton)
+    role = r"(?:ROLE|ASSIGN)"
+    who = r"(?:誰|どなた)"
+    shapes = (
+        rf"TIME(?:(?:の)?時点(?:で|では)|には|では|は|に|で|、|,)?"
+        rf"{who}がTARGETをASSIGN",
+        rf"TIME(?:(?:の)?時点(?:で|では)|には|では|は|に|で|、|,)?"
+        rf"TARGETを{who}がASSIGN",
+        rf"TIME(?:に|、|,)TARGETをASSIGNのは{who}",
+        rf"TARGETをTIMEにASSIGNのは{who}",
+        rf"TIME(?:の時点(?:で|では?)|における)TARGETの{role}は{who}",
+        rf"TIME時点のTARGETの{role}は{who}",
+        rf"TIMEのTARGETの{role}は{who}",
+        rf"TIME[、,]TARGETの{role}は{who}",
+        rf"TIMEのTARGETは{who}(?:がASSIGN|のASSIGN)",
+        rf"TARGETのTIMEの{role}は{who}",
+        rf"TARGET(?:は|について[、,]?|では|の場合[、,]?|"
+        rf"において(?:は)?)TIME(?:は|[、,])?{who}がASSIGN",
+    )
+    return any(re.fullmatch(shape, skeleton) for shape in shapes)
+
+
+def plain_assignment_owner_question_supported(question: str) -> bool:
+    """Allow only positive, single-field owner questions without a time scope."""
+    target = extract_temporal_assignment_target(question)
+    if target is None:
+        return False
+    skeleton = unicodedata.normalize("NFKC", question).replace(
+        target, "TARGET",
+    )
+    skeleton = skeleton.translate(str.maketrans(
+        "", "", "\"'「」『』()（）[]【】 \t\r\n",
+    ))
+    skeleton = OWNER_ROLE_SURFACE.sub("ROLE", skeleton)
+    skeleton = POSITIVE_ASSIGNMENT_PREDICATE.sub("ASSIGN", skeleton)
+    skeleton = skeleton.rstrip("。.?？!！")
+    skeleton = re.sub(r"(?:です|でした|でしょう)?か$", "", skeleton)
+    skeleton = re.sub(r"(?:です|でした)$", "", skeleton)
+    role = r"(?:ROLE|ASSIGN)"
+    who = r"(?:誰|どなた)"
+    shapes = (
+        rf"{who}がTARGETをASSIGN",
+        rf"TARGETを{who}がASSIGN",
+        rf"TARGETをASSIGNのは{who}",
+        rf"TARGETの{role}は{who}",
+        rf"TARGETの{role}が{who}",
+        rf"TARGETは{who}(?:がASSIGN|のASSIGN)",
+        rf"TARGET(?:について[、,]?|では|の場合[、,]?|"
+        rf"において(?:は)?)?{who}がASSIGN",
+    )
+    english_shapes = (
+        r"whois(?:the)?owneroftarget",
+        r"targetsowner(?:iswho)?",
+        r"targetのowner(?:は|が)(?:誰|どなた)",
+    )
+    return (
+        any(re.fullmatch(shape, skeleton) for shape in shapes)
+        or any(
+            re.fullmatch(shape, skeleton.casefold())
+            for shape in english_shapes
+        )
+    )
+
+
+def _relative_year_structure_unsupported(question: str, target: str | None) -> bool:
+    """Allow only run-date anchored N-years-ago syntax implemented by this contract."""
+    normalized = unicodedata.normalize("NFKC", question)
+    masked = (
+        normalized.replace(target, " " * len(target))
+        if target is not None else normalized
+    )
+    for match in RELATIVE_YEAR_SURFACE.finditer(masked):
+        prefix = masked[:match.start()].rstrip()
+        original_prefix = normalized[:match.start()].rstrip()
+        target_before_time = bool(
+            target is not None
+            and re.search(rf"{re.escape(target)}\s*の\s*$", original_prefix)
+        )
+        compact_prefix = re.sub(r"\s+", "", prefix)
+        compact_prefix = compact_prefix.translate(str.maketrans(
+            "", "", "\"'「」『』()（）[]【】",
+        ))
+        if compact_prefix.endswith(("ちょうど", "まさに")):
+            compact_prefix = compact_prefix.removesuffix(
+                "ちょうど" if compact_prefix.endswith("ちょうど") else "まさに"
+            )
+        current_anchor = re.search(
+            r"(?:今|現在|現時点)から"
+            r"(?:(?:数えて|遡って|さかのぼって)|"
+            r"(?:を)?(?:基準|起点)(?:に|として)?)?$",
+            compact_prefix,
+        )
+        if current_anchor is not None:
+            compact_prefix = compact_prefix[:current_anchor.start()]
+        if target_before_time:
+            compact_prefix = ""
+        if compact_prefix not in {
+            "", "、", ",", "は", "を", "で", "では",
+            "について", "について、", "について,",
+            "の場合", "の場合、", "の場合,",
+            "において", "においては",
+            "の担当者は", "の責任者は",
+            "の担当者について", "の責任者について",
+        }:
+            return True
+
+        # Target masking preserves string length, so these offsets still point
+        # to the original question surface.
+        following = normalized[match.end():]
+        possessive = re.match(r"\s*の\s*", following)
+        if possessive is None:
+            continue
+        tail = following[possessive.end():].lstrip()
+        if re.match(r"時点(?=\s*(?:で|の|は|、|,|$))", tail):
+            continue
+        if target is not None and _tail_starts_with_target(tail, target):
+            continue
+        if target_before_time and re.match(
+            r"(?:担当者|担当者名|責任者|主担当|担当)"
+            r"(?=\s*(?:は|が|を|、|,|$))",
+            tail,
+        ):
+            continue
+        return True
+    return False
+
+
+def temporal_assignment_context_unsupported(question: str) -> bool:
+    """Reject ranges, approximations, and mixed absolute/relative anchors."""
+    normalized, target = _mask_explicit_assignment_target(question)
+    target_has_time_modifier = bool(
+        target is not None and _target_has_owned_temporal_segment(target)
+    )
+    if target is not None:
+        target_time_matches = sorted(
+            (
+                *NONCANONICAL_ASSIGNMENT_TIME_SURFACE.finditer(target),
+                *TARGET_ABSOLUTE_TIME_MODIFIER_SURFACE.finditer(target),
+                *ADDITIONAL_TIME_DETAIL_SURFACE.finditer(target),
+                *TARGET_EVENT_TIME_MODIFIER_SURFACE.finditer(target),
+            ),
+            key=lambda match: (match.start(), -match.end()),
+        )
+        for target_time_match in target_time_matches:
+            before = target[:target_time_match.start()].rstrip()
+            after = target[target_time_match.end():].lstrip()
+            if (not before or before.endswith("の")) and (
+                not after or after.startswith("の")
+            ):
+                target_has_time_modifier = True
+                break
+    exact_relative = RELATIVE_YEAR_SURFACE.search(normalized) is not None
+    temporal_remainder = RELATIVE_YEAR_SURFACE.sub(" ", normalized)
+    return bool(
+        target_has_time_modifier
+        or (
+            exact_relative
+            and (
+                not ASSIGNMENT_WHO_SURFACE.search(normalized)
+                or UNSUPPORTED_ASSIGNMENT_OUTPUT_SURFACE.search(normalized)
+                or ASSIGNMENT_NEGATION_SURFACE.search(normalized)
+                or UNSUPPORTED_ASSIGNMENT_EVENT_SURFACE.search(normalized)
+                or not _temporal_owner_question_shape_supported(
+                    question, target,
+                )
+            )
+        )
+        or _relative_year_structure_unsupported(question, target)
+        or (
+            not exact_relative
+            and RELATIVE_YEAR_BROAD_SURFACE.search(normalized)
+        )
+        or RELATIVE_YEAR_LIKE_SURFACE.search(normalized)
+        or RELATIVE_YEAR_BOUND_SURFACE.search(normalized)
+        or OTHER_ASSIGNMENT_TIME_SURFACE.search(normalized)
+        or NON_YEAR_RELATIVE_TIME_SURFACE.search(normalized)
+        or ABSOLUTE_DATE_SURFACE.search(normalized)
+        or RELATIVE_YEAR_APPROX_OR_RANGE.search(normalized)
+        or ABSOLUTE_YEAR_SURFACE.search(normalized)
+        or ADDITIONAL_TIME_DETAIL_SURFACE.search(temporal_remainder)
+        or UNPARSED_YEARS_AGO_SURFACE.search(temporal_remainder)
+        or (
+            not exact_relative
+            and NONCANONICAL_ASSIGNMENT_TIME_SURFACE.search(normalized)
+        )
+        or (
+            not exact_relative
+            and GENERIC_ASSIGNMENT_TIME_SURFACE.search(normalized)
+        )
+        or (
+            exact_relative
+            and CURRENT_TIME_SURFACE.search(normalized)
+            and EXPLICIT_CURRENT_RELATIVE_ANCHOR.search(normalized) is None
+        )
+        or (
+            exact_relative
+            and RELATIVE_YEAR_CALENDAR_DETAIL.search(normalized)
+        )
+    )
+
+
+def _assignment_plan_intent(
+    question: str,
+    question_plan: Mapping[str, Any],
+) -> bool:
+    """Identify an assignee lookup before accepting any temporal grammar."""
+    if question_plan.get("relation") == "responsible_for":
+        return True
+    raw_items = question_plan.get("items")
+    owner_plan = bool(
+        isinstance(raw_items, list)
+        and any(
+            isinstance(item, Mapping)
+            and _plan_item_record_field(item) == "owner"
+            for item in raw_items
+        )
+    )
+    if not owner_plan:
+        return False
+    normalized_question = unicodedata.normalize("NFKC", question)
+    return bool(
+        ASSIGNMENT_RESPONSIBILITY_SURFACE.search(normalized_question)
+        or (
+            ASSIGNMENT_WHO_SURFACE.search(normalized_question)
+            and any(
+                _record_alias_mentioned(normalized_question, alias)
+                for alias in RECORD_LOOKUP_FIELD_ALIASES["owner"]
+            )
+        )
+    )
+
+
+def _strict_iso_date(value: object) -> date | None:
+    text = str(value or "").strip()
+    if not ISO_DATE.fullmatch(text):
+        return None
+    try:
+        return date.fromisoformat(text)
+    except ValueError:
+        return None
+
+
+def _japanese_integer(value: str) -> int | None:
+    normalized = unicodedata.normalize("NFKC", value).strip()
+    if normalized.isdecimal():
+        parsed = int(normalized)
+        return parsed if 1 <= parsed <= 99 else None
+    digits = {
+        "〇": 0, "零": 0, "一": 1, "二": 2, "三": 3, "四": 4,
+        "五": 5, "六": 6, "七": 7, "八": 8, "九": 9,
+    }
+    if "十" in normalized:
+        if normalized.count("十") != 1:
+            return None
+        tens_text, ones_text = normalized.split("十")
+        if len(tens_text) > 1 or len(ones_text) > 1:
+            return None
+        tens = digits.get(tens_text, 1) if tens_text else 1
+        ones = digits.get(ones_text, 0) if ones_text else 0
+        if tens is None or ones is None or tens == 0:
+            return None
+        parsed = tens * 10 + ones
+        return parsed if 1 <= parsed <= 99 else None
+    if not normalized or any(char not in digits for char in normalized):
+        return None
+    parsed = int("".join(str(digits[char]) for char in normalized))
+    return parsed if 1 <= parsed <= 99 else None
+
+
+def _subtract_calendar_years_clamped(reference: date, years: int) -> date | None:
+    target_year = reference.year - years
+    if target_year < 1:
+        return None
+    try:
+        return reference.replace(year=target_year)
+    except ValueError:
+        # The only valid month/day that needs clamping is February 29.
+        return reference.replace(year=target_year, day=28)
+
+
+def _temporal_question_matches(question: str) -> list[dict[str, Any]]:
+    normalized = unicodedata.normalize("NFKC", question)
+    matches = []
+    for match in RELATIVE_YEAR_SURFACE.finditer(normalized):
+        years = _japanese_integer(match.group("count"))
+        matches.append({
+            "expression": re.sub(r"\s+", "", match.group("expression")),
+            "years": years,
+        })
+    return matches
+
+
+def _validated_temporal_context(
+    question: str,
+    question_plan: Mapping[str, Any],
+    reference_date: str | None,
+) -> tuple[dict[str, Any] | None, dict[str, Any] | None]:
+    """Validate a planner-supplied temporal scope against deterministic inputs."""
+    question_matches = _temporal_question_matches(question)
+    assignment_intent = _assignment_plan_intent(question, question_plan)
+    if assignment_intent and temporal_assignment_context_unsupported(question):
+        return None, {
+            "code": "temporal_expression_context_unsupported",
+            "detail": (
+                "Only one exact N-years-ago time point is supported; "
+                "other time expressions, ranges, approximations, and mixed "
+                "year anchors are not."
+            ),
+        }
+    has_scope = "temporal_scope" in question_plan
+    if (
+        assignment_intent
+        and not question_matches
+        and not has_scope
+        and not plain_assignment_owner_question_supported(question)
+    ):
+        return None, {
+            "code": "assignment_question_shape_unsupported",
+            "detail": (
+                "Only a positive owner question without a time expression, "
+                "or one exact N-years-ago owner question, is supported."
+            ),
+        }
+    if not has_scope:
+        if question_matches:
+            return None, {
+                "code": "temporal_scope_missing",
+                "detail": "A relative-year question requires a typed temporal_scope.",
+            }
+        return None, None
+
+    raw_scope = question_plan.get("temporal_scope")
+    if not isinstance(raw_scope, Mapping):
+        return None, {
+            "code": "temporal_scope_shape_invalid",
+            "detail": "temporal_scope must be an object.",
+        }
+    required_keys = (
+        "expression", "reference_date", "as_of", "precision", "boundary",
+        "resolution_rule", "timezone",
+    )
+    missing = [key for key in required_keys if key not in raw_scope]
+    non_strings = [
+        key for key in required_keys
+        if key in raw_scope and not isinstance(raw_scope.get(key), str)
+    ]
+    if missing or non_strings:
+        return None, {
+            "code": "temporal_scope_shape_invalid",
+            "detail": {"missing": missing, "non_string": non_strings},
+        }
+    scope = {key: str(raw_scope[key]).strip() for key in required_keys}
+    if any(not value for value in scope.values()):
+        return None, {
+            "code": "temporal_scope_shape_invalid",
+            "detail": "temporal_scope values must be non-empty strings.",
+        }
+    if (
+        scope["precision"] != TEMPORAL_PRECISION
+        or scope["boundary"] != TEMPORAL_BOUNDARY
+        or scope["resolution_rule"] != TEMPORAL_RESOLUTION_RULE
+        or scope["timezone"] != TEMPORAL_TIMEZONE
+    ):
+        return None, {
+            "code": "temporal_scope_contract_invalid",
+            "detail": {
+                "precision": scope["precision"],
+                "boundary": scope["boundary"],
+                "resolution_rule": scope["resolution_rule"],
+                "timezone": scope["timezone"],
+            },
+        }
+
+    expected_reference = _strict_iso_date(reference_date)
+    planned_reference = _strict_iso_date(scope["reference_date"])
+    planned_as_of = _strict_iso_date(scope["as_of"])
+    if expected_reference is None or planned_reference is None or planned_as_of is None:
+        return None, {
+            "code": "temporal_date_invalid",
+            "detail": {
+                "expected_reference_date": reference_date,
+                "reference_date": scope["reference_date"],
+                "as_of": scope["as_of"],
+            },
+        }
+    if planned_reference != expected_reference:
+        return None, {
+            "code": "temporal_reference_date_mismatch",
+            "detail": {
+                "expected": expected_reference.isoformat(),
+                "observed": planned_reference.isoformat(),
+            },
+        }
+    if len(question_matches) != 1:
+        return None, {
+            "code": "temporal_expression_ambiguous",
+            "detail": question_matches,
+        }
+    expression = re.sub(
+        r"\s+", "", unicodedata.normalize("NFKC", scope["expression"])
+    )
+    question_expression = question_matches[0]
+    if question_expression["years"] is None:
+        return None, {
+            "code": "temporal_expression_out_of_range",
+            "detail": question_expression["expression"],
+        }
+    if expression != question_expression["expression"]:
+        return None, {
+            "code": "temporal_expression_not_grounded",
+            "detail": {
+                "planned": expression,
+                "question": question_expression["expression"],
+            },
+        }
+    expected_as_of = _subtract_calendar_years_clamped(
+        expected_reference, question_expression["years"]
+    )
+    if expected_as_of is None:
+        return None, {
+            "code": "temporal_as_of_out_of_range",
+            "detail": {
+                "reference_date": expected_reference.isoformat(),
+                "years": question_expression["years"],
+            },
+        }
+    if planned_as_of != expected_as_of or planned_as_of > planned_reference:
+        return None, {
+            "code": "temporal_as_of_mismatch",
+            "detail": {
+                "expected": expected_as_of.isoformat(),
+                "observed": planned_as_of.isoformat(),
+            },
+        }
+
+    target = question_plan.get("target")
+    relation = question_plan.get("relation")
+    grounded_target = extract_temporal_assignment_target(question)
+    if (
+        not isinstance(target, str)
+        or not target.strip()
+        or grounded_target is None
+        or assignment_target_identity(target)
+        != assignment_target_identity(grounded_target)
+    ):
+        return None, {
+            "code": "temporal_target_invalid",
+            "detail": str(target or ""),
+        }
+    if relation != "responsible_for":
+        return None, {
+            "code": "temporal_relation_invalid",
+            "detail": str(relation or ""),
+        }
+    canonical_scope = {
+        **scope,
+        "expression": expression,
+    }
+    return {
+        "scope": canonical_scope,
+        "target": grounded_target,
+        "relation": relation,
+        "years": question_expression["years"],
+    }, None
+
+
+def _structured_date(value: str) -> date | None:
+    normalized = unicodedata.normalize("NFKC", value).strip()
+    # openpyxl serializes a date-formatted Excel cell as an ISO datetime when
+    # the underlying cell value is a datetime. Day-precision assignment
+    # periods may safely accept that native midnight representation.
+    midnight = re.fullmatch(
+        r"(?P<date>\d{4}-\d{2}-\d{2})T00:00:00(?:\.0+)?",
+        normalized,
+    )
+    if midnight:
+        normalized = midnight.group("date")
+    match = re.fullmatch(
+        r"(?P<year>\d{4})\s*(?:年|[-/.])\s*(?P<month>\d{1,2})"
+        r"\s*(?:月|[-/.])\s*(?P<day>\d{1,2})\s*日?",
+        normalized,
+    )
+    if not match:
+        return None
+    try:
+        return date(
+            int(match.group("year")),
+            int(match.group("month")),
+            int(match.group("day")),
+        )
+    except ValueError:
+        return None
 
 
 def _decimal(value: object) -> Decimal | None:
@@ -279,10 +1299,31 @@ def _plan_item_record_field(raw: Mapping[str, Any]) -> str | None:
     return None
 
 
+def _record_label_residue_grounded(
+    label: str,
+    field_name: str,
+    question: str,
+) -> bool:
+    """Allow a planner paraphrase only when its non-field residue is in the query."""
+    label_key = normalize(label)
+    question_key = normalize(question)
+    for alias in sorted(
+        RECORD_LOOKUP_FIELD_ALIASES[field_name],
+        key=lambda value: len(normalize(value)),
+        reverse=True,
+    ):
+        alias_key = normalize(alias)
+        if alias_key and alias_key in label_key:
+            residue = label_key.replace(alias_key, "")
+            return not residue or residue in question_key
+    return False
+
+
 def _record_lookup_plan(
     question_plan: Mapping[str, Any] | None,
     *,
     activate_unknown: bool = False,
+    question: str = "",
 ) -> list[dict[str, Any]] | None:
     """Preserve any plan tied to a known record field for fail-closed lookup.
 
@@ -327,6 +1368,17 @@ def _record_lookup_plan(
             plan_errors.append("label_missing")
         field_name = _plan_item_record_field(raw)
         mentioned_field_names = _mentioned_record_fields(label)
+        exact_label_field = _record_field_name(label)
+        if any(unicodedata.category(char) in {"Cc", "Zl", "Zp"} for char in label):
+            plan_errors.append("label_control_character")
+        if (
+            field_name is not None
+            and exact_label_field != field_name
+            and not _record_label_residue_grounded(
+                label, field_name, question,
+            )
+        ):
+            plan_errors.append("label_not_exact_field_alias")
         if field_name is not None or mentioned_field_names:
             known_field_count += 1
         seen_item_ids.add(item_id)
@@ -367,6 +1419,17 @@ def _preferred_subject_label(label: str) -> bool:
     return normalize(label) in {normalize(alias) for alias in RECORD_SUBJECT_LABEL_ALIASES}
 
 
+def _temporal_subject_label(label: str) -> bool:
+    return normalize(label) in {
+        normalize(alias) for alias in TEMPORAL_RECORD_SUBJECT_LABEL_ALIASES
+    }
+
+
+def _owner_subject_label(label: str) -> bool:
+    """Broad subject suspicion used only for owner-row completeness checks."""
+    return _preferred_subject_label(label) or _temporal_subject_label(label)
+
+
 def _single_field_entries(
     fields: Mapping[str, list[str]],
     field_name: str,
@@ -382,18 +1445,504 @@ def _single_field_entries(
     return sorted(entries, key=lambda item: (normalize(item["label"]), item["value"]))
 
 
+def _single_temporal_entry(
+    fields: Mapping[str, list[str]],
+    aliases: tuple[str, ...],
+) -> tuple[dict[str, str] | None, str | None]:
+    accepted = {normalize(alias) for alias in aliases}
+    matches = []
+    for label, values in fields.items():
+        if normalize(label) not in accepted:
+            continue
+        if len(values) != 1 or not values[0].strip():
+            return None, "empty_or_ambiguous"
+        matches.append({"label": label, "value": values[0].strip()})
+    if not matches:
+        return None, "missing"
+    if len(matches) != 1:
+        return None, "ambiguous_aliases"
+    return matches[0], None
+
+
+def _has_possible_assignment_period(
+    fields: Mapping[str, list[str]],
+) -> bool:
+    normalized_labels = {normalize(label) for label in fields}
+    starts = {
+        normalize(alias) for alias in POSSIBLE_PERIOD_START_LABEL_ALIASES
+    }
+    ends = {
+        normalize(alias) for alias in POSSIBLE_PERIOD_END_LABEL_ALIASES
+    }
+    return bool(normalized_labels & starts) and bool(normalized_labels & ends)
+
+
+def _has_assignment_time_metadata(
+    fields: Mapping[str, list[str]],
+) -> bool:
+    """Detect time-versioned ownership without guessing from generic one-sided dates."""
+    normalized_labels = {normalize(label) for label in fields}
+    strict = {
+        normalize(alias)
+        for alias in (*TEMPORAL_START_LABEL_ALIASES, *TEMPORAL_END_LABEL_ALIASES)
+    }
+    combined = {
+        normalize(alias) for alias in POSSIBLE_COMBINED_PERIOD_LABEL_ALIASES
+    }
+    return bool(normalized_labels & (strict | combined)) or (
+        _has_possible_assignment_period(fields)
+    )
+
+
+def _coordinate_less_target_row_like(text: str, target: str) -> bool:
+    """Recognize unlabeled arrays/delimited rows that need a dedicated adapter."""
+    canonical_target = assignment_target_identity(target)
+    stripped = text.strip()
+    if not stripped:
+        return False
+    try:
+        decoded = json.loads(stripped)
+    except (json.JSONDecodeError, TypeError):
+        decoded = None
+    if isinstance(decoded, list):
+        scalars = [
+            item for item in decoded
+            if isinstance(item, (str, int, float)) and str(item).strip()
+        ]
+        return len(scalars) >= 2 and any(
+            assignment_target_identity(item) == canonical_target
+            for item in scalars
+        )
+    parts = [
+        part.strip(" \t\r\n\"'「」『』[]")
+        for part in re.split(r"[\n\t,、，;；|｜/／•・]+", stripped)
+        if part.strip(" \t\r\n\"'「」『』[]")
+    ]
+    return len(parts) >= 2 and any(
+        assignment_target_identity(part) == canonical_target for part in parts
+    )
+
+
+def _orphan_owner_row_units(
+    records: list[dict[str, Any]],
+    target: str,
+) -> list[dict[str, Any]]:
+    """Find target+owner spreadsheet rows that lack their row SearchUnit."""
+    row_units: dict[tuple[str, str, str, int], list[dict[str, Any]]] = {}
+    for record in records:
+        locator = record["locator"]
+        sheet_name = locator.get("sheet_name")
+        row_index = locator.get("row_index")
+        if (
+            isinstance(sheet_name, str)
+            and isinstance(row_index, int)
+            and "cell" not in locator
+        ):
+            row_units.setdefault((
+                record["document_id"], record["relative_path"],
+                sheet_name, row_index,
+            ), []).append(record)
+    cells = []
+    for record in records:
+        locator = record["locator"]
+        sheet_name = locator.get("sheet_name")
+        cell_match = CELL_COORDINATE.fullmatch(
+            str(locator.get("cell", "")).strip()
+        )
+        if not isinstance(sheet_name, str) or cell_match is None:
+            continue
+        cells.append({
+            "record": record,
+            "table": (
+                record["document_id"], record["relative_path"], sheet_name,
+            ),
+            "column": cell_match.group("column").upper(),
+            "row": int(cell_match.group("row")),
+        })
+
+    header_roles: dict[tuple[tuple[str, str, str], str, int], set[str]] = {}
+    for info in cells:
+        label = _decode_json_string_literal(info["record"]["text"])
+        roles = set()
+        if _owner_subject_label(label):
+            roles.add("subject")
+        if _record_field_name(label) == "owner":
+            roles.add("owner")
+        if normalize(label) in {
+            normalize(alias) for alias in POSSIBLE_PERIOD_START_LABEL_ALIASES
+        }:
+            roles.add("period_start")
+        if normalize(label) in {
+            normalize(alias) for alias in POSSIBLE_PERIOD_END_LABEL_ALIASES
+        }:
+            roles.add("period_end")
+        if roles:
+            header_roles[(info["table"], info["column"], info["row"])] = roles
+
+    def nearest_roles(
+        table: tuple[str, str, str], column: str, row: int,
+    ) -> set[str]:
+        candidates = [
+            (header_row, roles)
+            for (header_table, header_column, header_row), roles
+            in header_roles.items()
+            if header_table == table and header_column == column and header_row < row
+        ]
+        if not candidates:
+            return set()
+        nearest = max(header_row for header_row, _roles in candidates)
+        return set().union(*(
+            roles for header_row, roles in candidates if header_row == nearest
+        ))
+
+    by_row: dict[tuple[tuple[str, str, str], int], list[dict[str, Any]]] = {}
+    for info in cells:
+        by_row.setdefault((info["table"], info["row"]), []).append(info)
+
+    issues = []
+    for (table, row), row_cells in by_row.items():
+        target_cells = [
+            info for info in row_cells
+            if "subject" in nearest_roles(table, info["column"], row)
+            and _raw_value_matches(info["record"]["text"], target)
+        ]
+        owner_cells = [
+            info for info in row_cells
+            if "owner" in nearest_roles(table, info["column"], row)
+        ]
+        period_start_cells = [
+            info for info in row_cells
+            if "period_start" in nearest_roles(table, info["column"], row)
+        ]
+        period_end_cells = [
+            info for info in row_cells
+            if "period_end" in nearest_roles(table, info["column"], row)
+        ]
+        if target_cells:
+            projected_rows = row_units.get((*table, row), [])
+            valid_projected_rows = []
+            for projected in projected_rows:
+                fields = _fields(projected["text"])
+                subject_values = [
+                    value
+                    for label, values in fields.items()
+                    if _owner_subject_label(label)
+                    for value in values
+                    if _raw_value_matches(value, target)
+                ]
+                if subject_values:
+                    valid_projected_rows.append(projected)
+            if len(valid_projected_rows) == 1:
+                continue
+            issues.append({
+                "document_id": table[0],
+                "relative_path": table[1],
+                "sheet_name": table[2],
+                "row_index": row,
+                "target_evidence_ids": sorted(
+                    info["record"]["evidence_id"] for info in target_cells
+                ),
+                "owner_evidence_ids": sorted(
+                    info["record"]["evidence_id"] for info in owner_cells
+                ),
+                "period_evidence_ids": sorted(
+                    info["record"]["evidence_id"]
+                    for info in (*period_start_cells, *period_end_cells)
+                ),
+                "row_evidence_ids": sorted(
+                    record["evidence_id"] for record in projected_rows
+                ),
+                "reason": "row_search_unit_missing_or_invalid",
+            })
+    return sorted(
+        issues,
+        key=lambda item: (
+            item["document_id"], item["relative_path"],
+            item["sheet_name"], item["row_index"],
+        ),
+    )
+
+
 def _record_lookup_candidates(
     records: list[dict[str, Any]],
     question: str,
     plan_items: list[dict[str, Any]],
     require_final: bool,
-) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    temporal_context: Mapping[str, Any] | None = None,
+) -> tuple[list[dict[str, Any]], dict[str, Any], list[dict[str, Any]]]:
     question_normalized = normalize(question)
     candidates: list[dict[str, Any]] = []
     subject_rows = 0
     missing_fields: set[str] = set()
     ambiguous_fields: set[str] = set()
     nonfinal_statuses: set[str] = set()
+    temporal_missing: list[dict[str, Any]] = []
+    temporal_invalid: list[dict[str, Any]] = []
+    temporal_excluded: list[dict[str, Any]] = []
+    temporal_excluded_candidates: list[dict[str, Any]] = []
+    temporal_subject_issues: list[dict[str, Any]] = []
+    temporal_locator_issues: list[dict[str, Any]] = []
+    temporal_owner_invalid: list[dict[str, Any]] = []
+    owner_temporal_scope_required: list[dict[str, Any]] = []
+    owner_row_unit_issues: list[dict[str, Any]] = []
+    temporal_status_invalid: list[dict[str, Any]] = []
+    requested_names = {item["field_name"] for item in plan_items}
+    owner_lookup = "owner" in requested_names
+    as_of = (
+        _strict_iso_date(temporal_context["scope"]["as_of"])
+        if temporal_context is not None else None
+    )
+    owner_target = (
+        temporal_context["target"]
+        if temporal_context is not None
+        else extract_temporal_assignment_target(question)
+        if owner_lookup else None
+    )
+    if owner_lookup and owner_target is not None:
+        target_identity = assignment_target_identity(owner_target)
+        owner_row_unit_issues = _orphan_owner_row_units(records, owner_target)
+        subject_label = (
+            _owner_subject_label
+            if temporal_context is not None else _preferred_subject_label
+        )
+        relevant_tables: set[tuple[str, str, str]] = set()
+        row_infos = []
+        temporal_labels = {
+            normalize(alias)
+            for alias in (
+                *TEMPORAL_START_LABEL_ALIASES,
+                *TEMPORAL_END_LABEL_ALIASES,
+            )
+        }
+        for record in records:
+            locator = record["locator"]
+            if (
+                isinstance(locator.get("row_index"), int)
+                and isinstance(locator.get("sheet_name"), str)
+            ):
+                continue
+            if CELL_COORDINATE.fullmatch(str(locator.get("cell", "")).strip()):
+                continue
+            fields = _fields(record["text"])
+            has_temporal_field = any(
+                normalize(label) in temporal_labels for label in fields
+            )
+            has_owner_field = any(
+                _record_field_name(label) == "owner" for label in fields
+            )
+            has_possible_period = _has_possible_assignment_period(fields)
+            possible_subject_values = [
+                value
+                for label, values in fields.items()
+                if _record_field_name(label) != "owner"
+                if not _status_label(label)
+                if normalize(label) not in temporal_labels
+                for value in values
+            ]
+            exact_target_in_possible = any(
+                assignment_target_identity(value) == target_identity
+                for value in possible_subject_values
+            )
+            untyped_date_count = sum(
+                _structured_date(value) is not None
+                for values in fields.values()
+                for value in values
+            )
+            assignment_shaped = has_owner_field or (
+                temporal_context is not None
+                and (
+                    has_temporal_field
+                    or has_possible_period
+                    or _has_assignment_time_metadata(fields)
+                    or (
+                        exact_target_in_possible
+                        and (untyped_date_count >= 2 or len(fields) >= 4)
+                    )
+                )
+            )
+            target_mentioned = normalize(owner_target) in normalize(record["text"])
+            has_owner_surface = any(
+                _record_alias_mentioned(record["text"], alias)
+                for alias in RECORD_LOOKUP_FIELD_ALIASES["owner"]
+            )
+            has_date_surface = bool(re.search(
+                r"[12]\d{3}\s*[-/.年]\s*\d{1,2}\s*[-/.月]\s*\d{1,2}",
+                unicodedata.normalize("NFKC", record["text"]),
+            ))
+            if target_mentioned and (
+                assignment_shaped
+                or has_owner_surface
+                or has_date_surface
+                or _coordinate_less_target_row_like(record["text"], owner_target)
+            ):
+                temporal_locator_issues.append({
+                    "evidence_id": record["evidence_id"],
+                    "locator": dict(locator),
+                    "reason": "assignment_row_locator_unsupported",
+                })
+                continue
+            if assignment_shaped and any(
+                assignment_target_identity(value) == target_identity
+                for value in possible_subject_values
+            ):
+                temporal_locator_issues.append({
+                    "evidence_id": record["evidence_id"],
+                    "locator": dict(locator),
+                    "reason": "assignment_row_locator_unsupported",
+                })
+        for record in records:
+            locator = record["locator"]
+            row_index = locator.get("row_index")
+            sheet_name = locator.get("sheet_name")
+            if not isinstance(row_index, int) or not isinstance(sheet_name, str):
+                continue
+            fields = _fields(record["text"])
+            table_key = (
+                record["document_id"], record["relative_path"], sheet_name,
+            )
+            row_infos.append((record, row_index, sheet_name, table_key, fields))
+            has_temporal_field = any(
+                normalize(label) in temporal_labels for label in fields
+            )
+            has_owner_field = any(
+                _record_field_name(label) == "owner" for label in fields
+            )
+            has_possible_period = _has_possible_assignment_period(fields)
+            possible_subject_values = [
+                value
+                for label, values in fields.items()
+                if _record_field_name(label) != "owner"
+                if not _status_label(label)
+                if normalize(label) not in temporal_labels
+                for value in values
+            ]
+            exact_target_in_possible = any(
+                assignment_target_identity(value) == target_identity
+                for value in possible_subject_values
+            )
+            untyped_date_count = sum(
+                _structured_date(value) is not None
+                for values in fields.values()
+                for value in values
+            )
+            assignment_shaped = has_owner_field or (
+                temporal_context is not None
+                and (
+                    has_temporal_field
+                    or has_possible_period
+                    or _has_assignment_time_metadata(fields)
+                    or (
+                        exact_target_in_possible
+                        and (untyped_date_count >= 2 or len(fields) >= 4)
+                    )
+                )
+            )
+            if assignment_shaped and any(
+                assignment_target_identity(value) == target_identity
+                for value in possible_subject_values
+            ):
+                relevant_tables.add(table_key)
+
+        for record, row_index, sheet_name, table_key, fields in row_infos:
+            if table_key not in relevant_tables:
+                continue
+            has_temporal_field = any(
+                normalize(label) in temporal_labels for label in fields
+            )
+            has_owner_field = any(
+                _record_field_name(label) == "owner" for label in fields
+            )
+            has_possible_period = _has_possible_assignment_period(fields)
+            possible_subject_values = [
+                value
+                for label, values in fields.items()
+                if _record_field_name(label) != "owner"
+                if not _status_label(label)
+                if normalize(label) not in temporal_labels
+                for value in values
+            ]
+            exact_target_present = any(
+                assignment_target_identity(value) == target_identity
+                for value in possible_subject_values
+            )
+            untyped_date_count = sum(
+                _structured_date(value) is not None
+                for values in fields.values()
+                for value in values
+            )
+            if (
+                temporal_context is None
+                and _has_assignment_time_metadata(fields)
+                and exact_target_present
+            ):
+                owner_temporal_scope_required.append({
+                    "evidence_id": record["evidence_id"],
+                    "sheet_name": sheet_name,
+                    "row_index": row_index,
+                    "reason": "assignment_period_requires_explicit_time_scope",
+                })
+            if temporal_context is not None:
+                if not has_temporal_field and not (
+                    (has_owner_field or has_possible_period)
+                    and exact_target_present
+                ) and not (
+                    exact_target_present
+                    and (untyped_date_count >= 2 or len(fields) >= 4)
+                ):
+                    continue
+            elif not has_owner_field:
+                continue
+            subject_entries = [
+                (label, values)
+                for label, values in fields.items()
+                if subject_label(label)
+            ]
+            identities = {
+                assignment_target_identity(value)
+                for _label, values in subject_entries
+                for value in values
+                if value.strip()
+            }
+            unknown_target_fields = [
+                {"label": label, "values": list(values)}
+                for label, values in fields.items()
+                if not subject_label(label)
+                if _record_field_name(label) != "owner"
+                if not _status_label(label)
+                if normalize(label) not in temporal_labels
+                if any(
+                    assignment_target_identity(value) == target_identity
+                    for value in values
+                )
+            ]
+            recognized_target_present = target_identity in identities
+            if not recognized_target_present and not unknown_target_fields:
+                continue
+            malformed = (
+                not subject_entries
+                or len(subject_entries) != 1
+                or any(
+                    len(values) != 1 or not values[0].strip()
+                    for _label, values in subject_entries
+                )
+                or len(identities) != 1
+                or (
+                    target_identity not in identities
+                    and bool(unknown_target_fields)
+                )
+            )
+            if malformed:
+                temporal_subject_issues.append({
+                    "evidence_id": record["evidence_id"],
+                    "sheet_name": sheet_name,
+                    "row_index": row_index,
+                    "subject_fields": [
+                        {"label": label, "values": list(values)}
+                        for label, values in subject_entries
+                    ],
+                    "unknown_target_fields": unknown_target_fields,
+                })
+
     for record in records:
         locator = record["locator"]
         row_index = locator.get("row_index")
@@ -404,17 +1953,27 @@ def _record_lookup_candidates(
         if not fields:
             continue
 
-        requested_names = {item["field_name"] for item in plan_items}
         subject_matches = []
         for label, values in fields.items():
             if _record_field_name(label) in requested_names or _status_label(label):
+                continue
+            if owner_lookup and not (
+                _owner_subject_label(label)
+                if temporal_context is not None
+                else _preferred_subject_label(label)
+            ):
                 continue
             if len(values) != 1:
                 continue
             value = values[0].strip()
             normalized_value = normalize(value)
             if (
-                len(normalized_value) < 3 or normalized_value.isdecimal()
+                not normalized_value
+                or normalized_value.isdecimal()
+                or (
+                    not owner_lookup
+                    and len(normalized_value) < 3
+                )
                 or normalized_value not in question_normalized
             ):
                 continue
@@ -434,6 +1993,134 @@ def _record_lookup_candidates(
                 normalize(item["label"]), normalize(item["value"]),
             ),
         )[0]
+        if (
+            temporal_context is not None
+            and assignment_target_identity(subject["value"])
+            != assignment_target_identity(temporal_context["target"])
+        ):
+            continue
+
+        temporal = None
+        if temporal_context is not None:
+            assignment_status_fields = [
+                {"label": label, "values": list(values)}
+                for label, values in fields.items()
+                if normalize(label) in {
+                    normalize(alias)
+                    for alias in ASSIGNMENT_STATUS_LABEL_ALIASES
+                }
+            ]
+            if assignment_status_fields:
+                temporal_status_invalid.append({
+                    "evidence_id": record["evidence_id"],
+                    "row_index": row_index,
+                    "fields": assignment_status_fields,
+                    "reason": "assignment_status_semantics_not_supported",
+                })
+                continue
+            combined_period_fields = [
+                {"label": label, "values": list(values)}
+                for label, values in fields.items()
+                if normalize(label) in {
+                    normalize(alias)
+                    for alias in POSSIBLE_COMBINED_PERIOD_LABEL_ALIASES
+                }
+            ]
+            if combined_period_fields:
+                temporal_invalid.append({
+                    "evidence_id": record["evidence_id"],
+                    "row_index": row_index,
+                    "combined_period_fields": combined_period_fields,
+                    "reason": "combined_assignment_period_not_supported",
+                })
+                continue
+            start_entry, start_error = _single_temporal_entry(
+                fields, TEMPORAL_START_LABEL_ALIASES
+            )
+            if start_error is not None:
+                temporal_missing.append({
+                    "evidence_id": record["evidence_id"],
+                    "row_index": row_index,
+                    "start": start_error,
+                    "end": "not_checked",
+                })
+                continue
+            assert start_entry is not None and as_of is not None
+            start_date = _structured_date(start_entry["value"])
+            if start_date is None:
+                temporal_invalid.append({
+                    "evidence_id": record["evidence_id"],
+                    "row_index": row_index,
+                    "start": start_entry["value"],
+                    "end": "not_checked",
+                })
+                continue
+            if start_date > as_of:
+                exclusion = {
+                    "evidence_id": record["evidence_id"],
+                    "row_index": row_index,
+                    "start_date": start_date.isoformat(),
+                    "end_date": None,
+                    "reason": "starts_after_as_of",
+                }
+                temporal_excluded.append(exclusion)
+                temporal_excluded_candidates.append({
+                    "record": record,
+                    "sheet_name": sheet_name,
+                    "row_index": row_index,
+                    "subject": subject,
+                    "start": start_entry,
+                    "end": None,
+                    **exclusion,
+                })
+                continue
+            end_entry, end_error = _single_temporal_entry(
+                fields, TEMPORAL_END_LABEL_ALIASES
+            )
+            if end_error is not None:
+                temporal_missing.append({
+                    "evidence_id": record["evidence_id"],
+                    "row_index": row_index,
+                    "start": None,
+                    "end": end_error,
+                })
+                continue
+            assert end_entry is not None
+            end_date = _structured_date(end_entry["value"])
+            if end_date is None or start_date > end_date:
+                temporal_invalid.append({
+                    "evidence_id": record["evidence_id"],
+                    "row_index": row_index,
+                    "start": start_entry["value"],
+                    "end": end_entry["value"],
+                })
+                continue
+            temporal = {
+                "start": start_entry,
+                "end": end_entry,
+                "start_date": start_date.isoformat(),
+                "end_date": end_date.isoformat(),
+                "as_of": as_of.isoformat(),
+            }
+            if not start_date <= as_of <= end_date:
+                exclusion = {
+                    "evidence_id": record["evidence_id"],
+                    "row_index": row_index,
+                    "start_date": start_date.isoformat(),
+                    "end_date": end_date.isoformat(),
+                    "reason": "ends_before_as_of",
+                }
+                temporal_excluded.append(exclusion)
+                temporal_excluded_candidates.append({
+                    "record": record,
+                    "sheet_name": sheet_name,
+                    "row_index": row_index,
+                    "subject": subject,
+                    "start": start_entry,
+                    "end": end_entry,
+                    **exclusion,
+                })
+                continue
 
         requested: dict[str, dict[str, str]] = {}
         row_invalid = False
@@ -447,15 +2134,134 @@ def _record_lookup_candidates(
                 ambiguous_fields.add(item["item_id"])
                 row_invalid = True
                 continue
+            if owner_lookup and item["field_name"] == "owner":
+                decoded_owner = _decode_json_string_literal(entries[0]["value"])
+                has_control = any(
+                    unicodedata.category(char) == "Cc" for char in decoded_owner
+                )
+                owner_value = _canonical_text(decoded_owner)
+                entries[0]["value"] = owner_value
+                owner_identity = normalize(owner_value)
+                invalid_reason = (
+                    "unsafe_control_or_instruction"
+                    if has_control
+                    or len(owner_value) > 160
+                    or OWNER_INSTRUCTION_SURFACE.search(owner_value)
+                    else "uncertain_or_alternative"
+                    if OWNER_UNCERTAIN_SURFACE.search(owner_value)
+                    else "negated_or_transition"
+                    if OWNER_NEGATED_SURFACE.search(owner_value)
+                    or OWNER_TRANSITION_SURFACE.search(owner_value)
+                    else "incomplete_cardinality"
+                    if re.search(
+                        r"(?:ほか|他)\s*(?:数|複数|若干|"
+                        r"[0-9〇零一二三四五六七八九十百]+)\s*(?:名|人)"
+                        r"|[+＋]\s*(?:数|複数|若干|"
+                        r"[0-9〇零一二三四五六七八九十百]+)\s*(?:名|人)"
+                        r"|(?:を含む|含め)\s*(?:数|複数|若干|"
+                        r"[0-9〇零一二三四五六七八九十百]+)\s*(?:名|人)"
+                        r"|(?:ほか|他)\s*(?:担当者)?(?:未記載|未詳|不明|メンバー)\s*$"
+                        r"|(?:ほか|他|など)(?:未詳|不明)?\s*$"
+                        r"|(?:含む|含め(?:て)?).*?(?:計\s*)?"
+                        r"(?:数|複数|若干|多数|[0-9〇零一二三四五六七八九十百]+)"
+                        r"(?:名|人|担当者|チーム)?"
+                        r"|(?:ら|等|など)\s*(?:数|複数|若干|多数|"
+                        r"[0-9〇零一二三四五六七八九十百]+)\s*(?:名|人)?"
+                        r"|(?:ほか|他)\s*多数|[+＋]\s*α|^複数\s*[（(]"
+                        r"|(?:を含む|含め(?:て)?)\s*(?:チーム|メンバー)"
+                        r"|(?:ほか|他)\s*若干\s*$"
+                        r"|(?:と|および|及び|ならびに|並びに|ほか|他)\s*"
+                        r"(?:チーム|メンバー|スタッフ|その他|誰か)\s*$"
+                        r"|(?<![0-9a-z])with\s+"
+                        r"(?:team|others|members?|staff)(?![0-9a-z])\s*$"
+                        r"|(?<![0-9a-z])(?:and|with)\s+someone(?![0-9a-z])\s*$"
+                        r"|\s(?:ら|等)\s*$"
+                        r"|(?<![0-9a-z])(?:and|plus)\s+others(?![0-9a-z])"
+                        r"|&\s*others(?![0-9a-z])|(?:,|\s)etc\.?(?:\s|$)"
+                        r"|(?<![0-9a-z])et\s+al\.?(?![0-9a-z])",
+                        owner_value,
+                        re.IGNORECASE,
+                    )
+                    else "formula_unresolved"
+                    if owner_value.lstrip("'’ ").startswith("=")
+                    else "unknown_or_unassigned"
+                    if not owner_identity
+                    or OWNER_PLACEHOLDER_SURFACE.fullmatch(owner_identity)
+                    else "non_person_scalar"
+                    if owner_identity.isdecimal()
+                    or owner_identity in {"true", "false", "yes", "no"}
+                    or _structured_date(owner_value) is not None
+                    or re.fullmatch(
+                        r"(?:複数|数|[0-9〇零一二三四五六七八九十百]+)(?:名|人)",
+                        owner_identity,
+                    )
+                    else None
+                )
+                if invalid_reason is None:
+                    owner_components = [
+                        component.strip()
+                        for component in re.split(
+                            r"\s*(?:[/／,、;；&+＋・|｜•:：]|\band\b)\s*"
+                            r"|\s+[-―—–]\s+",
+                            owner_value,
+                            flags=re.IGNORECASE,
+                        )
+                    ]
+                    owner_components.extend(re.findall(
+                        r"[(（[【]\s*([^)）\]】]+?)\s*[)）\]】]",
+                        owner_value,
+                    ))
+                    if len(owner_components) > 1:
+                        for component in owner_components:
+                            component_identity = normalize(component)
+                            if (
+                                not component_identity
+                                or OWNER_PLACEHOLDER_SURFACE.fullmatch(
+                                    component_identity
+                                )
+                                or component_identity in {
+                                    "team", "teams", "member", "members", "staff",
+                                    "someone", "others", "誰か", "ら", "等",
+                                    "チーム", "メンバー", "スタッフ",
+                                }
+                            ):
+                                invalid_reason = "unknown_or_unassigned"
+                            elif component.lstrip("'’ ").startswith("="):
+                                invalid_reason = "formula_unresolved"
+                            elif (
+                                component_identity.isdecimal()
+                                or component_identity in {
+                                    "true", "false", "yes", "no",
+                                }
+                                or _structured_date(component) is not None
+                            ):
+                                invalid_reason = "non_person_scalar"
+                            if invalid_reason is not None:
+                                break
+                if invalid_reason is not None:
+                    temporal_owner_invalid.append({
+                        "evidence_id": record["evidence_id"],
+                        "row_index": row_index,
+                        "label": entries[0]["label"],
+                        "value": owner_value,
+                        "reason": invalid_reason,
+                    })
+                    row_invalid = True
+                    continue
             requested[item["item_id"]] = entries[0]
         if row_invalid:
             continue
 
         status = None
+        raw_status_entries = [
+            (label, values)
+            for label, values in fields.items()
+            if _status_label(label)
+        ]
         status_entries = [
             {"label": label, "value": values[0].strip()}
-            for label, values in fields.items()
-            if _status_label(label) and len(values) == 1 and values[0].strip()
+            for label, values in raw_status_entries
+            if len(values) == 1 and values[0].strip()
         ]
         if require_final:
             if len(status_entries) != 1:
@@ -479,8 +2285,13 @@ def _record_lookup_candidates(
             "subject": subject,
             "status": status,
             "requested": requested,
+            "temporal": temporal,
         })
     candidates.sort(key=lambda item: (
+        item["record"]["document_id"], item["record"]["relative_path"],
+        item["sheet_name"], item["row_index"], item["record"]["evidence_id"],
+    ))
+    temporal_excluded_candidates.sort(key=lambda item: (
         item["record"]["document_id"], item["record"]["relative_path"],
         item["sheet_name"], item["row_index"], item["record"]["evidence_id"],
     ))
@@ -489,7 +2300,16 @@ def _record_lookup_candidates(
         "missing_item_ids": sorted(missing_fields),
         "ambiguous_item_ids": sorted(ambiguous_fields),
         "nonfinal_statuses": sorted(nonfinal_statuses),
-    }
+        "temporal_missing": temporal_missing,
+        "temporal_invalid": temporal_invalid,
+        "temporal_excluded": temporal_excluded,
+        "temporal_subject_issues": temporal_subject_issues,
+        "temporal_locator_issues": temporal_locator_issues,
+        "temporal_owner_invalid": temporal_owner_invalid,
+        "owner_temporal_scope_required": owner_temporal_scope_required,
+        "owner_row_unit_issues": owner_row_unit_issues,
+        "temporal_status_invalid": temporal_status_invalid,
+    }, temporal_excluded_candidates
 
 
 def _record_lookup_plan_surfaces(
@@ -658,8 +2478,7 @@ def _raw_value_matches(observed: str, expected: str) -> bool:
         return observed_number == expected_number
 
     def strict_text(value: str) -> str:
-        normalized = unicodedata.normalize("NFKC", value).strip().casefold()
-        return re.sub(r"\s+", " ", normalized)
+        return _canonical_text(value).casefold()
 
     if strict_text(observed) == strict_text(expected):
         return True
@@ -739,7 +2558,40 @@ def _record_field_lineage(
     ]
 
     pairs = []
+    coordinate_issues = []
     for header, header_edge, column in header_candidates:
+        _header_column, header_row = _cell_position(header["locator"])
+        header_coordinate_records = [
+            record for record in evidence_universe
+            if record["document_id"] == row_record["document_id"]
+            and record["relative_path"] == row_record["relative_path"]
+            and record["locator"].get("sheet_name") == candidate["sheet_name"]
+            and _cell_position(record["locator"]) == (column, header_row)
+        ]
+        value_coordinate_records = [
+            record for record in evidence_universe
+            if record["document_id"] == row_record["document_id"]
+            and record["relative_path"] == row_record["relative_path"]
+            and record["locator"].get("sheet_name") == candidate["sheet_name"]
+            and _cell_position(record["locator"])
+            == (column, candidate["row_index"])
+        ]
+        if (
+            len(header_coordinate_records) != 1
+            or len(value_coordinate_records) != 1
+        ):
+            coordinate_issues.append({
+                "column": column,
+                "header_row": header_row,
+                "value_row": candidate["row_index"],
+                "header_evidence_ids": sorted(
+                    record["evidence_id"] for record in header_coordinate_records
+                ),
+                "value_evidence_ids": sorted(
+                    record["evidence_id"] for record in value_coordinate_records
+                ),
+            })
+            continue
         value_candidates = []
         for edge in lineage_edges:
             target = record_by_id.get(str(edge.get("to_node_id", "")))
@@ -762,6 +2614,16 @@ def _record_field_lineage(
                 (header, header_edge, value_record, value_edge, column)
                 for value_record, value_edge in value_candidates
             )
+    if coordinate_issues:
+        return None, {
+            "code": "record_lookup_coordinate_cardinality_invalid",
+            "detail": {
+                "row_evidence_id": row_id,
+                "field_name": field_name,
+                "label": label,
+                "coordinates": coordinate_issues,
+            },
+        }
     if len(pairs) != 1:
         return None, {
             "code": "record_lookup_field_lineage_invalid",
@@ -791,6 +2653,78 @@ def _record_field_lineage(
         "source_evidence_ids": [header["evidence_id"], value_record["evidence_id"]],
         "relation_ids": [header_edge["relation_id"], value_edge["relation_id"]],
     }, None
+
+
+def _temporal_exclusion_lineages(
+    traversal: Mapping[str, Any],
+    evidence_universe: list[dict[str, Any]],
+    excluded_candidates: list[dict[str, Any]],
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    """Bind every negative period proof used to establish candidate uniqueness."""
+    lineages = []
+    failures = []
+    for candidate in excluded_candidates:
+        subject_lineage, subject_error = _record_field_lineage(
+            traversal,
+            evidence_universe,
+            candidate,
+            candidate["subject"]["label"],
+            candidate["subject"]["value"],
+            None,
+        )
+        start_lineage, start_error = _record_field_lineage(
+            traversal,
+            evidence_universe,
+            candidate,
+            candidate["start"]["label"],
+            candidate["start"]["value"],
+            None,
+        )
+        end_lineage = None
+        end_error = None
+        if candidate["end"] is not None:
+            end_lineage, end_error = _record_field_lineage(
+                traversal,
+                evidence_universe,
+                candidate,
+                candidate["end"]["label"],
+                candidate["end"]["value"],
+                None,
+            )
+        if subject_error is not None or start_error is not None or end_error is not None:
+            failures.append({
+                "record_evidence_id": candidate["record"]["evidence_id"],
+                "subject": subject_error,
+                "start": start_error,
+                "end": end_error,
+            })
+            continue
+        component_lineages = [
+            subject_lineage,
+            start_lineage,
+            *([end_lineage] if end_lineage is not None else []),
+        ]
+        lineages.append({
+            "record_evidence_id": candidate["record"]["evidence_id"],
+            "row_index": candidate["row_index"],
+            "reason": candidate["reason"],
+            "start_date": candidate["start_date"],
+            "end_date": candidate["end_date"],
+            "subject": subject_lineage,
+            "start": start_lineage,
+            "end": end_lineage,
+            "source_evidence_ids": list(dict.fromkeys(
+                evidence_id
+                for lineage in component_lineages
+                for evidence_id in lineage["source_evidence_ids"]
+            )),
+            "relation_ids": list(dict.fromkeys(
+                relation_id
+                for lineage in component_lineages
+                for relation_id in lineage["relation_ids"]
+            )),
+        })
+    return lineages, failures
 
 
 def _saved_number(value: str) -> Decimal | None:
@@ -1063,6 +2997,101 @@ def _prepare_stored_graph_traversal(
         "paths": paths,
         "unreachable_evidence_ids": unreachable,
     }, None
+
+
+def _unreachable_temporal_target_rows(
+    records: list[dict[str, Any]],
+    traversal: Mapping[str, Any],
+    target: str,
+) -> list[dict[str, Any]]:
+    """Find target rows that graph traversal would otherwise silently discard."""
+    unreachable = set(traversal.get("unreachable_evidence_ids", []))
+    matches = []
+    for issue in _orphan_owner_row_units(records, target):
+        raw_ids = set(issue.get("target_evidence_ids", []))
+        raw_ids.update(issue.get("owner_evidence_ids", []))
+        raw_ids.update(issue.get("period_evidence_ids", []))
+        if raw_ids & unreachable:
+            matches.append({
+                "evidence_id": sorted(raw_ids & unreachable)[0],
+                "locator": {
+                    "sheet_name": issue.get("sheet_name"),
+                    "row_index": issue.get("row_index"),
+                },
+                "target_fields": [],
+                "reason": "raw_assignment_row_unreachable",
+            })
+    for record in records:
+        if record["evidence_id"] not in unreachable:
+            continue
+        locator = record["locator"]
+        fields = _fields(record["text"])
+        temporal_labels = {
+            normalize(alias)
+            for alias in (
+                *TEMPORAL_START_LABEL_ALIASES,
+                *TEMPORAL_END_LABEL_ALIASES,
+            )
+        }
+        has_temporal_field = any(
+            normalize(label) in temporal_labels for label in fields
+        )
+        has_owner_field = any(
+            _record_field_name(label) == "owner" for label in fields
+        )
+        if not (has_temporal_field or has_owner_field):
+            if _coordinate_less_target_row_like(record["text"], target):
+                matches.append({
+                    "evidence_id": record["evidence_id"],
+                    "locator": dict(locator),
+                    "target_fields": [],
+                    "reason": "coordinate_less_target_row_unreachable",
+                })
+            else:
+                unknown_target_fields = [
+                    {"label": label, "value": value}
+                    for label, values in fields.items()
+                    for value in values
+                    if assignment_target_identity(value)
+                    == assignment_target_identity(target)
+                ]
+                structured_date_count = sum(
+                    _structured_date(value) is not None
+                    for values in fields.values()
+                    for value in values
+                )
+                if unknown_target_fields and (
+                    structured_date_count >= 2 or len(fields) >= 4
+                ):
+                    matches.append({
+                        "evidence_id": record["evidence_id"],
+                        "locator": dict(locator),
+                        "target_fields": unknown_target_fields,
+                        "reason": "unknown_assignment_schema_unreachable",
+                    })
+            continue
+        target_fields = [
+            {"label": label, "value": value}
+            for label, values in fields.items()
+            if _record_field_name(label) != "owner"
+            if not _status_label(label)
+            if normalize(label) not in temporal_labels
+            for value in values
+            if assignment_target_identity(value)
+            == assignment_target_identity(target)
+        ]
+        if target_fields:
+            matches.append({
+                "evidence_id": record["evidence_id"],
+                "locator": dict(locator),
+                "target_fields": target_fields,
+            })
+    return sorted(
+        matches,
+        key=lambda item: (
+            canonical_json(item["locator"]), item["evidence_id"],
+        ),
+    )
 
 
 def _structured_aggregate_lineage(
@@ -1352,6 +3381,7 @@ def _build_record_lookup_graph(
     stored_traversal: Mapping[str, Any] | None,
     plan_items: list[dict[str, Any]],
     question_plan: Mapping[str, Any],
+    temporal_context: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     if stored_traversal is None:
         return _finish({
@@ -1366,13 +3396,168 @@ def _build_record_lookup_graph(
         })
 
     require_final = bool(FINAL_RECORD_SURFACE.search(
-        unicodedata.normalize("NFKC", question)
+        _record_status_scope_text(
+            question, plan_items, temporal_context, records
+        )
     ))
-    candidates, diagnostics = _record_lookup_candidates(
-        records, question, plan_items, require_final
+    candidates, diagnostics, excluded_candidates = _record_lookup_candidates(
+        records, question, plan_items, require_final, temporal_context
     )
+    owner_lookup = any(item["field_name"] == "owner" for item in plan_items)
+    if owner_lookup and diagnostics["owner_row_unit_issues"]:
+        return _finish({
+            **base,
+            "status": "hold",
+            "reason": "record_lookup_owner_row_unit_missing",
+            "audit": [{
+                "check": "assignment_row_completeness",
+                "status": "fail",
+                "details": diagnostics["owner_row_unit_issues"],
+            }],
+        })
+    if owner_lookup and diagnostics["temporal_locator_issues"]:
+        return _finish({
+            **base,
+            "status": "hold",
+            "reason": (
+                "record_lookup_temporal_locator_unsupported"
+                if temporal_context is not None
+                else "record_lookup_owner_locator_unsupported"
+            ),
+            "audit": [{
+                "check": "assignment_row_locator",
+                "status": "fail",
+                "details": diagnostics["temporal_locator_issues"],
+            }],
+        })
+    if (
+        owner_lookup
+        and temporal_context is None
+        and diagnostics["owner_temporal_scope_required"]
+    ):
+        return _finish({
+            **base,
+            "status": "hold",
+            "reason": "record_lookup_owner_time_scope_required",
+            "audit": [{
+                "check": "assignment_time_scope",
+                "status": "fail",
+                "details": diagnostics["owner_temporal_scope_required"],
+            }],
+        })
+    if owner_lookup and diagnostics["temporal_subject_issues"]:
+        return _finish({
+            **base,
+            "status": "hold",
+            "reason": (
+                "record_lookup_temporal_subject_invalid"
+                if temporal_context is not None
+                else "record_lookup_owner_subject_invalid"
+            ),
+            "audit": [{
+                "check": "assignment_subject_identity",
+                "status": "fail",
+                "details": diagnostics["temporal_subject_issues"],
+            }],
+        })
+    if owner_lookup and diagnostics["temporal_status_invalid"]:
+        return _finish({
+            **base,
+            "status": "hold",
+            "reason": (
+                "record_lookup_temporal_status_invalid"
+                if temporal_context is not None
+                else "record_lookup_owner_status_invalid"
+            ),
+            "audit": [{
+                "check": "assignment_status",
+                "status": "fail",
+                "details": diagnostics["temporal_status_invalid"],
+            }],
+        })
+    if temporal_context is not None and diagnostics["temporal_missing"]:
+        return _finish({
+            **base,
+            "status": "hold",
+            "reason": "record_lookup_temporal_evidence_missing",
+            "audit": [{
+                "check": "assignment_period_evidence",
+                "status": "fail",
+                "details": diagnostics["temporal_missing"],
+            }],
+        })
+    if temporal_context is not None and diagnostics["temporal_invalid"]:
+        return _finish({
+            **base,
+            "status": "hold",
+            "reason": "record_lookup_temporal_period_invalid",
+            "audit": [{
+                "check": "assignment_period_validity",
+                "status": "fail",
+                "details": diagnostics["temporal_invalid"],
+            }],
+        })
+    if owner_lookup and diagnostics["temporal_owner_invalid"]:
+        return _finish({
+            **base,
+            "status": "hold",
+            "reason": (
+                "record_lookup_temporal_owner_invalid"
+                if temporal_context is not None
+                else "record_lookup_owner_invalid"
+            ),
+            "audit": [{
+                "check": "assignment_owner_value",
+                "status": "fail",
+                "details": diagnostics["temporal_owner_invalid"],
+            }],
+        })
+    temporal_exclusion_lineages: list[dict[str, Any]] = []
+    if temporal_context is not None:
+        temporal_exclusion_lineages, exclusion_lineage_failures = (
+            _temporal_exclusion_lineages(
+                stored_traversal,
+                evidence_universe,
+                excluded_candidates,
+            )
+        )
+        if exclusion_lineage_failures:
+            return _finish({
+                **base,
+                "status": "hold",
+                "reason": "stored_graph_lineage_failed",
+                "audit": [{
+                    "check": "stored_graph_assignment_exclusion_lineage",
+                    "status": "fail",
+                    "details": exclusion_lineage_failures,
+                }],
+            })
+    if temporal_context is not None and diagnostics["ambiguous_item_ids"]:
+        return _finish({
+            **base,
+            "status": "hold",
+            "reason": "record_lookup_field_ambiguous",
+            "audit": [{
+                "check": "assignment_candidate_field_coverage",
+                "status": "fail",
+                "details": diagnostics,
+            }],
+        })
+    if temporal_context is not None and diagnostics["missing_item_ids"]:
+        return _finish({
+            **base,
+            "status": "hold",
+            "reason": "record_lookup_field_missing",
+            "audit": [{
+                "check": "assignment_candidate_field_coverage",
+                "status": "fail",
+                "details": diagnostics,
+            }],
+        })
     if not candidates:
-        if diagnostics["ambiguous_item_ids"]:
+        if temporal_context is not None and diagnostics["temporal_excluded"]:
+            reason = "record_lookup_temporal_not_found"
+        elif diagnostics["ambiguous_item_ids"]:
             reason = "record_lookup_field_ambiguous"
         elif require_final and diagnostics["nonfinal_statuses"]:
             reason = "record_lookup_final_status_not_found"
@@ -1394,7 +3579,11 @@ def _build_record_lookup_graph(
         return _finish({
             **base,
             "status": "hold",
-            "reason": "record_lookup_candidate_ambiguous",
+            "reason": (
+                "record_lookup_temporal_candidate_ambiguous"
+                if temporal_context is not None
+                else "record_lookup_candidate_ambiguous"
+            ),
             "audit": [{
                 "check": "record_candidate_uniqueness",
                 "status": "fail",
@@ -1446,6 +3635,65 @@ def _build_record_lookup_graph(
             }],
         })
 
+    temporal_lineage = None
+    if temporal_context is not None:
+        temporal_candidate = candidate["temporal"]
+        start_lineage, start_error = _record_field_lineage(
+            stored_traversal,
+            evidence_universe,
+            candidate,
+            temporal_candidate["start"]["label"],
+            temporal_candidate["start"]["value"],
+            None,
+        )
+        end_lineage, end_error = _record_field_lineage(
+            stored_traversal,
+            evidence_universe,
+            candidate,
+            temporal_candidate["end"]["label"],
+            temporal_candidate["end"]["value"],
+            None,
+        )
+        if start_error is not None or end_error is not None:
+            return _finish({
+                **base,
+                "status": "hold",
+                "reason": "stored_graph_lineage_failed",
+                "audit": [{
+                    "check": "stored_graph_assignment_period_lineage",
+                    "status": "fail",
+                    "details": {"start": start_error, "end": end_error},
+                }],
+            })
+        temporal_lineage = {
+            "scope": dict(temporal_context["scope"]),
+            "target": temporal_context["target"],
+            "relation": temporal_context["relation"],
+            "start": start_lineage,
+            "end": end_lineage,
+            "source_evidence_ids": list(dict.fromkeys([
+                *start_lineage["source_evidence_ids"],
+                *end_lineage["source_evidence_ids"],
+            ])),
+            "relation_ids": list(dict.fromkeys([
+                *start_lineage["relation_ids"],
+                *end_lineage["relation_ids"],
+            ])),
+        }
+    temporal_exclusion_validation_ids = list(dict.fromkeys(
+        evidence_id
+        for lineage in temporal_exclusion_lineages
+        for evidence_id in (
+            lineage["record_evidence_id"],
+            *lineage["source_evidence_ids"],
+        )
+    ))
+    temporal_exclusion_relation_ids = list(dict.fromkeys(
+        relation_id
+        for lineage in temporal_exclusion_lineages
+        for relation_id in lineage["relation_ids"]
+    ))
+
     status_lineage = None
     if require_final:
         status_lineage, status_error = _record_field_lineage(
@@ -1489,19 +3737,70 @@ def _build_record_lookup_graph(
             "record_evidence_id": row_id,
         },
     ]
-    edges: list[dict[str, Any]] = [
-        {
-            "edge_id": "edge_question_requires_record_lookup",
-            "source": question_node,
-            "predicate": "requires",
-            "target": operation_node,
-            "basis": {
-                "kind": "explicit",
-                "rule": "valid_question_plan_items",
-                "evidence_ids": [],
+    time_node = None
+    assignment_period_node = None
+    temporal_exclusion_nodes: list[tuple[str, dict[str, Any]]] = []
+    if temporal_context is not None:
+        time_node = "node_as_of_" + stable_hash(temporal_context["scope"])[:16]
+        assignment_period_node = "node_assignment_period_" + stable_hash({
+            "record_evidence_id": row_id,
+            "start_date": candidate["temporal"]["start_date"],
+            "end_date": candidate["temporal"]["end_date"],
+        })[:16]
+        nodes.extend([
+            {
+                "node_id": time_node,
+                "node_type": "time_point",
+                "value": temporal_context["scope"]["as_of"],
+                "expression": temporal_context["scope"]["expression"],
+                "reference_date": temporal_context["scope"]["reference_date"],
+                "timezone": temporal_context["scope"]["timezone"],
+                "precision": temporal_context["scope"]["precision"],
             },
+            {
+                "node_id": assignment_period_node,
+                "node_type": "assignment_period",
+                "target": temporal_context["target"],
+                "relation": temporal_context["relation"],
+                "start_date": candidate["temporal"]["start_date"],
+                "end_date": candidate["temporal"]["end_date"],
+                "boundary": temporal_context["scope"]["boundary"],
+                "record_evidence_id": row_id,
+            },
+        ])
+        for exclusion in temporal_exclusion_lineages:
+            exclusion_node = "node_excluded_assignment_period_" + stable_hash({
+                "record_evidence_id": exclusion["record_evidence_id"],
+                "start_date": exclusion["start_date"],
+                "end_date": exclusion["end_date"],
+                "reason": exclusion["reason"],
+            })[:16]
+            nodes.append({
+                "node_id": exclusion_node,
+                "node_type": "assignment_period",
+                "target": temporal_context["target"],
+                "relation": temporal_context["relation"],
+                "start_date": exclusion["start_date"],
+                "end_date": exclusion["end_date"],
+                "boundary": temporal_context["scope"]["boundary"],
+                "record_evidence_id": exclusion["record_evidence_id"],
+                "selection_status": "excluded",
+                "exclusion_reason": exclusion["reason"],
+            })
+            temporal_exclusion_nodes.append((exclusion_node, exclusion))
+    edges: list[dict[str, Any]] = [{
+        "edge_id": "edge_question_requires_record_lookup",
+        "source": question_node,
+        "predicate": "requires",
+        "target": operation_node,
+        "basis": {
+            "kind": "explicit",
+            "rule": "valid_question_plan_items",
+            "evidence_ids": [],
         },
-        {
+    }]
+    if temporal_context is None:
+        edges.append({
             "edge_id": "edge_lookup_selects_record",
             "source": operation_node,
             "predicate": "selects",
@@ -1518,8 +3817,67 @@ def _build_record_lookup_graph(
                     ),
                 ])),
             },
-        },
-    ]
+        })
+    else:
+        temporal_evidence_ids = list(dict.fromkeys([
+            row_id,
+            *subject_lineage["source_evidence_ids"],
+            *temporal_lineage["source_evidence_ids"],
+        ]))
+        edges.extend([
+            {
+                "edge_id": "edge_lookup_evaluates_at",
+                "source": operation_node,
+                "predicate": "evaluates_at",
+                "target": time_node,
+                "basis": {
+                    "kind": "inference",
+                    "rule": TEMPORAL_RESOLUTION_RULE,
+                    "evidence_ids": [],
+                    "question_plan_sha256": base["intent"]["question_plan_sha256"],
+                },
+            },
+            {
+                "edge_id": "edge_time_within_assignment_period",
+                "source": time_node,
+                "predicate": "falls_within",
+                "target": assignment_period_node,
+                "basis": {
+                    "kind": "inference",
+                    "rule": "inclusive_validated_assignment_period",
+                    "evidence_ids": temporal_evidence_ids,
+                },
+            },
+            {
+                "edge_id": "edge_assignment_period_selects_record",
+                "source": assignment_period_node,
+                "predicate": "selects_assignment",
+                "target": record_node,
+                "basis": {
+                    "kind": "explicit",
+                    "rule": "same_row_subject_start_end_lineage",
+                    "evidence_ids": temporal_evidence_ids,
+                },
+            },
+        ])
+        for exclusion_node, exclusion in temporal_exclusion_nodes:
+            edges.append({
+                "edge_id": "edge_time_outside_assignment_period_" + stable_hash({
+                    "node": exclusion_node,
+                    "as_of": temporal_context["scope"]["as_of"],
+                })[:16],
+                "source": time_node,
+                "predicate": "falls_outside",
+                "target": exclusion_node,
+                "basis": {
+                    "kind": "inference",
+                    "rule": exclusion["reason"],
+                    "evidence_ids": list(dict.fromkeys([
+                        exclusion["record_evidence_id"],
+                        *exclusion["source_evidence_ids"],
+                    ])),
+                },
+            })
     branches = []
     top_selected_ids: list[str] = []
     top_validation_ids: list[str] = []
@@ -1581,6 +3939,11 @@ def _build_record_lookup_graph(
         validation_ids = list(dict.fromkeys([
             *selected_ids,
             *subject_lineage["source_evidence_ids"],
+            *temporal_exclusion_validation_ids,
+            *(
+                temporal_lineage["source_evidence_ids"]
+                if temporal_lineage is not None else []
+            ),
             *(
                 status_lineage["source_evidence_ids"]
                 if status_lineage is not None else []
@@ -1589,6 +3952,11 @@ def _build_record_lookup_graph(
         relation_ids = list(dict.fromkeys([
             *subject_lineage["relation_ids"],
             *field_lineage["relation_ids"],
+            *temporal_exclusion_relation_ids,
+            *(
+                temporal_lineage["relation_ids"]
+                if temporal_lineage is not None else []
+            ),
             *(
                 status_lineage["relation_ids"]
                 if status_lineage is not None else []
@@ -1601,9 +3969,16 @@ def _build_record_lookup_graph(
             "subject": subject_lineage,
             "field": field_lineage,
             "status": status_lineage,
+            "temporal": temporal_lineage,
+            "temporal_exclusions": temporal_exclusion_lineages,
             "source_evidence_ids": list(dict.fromkeys([
                 *subject_lineage["source_evidence_ids"],
                 *field_lineage["source_evidence_ids"],
+                *temporal_exclusion_validation_ids,
+                *(
+                    temporal_lineage["source_evidence_ids"]
+                    if temporal_lineage is not None else []
+                ),
                 *(
                     status_lineage["source_evidence_ids"]
                     if status_lineage is not None else []
@@ -1616,9 +3991,10 @@ def _build_record_lookup_graph(
             validation_ids,
             record_lookup_lineage=branch_lineage,
         )
-        primary_path = [
-            question_node, operation_node, record_node, field_node, value_node,
-        ]
+        primary_path = [question_node, operation_node]
+        if temporal_context is not None:
+            primary_path.extend([time_node, assignment_period_node])
+        primary_path.extend([record_node, field_node, value_node])
         branches.append({
             "branch_id": branch_id,
             "item_id": item["item_id"],
@@ -1672,6 +4048,23 @@ def _build_record_lookup_graph(
                 },
             },
         ])
+        if temporal_context is not None and item["field_name"] == "owner":
+            edges.append({
+                "edge_id": f"edge_owner_responsible_for_record_{edge_suffix}",
+                "source": value_node,
+                "predicate": "responsible_for",
+                "target": record_node,
+                "basis": {
+                    "kind": "explicit",
+                    "rule": "same_row_owner_subject_and_validated_period",
+                    "evidence_ids": list(dict.fromkeys([
+                        row_id,
+                        *subject_lineage["source_evidence_ids"],
+                        *field_lineage["source_evidence_ids"],
+                        *temporal_lineage["source_evidence_ids"],
+                    ])),
+                },
+            })
 
     top_selected_ids = list(dict.fromkeys(top_selected_ids))
     top_validation_ids = list(dict.fromkeys(top_validation_ids))
@@ -1679,6 +4072,8 @@ def _build_record_lookup_graph(
         "record_search_unit_id": row_id,
         "subject": subject_lineage,
         "status": status_lineage,
+        "temporal": temporal_lineage,
+        "temporal_exclusions": temporal_exclusion_lineages,
         "branches": branch_lineages,
         "source_evidence_ids": list(dict.fromkeys(
             evidence_id
@@ -1736,7 +4131,11 @@ def _build_record_lookup_graph(
         "branches": branches,
         "selected_evidence_ids": top_selected_ids,
         "selection": {
-            "method": "unique_subject_row_and_verified_cell_lineage",
+            "method": (
+                "unique_as_of_assignment_and_verified_cell_lineage"
+                if temporal_context is not None
+                else "unique_subject_row_and_verified_cell_lineage"
+            ),
             "record_evidence_id": row_id,
             "subject_label": candidate["subject"]["label"],
             "subject_value": candidate["subject"]["value"],
@@ -1745,6 +4144,33 @@ def _build_record_lookup_graph(
             "relative_path": row_record["relative_path"],
             "sheet_name": candidate["sheet_name"],
             "row_index": candidate["row_index"],
+            "temporal_scope": (
+                dict(temporal_context["scope"])
+                if temporal_context is not None else None
+            ),
+            "assignment_period": (
+                {
+                    "start_date": candidate["temporal"]["start_date"],
+                    "end_date": candidate["temporal"]["end_date"],
+                    "boundary": temporal_context["scope"]["boundary"],
+                    "start_evidence_id": temporal_lineage["start"]["value_evidence_id"],
+                    "end_evidence_id": temporal_lineage["end"]["value_evidence_id"],
+                }
+                if temporal_context is not None else None
+            ),
+            "excluded_assignments": [
+                {
+                    "record_evidence_id": lineage["record_evidence_id"],
+                    "start_date": lineage["start_date"],
+                    "end_date": lineage["end_date"],
+                    "reason": lineage["reason"],
+                    "validation_evidence_ids": list(dict.fromkeys([
+                        lineage["record_evidence_id"],
+                        *lineage["source_evidence_ids"],
+                    ])),
+                }
+                for lineage in temporal_exclusion_lineages
+            ],
             "values": {
                 branch["item_id"]: branch["value"] for branch in branches
             },
@@ -1768,6 +4194,24 @@ def _build_record_lookup_graph(
                 "status": "pass",
                 "details": [branch["item_id"] for branch in branches],
             },
+            *([{
+                "check": "assignment_period_contains_as_of",
+                "status": "pass",
+                "details": {
+                    "as_of": temporal_context["scope"]["as_of"],
+                    "start_date": candidate["temporal"]["start_date"],
+                    "end_date": candidate["temporal"]["end_date"],
+                    "boundary": temporal_context["scope"]["boundary"],
+                },
+            }] if temporal_context is not None else []),
+            *([{
+                "check": "excluded_assignment_period_lineage",
+                "status": "pass",
+                "details": [
+                    lineage["record_evidence_id"]
+                    for lineage in temporal_exclusion_lineages
+                ],
+            }] if temporal_context is not None else []),
         ],
     })
 
@@ -1778,6 +4222,7 @@ def build_question_evidence_graph(
     source_graph: Mapping[str, Any] | None = None,
     *,
     question_plan: Mapping[str, Any] | None = None,
+    reference_date: str | None = None,
 ) -> dict[str, Any]:
     """Compile an immutable question overlay over Evidence and its source Graph."""
     records = []
@@ -1816,6 +4261,7 @@ def build_question_evidence_graph(
         None if strong_count else _record_lookup_plan(
             question_plan,
             activate_unknown=bool(_mentioned_record_fields(question)),
+            question=question,
         )
     )
     applicable = count_applicable and record_plan is None
@@ -1824,6 +4270,12 @@ def build_question_evidence_graph(
         else "record_lookup" if record_plan is not None
         else "unknown"
     )
+    temporal_context = None
+    temporal_error = None
+    if record_plan is not None and isinstance(question_plan, Mapping):
+        temporal_context, temporal_error = _validated_temporal_context(
+            question, question_plan, reference_date
+        )
     scope = _question_scope(question)
     intent = {
         "operation": operation,
@@ -1840,6 +4292,17 @@ def build_question_evidence_graph(
     if record_plan is not None:
         intent["question_plan_sha256"] = _record_lookup_plan_hash(question_plan)
         intent["requested_items"] = record_plan
+    if temporal_context is not None:
+        intent.update({
+            "temporal_scope": dict(temporal_context["scope"]),
+            "temporal_target": temporal_context["target"],
+            "temporal_relation": temporal_context["relation"],
+            "reference_context_sha256": stable_hash({
+                "reference_date": temporal_context["scope"]["reference_date"],
+                "timezone": temporal_context["scope"]["timezone"],
+                "resolution_rule": temporal_context["scope"]["resolution_rule"],
+            }),
+        })
     base = {
         "artifact_version": GRAPH_VERSION,
         "record_type": "question_evidence_graph",
@@ -1860,6 +4323,17 @@ def build_question_evidence_graph(
     if not applicable and record_plan is None:
         return _finish(base)
     if record_plan is not None:
+        if temporal_error is not None:
+            return _finish({
+                **base,
+                "status": "hold",
+                "reason": "record_lookup_temporal_scope_invalid",
+                "audit": [{
+                    "check": "temporal_scope_contract",
+                    "status": "fail",
+                    "details": temporal_error,
+                }],
+            })
         invalid_items = [
             {
                 "item_id": item["item_id"],
@@ -1942,7 +4416,9 @@ def build_question_evidence_graph(
                     "details": ungrounded_items,
                 }],
             })
-        normalized_question = unicodedata.normalize("NFKC", question)
+        normalized_question = _record_status_scope_text(
+            question, record_plan, temporal_context, records
+        )
         if NEGATED_FINAL_RECORD_SURFACE.search(normalized_question):
             return _finish({
                 **base,
@@ -2019,6 +4495,26 @@ def build_question_evidence_graph(
                     "details": traversal_error,
                 }],
             })
+        if temporal_context is not None:
+            unreachable_target_rows = _unreachable_temporal_target_rows(
+                records,
+                stored_traversal,
+                temporal_context["target"],
+            )
+            if unreachable_target_rows:
+                return _finish({
+                    **base,
+                    "status": "hold",
+                    "reason": "stored_graph_traversal_failed",
+                    "audit": [{
+                        "check": "stored_graph_temporal_target_reachability",
+                        "status": "fail",
+                        "details": {
+                            "code": "temporal_target_row_unreachable",
+                            "rows": unreachable_target_rows[:8],
+                        },
+                    }],
+                })
         records = [
             record for record in records
             if record["evidence_id"] in stored_traversal["paths"]
@@ -2047,6 +4543,7 @@ def build_question_evidence_graph(
             stored_traversal,
             record_plan,
             question_plan,
+            temporal_context,
         )
 
     candidates = _candidate_rows(records, question, scope)
@@ -2421,6 +4918,7 @@ def validate_question_evidence_graph(
     source_graph: Mapping[str, Any] | None = None,
     *,
     question_plan: Mapping[str, Any] | None = None,
+    reference_date: str | None = None,
 ) -> dict[str, Any]:
     """Independently rebuild and compare a Question Evidence Graph Artifact."""
     failures: list[dict[str, Any]] = []
@@ -2445,6 +4943,7 @@ def validate_question_evidence_graph(
         evidence_records,
         source_graph=source_graph,
         question_plan=question_plan,
+        reference_date=reference_date,
     )
     if canonical_json(_artifact_body(artifact)) != canonical_json(_artifact_body(rebuilt)):
         failures.append({"code": "artifact_rebuild_mismatch", "detail": "Graph does not match current Evidence."})
@@ -2610,6 +5109,7 @@ def validate_question_evidence_graph(
         expected_plan = _record_lookup_plan(
             question_plan,
             activate_unknown=bool(_mentioned_record_fields(question)),
+            question=question,
         )
         expected_item_ids = (
             [item["item_id"] for item in expected_plan]

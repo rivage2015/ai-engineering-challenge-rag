@@ -15,9 +15,10 @@ import sqlite3
 import sys
 import time
 import unicodedata
-from datetime import datetime
+from datetime import date, datetime
 from decimal import Decimal, InvalidOperation
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 
 BASE_PATH = Path(__file__).with_name("answer_local_memory.py")
@@ -38,6 +39,10 @@ QUESTION_GRAPH_SPEC.loader.exec_module(question_graph)
 
 ENGINE_CACHE_VERSION = "v2-speed-6-question-graph-routing"
 REQUIRED_QUESTION_GRAPH_OPERATIONS = frozenset(("aggregate_count", "record_lookup"))
+TEMPORAL_TIMEZONE = "Asia/Tokyo"
+TEMPORAL_PRECISION = "day"
+TEMPORAL_BOUNDARY = "inclusive"
+TEMPORAL_RESOLUTION_RULE = "calendar_year_offset_clamp"
 SAVED_VALUE_ANNOTATION = re.compile(
     r"\s+\[保存値[^\]]*[:：]\s*"
     r"[-+]?(?:\d+(?:\.\d+)?|\.\d+)\s*\]\s*$"
@@ -67,6 +72,24 @@ PLAN_SCHEMA = {
             },
         },
         "answer_shape": {"type": "string"},
+        "operation": {"type": "string", "enum": ["record_lookup"]},
+        "target": {"type": "string"},
+        "relation": {"type": "string", "enum": ["responsible_for"]},
+        "temporal_scope": {
+            "type": "object",
+            "additionalProperties": False,
+            "properties": {
+                "expression": {"type": "string"},
+                "reference_date": {"type": "string"},
+                "as_of": {"type": "string"},
+                "precision": {"type": "string", "enum": [TEMPORAL_PRECISION]},
+                "boundary": {"type": "string", "enum": [TEMPORAL_BOUNDARY]},
+                "resolution_rule": {
+                    "type": "string", "enum": [TEMPORAL_RESOLUTION_RULE],
+                },
+                "timezone": {"type": "string", "enum": [TEMPORAL_TIMEZONE]},
+            },
+        },
     },
 }
 
@@ -222,6 +245,239 @@ SINGLE_FIELD_TERMS = (
     "名前", "氏名", "役職", "勤務先", "働き方", "居住地", "書名", "題名", "順位",
 )
 
+RELATIVE_YEARS_AGO = re.compile(
+    r"(?<![0-9.+\-−〇零一二三四五六七八九十])"
+    r"(?P<years>[0-9〇零一二三四五六七八九十]+)\s*年前"
+)
+FUTURE_TEMPORAL_SURFACE = re.compile(
+    r"(?:(?:[0-9〇零一二三四五六七八九十百千万]+|数|半)\s*"
+    r"(?:年|ねん|か月|ヶ月|ヵ月|ケ月|月|週間?|日間?|時間|分|秒)\s*"
+    r"(?:後|あと)|明日|明後日|来週|再来週|来月|再来月|"
+    r"来年度|再来年度|来年|再来年|将来|今後)"
+)
+RESPONSIBILITY_SURFACE = re.compile(r"担当(?:者|し|して|した|していた)?|責任者|受け持")
+DEICTIC_TARGETS = frozenset(("この業務", "その業務", "当該業務", "この仕事", "その仕事", "それ"))
+TEMPORAL_SCOPE_FIELDS = frozenset((
+    "expression", "reference_date", "as_of", "precision", "boundary",
+    "resolution_rule", "timezone",
+))
+
+
+def current_tokyo_date() -> str:
+    """Return one reproducible local calendar anchor for a whole answer run."""
+    return datetime.now(ZoneInfo(TEMPORAL_TIMEZONE)).date().isoformat()
+
+
+def parse_iso_date(value: object, reason: str) -> date:
+    if not isinstance(value, str):
+        raise ValueError(reason)
+    try:
+        parsed = date.fromisoformat(value)
+    except ValueError as exc:
+        raise ValueError(reason) from exc
+    if parsed.isoformat() != value:
+        raise ValueError(reason)
+    return parsed
+
+
+def japanese_integer(value: str) -> int | None:
+    normalized = unicodedata.normalize("NFKC", value)
+    if normalized.isdecimal():
+        return int(normalized)
+    digits = {"一": 1, "二": 2, "三": 3, "四": 4, "五": 5, "六": 6, "七": 7, "八": 8, "九": 9, "〇": 0, "零": 0}
+    if "十" in normalized:
+        if normalized.count("十") != 1:
+            return None
+        tens_text, ones_text = normalized.split("十")
+        if len(tens_text) > 1 or len(ones_text) > 1:
+            return None
+        tens = digits.get(tens_text, 1) if tens_text else 1
+        ones = digits.get(ones_text, 0) if ones_text else 0
+        if tens is None or ones is None or tens == 0:
+            return None
+        return tens * 10 + ones
+    if not normalized or any(char not in digits for char in normalized):
+        return None
+    return int("".join(str(digits[char]) for char in normalized))
+
+
+def subtract_calendar_years(reference: date, years: int) -> date:
+    """Subtract calendar years, clamping leap day to February 28."""
+    target_year = reference.year - years
+    if target_year < 1:
+        raise ValueError("plan_temporal_scope_out_of_range")
+    try:
+        return reference.replace(year=target_year)
+    except ValueError as exc:
+        if reference.month == 2 and reference.day == 29:
+            return date(target_year, 2, 28)
+        raise ValueError("plan_temporal_scope_invalid") from exc
+
+
+def resolve_relative_year_scope(query: str, reference_date: str) -> dict | None:
+    normalized_query = unicodedata.normalize("NFKC", query)
+    matches = list(RELATIVE_YEARS_AGO.finditer(normalized_query))
+    if not matches:
+        return None
+    resolved = []
+    for match in matches:
+        years = japanese_integer(match.group("years"))
+        if years is None or not 1 <= years <= 99:
+            raise ValueError("plan_temporal_scope_out_of_range")
+        resolved.append((match.group(0), years))
+    if len({years for _, years in resolved}) != 1:
+        raise ValueError("plan_temporal_scope_ambiguous")
+    reference = parse_iso_date(reference_date, "plan_reference_date_invalid")
+    expression, years = resolved[0]
+    expression = re.sub(r"\s+", "", expression)
+    as_of = subtract_calendar_years(reference, years)
+    return {
+        "expression": expression,
+        "reference_date": reference.isoformat(),
+        "as_of": as_of.isoformat(),
+        "precision": TEMPORAL_PRECISION,
+        "boundary": TEMPORAL_BOUNDARY,
+        "resolution_rule": TEMPORAL_RESOLUTION_RULE,
+        "timezone": TEMPORAL_TIMEZONE,
+    }
+
+
+def responsibility_intent(query: str) -> bool:
+    return RESPONSIBILITY_SURFACE.search(unicodedata.normalize("NFKC", query)) is not None
+
+
+def clean_assignment_target(value: str) -> str | None:
+    normalized = unicodedata.normalize("NFKC", value).strip(
+        " \t,、\"’'「」『』"
+    )
+    if not normalized or question_graph.assignment_target_identity(normalized) in {
+        question_graph.assignment_target_identity(value)
+        for value in DEICTIC_TARGETS
+    }:
+        return None
+    return normalized
+
+
+def assignment_target(query: str, planned_target: object = None) -> str | None:
+    normalized_query = unicodedata.normalize("NFKC", query)
+    grounded_target = question_graph.extract_temporal_assignment_target(
+        normalized_query
+    )
+    if isinstance(planned_target, str) and planned_target.strip():
+        candidate = clean_assignment_target(planned_target)
+        if candidate is None:
+            return None
+        if (
+            grounded_target is None
+            or question_graph.assignment_target_identity(candidate)
+            != question_graph.assignment_target_identity(grounded_target)
+        ):
+            raise ValueError("plan_target_not_grounded")
+        return grounded_target
+    return grounded_target
+
+
+def apply_temporal_assignment_contract(
+    plan: dict, query: str, reference_date: str,
+) -> dict:
+    """Compile an assignment-time plan from the question, never LLM date math."""
+    normalized_query = unicodedata.normalize("NFKC", query)
+    raw_scope = plan.get("temporal_scope")
+    raw_items = plan.get("items")
+    owner_plan = bool(
+        isinstance(raw_items, list)
+        and any(
+            isinstance(item, dict)
+            and question_graph._record_field_name(item.get("label")) == "owner"
+            for item in raw_items
+        )
+    )
+    assignment = plan.get("relation") == "responsible_for" or (
+        owner_plan
+        and (
+            responsibility_intent(normalized_query)
+            or (
+                question_graph.ASSIGNMENT_WHO_SURFACE.search(normalized_query)
+                and any(
+                    question_graph._record_alias_mentioned(
+                        normalized_query, alias
+                    )
+                    for alias in question_graph.RECORD_LOOKUP_FIELD_ALIASES["owner"]
+                )
+            )
+        )
+    )
+    if assignment and FUTURE_TEMPORAL_SURFACE.search(normalized_query):
+        raise ValueError("plan_temporal_scope_future_not_supported")
+    if (
+        assignment
+        and question_graph.temporal_assignment_context_unsupported(normalized_query)
+    ):
+        raise ValueError("plan_temporal_context_unsupported")
+    canonical_scope = resolve_relative_year_scope(normalized_query, reference_date)
+    if assignment and "年前" in normalized_query and canonical_scope is None:
+        raise ValueError("plan_temporal_scope_invalid")
+    if raw_scope is not None and not isinstance(raw_scope, dict):
+        raise ValueError("plan_temporal_scope_invalid")
+    if raw_scope is not None and canonical_scope is None:
+        raise ValueError("plan_temporal_scope_not_grounded")
+    if (
+        assignment
+        and canonical_scope is None
+        and not question_graph.plain_assignment_owner_question_supported(
+            normalized_query
+        )
+    ):
+        raise ValueError("plan_assignment_context_unsupported")
+    if not assignment or canonical_scope is None:
+        return plan
+
+    if isinstance(raw_scope, dict):
+        unknown = set(raw_scope) - TEMPORAL_SCOPE_FIELDS
+        if unknown:
+            raise ValueError("plan_temporal_scope_invalid")
+        for key, value in raw_scope.items():
+            if not isinstance(value, str) or not value.strip():
+                raise ValueError(f"plan_temporal_{key}_invalid")
+            expected = canonical_scope[key]
+            observed = unicodedata.normalize("NFKC", value)
+            if key == "expression":
+                observed = re.sub(r"\s+", "", observed)
+            if observed != expected:
+                raise ValueError(f"plan_temporal_{key}_mismatch")
+
+    raw_operation = plan.get("operation")
+    if raw_operation not in (None, "record_lookup"):
+        raise ValueError("plan_operation_invalid")
+    raw_relation = plan.get("relation")
+    if raw_relation not in (None, "responsible_for"):
+        raise ValueError("plan_relation_invalid")
+    plan["operation"] = "record_lookup"
+    plan["relation"] = "responsible_for"
+    target = assignment_target(normalized_query, plan.get("target"))
+    if target is None:
+        plan.pop("target", None)
+    else:
+        plan["target"] = target
+    plan["temporal_scope"] = canonical_scope
+    original_item = plan["items"][0]
+    required_claim = (
+        f"{canonical_scope['as_of']}時点の{target}の担当者"
+        if target is not None else normalized_query.strip().rstrip("。？?! ")
+    )
+    plan["items"] = [{
+        "item_id": original_item["item_id"],
+        "label": "担当者",
+        "required_claim": required_claim,
+        "retrieval_query": (
+            f"{target or normalized_query} 担当者 {canonical_scope['as_of']} "
+            f"{canonical_scope['expression']}"
+        ),
+        "required": True,
+    }]
+    plan["answer_shape"] = "担当者"
+    return plan
+
 
 def make_plan(query: str, labels: tuple[str, ...]) -> dict:
     items = []
@@ -256,6 +512,10 @@ def try_fast_plan(query: str) -> dict | None:
         return None
     if any(surface in query for surface in question_graph.COUNT_SURFACES):
         return make_count_plan(query)
+    if responsibility_intent(query) and any(
+        surface in query for surface in ("誰", "どなた", "担当者", "責任者")
+    ):
+        return make_plan(query, ("担当者",))
     for markers, labels in FAST_PLAN_PATTERNS:
         if all(marker in query for marker in markers):
             return make_plan(query, labels)
@@ -274,8 +534,11 @@ def try_fast_plan(query: str) -> dict | None:
     return None
 
 
-def sanitize_plan(plan: dict, query: str) -> dict:
+def sanitize_plan(
+    plan: dict, query: str, reference_date: str | None = None,
+) -> dict:
     """Remove prerequisite-only items and record whether partial projection is allowed."""
+    validate_plan(plan)
     kept = []
     for item in plan["items"]:
         combined = item["label"] + " " + item["required_claim"]
@@ -287,6 +550,14 @@ def sanitize_plan(plan: dict, query: str) -> dict:
     plan["partial_answer_allowed"] = not any(
         phrase in query for phrase in ("一つに確定", "一つに特定", "一意に確定")
     )
+    if reference_date is None and (
+        plan.get("temporal_scope") is not None
+        or (responsibility_intent(query) and "年前" in unicodedata.normalize("NFKC", query))
+    ):
+        raise ValueError("plan_reference_date_required")
+    if reference_date is not None:
+        apply_temporal_assignment_contract(plan, query, reference_date)
+        validate_plan(plan, query=query, reference_date=reference_date)
     return plan
 
 
@@ -730,11 +1001,22 @@ def bind_record_lookup_value_evidence(
     return {**audit, "supporting_packet_ids": normalized_support}
 
 
-def plan_question(model: str, query: str, timeout: int) -> dict:
+def plan_question(
+    model: str, query: str, timeout: int, reference_date: str | None = None,
+) -> dict:
     system = """あなたは質問分解担当です。回答や推測はせず、質問が返答として要求する項目だけを1〜5個に分解してください。
 各項目は独立して検索・回答可能な最小単位にします。人物、組織、時点、場所など質問中の条件を落とさないでください。
 retrieval_queryは原資料で使われそうな名詞・表現を含む短い検索文にします。
-一つの値しか求めていない質問は一項目のままにします。"""
+一つの値しか求めていない質問は一項目のままにします。
+業務の担当者を求める質問はoperation=record_lookup、relation=responsible_forとし、具体的な対象が質問に明記されている場合だけtargetに原文の対象を入れます。
+「この業務」のように参照先が未確定な表現はtargetを推測しません。
+「5年前」などの相対時点はtemporal_scope.expressionに原文のまま入れます。reference_dateやas_ofの日付計算はせず、他の時間フィールドも推測しません。"""
+    if reference_date is not None:
+        parse_iso_date(reference_date, "plan_reference_date_invalid")
+        system += (
+            f"\nこの実行の基準日は{reference_date}（{TEMPORAL_TIMEZONE}）です。"
+            "基準日と照会日の計算は後段の決定的処理が行うため、日付は出力しません。"
+        )
     outer = base.post_json(
         base.OLLAMA_CHAT_URL,
         {
@@ -755,7 +1037,9 @@ retrieval_queryは原資料で使われそうな名詞・表現を含む短い�
     return value
 
 
-def validate_plan(plan: dict) -> None:
+def validate_plan(
+    plan: dict, query: str | None = None, reference_date: str | None = None,
+) -> None:
     if not isinstance(plan, dict) or not isinstance(plan.get("items"), list):
         raise ValueError("plan_invalid")
     if not 1 <= len(plan["items"]) <= 5:
@@ -770,12 +1054,62 @@ def validate_plan(plan: dict) -> None:
         for key in ("label", "required_claim", "retrieval_query"):
             if not isinstance(item.get(key), str) or not item[key].strip():
                 raise ValueError(f"plan_{key}_invalid")
+            if any(
+                unicodedata.category(char) in {"Cc", "Zl", "Zp"}
+                for char in item[key]
+            ):
+                raise ValueError(f"plan_{key}_control_character")
+            limit = 80 if key == "label" else 500
+            if len(item[key]) > limit:
+                raise ValueError(f"plan_{key}_too_long")
         if not isinstance(item.get("required"), bool):
             raise ValueError("plan_required_invalid")
     if len(ids) != len(set(ids)):
         raise ValueError("plan_item_ids_duplicate")
     if not isinstance(plan.get("answer_shape"), str):
         raise ValueError("plan_answer_shape_invalid")
+    operation = plan.get("operation")
+    if operation is not None and operation != "record_lookup":
+        raise ValueError("plan_operation_invalid")
+    target = plan.get("target")
+    if target is not None and (not isinstance(target, str) or not target.strip()):
+        raise ValueError("plan_target_invalid")
+    relation = plan.get("relation")
+    if relation is not None and relation != "responsible_for":
+        raise ValueError("plan_relation_invalid")
+    scope = plan.get("temporal_scope")
+    if scope is None:
+        return
+    if not isinstance(scope, dict) or set(scope) - TEMPORAL_SCOPE_FIELDS:
+        raise ValueError("plan_temporal_scope_invalid")
+    for key, value in scope.items():
+        if not isinstance(value, str) or not value.strip():
+            raise ValueError(f"plan_temporal_{key}_invalid")
+    if query is None or reference_date is None:
+        return
+    if question_graph.temporal_assignment_context_unsupported(query):
+        raise ValueError("plan_temporal_context_unsupported")
+    if set(scope) != TEMPORAL_SCOPE_FIELDS:
+        raise ValueError("plan_temporal_scope_incomplete")
+    canonical = resolve_relative_year_scope(query, reference_date)
+    if canonical is None:
+        raise ValueError("plan_temporal_scope_not_grounded")
+    for key in TEMPORAL_SCOPE_FIELDS:
+        observed = unicodedata.normalize("NFKC", scope[key])
+        if key == "expression":
+            observed = re.sub(r"\s+", "", observed)
+        if observed != canonical[key]:
+            raise ValueError(f"plan_temporal_{key}_mismatch")
+    if operation != "record_lookup" or relation != "responsible_for":
+        raise ValueError("plan_temporal_assignment_contract_invalid")
+    if target is not None:
+        resolved_target = assignment_target(query, target)
+        if resolved_target is None or resolved_target != target:
+            raise ValueError("plan_target_not_grounded")
+    reference = parse_iso_date(scope["reference_date"], "plan_temporal_reference_date_invalid")
+    as_of = parse_iso_date(scope["as_of"], "plan_temporal_as_of_invalid")
+    if as_of > reference:
+        raise ValueError("plan_temporal_scope_future_not_supported")
 
 
 def compact_context(results: list[dict], max_characters: int = 4200) -> tuple[str, dict[str, str]]:
@@ -1191,10 +1525,17 @@ def main() -> int:
     total_started = time.perf_counter()
     index_path = Path(args.index).resolve(strict=True)
     index_metadata(index_path)
+    reference_date = current_tokyo_date()
     plan_started = time.perf_counter()
     fast_plan = try_fast_plan(args.query) if args.fast_plan else None
     planning_mode = "deterministic" if fast_plan is not None else "llm"
-    plan = sanitize_plan(fast_plan or plan_question(args.model, args.query, args.timeout), args.query)
+    plan = sanitize_plan(
+        fast_plan or plan_question(
+            args.model, args.query, args.timeout, reference_date=reference_date,
+        ),
+        args.query,
+        reference_date=reference_date,
+    )
     plan_seconds = time.perf_counter() - plan_started
     graph_started = time.perf_counter()
     graph_evidence, graph_evidence_by_id, stored_source_graph = (
@@ -1202,12 +1543,12 @@ def main() -> int:
     )
     question_evidence_graph = question_graph.build_question_evidence_graph(
         args.query, graph_evidence, source_graph=stored_source_graph,
-        question_plan=plan,
+        question_plan=plan, reference_date=reference_date,
     )
     question_evidence_graph_validation = question_graph.validate_question_evidence_graph(
         args.query, graph_evidence, question_evidence_graph,
         source_graph=stored_source_graph,
-        question_plan=plan,
+        question_plan=plan, reference_date=reference_date,
     )
     graph_seconds = time.perf_counter() - graph_started
     all_retrieved: dict[str, dict] = {}
@@ -1412,6 +1753,9 @@ def main() -> int:
         "schema_version": "0.3-field-audit",
         "created_at": datetime.now().astimezone().isoformat(timespec="seconds"),
         "query": args.query,
+        # Preserve the single calendar anchor used by the planner and QEG so
+        # the independent final audit can rebuild the same relative-time path.
+        "question_reference_date": reference_date,
         "question_plan": plan,
         "question_evidence_graph": question_evidence_graph,
         "question_evidence_graph_validation": question_evidence_graph_validation,

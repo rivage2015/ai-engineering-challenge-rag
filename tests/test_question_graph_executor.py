@@ -405,6 +405,14 @@ class QuestionGraphExecutorTests(unittest.TestCase):
         self.assertEqual(
             validate_graph.call_args.kwargs["question_plan"], record["question_plan"]
         )
+        self.assertEqual(
+            build_graph.call_args.kwargs["reference_date"],
+            validate_graph.call_args.kwargs["reference_date"],
+        )
+        self.assertEqual(
+            record["question_reference_date"],
+            build_graph.call_args.kwargs["reference_date"],
+        )
 
 
 if __name__ == "__main__":

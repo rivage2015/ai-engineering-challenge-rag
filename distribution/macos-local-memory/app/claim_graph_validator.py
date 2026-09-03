@@ -7,6 +7,7 @@ import hashlib
 import json
 import re
 import unicodedata
+from datetime import date
 from decimal import Decimal, InvalidOperation
 
 
@@ -140,9 +141,208 @@ def decimal_projection(value: object) -> tuple[bool, Decimal | None]:
 def normalized_value_text(value: object) -> str:
     if not isinstance(value, str):
         return ""
+    normalized = "".join(
+        char
+        for char in unicodedata.normalize("NFKC", value)
+        if unicodedata.category(char) != "Cf"
+    )
     return re.sub(
-        r"\s+", " ", unicodedata.normalize("NFKC", value).strip()
+        r"\s+", " ", normalized.strip()
     ).casefold()
+
+
+ANSWER_NUMERIC_TOKEN = re.compile(
+    r"(?<![0-9A-Za-z_.,])[-+]?"
+    r"(?:(?:\d{1,3}(?:,\d{3})+|\d+)(?:\.\d+)?|\.\d+)"
+    r"(?![0-9A-Za-z_.,])"
+)
+ANSWER_DATE_TOKEN = re.compile(
+    r"(?<!\d)(?P<year>\d{4})\s*(?:年\s*|[-/.]\s*)"
+    r"(?P<month>\d{1,2})\s*(?:月\s*|[-/.]\s*)"
+    r"(?P<day>\d{1,2})\s*日?(?!\d)"
+)
+ANSWER_FORMULA_TOKEN = re.compile(r"=[^。.!！?？\n]+")
+
+
+def _verified_scalar_occurrences(
+    answer: object, value: object,
+) -> list[tuple[int, int]]:
+    """Locate semantically complete occurrences of one verified scalar."""
+    if not isinstance(answer, str) or not isinstance(value, str):
+        return []
+    answer_text = normalized_value_text(answer)
+    expected_formula = formula_projection(value)
+    if expected_formula is not None:
+        matches = []
+        for match in ANSWER_FORMULA_TOKEN.finditer(answer_text):
+            candidate = re.sub(
+                r"\s*(?:」|』|”|\")?\s*"
+                r"(?:です|でした|である|となります)\s*$",
+                "",
+                match.group(0),
+            ).strip()
+            candidate = candidate.rstrip(" 」』”\"")
+            if formula_projection(candidate) == expected_formula:
+                matches.append(match.span())
+        return matches
+    try:
+        expected_date = date.fromisoformat(
+            unicodedata.normalize("NFKC", value).strip()
+        )
+    except ValueError:
+        expected_date = None
+    if expected_date is not None:
+        matches = []
+        for match in ANSWER_DATE_TOKEN.finditer(answer_text):
+            try:
+                observed_date = date(
+                    int(match.group("year")),
+                    int(match.group("month")),
+                    int(match.group("day")),
+                )
+            except ValueError:
+                continue
+            if observed_date == expected_date:
+                matches.append(match.span())
+        return matches
+    expected_is_decimal, expected_decimal = decimal_projection(value)
+    if expected_is_decimal:
+        if expected_decimal is None:
+            return []
+        matches = []
+        for match in ANSWER_NUMERIC_TOKEN.finditer(answer_text):
+            try:
+                observed = Decimal(match.group(0).replace(",", ""))
+            except InvalidOperation:
+                continue
+            if observed.is_finite() and observed == expected_decimal:
+                matches.append(match.span())
+        return matches
+
+    value_text = normalized_value_text(value)
+    if not value_text:
+        return []
+    start = 0
+    matches = []
+    allowed_prefix_particles = frozenset("はがをにへとでの:：")
+    allowed_prefixes = (
+        "ただし", "しかし", "一方", "なお", "また", "そして",
+    )
+    allowed_suffixes = (
+        "さん", "氏", "様", "は", "が", "を", "に", "へ", "と", "の",
+        "です", "でした", "である", "では", "じゃ", "でない",
+        "となります",
+    )
+    while True:
+        position = answer_text.find(value_text, start)
+        if position < 0:
+            return matches
+        before = answer_text[position - 1] if position else ""
+        after = answer_text[position + len(value_text):]
+        before_ok = (
+            not before
+            or (not before.isalnum() and before not in "_-" )
+            or before in allowed_prefix_particles
+            or any(
+                answer_text[:position].endswith(prefix)
+                for prefix in allowed_prefixes
+            )
+        )
+        next_char = after[:1]
+        after_ok = (
+            not next_char
+            or (not next_char.isalnum() and next_char not in "_-" )
+            or any(after.startswith(suffix) for suffix in allowed_suffixes)
+        )
+        if before_ok and after_ok:
+            matches.append((position, position + len(value_text)))
+        start = position + max(1, len(value_text))
+
+
+def verified_scalar_is_in_answer(answer: object, value: object) -> bool:
+    """Require a complete verified scalar, not a substring of another value."""
+    return bool(_verified_scalar_occurrences(answer, value))
+
+
+def record_lookup_value_is_negated(
+    answer: object,
+    value: object,
+    *,
+    allow_current_contrast: bool = False,
+) -> bool:
+    """Detect negated complete occurrences, allowing an explicit time contrast."""
+    if not isinstance(answer, str) or not isinstance(value, str):
+        return False
+    answer_text = normalized_value_text(answer)
+    occurrences = _verified_scalar_occurrences(answer, value)
+    if not occurrences:
+        return False
+    negated_contexts = []
+    affirmative_count = 0
+    for position, end in occurrences:
+        before = answer_text[max(0, position - 32):position]
+        after = answer_text[end:end + 40]
+        after_clause = re.split(r"[。.!！?？\n]", after, maxsplit=1)[0]
+        negated = bool(re.search(
+            r"(?:not|isn['’]t|wasn['’]t|aren['’]t|weren['’]t)\s*$",
+            before,
+        ) or re.search(
+            r"(?:ではありませんでした|ではございません|ではありません|"
+            r"ではなかった|ではない|じゃありません|じゃない|"
+            r"ではなく|でなく|でない|以外|"
+            r"is\s+not|was\s+not|isn['’]t|wasn['’]t|not\b)",
+            after_clause,
+        ))
+        if negated:
+            negated_contexts.append(before + after_clause)
+        else:
+            affirmative_count += 1
+    if not negated_contexts:
+        return False
+    if allow_current_contrast and affirmative_count:
+        current_markers = tuple(
+            normalized_value_text(marker) for marker in CURRENT_MARKERS
+        ) + ("currently", "now")
+        if all(
+            any(marker and marker in context for marker in current_markers)
+            for context in negated_contexts
+        ):
+            return False
+    return True
+
+
+ANSWER_ALTERNATIVE_SURFACE = re.compile(
+    r"(?:または|もしくは|あるいは|正しくは|実際は|本当は|"
+    r"(?<![0-9a-z])or(?![0-9a-z])|rather\s+than|instead|"
+    r"(?<![0-9a-z])but(?![0-9a-z])|だが|しかし)",
+    re.IGNORECASE,
+)
+
+
+def numeric_answer_has_conflicting_alternative(
+    answer: object, value: object,
+) -> bool:
+    """Reject an explicitly alternative numeric value in the same clause."""
+    expected_is_decimal, expected = decimal_projection(value)
+    if not isinstance(answer, str) or not expected_is_decimal or expected is None:
+        return False
+    for clause in re.split(r"[。!！?？\n]", normalized_value_text(answer)):
+        if (
+            not ANSWER_ALTERNATIVE_SURFACE.search(clause)
+            or not verified_scalar_is_in_answer(clause, str(value))
+        ):
+            continue
+        observed = []
+        for match in ANSWER_NUMERIC_TOKEN.finditer(clause):
+            try:
+                parsed = Decimal(match.group(0).replace(",", ""))
+            except InvalidOperation:
+                continue
+            if parsed.is_finite():
+                observed.append(parsed)
+        if any(parsed != expected for parsed in observed):
+            return True
+    return False
 
 
 def record_lookup_value_matches(observed: object, expected: object) -> bool:
@@ -204,6 +404,77 @@ def record_lookup_field_bindings(record: dict) -> dict[str, dict]:
             return {}
         bindings[item_id] = branch
     return bindings
+
+
+def expected_record_lookup_answer(record: dict) -> str | None:
+    """Rebuild the deterministic projection emitted by the answer engine."""
+    answer = record.get("answer")
+    plan = record.get("question_plan")
+    field_runs = record.get("field_runs")
+    if (
+        not isinstance(answer, dict)
+        or answer.get("answer_status") != "answered"
+        or not isinstance(plan, dict)
+        or not isinstance(plan.get("items"), list)
+        or not isinstance(field_runs, list)
+    ):
+        return None
+    item_by_id = {
+        str(item.get("item_id", "")): item
+        for item in plan["items"]
+        if isinstance(item, dict) and str(item.get("item_id", "")).strip()
+    }
+    question_graph = record.get("question_evidence_graph")
+    graph_intent = (
+        question_graph.get("intent")
+        if isinstance(question_graph, dict) else None
+    )
+    graph_operation = (
+        graph_intent.get("operation")
+        if isinstance(graph_intent, dict) else None
+    )
+    for item in item_by_id.values():
+        label = item.get("label")
+        if (
+            not isinstance(label, str)
+            or not label.strip()
+            or len(label) > 80
+            or any(
+                unicodedata.category(char) in {"Cc", "Zl", "Zp"}
+                for char in label
+            )
+        ):
+            return None
+        if graph_operation == "aggregate_count" and label not in {
+            "回数", "稼働回数",
+        }:
+            return None
+    supported = []
+    unresolved = []
+    for row in field_runs:
+        audit = row.get("audit") if isinstance(row, dict) else None
+        if not isinstance(audit, dict):
+            return None
+        item_id = str(audit.get("item_id", ""))
+        item = item_by_id.get(item_id)
+        if item is None:
+            return None
+        if audit.get("verdict") == "supported":
+            supported.append((item, audit))
+        else:
+            unresolved.append((item, audit))
+    confirmed_lines = [
+        f"- {item.get('label', '')}: {audit.get('supported_value', '')}"
+        for item, audit in supported
+    ]
+    unresolved_lines = [
+        f"- {item.get('label', '')}: 確認できませんでした（{audit.get('defect', '')}）"
+        for item, audit in unresolved
+    ]
+    parts = ["確認できた内容:\n" + "\n".join(confirmed_lines)]
+    if unresolved_lines:
+        parts.append("確認できなかった項目:\n" + "\n".join(unresolved_lines))
+    return "\n\n".join(parts)
 
 
 def infer_entity_type(
@@ -554,6 +825,27 @@ def validate_claim_graph(record: dict, packets: list[dict], contract: dict, grap
     warnings = []
     packet_map = {str(packet.get("evidence_id", "")): str(packet.get("text", "")) for packet in packets}
     lookup_bindings = record_lookup_field_bindings(record)
+    question_graph = record.get("question_evidence_graph")
+    graph_intent = (
+        question_graph.get("intent")
+        if isinstance(question_graph, dict) else None
+    )
+    graph_operation = (
+        graph_intent.get("operation")
+        if isinstance(graph_intent, dict) else None
+    )
+    if lookup_bindings or graph_operation == "aggregate_count":
+        expected_answer = expected_record_lookup_answer(record)
+        observed_answer = record.get("answer", {}).get("answer", "")
+        if expected_answer is None or observed_answer != expected_answer:
+            failures.append({
+                "code": (
+                    "record_lookup_answer_projection_mismatch"
+                    if lookup_bindings
+                    else "aggregate_answer_projection_mismatch"
+                ),
+                "detail": "回答が検証済み分岐の機械投影と一致しません。",
+            })
     expected_contract = build_question_contract(contract.get("query", ""), {"items": [
         {
             "item_id": item.get("field_id", ""), "label": item.get("label", ""),
@@ -605,7 +897,8 @@ def validate_claim_graph(record: dict, packets: list[dict], contract: dict, grap
         item.get("field_id"): item for item in contract.get("items", [])
     }
     field_ids = set(contract_items)
-    answer_text = normalize(record.get("answer", {}).get("answer", ""))
+    raw_answer_text = record.get("answer", {}).get("answer", "")
+    answer_text = normalize(raw_answer_text)
     for claim in graph.get("claims", []):
         claim_id = claim.get("claim_id", "")
         is_record_lookup_claim = claim.get("field_id") in lookup_bindings
@@ -645,8 +938,46 @@ def validate_claim_graph(record: dict, packets: list[dict], contract: dict, grap
                 non_provisional_cited_text,
             ):
                 failures.append({"code": "time_scope_conflict", "claim_id": claim_id, "detail": f"質問の時制と一致しない値: {value_part}"})
-        if normalize(claim.get("value", "")) not in answer_text:
+        strict_scalar_projection = (
+            is_record_lookup_claim
+            or claim.get("entity_type") in {"numeric_count", "numeric_value"}
+        )
+        if strict_scalar_projection and not verified_scalar_is_in_answer(
+            raw_answer_text, str(claim.get("value", "")),
+        ):
             failures.append({"code": "value_not_in_answer", "claim_id": claim_id, "detail": "検証済み値が最終回答へ投影されていません。"})
+        elif (
+            not strict_scalar_projection
+            and normalize(claim.get("value", "")) not in answer_text
+        ):
+            failures.append({"code": "value_not_in_answer", "claim_id": claim_id, "detail": "検証済み値が最終回答へ投影されていません。"})
+        elif strict_scalar_projection and record_lookup_value_is_negated(
+            raw_answer_text,
+            str(claim.get("value", "")),
+            allow_current_contrast=bool(
+                isinstance(record.get("question_plan"), dict)
+                and isinstance(
+                    record.get("question_plan", {}).get("temporal_scope"), dict,
+                )
+            ),
+        ):
+            failures.append({
+                "code": (
+                    "record_lookup_value_negated_in_answer"
+                    if is_record_lookup_claim
+                    else "numeric_value_negated_in_answer"
+                ),
+                "claim_id": claim_id,
+                "detail": "検証済み値が最終回答内で否定されています。",
+            })
+        if strict_scalar_projection and numeric_answer_has_conflicting_alternative(
+            raw_answer_text, str(claim.get("value", "")),
+        ):
+            failures.append({
+                "code": "verified_value_conflict_in_answer",
+                "claim_id": claim_id,
+                "detail": "検証済み数値と競合する代替値が最終回答にあります。",
+            })
         if claim.get("entity_type") == "person_name" and not _name_relation_is_explicit(
             str(claim.get("value", "")), non_provisional_cited_text
         ):

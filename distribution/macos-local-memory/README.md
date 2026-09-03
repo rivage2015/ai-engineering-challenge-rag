@@ -38,9 +38,12 @@ DMGにはユーザーデータ、既存索引、回答ログ、モデル本体�
 - 回答は `gemma4:12b`、別コンテキストの最終監査も `gemma4:12b`、埋め込みは `embeddinggemma:latest`。
 - 回数・合計質問は、ベクトル検索の前にQuestion Evidence Graphを作る。同じSQLite read snapshotの永続GraphをDocumentから`contains`順方向・`derived_from`逆方向へ実際に辿り、使用したNode hashとRelation IDを質問Graphへ固定する。その上で質問の対象、`SUM`範囲、各行、再集計値、保存値をNode/Edgeで結び、一致したEvidenceを回答実行者へ先頭挿入する。
 - 構造化レコード参照は、現在`owner / review_date / unit_cost / seats / budget`の5項目に限定する。質問に明記された項目、一意の対象行、必要なら`Approved / Final / Finalized`状態を確認し、項目ごとにrow・header・value Evidenceをverified explicit `derived_from`で結ぶ。各枝のEvidenceは対応する項目の検索先頭に限定して挿入する。
+- 担当者の時点参照は、肯定形の「誰が担当していたか」という1項目質問に限定する。「N年前」を実行時のAsia/Tokyo基準日から日単位で決定し、`question -> time_point -> assignment_period -> record -> field -> value`のQuestion Evidence Graphを構築する。明記された業務名と同一行の担当開始日・担当終了日・担当者セルのlineageを必須とし、両端inclusiveで該当する1行だけを選ぶ。除外した候補期間も`falls_outside`としてGraphと監査に固定する。Excelの日付セルが生成する真夜中のISO datetimeは日付として受理する。期間情報を持つ担当表へ時点なしで質問した場合、期間欠落・重複・逆転、行座標や対象の未解決、担当者が式・未定・不明、未対応の時刻表現、否定・交代・前任・複数項目質問は`hold`にする。汎用の`Status`列は担当期間の有効性と決めつけず、時点判定は検証済み期間で行う。
+- 時点付き担当表の現アダプタは、Excel型の`sheet_name + row_index + cell`と検証済み行lineageが対象。座標のない配列・未定義ヘッダー、PDF/DOCX/CSVの表コンテナは推測回答せず`hold`とし、形式ごとのcontainer adapterが次の実装範囲。
+- 対象名そのものが`Final / Draft / 最終版 / 旧版`のような状態語1語だけの場合は、版指定と一意に区別できないため`hold`にする。
 - 構造化集計がない、範囲が欠ける、暫定読取を含む、保存値と再集計が違う、または複数候補が曖昧な回数質問は `hold`にし、通常検索へ逃がさない。
 - 構造化レコード参照で、質問要求の計画漏れ、未対応項目、状態や対象の曖昧性、必須lineage欠落、Graph枝の未使用がある場合も`hold`にし、通常検索へ逃がさない。
-- 回答と監査の間で、質問契約・主張グラフ・Evidence参照を決定論的に検証する。
+- 回答と監査の間で、質問契約・主張グラフ・Evidence参照を決定論的に検証する。`aggregate_count / record_lookup`の最終文面は検証済み分岐から機械的に再構成し、別の回数・担当者・否定表現の追加を監査で拒否する。
 - 最終監査はQuestion Evidence Graphの選択・検証EvidenceをSQLiteから再読込し、保存Graph traversalを再構築する。集計では保存値と再集計値、レコード参照ではGraph枝とfield runの1対1、検索先頭挿入、回答値と枝の値の一致、値セルEvidenceの支持を機械検査する。別コンテキスト監査まで含む全ゲートがPASSした場合だけOrchestratorが回答をacceptする。
 - 監査完了後のログに、回答コンテキストと最終監査コンテキストの実行役割を別々に記録する。
 - WebとOllamaはloopbackに限定。HomebrewのCLI-only Ollamaも検出し、daemon停止時は専用ログ付きで`ollama serve`をloopback起動する。
