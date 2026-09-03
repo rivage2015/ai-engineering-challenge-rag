@@ -33,6 +33,7 @@ cp \
   "$ROOT/scripts/build_cross_document_semantic_graph.py" \
   "$ROOT/scripts/query_cross_document_semantic_graph.py" \
   "$ROOT/scripts/validate_cross_document_semantic_graph.py" \
+  "$ROOT/scripts/project_cross_document_graph_to_answer_index.py" \
   "$ROOT/scripts/local_image_ocr.py" \
   "$ROOT/scripts/local_paddle_ocr.py" \
   "$ROOT/scripts/extract_ocr_observations.py" \

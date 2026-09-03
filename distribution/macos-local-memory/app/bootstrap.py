@@ -5,13 +5,16 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import importlib.util
 import json
 import os
 import platform
 import re
 import shutil
+import sqlite3
 import subprocess
 import sys
+import tempfile
 import time
 import urllib.error
 import urllib.request
@@ -31,8 +34,14 @@ IMAGE_SUFFIXES = {".png", ".jpg", ".jpeg", ".tif", ".tiff", ".bmp"}
 GENERATION_NAME = re.compile(r"generation-[0-9a-f]{32}")
 GENERATION_MARKER = "build-generation.json"
 CROSS_DOCUMENT_SHADOW_FLAG = "cross_document_semantic_graph_shadow_enabled"
+CROSS_DOCUMENT_STORAGE_FLAG = "cross_document_semantic_graph_storage_enabled"
 CROSS_DOCUMENT_SHADOW_DIR = "04-semantic-graph-shadow"
 CROSS_DOCUMENT_SHADOW_RUN_STATE = "shadow-run-state.json"
+CROSS_DOCUMENT_STORAGE_DIR = "05-semantic-answer-index"
+CROSS_DOCUMENT_STORAGE_RUN_STATE = "semantic-answer-index-state.json"
+CROSS_DOCUMENT_STORAGE_CONFIG_KEY = "cross_document_semantic_graph_storage"
+CROSS_DOCUMENT_STORAGE_TOOL = "project_cross_document_graph_to_answer_index.py"
+BASE_ANSWER_INDEX_SHA256_KEY = "base_answer_index_sha256"
 CROSS_DOCUMENT_SHADOW_TIMEOUT_SECONDS = 300.0
 CROSS_DOCUMENT_SHADOW_TOOLS = (
     "build_cross_document_semantic_graph.py",
@@ -47,9 +56,29 @@ def now_iso() -> str:
 
 def atomic_json(path: Path, value: dict) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    temporary = path.with_suffix(path.suffix + ".tmp")
-    temporary.write_text(json.dumps(value, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-    os.replace(temporary, path)
+    descriptor, temporary_name = tempfile.mkstemp(
+        prefix=f".{path.name}.",
+        suffix=".tmp",
+        dir=path.parent,
+        text=True,
+    )
+    temporary = Path(temporary_name)
+    try:
+        with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
+            handle.write(
+                json.dumps(value, ensure_ascii=False, indent=2) + "\n"
+            )
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(temporary, path)
+        directory_descriptor = os.open(path.parent, os.O_RDONLY)
+        try:
+            os.fsync(directory_descriptor)
+        finally:
+            os.close(directory_descriptor)
+    except Exception:
+        temporary.unlink(missing_ok=True)
+        raise
 
 
 def sha256_file(path: Path) -> str:
@@ -113,7 +142,12 @@ def diagnose() -> dict:
     python_ok = sys.version_info >= (3, 10)
     ollama_path = ollama_binary()
     models = model_names() if ollama_online() else set()
-    config = load_json(CONFIG)
+    try:
+        config = load_json(CONFIG)
+        if not isinstance(config, dict):
+            raise TypeError("config_not_object")
+    except (OSError, ValueError, TypeError):
+        config = {}
     source = Path(config["source_root"]) if config.get("source_root") else None
     index = Path(config["index_path"]) if config.get("index_path") else None
     return {
@@ -132,6 +166,12 @@ def diagnose() -> dict:
         "index_ready": bool(index and index.is_file()),
         "cross_document_semantic_graph_shadow_enabled": (
             config.get(CROSS_DOCUMENT_SHADOW_FLAG, True) is True
+        ),
+        "cross_document_semantic_graph_storage_enabled": (
+            config.get(CROSS_DOCUMENT_STORAGE_FLAG, True) is True
+        ),
+        "cross_document_semantic_graph_storage": config.get(
+            CROSS_DOCUMENT_STORAGE_CONFIG_KEY
         ),
         "ready": bool(python_ok and ollama_path and source and source.is_dir() and index and index.is_file()),
         "warnings": [
@@ -292,6 +332,7 @@ def configure_source(source: Path) -> dict:
         "model_profile": "gemma4-validated-v1",
         "sequential_model_loading": True,
         CROSS_DOCUMENT_SHADOW_FLAG: True,
+        CROSS_DOCUMENT_STORAGE_FLAG: True,
         "port": 8765,
     })
     if (
@@ -302,6 +343,7 @@ def configure_source(source: Path) -> dict:
         config["answer_model"] = "gemma4:12b"
         config["model_profile"] = "gemma4-validated-v1"
     config.setdefault(CROSS_DOCUMENT_SHADOW_FLAG, True)
+    config.setdefault(CROSS_DOCUMENT_STORAGE_FLAG, True)
     config["source_root"] = str(source)
     config["workspace"] = str(SUPPORT / "data")
     # Selecting a source invalidates the active generation immediately.  A
@@ -313,6 +355,8 @@ def configure_source(source: Path) -> dict:
         "semantic_path",
         "security_path",
         "semantic_graph_shadow_path",
+        CROSS_DOCUMENT_STORAGE_CONFIG_KEY,
+        BASE_ANSWER_INDEX_SHA256_KEY,
     ):
         config.pop(key, None)
     atomic_json(CONFIG, config)
@@ -362,12 +406,11 @@ def _pid_is_alive(pid: object) -> bool:
     return True
 
 
-def _published_generation_ready(config: dict, generation: Path) -> bool:
+def _published_generation_inputs_ready(config: dict, generation: Path) -> bool:
     required = {
         "path_graph_path": "directory",
         "semantic_path": "directory",
         "security_path": "directory",
-        "index_path": "file",
     }
     for key, kind in required.items():
         value = config.get(key)
@@ -380,8 +423,6 @@ def _published_generation_ready(config: dict, generation: Path) -> bool:
             return False
         if kind == "directory" and not candidate.is_dir():
             return False
-        if kind == "file" and not candidate.is_file():
-            return False
     reader_state = Path(config["semantic_path"]) / "adaptive-reader-state.json"
     try:
         status = load_json(reader_state).get("status")
@@ -390,11 +431,125 @@ def _published_generation_ready(config: dict, generation: Path) -> bool:
     return status in {"complete", "complete_with_limits"}
 
 
+def _published_index_pointer_kind(
+    config: dict,
+    generation: Path,
+) -> str | None:
+    """Accept only the two non-symlink index locations owned by a generation."""
+    value = config.get("index_path")
+    if not isinstance(value, str) or not value:
+        return None
+    candidate = Path(value)
+    if not candidate.is_absolute() or candidate.is_symlink():
+        return None
+    base = generation / "safe-answer-index.sqlite3"
+    storage_dir = generation / CROSS_DOCUMENT_STORAGE_DIR
+    enriched = storage_dir / "safe-answer-index.sqlite3"
+    if candidate == base:
+        kind = "base"
+    elif candidate == enriched and not storage_dir.is_symlink():
+        kind = "semantic_storage"
+    else:
+        return None
+    if not candidate.is_file():
+        return None
+    try:
+        candidate.resolve(strict=True).relative_to(generation.resolve(strict=True))
+    except (OSError, ValueError):
+        return None
+    return kind
+
+
+def _published_generation_ready(config: dict, generation: Path) -> bool:
+    if not _published_generation_inputs_ready(config, generation):
+        return False
+    return _published_index_pointer_kind(config, generation) is not None
+
+
+def _published_generation_base_ready(config: dict, generation: Path) -> bool:
+    """Validate a published generation through its immutable base index.
+
+    The active pointer may already name the semantic-storage copy, or may be
+    the one field damaged by an interrupted pointer switch.  Recovery is
+    therefore anchored to the original published index at the generation
+    root, which the storage projector never mutates.
+    """
+    base_index = generation / "safe-answer-index.sqlite3"
+    if base_index.is_symlink() or not base_index.is_file():
+        return False
+    try:
+        if base_index.resolve(strict=True) != (
+            generation.resolve(strict=True) / "safe-answer-index.sqlite3"
+        ):
+            return False
+    except OSError:
+        return False
+    base_config = {**config, "index_path": str(base_index)}
+    return _published_generation_ready(base_config, generation)
+
+
+def _validate_answer_index_for_semantic_storage(index: Path) -> dict:
+    """Validate an answer index with the production answer-graph contract."""
+    if index.is_symlink() or not index.is_file():
+        raise ValueError("semantic_storage_answer_index_invalid")
+    validator_path = next(
+        (
+            candidate
+            for candidate in (
+                ENGINE / "answer_local_memory.py",
+                Path(__file__).resolve().parents[1]
+                / "engine"
+                / "answer_local_memory.py",
+            )
+            if candidate.is_file() and not candidate.is_symlink()
+        ),
+        None,
+    )
+    if validator_path is None:
+        raise ValueError("semantic_storage_answer_validator_missing")
+    specification = importlib.util.spec_from_file_location(
+        "local_memory_storage_base_answer_validator",
+        validator_path,
+    )
+    if specification is None or specification.loader is None:
+        raise ValueError("semantic_storage_answer_validator_unavailable")
+    validator = importlib.util.module_from_spec(specification)
+    sys.modules[specification.name] = validator
+    try:
+        specification.loader.exec_module(validator)
+        connection = sqlite3.connect(
+            index.resolve(strict=True).as_uri() + "?mode=ro", uri=True
+        )
+        try:
+            connection.execute("PRAGMA query_only=ON")
+            if connection.execute("PRAGMA integrity_check").fetchall() != [("ok",)]:
+                raise ValueError("semantic_storage_answer_integrity_invalid")
+            return validator.validate_answer_graph_contract(connection)
+        finally:
+            connection.close()
+    except sqlite3.Error as exc:
+        raise ValueError("semantic_storage_answer_database_invalid") from exc
+    finally:
+        sys.modules.pop(specification.name, None)
+
+
+def _validate_base_answer_index_for_storage_recovery(
+    generation: Path,
+) -> dict:
+    """Prove the rollback target is the intact safe-answer graph index."""
+    base_index = generation / "safe-answer-index.sqlite3"
+    try:
+        return _validate_answer_index_for_semantic_storage(base_index)
+    except Exception as exc:
+        raise ValueError("semantic_storage_base_index_invalid") from exc
+
+
 def _ready_state(
     reader_state: dict,
     *,
     recovered: bool = False,
     semantic_graph_shadow: dict | None = None,
+    semantic_graph_storage: dict | None = None,
 ) -> dict:
     recovered_fields = {
         "recovered_after_interruption": True,
@@ -405,6 +560,11 @@ def _ready_state(
         if isinstance(semantic_graph_shadow, dict)
         else {}
     )
+    storage_fields = (
+        {"cross_document_semantic_graph_storage": semantic_graph_storage}
+        if isinstance(semantic_graph_storage, dict)
+        else {}
+    )
     if reader_state.get("status") == "complete_with_limits":
         return {
             "phase": "ready_with_limits",
@@ -413,6 +573,7 @@ def _ready_state(
             "reader_limitations": reader_state.get("limitations", {}),
             **recovered_fields,
             **shadow_fields,
+            **storage_fields,
         }
     return {
         "phase": "ready",
@@ -420,6 +581,112 @@ def _ready_state(
         "error": "",
         **recovered_fields,
         **shadow_fields,
+        **storage_fields,
+    }
+
+
+def _observer_state_build_id(value: object) -> str | None:
+    if not isinstance(value, dict):
+        return None
+    direct = value.get("build_id")
+    if isinstance(direct, str) and direct:
+        return direct
+    shadow = value.get("shadow")
+    nested = shadow.get("build_id") if isinstance(shadow, dict) else None
+    return nested if isinstance(nested, str) and nested else None
+
+
+def _base_index_hash_anchor(value: object) -> str | None:
+    """Return a recorded base hash; malformed recorded values fail closed."""
+    if not isinstance(value, dict):
+        return None
+    for key in (BASE_ANSWER_INDEX_SHA256_KEY, "base_index_sha256"):
+        if key in value:
+            candidate = value.get(key)
+            return (
+                candidate
+                if isinstance(candidate, str)
+                and re.fullmatch(r"[0-9a-f]{64}", candidate)
+                else ""
+            )
+    base = value.get("base")
+    if isinstance(base, dict) and "sqlite_sha256" in base:
+        candidate = base.get("sqlite_sha256")
+        return (
+            candidate
+            if isinstance(candidate, str)
+            and re.fullmatch(r"[0-9a-f]{64}", candidate)
+            else ""
+        )
+    return None
+
+
+def _reconstruct_published_marker_for_observer_recovery(
+    config: dict,
+    current: dict,
+    generation: Path,
+) -> dict:
+    """Rebuild only the lifecycle facts still attested by runtime state.
+
+    The normal publication order can leave CONFIG and STATE durable while the
+    generation-marker write is missing or truncated.  Runtime observer state
+    is the independent lifecycle anchor in that window.  A completed storage
+    artifact may corroborate its build id, but can never establish one by
+    itself; disagreement deliberately produces an untrusted id so promotion
+    fails closed and the validated base index is restored.
+    """
+    current_ids = {
+        value
+        for value in (
+            _observer_state_build_id(
+                current.get("cross_document_semantic_graph_shadow")
+            ),
+            _observer_state_build_id(
+                current.get("cross_document_semantic_graph_storage")
+            ),
+        )
+        if value is not None
+    }
+    artifact_id: str | None = None
+    final_state = (
+        generation
+        / CROSS_DOCUMENT_STORAGE_DIR
+        / CROSS_DOCUMENT_STORAGE_RUN_STATE
+    )
+    if (
+        not final_state.is_symlink()
+        and final_state.is_file()
+        and not final_state.parent.is_symlink()
+    ):
+        try:
+            artifact_id = _observer_state_build_id(load_json(final_state))
+        except (OSError, ValueError, TypeError):
+            artifact_id = None
+    build_id = (
+        next(iter(current_ids))
+        if len(current_ids) == 1
+        and (artifact_id is None or artifact_id in current_ids)
+        else f"untrusted-recovery-{generation.name}"
+    )
+    base_hash = _base_index_hash_anchor(config)
+    return {
+        "schema_version": "0.1",
+        "status": "published",
+        "generation": generation.name,
+        "build_id": build_id,
+        "owner_pid": 0,
+        "reconstructed_after_interruption": True,
+        **(
+            {BASE_ANSWER_INDEX_SHA256_KEY: base_hash}
+            if base_hash
+            else {}
+        ),
+        "cross_document_semantic_graph_shadow_enabled": (
+            config.get(CROSS_DOCUMENT_SHADOW_FLAG, True) is True
+        ),
+        "cross_document_semantic_graph_storage_enabled": (
+            config.get(CROSS_DOCUMENT_STORAGE_FLAG, True) is True
+        ),
     }
 
 
@@ -431,11 +698,37 @@ def recover_interrupted_build() -> dict:
     generation whose marker still says ``building`` or the fixed unfinished
     shadow candidate inside an otherwise published generation.
     """
-    config = load_json(CONFIG)
-    current = load_json(
-        STATE,
-        {"phase": "not_started", "message": "まだ索引は作成されていません。", "error": ""},
-    )
+    try:
+        config = load_json(CONFIG)
+        if not isinstance(config, dict):
+            raise TypeError("config_not_object")
+    except (OSError, ValueError, TypeError) as exc:
+        atomic_json(STATE, {
+            "phase": "error",
+            "message": "設定ファイルを読み取れないため、回答を停止しました。",
+            "error": f"configuration_invalid: {type(exc).__name__}",
+            "recovery_action": "reconfigure_source",
+        })
+        return {"status": "invalid_configuration", "removed": []}
+    try:
+        current = load_json(
+            STATE,
+            {
+                "phase": "not_started",
+                "message": "まだ索引は作成されていません。",
+                "error": "",
+            },
+        )
+        if not isinstance(current, dict):
+            raise TypeError("state_not_object")
+    except (OSError, ValueError, TypeError) as exc:
+        atomic_json(STATE, {
+            "phase": "error",
+            "message": "実行状態を読み取れないため、回答を停止しました。",
+            "error": f"runtime_state_invalid: {type(exc).__name__}",
+            "recovery_action": "rebuild_index",
+        })
+        return {"status": "invalid_runtime_state", "removed": []}
     workspace = Path(config.get("workspace", SUPPORT / "data"))
     active_generation = config.get("active_generation")
     removed: list[str] = []
@@ -466,66 +759,342 @@ def recover_interrupted_build() -> dict:
 
     if (
         current.get("phase") in {"ready", "ready_with_limits"}
-        and isinstance(active_generation, str)
+        and not isinstance(active_generation, str)
     ):
+        failed_state = {
+            **current,
+            "phase": "error",
+            "message": "公開済み索引の世代情報がないため、回答を停止しました。",
+            "error": "active_generation_missing",
+            "recovery_action": "rebuild_index",
+        }
+        atomic_json(STATE, failed_state)
+        return {"status": "invalid_active_generation", "removed": removed}
+
+    if current.get("phase") in {"ready", "ready_with_limits"}:
         generation = _generation_path(workspace, active_generation)
-        marker_path = (
-            generation / GENERATION_MARKER
-            if generation is not None
-            else None
-        )
-        try:
-            marker = load_json(marker_path) if marker_path is not None else {}
-        except (OSError, ValueError, TypeError):
-            marker = {}
+        if generation is None:
+            failed_state = {
+                **current,
+                "phase": "error",
+                "message": (
+                    "公開済み索引の世代パスを安全に確認できないため、回答を停止しました。"
+                ),
+                "error": "active_generation_boundary_invalid",
+                "recovery_action": "rebuild_index",
+            }
+            atomic_json(STATE, failed_state)
+            return {
+                "status": "invalid_active_generation",
+                "generation": active_generation,
+                "removed": removed,
+            }
+        pointer_kind = _published_index_pointer_kind(config, generation)
+        if pointer_kind is None:
+            failed_state = {
+                **current,
+                "phase": "error",
+                "message": (
+                    "公開済み索引の参照先が世代境界と一致しないため、回答を停止しました。"
+                ),
+                "error": "active_index_pointer_boundary_invalid",
+                "recovery_action": "rebuild_index",
+            }
+            atomic_json(STATE, failed_state)
+            return {
+                "status": "invalid_active_index_pointer",
+                "generation": active_generation,
+                "removed": removed,
+            }
+        active_base_hash = _base_index_hash_anchor(config)
+        if (
+            pointer_kind == "base"
+            and active_base_hash is not None
+            and (
+                not active_base_hash
+                or sha256_file(generation / "safe-answer-index.sqlite3")
+                != active_base_hash
+            )
+        ):
+            failed_state = {
+                **current,
+                "phase": "error",
+                "message": (
+                    "公開済みの元索引が作成時の内容と一致しないため、回答を停止しました。"
+                ),
+                "error": "active_base_index_hash_mismatch",
+                "recovery_action": "rebuild_index",
+            }
+            atomic_json(STATE, failed_state)
+            return {
+                "status": "active_index_hash_invalid",
+                "generation": active_generation,
+                "removed": removed,
+            }
+        marker_path = generation / GENERATION_MARKER
+        marker_was_readable = False
+        marker: dict = {}
+        if not marker_path.is_symlink() and marker_path.is_file():
+            try:
+                loaded_marker = load_json(marker_path)
+                if isinstance(loaded_marker, dict):
+                    marker = loaded_marker
+                    marker_was_readable = True
+            except (OSError, ValueError, TypeError):
+                pass
+        marker_reconstructed = False
         current_shadow = current.get("cross_document_semantic_graph_shadow")
         marker_shadow = marker.get("cross_document_semantic_graph_shadow")
-        pending = (
+        shadow_pending = (
             isinstance(current_shadow, dict)
             and current_shadow.get("status") == "pending"
         ) or (
             isinstance(marker_shadow, dict)
             and marker_shadow.get("status") == "pending"
         )
-        if (
-            pending
-            and generation is not None
-            and marker.get("status") == "published"
+        current_storage = current.get(
+            "cross_document_semantic_graph_storage"
+        )
+        marker_storage = marker.get(
+            "cross_document_semantic_graph_storage"
+        )
+        storage_pending = (
+            isinstance(current_storage, dict)
+            and current_storage.get("status") == "pending"
+        ) or (
+            isinstance(marker_storage, dict)
+            and marker_storage.get("status") == "pending"
+        )
+        storage_artifact_present = bool(
+            generation is not None
+            and (
+                (
+                    generation
+                    / (CROSS_DOCUMENT_STORAGE_DIR + ".building")
+                ).exists()
+                or (
+                    generation
+                    / (CROSS_DOCUMENT_STORAGE_DIR + ".building")
+                ).is_symlink()
+                or (generation / CROSS_DOCUMENT_STORAGE_DIR).exists()
+                or (generation / CROSS_DOCUMENT_STORAGE_DIR).is_symlink()
+            )
+        )
+        storage_pointer_selected = bool(
+            generation is not None
+            and config.get("index_path")
+            == str(
+                generation
+                / CROSS_DOCUMENT_STORAGE_DIR
+                / "safe-answer-index.sqlite3"
+            )
+        )
+        storage_registered = isinstance(
+            config.get(CROSS_DOCUMENT_STORAGE_CONFIG_KEY), dict
+        )
+        storage_rollback_requested = (
+            config.get(CROSS_DOCUMENT_STORAGE_FLAG, True) is not True
+            and (
+                storage_registered
+                or (
+                    storage_pointer_selected
+                )
+            )
+        )
+        storage_recovery_needed = (
+            storage_pending
+            or storage_registered
+            or storage_artifact_present
+            or storage_pointer_selected
+            or storage_rollback_requested
+        )
+        recover_observers = shadow_pending or storage_recovery_needed
+        marker_lifecycle_valid = (
+            marker_was_readable
+            and marker.get("status") in {"published", "building"}
             and marker.get("generation") == active_generation
-            and _published_generation_ready(config, generation)
+            and isinstance(marker.get("build_id"), str)
+            and bool(marker.get("build_id"))
+        )
+        if (
+            recover_observers
+            and not marker_lifecycle_valid
+            and _published_generation_inputs_ready(config, generation)
         ):
-            if owner_is_live(marker.get("owner_pid")):
+            marker = _reconstruct_published_marker_for_observer_recovery(
+                config,
+                current,
+                generation,
+            )
+            marker_reconstructed = True
+        observer_recovery_boundary_ready = (
+            marker.get("status") in {"published", "building"}
+            and marker.get("generation") == active_generation
+            and (
+                _published_generation_base_ready(config, generation)
+                or (
+                    storage_recovery_needed
+                    and _published_generation_inputs_ready(config, generation)
+                )
+            )
+        )
+        if recover_observers and not observer_recovery_boundary_ready:
+            failed_state = {
+                **current,
+                "phase": "error",
+                "message": (
+                    "公開済み索引の回復境界を検証できないため、回答を停止しました。"
+                ),
+                "error": "published_observer_recovery_boundary_invalid",
+                "recovery_action": "rebuild_index",
+            }
+            atomic_json(STATE, failed_state)
+            return {
+                "status": "invalid_published_observer_boundary",
+                "generation": active_generation,
+                "removed": removed,
+            }
+        if recover_observers:
+            if (
+                (shadow_pending or storage_pending)
+                and owner_is_live(marker.get("owner_pid"))
+            ):
                 return {
-                    "status": "active_shadow",
+                    "status": (
+                        "active_shadow"
+                        if shadow_pending
+                        else "active_semantic_storage"
+                    ),
                     "owner_pid": marker.get("owner_pid"),
                     "removed": removed,
                 }
-            recovered_shadow = _recover_published_shadow_observer(
-                generation,
-                marker,
-                enabled=(
-                    marker.get(
-                        "cross_document_semantic_graph_shadow_enabled",
-                        config.get(CROSS_DOCUMENT_SHADOW_FLAG, True),
-                    )
-                    is True
-                ),
+            recovered_shadow = (
+                _recover_published_shadow_observer(
+                    generation,
+                    marker,
+                    enabled=(
+                        marker.get(
+                            "cross_document_semantic_graph_shadow_enabled",
+                            config.get(CROSS_DOCUMENT_SHADOW_FLAG, True),
+                        )
+                        is True
+                    ),
+                )
+                if shadow_pending
+                else (
+                    current_shadow
+                    if isinstance(current_shadow, dict)
+                    else marker_shadow
+                    if isinstance(marker_shadow, dict)
+                    else None
+                )
             )
-            atomic_json(marker_path, {
+            if storage_recovery_needed:
+                recovered_config, recovered_storage, storage_action = (
+                    _recover_published_semantic_graph_storage(
+                        config, generation, marker, current
+                    )
+                )
+            else:
+                recovered_config = config
+                recovered_storage = (
+                    current_storage
+                    if isinstance(current_storage, dict)
+                    else marker_storage
+                    if isinstance(marker_storage, dict)
+                    else None
+                )
+                storage_action = "not_applicable"
+            config = recovered_config
+            storage_is_steady = (
+                not marker_reconstructed
+                and not shadow_pending
+                and marker.get("status") == "published"
+                and storage_action in {"verified_complete", "disabled_steady"}
+                and isinstance(recovered_storage, dict)
+                and recovered_storage == current_storage
+                and recovered_storage == marker_storage
+            )
+            if storage_is_steady:
+                return {
+                    "status": "unchanged",
+                    "generation": active_generation,
+                    "storage_status": recovered_storage.get("status"),
+                    "storage_action": storage_action,
+                    "removed": removed,
+                }
+            marker_update = {
                 **marker,
-                "cross_document_semantic_graph_shadow": recovered_shadow,
-            })
+                "status": "published",
+                "published_at": marker.get("published_at", now_iso()),
+                "index_path": config.get("index_path", ""),
+            }
+            if isinstance(recovered_storage, dict):
+                marker_update[
+                    "cross_document_semantic_graph_storage"
+                ] = recovered_storage
+            if isinstance(recovered_shadow, dict):
+                marker_update[
+                    "cross_document_semantic_graph_shadow"
+                ] = recovered_shadow
+            atomic_json(marker_path, marker_update)
             recovered_state = {
                 **current,
-                "cross_document_semantic_graph_shadow": recovered_shadow,
-                "shadow_recovered_after_interruption": True,
-                "shadow_recovered_at": now_iso(),
             }
+            if isinstance(recovered_storage, dict):
+                recovered_state[
+                    "cross_document_semantic_graph_storage"
+                ] = recovered_storage
+            if (
+                storage_recovery_needed
+                and storage_action != "base_index_invalid"
+            ):
+                recovered_state[
+                    "semantic_storage_recovered_after_interruption"
+                ] = True
+                recovered_state["semantic_storage_recovered_at"] = now_iso()
+            if isinstance(recovered_shadow, dict):
+                recovered_state[
+                    "cross_document_semantic_graph_shadow"
+                ] = recovered_shadow
+            if shadow_pending:
+                recovered_state["shadow_recovered_after_interruption"] = True
+                recovered_state["shadow_recovered_at"] = now_iso()
+            if storage_action == "base_index_invalid":
+                recovered_state.pop(
+                    "semantic_storage_recovered_after_interruption", None
+                )
+                recovered_state.pop("semantic_storage_recovered_at", None)
+                recovered_state.update({
+                    "phase": "error",
+                    "message": (
+                        "元の回答索引を検証できないため、安全のため回答を停止しました。"
+                    ),
+                    "error": "semantic_storage_base_index_invalid",
+                    "recovery_action": "rebuild_index",
+                    "semantic_storage_recovery_failed_at": now_iso(),
+                })
             atomic_json(STATE, recovered_state)
             return {
-                "status": "recovered_published_shadow",
+                "status": (
+                    "semantic_storage_recovery_failed_closed"
+                    if storage_action == "base_index_invalid"
+                    else "recovered_published_shadow"
+                    if shadow_pending and not storage_recovery_needed
+                    else "recovered_published_observers"
+                ),
                 "generation": active_generation,
-                "shadow_status": recovered_shadow.get("status"),
+                "shadow_status": (
+                    recovered_shadow.get("status")
+                    if isinstance(recovered_shadow, dict)
+                    else None
+                ),
+                "storage_status": (
+                    recovered_storage.get("status")
+                    if isinstance(recovered_storage, dict)
+                    else None
+                ),
+                "storage_action": storage_action,
                 "removed": removed,
             }
 
@@ -538,15 +1107,42 @@ def recover_interrupted_build() -> dict:
             _generation_path(workspace, generation_name)
             if isinstance(generation_name, str) else None
         )
+        marker_path = (
+            generation / GENERATION_MARKER
+            if generation is not None
+            else None
+        )
+        published_marker: dict = {}
+        if (
+            marker_path is not None
+            and not marker_path.is_symlink()
+            and marker_path.is_file()
+        ):
+            try:
+                loaded_marker = load_json(marker_path)
+                if isinstance(loaded_marker, dict):
+                    published_marker = loaded_marker
+            except (OSError, ValueError, TypeError):
+                pass
+        current_build_id = current.get("build_id")
+        lifecycle_is_bound = (
+            isinstance(current_build_id, str)
+            and bool(current_build_id)
+            and published_marker.get("status") in {"building", "published"}
+            and published_marker.get("generation") == generation_name
+            and published_marker.get("build_id") == current_build_id
+            and published_marker.get("owner_pid") == owner_pid
+        )
         if (
             generation is not None
             and generation_name == active_generation
-            and _published_generation_ready(config, generation)
+            and lifecycle_is_bound
+            and _published_index_pointer_kind(config, generation) == "base"
+            and _published_generation_base_ready(config, generation)
         ):
             reader_state = load_json(Path(config["semantic_path"]) / "adaptive-reader-state.json")
-            marker_path = generation / GENERATION_MARKER
             recovered_marker = {
-                **load_json(marker_path),
+                **published_marker,
                 "status": "published",
                 "published_at": now_iso(),
             }
@@ -564,19 +1160,90 @@ def recover_interrupted_build() -> dict:
             recovered_marker[
                 "cross_document_semantic_graph_shadow"
             ] = recovered_shadow
+            storage_recovery_needed = (
+                CROSS_DOCUMENT_STORAGE_FLAG in recovered_marker
+                or isinstance(
+                    current.get("cross_document_semantic_graph_storage"),
+                    dict,
+                )
+                or isinstance(
+                    recovered_marker.get(
+                        "cross_document_semantic_graph_storage"
+                    ),
+                    dict,
+                )
+                or isinstance(
+                    config.get(CROSS_DOCUMENT_STORAGE_CONFIG_KEY), dict
+                )
+                or (
+                    generation
+                    / (CROSS_DOCUMENT_STORAGE_DIR + ".building")
+                ).exists()
+                or (
+                    generation
+                    / (CROSS_DOCUMENT_STORAGE_DIR + ".building")
+                ).is_symlink()
+                or (generation / CROSS_DOCUMENT_STORAGE_DIR).exists()
+                or (generation / CROSS_DOCUMENT_STORAGE_DIR).is_symlink()
+                or config.get("index_path")
+                == str(
+                    generation
+                    / CROSS_DOCUMENT_STORAGE_DIR
+                    / "safe-answer-index.sqlite3"
+                )
+            )
+            if storage_recovery_needed:
+                recovered_config, recovered_storage, storage_action = (
+                    _recover_published_semantic_graph_storage(
+                        config, generation, recovered_marker, current
+                    )
+                )
+            else:
+                recovered_config = config
+                recovered_storage = None
+                storage_action = "not_applicable"
+            config = recovered_config
+            recovered_marker["index_path"] = config.get("index_path", "")
+            if isinstance(recovered_storage, dict):
+                recovered_marker[
+                    "cross_document_semantic_graph_storage"
+                ] = recovered_storage
             atomic_json(marker_path, recovered_marker)
-            atomic_json(
-                STATE,
-                _ready_state(
-                    reader_state,
-                    recovered=True,
-                    semantic_graph_shadow=recovered_shadow,
+            recovered_runtime_state = _ready_state(
+                reader_state,
+                recovered=(storage_action != "base_index_invalid"),
+                semantic_graph_shadow=recovered_shadow,
+                semantic_graph_storage=(
+                    recovered_storage
+                    if isinstance(recovered_storage, dict)
+                    else None
                 ),
             )
+            if storage_action == "base_index_invalid":
+                recovered_runtime_state.update({
+                    "phase": "error",
+                    "message": (
+                        "元の回答索引を検証できないため、安全のため回答を停止しました。"
+                    ),
+                    "error": "semantic_storage_base_index_invalid",
+                    "recovery_action": "rebuild_index",
+                    "semantic_storage_recovery_failed_at": now_iso(),
+                })
+            atomic_json(STATE, recovered_runtime_state)
             return {
-                "status": "recovered_published",
+                "status": (
+                    "semantic_storage_recovery_failed_closed"
+                    if storage_action == "base_index_invalid"
+                    else "recovered_published"
+                ),
                 "generation": generation_name,
                 "shadow_status": recovered_shadow.get("status"),
+                "storage_status": (
+                    recovered_storage.get("status")
+                    if isinstance(recovered_storage, dict)
+                    else None
+                ),
+                "storage_action": storage_action,
                 "removed": removed,
             }
         if isinstance(generation_name, str):
@@ -589,6 +1256,11 @@ def recover_interrupted_build() -> dict:
             "recovered_at": now_iso(),
             "removed_orphan_generations": removed,
         })
+        return {
+            "status": "interrupted_build_failed_closed",
+            "generation": generation_name,
+            "removed": removed,
+        }
 
     generations = _generations_root(workspace)
     if generations is not None and generations.is_dir():
@@ -655,6 +1327,13 @@ def _cross_document_shadow_tools_dir() -> Path:
         ):
             return candidate
     raise RuntimeError("cross_document_semantic_graph_shadow_tools_missing")
+
+
+def _cross_document_storage_tool() -> Path:
+    candidate = _cross_document_shadow_tools_dir() / CROSS_DOCUMENT_STORAGE_TOOL
+    if candidate.is_file() and not candidate.is_symlink():
+        return candidate
+    raise RuntimeError("cross_document_semantic_graph_storage_tool_missing")
 
 
 def _content_security_shadow_validator() -> Path:
@@ -785,6 +1464,34 @@ def _shadow_run_base(
     }
 
 
+def _storage_run_base(
+    generation: Path,
+    build_id: str,
+    *,
+    status: str,
+    reason_code: str,
+    elapsed_ms: int,
+) -> dict:
+    return {
+        "schema_version": "0.1",
+        "record_type": (
+            "cross_document_semantic_graph_answer_index_projection_state"
+        ),
+        "status": status,
+        "reason_code": reason_code,
+        "storage_only": True,
+        "retrieval_enabled": False,
+        "used_for_answers": False,
+        "answer_behavior_changed": False,
+        "feature_flag": CROSS_DOCUMENT_STORAGE_FLAG,
+        "generation": generation.name,
+        "build_id": build_id,
+        "elapsed_ms": elapsed_ms,
+        "output_directory": CROSS_DOCUMENT_STORAGE_DIR,
+        "failure_gates_production_index": False,
+    }
+
+
 def _remove_shadow_candidate(candidate: Path, generation: Path) -> None:
     if (
         candidate.parent == generation
@@ -801,6 +1508,18 @@ def _remove_shadow_failure_candidate(candidate: Path, generation: Path) -> None:
     if (
         candidate.parent == generation
         and candidate.name == CROSS_DOCUMENT_SHADOW_DIR + ".held-building"
+        and (candidate.exists() or candidate.is_symlink())
+    ):
+        if candidate.is_symlink():
+            candidate.unlink()
+        elif candidate.is_dir():
+            shutil.rmtree(candidate)
+
+
+def _remove_storage_candidate(candidate: Path, generation: Path) -> None:
+    if (
+        candidate.parent == generation
+        and candidate.name == CROSS_DOCUMENT_STORAGE_DIR + ".building"
         and (candidate.exists() or candidate.is_symlink())
     ):
         if candidate.is_symlink():
@@ -1107,11 +1826,735 @@ def run_cross_document_semantic_graph_shadow(
         return state
 
 
+def run_cross_document_semantic_graph_storage(
+    config: dict,
+    semantic: Path,
+    security: Path,
+    generation: Path,
+    build_id: str,
+    base_index: Path,
+    shadow_state: dict,
+    log,
+) -> dict:
+    """Project a validated shadow into a new, non-routable answer-index copy."""
+    if config.get(CROSS_DOCUMENT_STORAGE_FLAG, True) is not True:
+        return _storage_run_base(
+            generation,
+            build_id,
+            status="disabled",
+            reason_code="feature_disabled",
+            elapsed_ms=0,
+        )
+    if shadow_state.get("status") != "complete":
+        return _storage_run_base(
+            generation,
+            build_id,
+            status="held",
+            reason_code="validated_shadow_required",
+            elapsed_ms=0,
+        )
+
+    started = time.monotonic()
+    candidate = generation / (CROSS_DOCUMENT_STORAGE_DIR + ".building")
+    final = generation / CROSS_DOCUMENT_STORAGE_DIR
+    shadow_dir = generation / CROSS_DOCUMENT_SHADOW_DIR
+    output_index = candidate / "safe-answer-index.sqlite3"
+    output_state = candidate / CROSS_DOCUMENT_STORAGE_RUN_STATE
+    timeout_value = config.get(
+        "cross_document_semantic_graph_storage_timeout_seconds",
+        CROSS_DOCUMENT_SHADOW_TIMEOUT_SECONDS,
+    )
+    timeout_seconds = (
+        float(timeout_value)
+        if isinstance(timeout_value, (int, float))
+        and not isinstance(timeout_value, bool)
+        and 1 <= float(timeout_value) <= 1800
+        else CROSS_DOCUMENT_SHADOW_TIMEOUT_SECONDS
+    )
+    try:
+        if (
+            final.exists()
+            or final.is_symlink()
+            or candidate.exists()
+            or candidate.is_symlink()
+        ):
+            raise FileExistsError("semantic_storage_output_target_exists")
+        _require_generation_input(
+            base_index, generation, "safe-answer-index.sqlite3"
+        )
+        base_index_sha256_before = sha256_file(base_index)
+        input_hashes = _attest_cross_document_shadow_inputs(
+            semantic, security, generation
+        )
+        projector = _cross_document_storage_tool()
+        security_validator = _content_security_shadow_validator()
+        run_shadow_command(
+            [
+                sys.executable,
+                str(projector),
+                "--base-index",
+                str(base_index),
+                "--shadow-dir",
+                str(shadow_dir),
+                "--documents",
+                str(semantic / "semantic-documents.jsonl"),
+                "--source-evidence",
+                str(semantic / "semantic-evidence.jsonl"),
+                "--evidence",
+                str(security / "safe-answer-evidence.jsonl"),
+                "--security-state",
+                str(security / "content-security-state.json"),
+                "--security-gate-dir",
+                str(security),
+                "--security-validator",
+                str(security_validator),
+                "--generation-dir",
+                str(generation),
+                "--output",
+                str(output_index),
+                "--state",
+                str(output_state),
+            ],
+            log,
+            timeout_seconds,
+        )
+        state = load_json(output_state)
+        output = state.get("output")
+        base = state.get("base")
+        shadow = state.get("shadow")
+        if (
+            state.get("schema_version") != "0.1"
+            or state.get("record_type")
+            != "cross_document_semantic_graph_answer_index_projection_state"
+            or state.get("status") != "complete"
+            or state.get("question_independent") is not True
+            or state.get("external_network_used") is not False
+            or state.get("storage_only") is not True
+            or state.get("retrieval_enabled") is not False
+            or state.get("used_for_answers") is not False
+            or state.get("answer_behavior_changed") is not False
+            or state.get("generation") != generation.name
+            or not isinstance(output, dict)
+            or output.get("sqlite_file") != output_index.name
+            or output.get("state_file") != output_state.name
+            or output.get("sqlite_sha256") != sha256_file(output_index)
+            or not isinstance(base, dict)
+            or base.get("sqlite_file") != base_index.name
+            or base.get("sqlite_sha256") != base_index_sha256_before
+            or sha256_file(base_index) != base_index_sha256_before
+            or not isinstance(shadow, dict)
+            or shadow.get("directory") != shadow_dir.name
+            or shadow.get("build_id") != shadow_state.get("build_id")
+            or shadow.get("graph_snapshot_id")
+            != shadow_state.get("graph_snapshot_id")
+            or state.get("inputs") != {
+                "content_security_state_sha256": input_hashes[
+                    "content_security_state_sha256"
+                ],
+                "documents_input_sha256": input_hashes[
+                    "semantic_documents_sha256"
+                ],
+                "evidence_input_sha256": input_hashes[
+                    "safe_answer_evidence_sha256"
+                ],
+                "source_evidence_input_sha256": input_hashes[
+                    "semantic_evidence_sha256"
+                ],
+            }
+        ):
+            raise ValueError("semantic_storage_state_invalid")
+        os.replace(candidate, final)
+        _write_shadow_log(
+            log,
+            "Cross-document semantic graph stored in a validated answer-index "
+            "copy; retrieval_enabled=false; used_for_answers=false.",
+        )
+        return state
+    except Exception as exc:
+        try:
+            _remove_storage_candidate(candidate, generation)
+        except Exception:
+            pass
+        state = {
+            **_storage_run_base(
+                generation,
+                build_id,
+                status="held",
+                reason_code="semantic_storage_failed_non_gating",
+                elapsed_ms=round((time.monotonic() - started) * 1000),
+            ),
+            "external_network_used": None,
+            "timeout_seconds": timeout_seconds,
+            "error": f"{type(exc).__name__}: {exc}",
+        }
+        _write_shadow_log(
+            log,
+            "Cross-document semantic graph storage held; the published base "
+            f"answer index remains active: {state['error']}",
+        )
+        return state
+
+
+def _independently_validate_semantic_storage(
+    *,
+    generation: Path,
+    semantic: Path,
+    security: Path,
+    base_index: Path,
+    index: Path,
+    state_path: Path,
+    expected_build_id: str | None,
+) -> dict:
+    """Replay all storage, answer-graph, shadow, and Security bindings."""
+    projector_path = _cross_document_storage_tool()
+    specification = importlib.util.spec_from_file_location(
+        "local_memory_semantic_storage_projector",
+        projector_path,
+    )
+    if specification is None or specification.loader is None:
+        raise ValueError("semantic_storage_projector_unavailable")
+    projector = importlib.util.module_from_spec(specification)
+    sys.modules[specification.name] = projector
+    try:
+        specification.loader.exec_module(projector)
+        return projector.validate_existing_projection(
+            base_index=base_index,
+            shadow_dir=generation / CROSS_DOCUMENT_SHADOW_DIR,
+            documents=semantic / "semantic-documents.jsonl",
+            source_evidence=semantic / "semantic-evidence.jsonl",
+            evidence=security / "safe-answer-evidence.jsonl",
+            security_state=security / "content-security-state.json",
+            security_gate_dir=security,
+            security_validator=_content_security_shadow_validator(),
+            generation_dir=generation,
+            output=index,
+            state=state_path,
+            expected_build_id=expected_build_id,
+        )
+    finally:
+        sys.modules.pop(specification.name, None)
+
+
+def _semantic_storage_registration(
+    generation: Path,
+    state: dict,
+    *,
+    semantic: Path,
+    security: Path,
+    expected_build_id: str | None = None,
+) -> dict:
+    final = generation / CROSS_DOCUMENT_STORAGE_DIR
+    index = final / "safe-answer-index.sqlite3"
+    state_path = final / CROSS_DOCUMENT_STORAGE_RUN_STATE
+    if (
+        final.is_symlink()
+        or not final.is_dir()
+        or index.is_symlink()
+        or not index.is_file()
+        or state_path.is_symlink()
+        or not state_path.is_file()
+        or load_json(state_path) != state
+    ):
+        raise ValueError("semantic_storage_artifact_invalid")
+    output = state.get("output")
+    base = state.get("base")
+    shadow = state.get("shadow")
+    if (
+        state.get("schema_version") != "0.1"
+        or state.get("record_type")
+        != "cross_document_semantic_graph_answer_index_projection_state"
+        or state.get("projector")
+        != "cross-document-semantic-graph-answer-index-projector"
+        or state.get("status") != "complete"
+        or state.get("question_independent") is not True
+        or state.get("external_network_used") is not False
+        or state.get("generation") != generation.name
+        or state.get("storage_only") is not True
+        or state.get("retrieval_enabled") is not False
+        or state.get("used_for_answers") is not False
+        or state.get("answer_behavior_changed") is not False
+        or not isinstance(output, dict)
+        or output.get("sqlite_file") != index.name
+        or output.get("state_file") != state_path.name
+        or output.get("sqlite_sha256") != sha256_file(index)
+        or not isinstance(base, dict)
+        or not isinstance(shadow, dict)
+        or shadow.get("directory") != CROSS_DOCUMENT_SHADOW_DIR
+        or not isinstance(shadow.get("build_id"), str)
+        or not shadow.get("build_id")
+        or (
+            expected_build_id is not None
+            and shadow.get("build_id") != expected_build_id
+        )
+    ):
+        raise ValueError("semantic_storage_registration_invalid")
+    base_index = generation / "safe-answer-index.sqlite3"
+    if (
+        base.get("sqlite_file") != base_index.name
+        or base_index.is_symlink()
+        or not base_index.is_file()
+        or base.get("sqlite_sha256") != sha256_file(base_index)
+    ):
+        raise ValueError("semantic_storage_base_index_invalid")
+    base_answer_contract = _validate_answer_index_for_semantic_storage(
+        base_index
+    )
+    stored_answer_contract = _validate_answer_index_for_semantic_storage(index)
+    normalized_stored_contract = {
+        **stored_answer_contract,
+        "metadata": {
+            key: value
+            for key, value in stored_answer_contract.get("metadata", {}).items()
+            if not key.startswith("cross_document_semantic_graph_")
+        },
+    }
+    if normalized_stored_contract != base_answer_contract:
+        raise ValueError("semantic_storage_answer_contract_changed")
+
+    independently_validated = _independently_validate_semantic_storage(
+        generation=generation,
+        semantic=semantic,
+        security=security,
+        base_index=base_index,
+        index=index,
+        state_path=state_path,
+        expected_build_id=expected_build_id,
+    )
+    if independently_validated != state:
+        raise ValueError("semantic_storage_independent_validation_mismatch")
+
+    shadow_dir = generation / CROSS_DOCUMENT_SHADOW_DIR
+    shadow_files = {
+        "sqlite_sha256": shadow_dir / "semantic-graph.sqlite3",
+        "builder_state_sha256": shadow_dir / "semantic-graph-state.json",
+        "validation_state_sha256": (
+            shadow_dir / "semantic-graph-validation.json"
+        ),
+        "run_state_sha256": shadow_dir / CROSS_DOCUMENT_SHADOW_RUN_STATE,
+    }
+    if shadow_dir.is_symlink() or not shadow_dir.is_dir():
+        raise ValueError("semantic_storage_shadow_invalid")
+    for key, path in shadow_files.items():
+        if (
+            path.is_symlink()
+            or not path.is_file()
+            or shadow.get(key) != sha256_file(path)
+        ):
+            raise ValueError(f"semantic_storage_shadow_hash_invalid:{key}")
+    shadow_run = load_json(shadow_files["run_state_sha256"])
+    if (
+        shadow_run.get("status") != "complete"
+        or shadow_run.get("generation") != generation.name
+        or shadow_run.get("build_id") != shadow.get("build_id")
+        or shadow_run.get("graph_snapshot_id")
+        != shadow.get("graph_snapshot_id")
+        or shadow_run.get("logical_snapshot_sha256")
+        != shadow.get("logical_snapshot_sha256")
+        or shadow_run.get("used_for_answers") is not False
+    ):
+        raise ValueError("semantic_storage_shadow_binding_invalid")
+
+    counts = state.get("counts")
+    if (
+        not isinstance(counts, dict)
+        or any(
+            not isinstance(counts.get(key), int)
+            or isinstance(counts.get(key), bool)
+            or counts[key] < 0
+            for key in ("nodes", "edges", "edge_evidence")
+        )
+    ):
+        raise ValueError("semantic_storage_counts_invalid")
+    try:
+        connection = sqlite3.connect(
+            index.resolve(strict=True).as_uri() + "?mode=ro", uri=True
+        )
+        try:
+            connection.execute("PRAGMA query_only=ON")
+            if connection.execute("PRAGMA integrity_check").fetchall() != [("ok",)]:
+                raise ValueError("semantic_storage_integrity_invalid")
+            if connection.execute("PRAGMA foreign_key_check").fetchall():
+                raise ValueError("semantic_storage_foreign_key_invalid")
+            present_tables = {
+                row[0]
+                for row in connection.execute(
+                    "SELECT name FROM sqlite_master WHERE type='table'"
+                )
+            }
+            required_tables = {
+                "semantic_graph_nodes",
+                "semantic_graph_edges",
+                "semantic_graph_edge_evidence",
+            }
+            if not required_tables.issubset(present_tables):
+                raise ValueError("semantic_storage_tables_missing")
+            actual_counts = {
+                "nodes": connection.execute(
+                    "SELECT COUNT(*) FROM semantic_graph_nodes"
+                ).fetchone()[0],
+                "edges": connection.execute(
+                    "SELECT COUNT(*) FROM semantic_graph_edges"
+                ).fetchone()[0],
+                "edge_evidence": connection.execute(
+                    "SELECT COUNT(*) FROM semantic_graph_edge_evidence"
+                ).fetchone()[0],
+            }
+            if actual_counts != {
+                key: counts[key]
+                for key in ("nodes", "edges", "edge_evidence")
+            }:
+                raise ValueError("semantic_storage_count_mismatch")
+            stored_semantic_rows = {
+                "nodes": connection.execute(
+                    "SELECT node_id, node_type, canonical_key, status, "
+                    "properties_json, record_sha256 FROM semantic_graph_nodes "
+                    "ORDER BY node_id"
+                ).fetchall(),
+                "edges": connection.execute(
+                    "SELECT edge_id, from_node_id, relation_type, to_node_id, "
+                    "relation_class, status, basis_kind, basis_rule, "
+                    "properties_json, record_sha256 FROM semantic_graph_edges "
+                    "ORDER BY edge_id"
+                ).fetchall(),
+                "edge_evidence": connection.execute(
+                    "SELECT edge_id, evidence_id FROM "
+                    "semantic_graph_edge_evidence ORDER BY edge_id, evidence_id"
+                ).fetchall(),
+            }
+            metadata = {
+                key: json.loads(value)
+                for key, value in connection.execute(
+                    "SELECT key, value FROM metadata"
+                )
+            }
+        finally:
+            connection.close()
+    except sqlite3.Error as exc:
+        raise ValueError("semantic_storage_database_invalid") from exc
+
+    try:
+        shadow_connection = sqlite3.connect(
+            shadow_files["sqlite_sha256"].resolve(strict=True).as_uri()
+            + "?mode=ro",
+            uri=True,
+        )
+        try:
+            shadow_connection.execute("PRAGMA query_only=ON")
+            if shadow_connection.execute(
+                "PRAGMA integrity_check"
+            ).fetchall() != [("ok",)]:
+                raise ValueError("semantic_storage_source_integrity_invalid")
+            source_semantic_rows = {
+                "nodes": shadow_connection.execute(
+                    "SELECT node_id, node_type, canonical_key, status, "
+                    "properties_json, record_sha256 FROM nodes ORDER BY node_id"
+                ).fetchall(),
+                "edges": shadow_connection.execute(
+                    "SELECT edge_id, from_node_id, relation_type, to_node_id, "
+                    "relation_class, status, basis_kind, basis_rule, "
+                    "properties_json, record_sha256 FROM edges ORDER BY edge_id"
+                ).fetchall(),
+                "edge_evidence": shadow_connection.execute(
+                    "SELECT edge_id, evidence_id FROM edge_evidence "
+                    "ORDER BY edge_id, evidence_id"
+                ).fetchall(),
+            }
+        finally:
+            shadow_connection.close()
+    except sqlite3.Error as exc:
+        raise ValueError("semantic_storage_source_database_invalid") from exc
+    if stored_semantic_rows != source_semantic_rows:
+        raise ValueError("semantic_storage_independent_row_mismatch")
+
+    expected_metadata = {
+        "cross_document_semantic_graph_storage_schema_version": "0.1",
+        "cross_document_semantic_graph_storage_status": (
+            "validated_storage_only"
+        ),
+        "cross_document_semantic_graph_retrieval_enabled": False,
+        "cross_document_semantic_graph_used_for_answers": False,
+        "cross_document_semantic_graph_question_independent": True,
+        "cross_document_semantic_graph_external_network_used": False,
+        "cross_document_semantic_graph_snapshot_id": shadow.get(
+            "graph_snapshot_id"
+        ),
+        "cross_document_semantic_graph_logical_snapshot_sha256": shadow.get(
+            "logical_snapshot_sha256"
+        ),
+        "cross_document_semantic_graph_node_count": counts["nodes"],
+        "cross_document_semantic_graph_edge_count": counts["edges"],
+        "cross_document_semantic_graph_edge_evidence_count": counts[
+            "edge_evidence"
+        ],
+        "cross_document_semantic_graph_projection_sha256": state.get(
+            "projection_sha256"
+        ),
+        "cross_document_semantic_graph_base_logical_snapshot_sha256": (
+            base.get("logical_snapshot_sha256")
+        ),
+    }
+    if any(metadata.get(key) != value for key, value in expected_metadata.items()):
+        raise ValueError("semantic_storage_metadata_invalid")
+    return {
+        "schema_version": "0.1",
+        "status": "validated_storage_only",
+        "generation": generation.name,
+        "database_path": str(index),
+        "database_sha256": output["sqlite_sha256"],
+        "state_path": str(state_path),
+        "state_sha256": sha256_file(state_path),
+        "base_index_path": str(base_index),
+        "base_index_sha256": base["sqlite_sha256"],
+        "graph_snapshot_id": shadow.get("graph_snapshot_id"),
+        "logical_snapshot_sha256": shadow.get(
+            "logical_snapshot_sha256"
+        ),
+        "counts": counts,
+        "retrieval_enabled": False,
+        "used_for_answers": False,
+    }
+
+
+def _recover_published_semantic_graph_storage(
+    config: dict,
+    generation: Path,
+    marker: dict,
+    current: dict,
+) -> tuple[dict, dict, str]:
+    """Finish or roll back only the storage-pointer portion of a build.
+
+    A completed, strictly bound copy can be registered after a crash.  An
+    incomplete or invalid copy is never routed: the immutable base index stays
+    active and only the exact ``.building`` candidate is removed.
+    """
+    candidate = generation / (CROSS_DOCUMENT_STORAGE_DIR + ".building")
+    final = generation / CROSS_DOCUMENT_STORAGE_DIR
+    base_index = generation / "safe-answer-index.sqlite3"
+    marker_build_id = marker.get("build_id")
+    build_id = (
+        marker_build_id
+        if isinstance(marker_build_id, str) and marker_build_id
+        else "unknown"
+    )
+    current_storage = current.get("cross_document_semantic_graph_storage")
+    marker_storage = marker.get("cross_document_semantic_graph_storage")
+    recorded = (
+        current_storage
+        if isinstance(current_storage, dict)
+        else marker_storage
+        if isinstance(marker_storage, dict)
+        else None
+    )
+    candidate_existed = candidate.exists() or candidate.is_symlink()
+    _remove_storage_candidate(candidate, generation)
+
+    try:
+        _validate_base_answer_index_for_storage_recovery(generation)
+        recorded_base_hashes = [
+            value
+            for value in (
+                _base_index_hash_anchor(config),
+                _base_index_hash_anchor(marker),
+                _base_index_hash_anchor(
+                    config.get(CROSS_DOCUMENT_STORAGE_CONFIG_KEY)
+                ),
+                _base_index_hash_anchor(current_storage),
+                _base_index_hash_anchor(marker_storage),
+            )
+            if value is not None
+        ]
+        actual_base_hash = sha256_file(base_index)
+        if recorded_base_hashes and (
+            "" in recorded_base_hashes
+            or len(set(recorded_base_hashes)) != 1
+            or recorded_base_hashes[0] != actual_base_hash
+        ):
+            raise ValueError("semantic_storage_base_hash_anchor_mismatch")
+    except Exception as exc:
+        return (
+            config,
+            {
+                **_storage_run_base(
+                    generation,
+                    build_id,
+                    status="held",
+                    reason_code="semantic_storage_base_index_invalid",
+                    elapsed_ms=0,
+                ),
+                "external_network_used": None,
+                "error": f"{type(exc).__name__}: {exc}",
+                "recovered_at": now_iso(),
+                "removed_incomplete_candidate": (
+                    candidate_existed and not candidate.exists()
+                ),
+            },
+            "base_index_invalid",
+        )
+
+    enabled = (
+        config.get(
+            CROSS_DOCUMENT_STORAGE_FLAG,
+            marker.get("cross_document_semantic_graph_storage_enabled", True),
+        )
+        is True
+    )
+
+    def base_config() -> dict:
+        restored = {
+            **config,
+            "index_path": str(base_index),
+        }
+        restored.pop(CROSS_DOCUMENT_STORAGE_CONFIG_KEY, None)
+        return restored
+
+    observer_build_ids = {
+        value
+        for value in (
+            _observer_state_build_id(
+                current.get("cross_document_semantic_graph_shadow")
+            ),
+            _observer_state_build_id(current_storage),
+            _observer_state_build_id(
+                marker.get("cross_document_semantic_graph_shadow")
+            ),
+            _observer_state_build_id(marker_storage),
+        )
+        if value is not None
+    }
+    if enabled and (
+        not isinstance(marker_build_id, str)
+        or not marker_build_id
+        or any(value != marker_build_id for value in observer_build_ids)
+    ):
+        restored = base_config()
+        if restored != config:
+            atomic_json(CONFIG, restored)
+        return (
+            restored,
+            {
+                **_storage_run_base(
+                    generation,
+                    build_id,
+                    status="held",
+                    reason_code="semantic_storage_lifecycle_mismatch",
+                    elapsed_ms=0,
+                ),
+                "external_network_used": None,
+                "error": "semantic_storage_lifecycle_mismatch",
+                "recovered_at": now_iso(),
+                "removed_incomplete_candidate": (
+                    candidate_existed and not candidate.exists()
+                ),
+            },
+            "rolled_back_lifecycle_mismatch",
+        )
+
+    if not enabled:
+        restored = base_config()
+        if (
+            restored == config
+            and not candidate_existed
+            and isinstance(current_storage, dict)
+            and current_storage.get("status") == "disabled"
+            and current_storage == marker_storage
+        ):
+            return restored, current_storage, "disabled_steady"
+        if restored != config:
+            atomic_json(CONFIG, restored)
+        return (
+            restored,
+            {
+                **_storage_run_base(
+                    generation,
+                    build_id,
+                    status="disabled",
+                    reason_code="feature_disabled",
+                    elapsed_ms=0,
+                ),
+                "recovered_at": now_iso(),
+                "removed_incomplete_candidate": (
+                    candidate_existed and not candidate.exists()
+                ),
+            },
+            "rolled_back_to_base" if restored != config else "disabled",
+        )
+
+    registration_error = ""
+    if final.is_dir() and not final.is_symlink():
+        try:
+            persisted = load_json(final / CROSS_DOCUMENT_STORAGE_RUN_STATE)
+            registration = _semantic_storage_registration(
+                generation,
+                persisted,
+                semantic=Path(config["semantic_path"]),
+                security=Path(config["security_path"]),
+                expected_build_id=build_id,
+            )
+            promoted = {
+                **config,
+                "index_path": registration["database_path"],
+                CROSS_DOCUMENT_STORAGE_CONFIG_KEY: registration,
+            }
+            action = (
+                "verified_complete"
+                if promoted == config
+                else "completed_pointer_switch"
+            )
+            if promoted != config:
+                atomic_json(CONFIG, promoted)
+            return promoted, persisted, action
+        except Exception as exc:
+            registration_error = f"{type(exc).__name__}: {exc}"
+    elif final.exists() or final.is_symlink():
+        registration_error = "ValueError: semantic_storage_final_invalid"
+
+    restored = base_config()
+    config_changed = restored != config
+    if config_changed:
+        atomic_json(CONFIG, restored)
+    if (
+        isinstance(recorded, dict)
+        and recorded.get("status") in {"held", "disabled"}
+        and not registration_error
+        and not candidate_existed
+    ):
+        return (
+            restored,
+            recorded,
+            "rolled_back_to_base" if config_changed else "kept_base",
+        )
+    held = {
+        **_storage_run_base(
+            generation,
+            build_id,
+            status="held",
+            reason_code=(
+                "semantic_storage_invalid_after_interruption"
+                if registration_error
+                else "semantic_storage_interrupted_after_base_publish"
+            ),
+            elapsed_ms=0,
+        ),
+        "external_network_used": None,
+        "error": registration_error or "semantic_storage_projection_interrupted",
+        "recovered_at": now_iso(),
+        "removed_incomplete_candidate": (
+            candidate_existed and not candidate.exists()
+        ),
+    }
+    return (
+        restored,
+        held,
+        "rolled_back_to_base" if config_changed else "kept_base",
+    )
+
+
 def build_index() -> None:
     config = load_json(CONFIG)
     # Existing installations predate the shadow flag.  Missing means enabled;
     # an explicit false remains the rollback switch.
     config.setdefault(CROSS_DOCUMENT_SHADOW_FLAG, True)
+    config.setdefault(CROSS_DOCUMENT_STORAGE_FLAG, True)
     source = Path(config["source_root"]).resolve(strict=True)
     workspace = Path(config.get("workspace", SUPPORT / "data"))
     generations = workspace / "generations"
@@ -1137,6 +2580,9 @@ def build_index() -> None:
         "cross_document_semantic_graph_shadow_enabled": (
             config.get(CROSS_DOCUMENT_SHADOW_FLAG, True) is True
         ),
+        "cross_document_semantic_graph_storage_enabled": (
+            config.get(CROSS_DOCUMENT_STORAGE_FLAG, True) is True
+        ),
     }
     atomic_json(marker_path, marker)
     state = {
@@ -1152,6 +2598,13 @@ def build_index() -> None:
     generation_published = False
     reader_state: dict = {}
     shadow_state = _shadow_run_base(
+        generation,
+        build_id,
+        status="disabled",
+        reason_code="not_started",
+        elapsed_ms=0,
+    )
+    storage_state = _storage_run_base(
         generation,
         build_id,
         status="disabled",
@@ -1211,16 +2664,35 @@ def build_index() -> None:
                 "--index-purpose", "safe_answer", "--model", config["embedding_model"],
                 "--output", str(index),
             ], log)
-            published_config = dict(config)
+            base_index_sha256 = sha256_file(index)
+            published_config = load_json(CONFIG)
+            try:
+                configuration_matches_build = (
+                    Path(published_config["source_root"]).resolve(strict=True)
+                    == source
+                    and Path(
+                        published_config.get("workspace", SUPPORT / "data")
+                    ).resolve(strict=False)
+                    == workspace.resolve(strict=False)
+                )
+            except (KeyError, OSError, TypeError, ValueError):
+                configuration_matches_build = False
+            if not configuration_matches_build:
+                raise RuntimeError("configuration_changed_during_build")
+            published_config.setdefault(CROSS_DOCUMENT_SHADOW_FLAG, True)
+            published_config.setdefault(CROSS_DOCUMENT_STORAGE_FLAG, True)
             published_config.pop("semantic_graph_shadow_path", None)
+            published_config.pop(CROSS_DOCUMENT_STORAGE_CONFIG_KEY, None)
             published_config.update({
                 "active_generation": generation.name,
                 "path_graph_path": str(paths),
                 "semantic_path": str(semantic),
                 "security_path": str(security),
                 "index_path": str(index),
+                BASE_ANSWER_INDEX_SHA256_KEY: base_index_sha256,
             })
             atomic_json(CONFIG, published_config)
+            active_index = index
             generation_published = True
             published_at = now_iso()
             shadow_state = _shadow_run_base(
@@ -1228,12 +2700,28 @@ def build_index() -> None:
                 build_id,
                 status=(
                     "pending"
-                    if config.get(CROSS_DOCUMENT_SHADOW_FLAG, True) is True
+                    if published_config.get(CROSS_DOCUMENT_SHADOW_FLAG, True)
+                    is True
                     else "disabled"
                 ),
                 reason_code=(
                     "scheduled_after_production_publish"
-                    if config.get(CROSS_DOCUMENT_SHADOW_FLAG, True) is True
+                    if published_config.get(CROSS_DOCUMENT_SHADOW_FLAG, True)
+                    is True
+                    else "feature_disabled"
+                ),
+                elapsed_ms=0,
+            )
+            storage_enabled = (
+                published_config.get(CROSS_DOCUMENT_STORAGE_FLAG, True) is True
+            )
+            storage_state = _storage_run_base(
+                generation,
+                build_id,
+                status=("pending" if storage_enabled else "disabled"),
+                reason_code=(
+                    "awaiting_validated_shadow"
+                    if storage_enabled
                     else "feature_disabled"
                 ),
                 elapsed_ms=0,
@@ -1245,7 +2733,9 @@ def build_index() -> None:
                 "semantic_path": str(semantic),
                 "security_path": str(security),
                 "index_path": str(index),
+                BASE_ANSWER_INDEX_SHA256_KEY: base_index_sha256,
                 "cross_document_semantic_graph_shadow": shadow_state,
+                "cross_document_semantic_graph_storage": storage_state,
             }
             marker_warning = ""
             try:
@@ -1255,6 +2745,7 @@ def build_index() -> None:
             state = _ready_state(
                 reader_state,
                 semantic_graph_shadow=shadow_state,
+                semantic_graph_storage=storage_state,
             )
             if marker_warning:
                 state["generation_marker_warning"] = marker_warning
@@ -1264,7 +2755,7 @@ def build_index() -> None:
 
             try:
                 shadow_state = run_cross_document_semantic_graph_shadow(
-                    config,
+                    published_config,
                     semantic,
                     security,
                     generation,
@@ -1308,17 +2799,189 @@ def build_index() -> None:
                         f"{persist_exc}",
                     )
 
+            latest_observer_config = load_json(CONFIG)
+            if (
+                latest_observer_config.get("active_generation")
+                != generation.name
+                or latest_observer_config.get("index_path") != str(index)
+            ):
+                raise RuntimeError("configuration_changed_during_observer")
+            published_config = latest_observer_config
+            try:
+                storage_state = run_cross_document_semantic_graph_storage(
+                    published_config,
+                    semantic,
+                    security,
+                    generation,
+                    build_id,
+                    index,
+                    shadow_state,
+                    log,
+                )
+                if not isinstance(storage_state, dict):
+                    raise TypeError("semantic_storage_state_not_object")
+            except Exception as exc:
+                storage_state = {
+                    **_storage_run_base(
+                        generation,
+                        build_id,
+                        status="held",
+                        reason_code="semantic_storage_orchestrator_failed_non_gating",
+                        elapsed_ms=0,
+                    ),
+                    "external_network_used": None,
+                    "error": f"{type(exc).__name__}: {exc}",
+                }
+                _write_shadow_log(
+                    log,
+                    "Cross-document semantic graph storage orchestrator held; "
+                    "the published base answer index remains active: "
+                    f"{storage_state['error']}",
+                )
+
+            if storage_state.get("status") == "complete":
+                latest_promotion_config = load_json(CONFIG)
+                if (
+                    latest_promotion_config.get("active_generation")
+                    != generation.name
+                    or latest_promotion_config.get("index_path") != str(index)
+                ):
+                    raise RuntimeError(
+                        "configuration_changed_before_storage_registration"
+                    )
+                published_config = latest_promotion_config
+                if (
+                    published_config.get(CROSS_DOCUMENT_STORAGE_FLAG, True)
+                    is not True
+                ):
+                    prepared = storage_state
+                    storage_state = {
+                        **_storage_run_base(
+                            generation,
+                            build_id,
+                            status="disabled",
+                            reason_code="feature_disabled_before_registration",
+                            elapsed_ms=prepared.get("elapsed_ms", 0),
+                        ),
+                        "external_network_used": False,
+                        "prepared_projection": {
+                            "output": prepared.get("output", {}),
+                            "shadow": prepared.get("shadow", {}),
+                        },
+                    }
+                    _write_shadow_log(
+                        log,
+                        "Cross-document semantic graph storage was disabled before "
+                        "registration; the published base answer index remains active.",
+                    )
+                else:
+                    try:
+                        registration = _semantic_storage_registration(
+                            generation,
+                            storage_state,
+                            semantic=semantic,
+                            security=security,
+                            expected_build_id=build_id,
+                        )
+                        latest_registration_config = load_json(CONFIG)
+                        if (
+                            latest_registration_config.get(
+                                "active_generation"
+                            )
+                            != generation.name
+                            or latest_registration_config.get("index_path")
+                            != str(index)
+                        ):
+                            raise RuntimeError(
+                                "configuration_changed_during_storage_registration"
+                            )
+                        if (
+                            latest_registration_config.get(
+                                CROSS_DOCUMENT_STORAGE_FLAG, True
+                            )
+                            is not True
+                        ):
+                            prepared = storage_state
+                            published_config = latest_registration_config
+                            storage_state = {
+                                **_storage_run_base(
+                                    generation,
+                                    build_id,
+                                    status="disabled",
+                                    reason_code=(
+                                        "feature_disabled_during_registration"
+                                    ),
+                                    elapsed_ms=prepared.get("elapsed_ms", 0),
+                                ),
+                                "external_network_used": False,
+                                "prepared_projection": {
+                                    "output": prepared.get("output", {}),
+                                    "shadow": prepared.get("shadow", {}),
+                                },
+                            }
+                            _write_shadow_log(
+                                log,
+                                "Cross-document semantic graph storage was "
+                                "disabled during registration validation; the "
+                                "published base answer index remains active.",
+                            )
+                        else:
+                            promoted_config = {
+                                **latest_registration_config,
+                                "index_path": registration["database_path"],
+                                CROSS_DOCUMENT_STORAGE_CONFIG_KEY: registration,
+                            }
+                            atomic_json(CONFIG, promoted_config)
+                            published_config = promoted_config
+                            active_index = Path(registration["database_path"])
+                    except Exception as exc:
+                        prepared = storage_state
+                        storage_state = {
+                            **_storage_run_base(
+                                generation,
+                                build_id,
+                                status="held",
+                                reason_code=(
+                                    "semantic_storage_registration_failed_non_gating"
+                                ),
+                                elapsed_ms=prepared.get("elapsed_ms", 0),
+                            ),
+                            "external_network_used": None,
+                            "error": f"{type(exc).__name__}: {exc}",
+                            "prepared_projection": {
+                                "output": prepared.get("output", {}),
+                                "shadow": prepared.get("shadow", {}),
+                            },
+                        }
+                        _write_shadow_log(
+                            log,
+                            "Cross-document semantic graph storage registration held; "
+                            "the published base answer index remains active: "
+                            f"{storage_state['error']}",
+                        )
+
             marker_warning = ""
             try:
                 atomic_json(marker_path, {
                     **published_marker,
+                    "index_path": str(active_index),
+                    "cross_document_semantic_graph_shadow_enabled": (
+                        published_config.get(CROSS_DOCUMENT_SHADOW_FLAG, True)
+                        is True
+                    ),
+                    "cross_document_semantic_graph_storage_enabled": (
+                        published_config.get(CROSS_DOCUMENT_STORAGE_FLAG, True)
+                        is True
+                    ),
                     "cross_document_semantic_graph_shadow": shadow_state,
+                    "cross_document_semantic_graph_storage": storage_state,
                 })
             except OSError as exc:
                 marker_warning = f"{type(exc).__name__}: {exc}"
             state = _ready_state(
                 reader_state,
                 semantic_graph_shadow=shadow_state,
+                semantic_graph_storage=storage_state,
             )
             if marker_warning:
                 state["generation_marker_warning"] = marker_warning

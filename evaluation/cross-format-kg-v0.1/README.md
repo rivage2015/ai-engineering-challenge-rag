@@ -127,7 +127,7 @@ python3 scripts/evaluate_cross_format_kg_phase2.py \
 この合格は`PHASE2_SEMANTIC_GRAPH_PROOF_PASS_EVALUATION_ONLY`です。Gemmaや外部APIには
 問い合わせず、限定した担当・時点・版差分の質問を決定論的にグラフ探索しています。
 したがって「この合成5文書ではグラフを実際に使って正答できた」ことは示しますが、
-任意の文書・任意の質問へ一般化できたことや、本番アプリへの統合完了はまだ示しません。
+任意の文書・任意の質問へ一般化できたことは示しません。本番アプリは検証済みgraphのstorage-only保存まで接続していますが、検索・回答がsemantic表を使うStep 3は未実装です。
 
 ## offline / anti-hardcoding / rollback
 
@@ -136,6 +136,6 @@ python3 scripts/evaluate_cross_format_kg_phase2.py \
 - **Anti-hardcoding:** ファイル順序の変更、同型fixtureのID・人名・日付・ファイル名置換、質問の言い換えでも
   同じ関係構造から回答できることをpromotion前に確認する。元の固有値や質問全文を条件分岐へ埋め込まない。
   置換したcorpusで答えも追随し、旧答えを返した場合は不合格にする。
-- **Rollback:** 新グラフは別snapshotへ原子的にpublishする。gate失敗時は
-  `cross_document_semantic_graph=false`へ戻し、直前の正常snapshotを保持する。cross-document質問を
+- **Rollback:** 新グラフは別snapshotへ原子的にpublishする。本番保存は先に公開済みの元indexを残し、`cross_document_semantic_graph_storage_enabled=false`で無効化できる。gate失敗時は
+  `cross_document_semantic_graph_shadow_enabled=false`へ戻し、直前の正常snapshotを保持する。cross-document質問を
   flat検索の推測で埋めず、`graph_feature_rolled_back`として`HOLD`する。

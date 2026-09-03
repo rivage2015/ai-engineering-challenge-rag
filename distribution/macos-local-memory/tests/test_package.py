@@ -797,7 +797,7 @@ class PackageTests(unittest.TestCase):
         self.assertIn('if not generation_published and generation.exists():', build_body)
         self.assertIn('shutil.rmtree(generation)', build_body)
 
-    def test_cross_document_graph_is_shadow_only_at_bootstrap_boundary(self) -> None:
+    def test_cross_document_graph_remains_outside_the_answer_path_in_step_2(self) -> None:
         bootstrap = (ROOT / "app" / "bootstrap.py").read_text(encoding="utf-8")
         shadow_body = bootstrap[
             bootstrap.index("def run_cross_document_semantic_graph_shadow") :
@@ -824,6 +824,29 @@ class PackageTests(unittest.TestCase):
         ]
         self.assertIn('index = Path(config["index_path"])', answer_body)
         self.assertNotIn("semantic_graph_shadow", answer_body)
+        self.assertNotIn("cross_document_semantic_graph_storage", answer_body)
+
+        semantic_storage_tables = (
+            "semantic_graph_nodes",
+            "semantic_graph_edges",
+            "semantic_graph_edge_evidence",
+        )
+        for relative_path in (
+            "app/local_memory_server.py",
+            "app/claim_graph_validator.py",
+            "app/final_answer_audit.py",
+            "engine/answer_local_memory.py",
+            "engine/answer_local_memory_v2.py",
+            "engine/question_evidence_graph.py",
+            "engine/search_local_semantic_index.py",
+        ):
+            answer_component = (ROOT / relative_path).read_text(encoding="utf-8")
+            for table in semantic_storage_tables:
+                self.assertNotIn(
+                    table,
+                    answer_component,
+                    f"Step 2 storage table leaked into answer path: {relative_path}",
+                )
 
     def test_server_never_queries_an_incomplete_generation(self) -> None:
         server = (ROOT / "app" / "local_memory_server.py").read_text(encoding="utf-8")
@@ -853,6 +876,7 @@ class PackageTests(unittest.TestCase):
             "build_cross_document_semantic_graph.py",
             "query_cross_document_semantic_graph.py",
             "validate_cross_document_semantic_graph.py",
+            "project_cross_document_graph_to_answer_index.py",
         ):
             self.assertIn(name, package)
         repository_scripts = ROOT.parents[1] / "scripts"
@@ -860,6 +884,7 @@ class PackageTests(unittest.TestCase):
             "build_cross_document_semantic_graph.py",
             "query_cross_document_semantic_graph.py",
             "validate_cross_document_semantic_graph.py",
+            "project_cross_document_graph_to_answer_index.py",
         ):
             self.assertTrue((repository_scripts / name).is_file())
         for name in (

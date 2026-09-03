@@ -1,8 +1,8 @@
 # Local Memory Search macOS package
 
-> **開発マイルストーン:** Cross-document Semantic Graph — Shadow bootstrap v0.1
+> **開発マイルストーン:** Cross-document Semantic Graph — Storage-only v0.2
 >
-> **配布状態:** source-integrated / offline runtime bundle pending
+> **配布状態:** offline runtime bundle regenerated / semantic retrieval pending
 
 非技術者向けの未署名macOS試作パッケージです。GitHubの操作は不要です。
 
@@ -35,6 +35,8 @@ PaddleOCRを使うには、固定されたPython 3.12環境と照合済みモデ
 - 初回はReader/security検証後にモデルを取得し、Gemmaが新規取得され画像がある場合だけ、別の空ディレクトリでsemantic/securityを再構築・再検証してから公開する。
 - 最終Reader/security世代から従来のsafe-answer indexを先に原子的公開する。その後、`cross_document_semantic_graph_shadow_enabled=true`の場合だけ、同じ世代の`04-semantic-graph-shadow/`へcross-document semantic graphを生成する。候補ディレクトリ内のSQLite・全Evidence/Node/Edge hashに加え、Content Security Gateと全6出力を入力から再生成して照合し、合格後だけディレクトリ単位で確定する。
 - shadow graphは`index_path`、検索、回答、最終監査へ渡さず、`used_for_index=false`、`used_for_answers=false`として観測する。空グラフ、契約不一致、timeoutなどはshadowだけを`held`にし、公開済みsafe-answer indexと回答提供を止めない。したがって、この段階では本番データで意味グラフを生成・測定できるが、回答にはまだ利用しない。
+- shadow検証合格後、`cross_document_semantic_graph_storage_enabled=true`の場合だけ、先に公開した元safe-answer indexをSQLite backup APIで`05-semantic-answer-index.building/`へコピーし、名前空間を分けた`semantic_graph_*`表に検証済みgraphを保存する。元indexのEvidence・embedding・従来Graphの不変性とContent Security結合を再検査し、合格後だけ`05-semantic-answer-index/`として確定し、CONFIGの`index_path`とstorage登録を切り替える。
+- Step 2のsemantic graphは保存-onlyであり、`retrieval_enabled=false`、`used_for_answers=false`を維持する。回答器は新SQLiteの従来Evidence・embedding・Graphだけを読み、`semantic_graph_nodes`、`semantic_graph_edges`、`semantic_graph_edge_evidence`はまだ参照しない。検索・回答への接続はStep 3で別に実装・監査する。
 - 世代にbuild IDとowner PIDを持たせ、起動時に中断を判定する。未公開の中断世代だけを整理して再実行へ案内し、公開済み世代はreadyに復旧する。
 - SQLite safe-answer index schema `0.3`は、検証済みの`graph_nodes`と`graph_edges`、Graph hash、安全partitionを埋め込みと同じ未公開DBへ書き、全検査成功後だけ`graph_status=validated_safe_partition`、`graph_retrieval_enabled=true`として原子的に公開する。prompt-library indexは`schema_only`のまま回答には使わない。
 - semantic validatorはSearchUnitとLayer 1 Evidenceから`derived_from`を独立再構築し、完全なfan-inだけを`semantic-lineage-relations.jsonl`へ昇格する。長文shardや未投影binaryを含むfan-inは理由付きで保留する。
@@ -72,3 +74,12 @@ PaddleOCRを使うには、固定されたPython 3.12環境と照合済みモデ
 shadow中にアプリ自体が終了した場合、次回起動で公開済みsafe-answer indexを保持したまま、固定名の未完成候補だけを削除して`held`へ復旧します。ディレクトリ確定まで完了していた場合は完成shadowを削除せず、その状態を復元します。
 
 safe-answer indexとready状態を先に公開するため、shadowの完了待ちは回答開始を遅らせません。ただし同じMac上で同期観測を続けるため、bootstrap worker全体の終了時間、CPU負荷、世代内ディスク使用量は増えます。
+
+## Cross-document semantic graph storage-only
+
+Step 2が合格すると、同じ公開世代の`05-semantic-answer-index/`に次の2ファイルが残ります。
+
+- `safe-answer-index.sqlite3`: 元safe-answer indexの全内容を保ったまま、検証済み`semantic_graph_*`表を追加した保存用SQLite
+- `semantic-answer-index-state.json`: 元index、shadow、Content Security、保存後SQLiteのhash、件数、`storage_only=true`、`retrieval_enabled=false`、`used_for_answers=false`の証明
+
+保存またはCONFIG登録が失敗した場合は、先に公開済みの元`safe-answer-index.sqlite3`をそのまま回答に使います。rollbackは`cross_document_semantic_graph_storage_enabled=false`にして再構築します。明示した`false`は維持され、保存処理もCONFIGのstorage登録も実行しません。元indexは削除せず同世代に保持します。
