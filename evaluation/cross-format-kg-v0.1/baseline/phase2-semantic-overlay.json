@@ -1,0 +1,38 @@
+{
+  "ablation_strategy": "independent_hash_valid_sqlite_snapshot",
+  "ablation_trace_disabled_edge_ids": [],
+  "accepted_case_count": 4,
+  "dataset_id": "cross-format-kg-v0.1",
+  "decision": "PASS",
+  "gold_boundary": {
+    "answerer_ablation_control_input": "graph_snapshot_only",
+    "answerer_payload_keys": [
+      "question"
+    ],
+    "builder_input_basenames": [
+      "semantic-documents.jsonl",
+      "safe-answer-evidence.jsonl"
+    ],
+    "gold_available_to_answerer": false,
+    "gold_available_to_builder": false,
+    "question_to_gold_match": "question_hash_after_response",
+    "snapshot_frozen_before_gold_load": true
+  },
+  "gold_edge_count": 14,
+  "graph_file_sha256": "e1f23ecf020e6f00d859412e527c32949c9b4248b4a7734b0051df3aae310c78",
+  "graph_snapshot_id": "xkgs_8302f5da7c42366cf8a9a7c1f01c6257",
+  "hold_case_count": 1,
+  "matched_gold_edge_count": 14,
+  "measured_outbound_network_attempt_count": 0,
+  "normal_case_count": 5,
+  "record_type": "cross_format_kg_phase2_baseline",
+  "required_edge_ablation_count": 29,
+  "result_record_count": 35,
+  "runtime_ablation_snapshot_count": 30,
+  "schema_version": "0.1",
+  "source_graph_file_sha256_after_ablations": "e1f23ecf020e6f00d859412e527c32949c9b4248b4a7734b0051df3aae310c78",
+  "source_graph_unchanged_after_ablations": true,
+  "status": "PHASE2_SEMANTIC_GRAPH_PROOF_PASS_EVALUATION_ONLY",
+  "subprocess_count": 36,
+  "unused_edge_negative_control_count": 1
+}

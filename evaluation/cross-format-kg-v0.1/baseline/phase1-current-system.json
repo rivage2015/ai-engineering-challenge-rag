@@ -1,0 +1,177 @@
+{
+  "coverage": {
+    "case_count": 5,
+    "dataset_files": 5,
+    "distribution_document_count": 5,
+    "formats": [
+      "docx",
+      "pdf",
+      "pptx",
+      "xlsx"
+    ],
+    "layer1_input_files": 5,
+    "layer1_statuses": {
+      "success": 5
+    }
+  },
+  "dataset_id": "cross-format-kg-v0.1",
+  "decision": "BASELINE_ONLY_NOT_GRAPH_PROOF",
+  "expected_phrase_coverage": {
+    "distribution": {
+      "all_pass": false,
+      "diagnosis": "The legacy OOXML reader exposes typed XLSX dates as Excel serials.",
+      "failed_cases": [
+        {
+          "eval_case_id": "xkg_owner_at_2022_08_01_baseline",
+          "missing_phrases": [
+            "2021-04-01",
+            "2023-03-31"
+          ]
+        },
+        {
+          "eval_case_id": "xkg_owner_at_2023_05_01_baseline",
+          "missing_phrases": [
+            "2023-04-01"
+          ]
+        },
+        {
+          "eval_case_id": "xkg_change_date_from_to_baseline",
+          "missing_phrases": [
+            "2023-03-31",
+            "2023-04-01"
+          ]
+        },
+        {
+          "eval_case_id": "xkg_owner_without_time_baseline",
+          "missing_phrases": [
+            "2021-04-01",
+            "2023-03-31"
+          ]
+        }
+      ]
+    },
+    "layer1_adapter": {
+      "all_pass": true,
+      "failed_cases": []
+    }
+  },
+  "findings": [
+    "All five source files were ingested by both extraction paths.",
+    "Layer 1 preserved every expected phrase, including typed XLSX dates.",
+    "Real BM25 found at least one relevant source for every case, but returned all required sources for only three of five cases at k=5.",
+    "The two BM25 misses require an ID-to-person-name bridge that flat lexical retrieval cannot infer from the question alone.",
+    "Phase 1 did not execute semantic Edge traversal or answer generation, so it does not prove cross-document Knowledge Graph use."
+  ],
+  "graph_and_answer": {
+    "existing_graph_inventory": {
+      "distribution": {
+        "relation_classes": {
+          "legacy-unclassified": 16
+        },
+        "relation_count": 16,
+        "relation_types": {
+          "has_evidence": 7,
+          "member_of_project": 5,
+          "mentions_date": 3,
+          "mentions_theme": 1
+        },
+        "status": "present"
+      },
+      "layer1": {
+        "relation_classes": {
+          "structural": 130
+        },
+        "relation_count": 130,
+        "relation_types": {
+          "contains": 129,
+          "section_contains": 1
+        },
+        "status": "present"
+      },
+      "required_cross_document_relation_types": [
+        "ASSIGNED_TO",
+        "IDENTIFIES_PERSON",
+        "SUPERSEDES",
+        "CONTRADICTS"
+      ],
+      "required_cross_document_relation_types_present": []
+    },
+    "llm_answer_generation": "not_evaluated",
+    "phase_2_e2e_qa_case_count": 0,
+    "relationship_context_audit": {
+      "all_pass": false,
+      "case_count": 0
+    },
+    "semantic_graph_traversal": "UNDECLARED_NOT_EVALUATED"
+  },
+  "offline": {
+    "external_network_used": false
+  },
+  "record_type": "cross_format_kg_phase_1_baseline_result",
+  "retrieval": {
+    "distribution-lexical-token-proxy": {
+      "failed_all_relevant_at_5": [],
+      "metrics": {
+        "all_relevant_at_1": 0.0,
+        "all_relevant_at_3": 0.0,
+        "all_relevant_at_5": 1.0,
+        "case_count": 5,
+        "hit_at_1": 0.4,
+        "hit_at_3": 1.0,
+        "hit_at_5": 1.0,
+        "reciprocal_rank": 0.6,
+        "source_recall_at_1": 0.08,
+        "source_recall_at_3": 0.44,
+        "source_recall_at_5": 1.0
+      }
+    },
+    "layer1-adapter-document-support-through-distribution-safe-stream-proxy": {
+      "failed_all_relevant_at_5": [],
+      "metrics": {
+        "all_relevant_at_1": 0.0,
+        "all_relevant_at_3": 0.0,
+        "all_relevant_at_5": 1.0,
+        "case_count": 5,
+        "hit_at_1": 1.0,
+        "hit_at_3": 1.0,
+        "hit_at_5": 1.0,
+        "reciprocal_rank": 1.0,
+        "source_recall_at_1": 0.28,
+        "source_recall_at_3": 0.64,
+        "source_recall_at_5": 1.0
+      }
+    },
+    "layer1-real-bm25": {
+      "failed_all_relevant_at_5": [
+        {
+          "eval_case_id": "xkg_change_date_from_to_baseline",
+          "missing_relevant_sources": [
+            "project-orion/05_社員ID対応表_署名済.pdf"
+          ],
+          "source_recall_at_5": 0.6666666666666666
+        },
+        {
+          "eval_case_id": "xkg_owner_without_time_baseline",
+          "missing_relevant_sources": [
+            "project-orion/05_社員ID対応表_署名済.pdf"
+          ],
+          "source_recall_at_5": 0.8
+        }
+      ],
+      "metrics": {
+        "all_relevant_at_1": 0.0,
+        "all_relevant_at_3": 0.0,
+        "all_relevant_at_5": 0.6,
+        "case_count": 5,
+        "hit_at_1": 1.0,
+        "hit_at_3": 1.0,
+        "hit_at_5": 1.0,
+        "reciprocal_rank": 1.0,
+        "source_recall_at_1": 0.28,
+        "source_recall_at_3": 0.44,
+        "source_recall_at_5": 0.893333
+      }
+    }
+  },
+  "schema_version": "0.1"
+}

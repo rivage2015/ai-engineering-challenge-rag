@@ -1,0 +1,260 @@
+{
+  "schema_version": "0.1",
+  "record_type": "cross_format_kg_fixture_spec",
+  "dataset_id": "cross-format-kg-v0.1",
+  "status": "phase_2_semantic_graph_proof_pass_evaluation_only",
+  "purpose": "Prove that a fully local answer used verified semantic edges across disjoint DOCX, XLSX, PPTX, and PDF facts instead of only returning flat retrieval text.",
+  "input_boundary": {
+    "build_and_index_inputs": [
+      "corpus/**"
+    ],
+    "answer_runtime_inputs": [
+      "a frozen and published corpus-derived graph/index snapshot",
+      "one evaluator question supplied only after snapshot freeze"
+    ],
+    "evaluator_only_inputs": [
+      "fixture-spec.json",
+      "corpus-manifest.json",
+      "cases.jsonl",
+      "gold/expected-graph.jsonl",
+      "gold/qa-cases.jsonl"
+    ],
+    "forbidden_build_inputs": [
+      "fixture-spec.json",
+      "corpus-manifest.json",
+      "cases.jsonl",
+      "gold/**",
+      "evaluation questions",
+      "expected answers",
+      "gold edge keys"
+    ],
+    "forbidden_answer_inputs": [
+      "corpus-manifest.json",
+      "gold/**",
+      "expected answers",
+      "gold edge keys"
+    ],
+    "question_visible_to_answerer_after_index_freeze": true,
+    "gold_visible_to_extractor": false,
+    "gold_visible_to_graph_builder": false,
+    "gold_visible_to_answerer": false
+  },
+  "corpus_contract": {
+    "root": "corpus",
+    "required_files": [
+      {
+        "path": "project-orion/01_ORION-27_案件定義書.docx",
+        "format": "docx",
+        "role": "project and work identity",
+        "must_contain_exact": [
+          "ORION-27",
+          "オリオン顧客移行",
+          "Project Orion",
+          "オリオン移行",
+          "WS-MIG-04",
+          "移行リハーサル統括",
+          "FINAL"
+        ],
+        "must_not_contain_exact": [
+          "EMP-104",
+          "EMP-208",
+          "佐藤未来",
+          "高橋蓮",
+          "2021-04-01",
+          "2023-03-31"
+        ]
+      },
+      {
+        "path": "project-orion/02_ORION-27_担当履歴.xlsx",
+        "format": "xlsx",
+        "role": "temporal assignment records",
+        "sheet": "Assignment History",
+        "must_contain_rows": [
+          [
+            "ASG-001",
+            "ORION-27",
+            "WS-MIG-04",
+            "主担当",
+            "EMP-104",
+            "2021-04-01",
+            "2023-03-31",
+            "FINAL"
+          ],
+          [
+            "ASG-002",
+            "ORION-27",
+            "WS-MIG-04",
+            "主担当",
+            "EMP-208",
+            "2023-04-01",
+            null,
+            "FINAL"
+          ]
+        ],
+        "must_not_contain_exact": [
+          "佐藤未来",
+          "高橋蓮",
+          "移行リハーサル統括"
+        ]
+      },
+      {
+        "path": "project-orion/03_ORION-27_体制計画_v1.pptx",
+        "format": "pptx",
+        "role": "obsolete draft claim",
+        "must_contain_exact": [
+          "DRAFT v1",
+          "ORION-27",
+          "WS-MIG-04",
+          "主担当",
+          "EMP-104",
+          "2023-04-01"
+        ],
+        "must_not_contain_exact": [
+          "佐藤未来",
+          "高橋蓮",
+          "移行リハーサル統括"
+        ]
+      },
+      {
+        "path": "project-orion/04_ORION-27_体制計画_v2.pptx",
+        "format": "pptx",
+        "role": "current approved claim and change reason",
+        "must_contain_exact": [
+          "APPROVED v2 / FINAL",
+          "03_ORION-27_体制計画_v1.pptx",
+          "ORION-27",
+          "WS-MIG-04",
+          "EMP-208",
+          "2023-04-01",
+          "本番移行フェーズへの移行に伴う運営体制の再編"
+        ],
+        "must_not_contain_exact": [
+          "佐藤未来",
+          "高橋蓮",
+          "移行リハーサル統括"
+        ]
+      },
+      {
+        "path": "project-orion/05_社員ID対応表_署名済.pdf",
+        "format": "pdf",
+        "role": "approved employee ID to person identity mapping",
+        "must_contain_exact": [
+          "EMP-104",
+          "佐藤未来",
+          "EMP-208",
+          "高橋蓮",
+          "2023-03-20",
+          "署名済み",
+          "承認済み"
+        ],
+        "must_not_contain_exact": [
+          "ORION-27",
+          "WS-MIG-04",
+          "移行リハーサル統括",
+          "2021-04-01",
+          "2023-03-31"
+        ]
+      }
+    ],
+    "fact_partition_invariant": "No single source contains the natural work identity, a complete temporal assignment, and the employee ID to person-name mapping needed for an accepted answer."
+  },
+  "phase_1_baseline": {
+    "evaluator": "scripts/evaluate_general_memory_shadow.py",
+    "case_file": "cases.jsonl",
+    "purpose": "Extraction and relevant-source retrieval smoke gate before graph evaluation.",
+    "acceptance": {
+      "dataset_file_count": 5,
+      "expected_phrase_coverage_all_pass": true,
+      "all_relevant_at_5_for_every_case": true,
+      "external_network_used": false
+    },
+    "non_gating_observations": [
+      "hit_at_1",
+      "hit_at_3",
+      "mrr",
+      "elapsed_ms",
+      "peak_rss_bytes"
+    ],
+    "expected_limitations": [
+      "No answer generation is executed.",
+      "No semantic edge traversal is executed or proven.",
+      "top-k=5 over exactly five files makes all_relevant_at_5 only a missing-document smoke check.",
+      "This dataset has no malicious-content safety fixture; safety remains covered by general-memory-v0.1."
+    ]
+  },
+  "graph_contract": {
+    "gold": "gold/expected-graph.jsonl",
+    "lineage_relations_must_not_be_counted_as_semantic_use": true,
+    "expected_edge_status": "verified",
+    "draft_claim_must_not_be_promoted_to_current_fact": true,
+    "gold_source_reference_shape": {
+      "required": [
+        "path",
+        "locator",
+        "selector.kind=exact_phrase",
+        "selector.value"
+      ],
+      "generated_evidence_id_allowed": false
+    },
+    "accepted_cross_document_case": {
+      "minimum_distinct_visited_documents": 2,
+      "minimum_used_semantic_edges": 1,
+      "all_used_semantic_edges_must_have_status": "verified",
+      "required_edge_ablation_result": "HOLD",
+      "same_asserted_answer_after_required_edge_ablation_allowed": false
+    },
+    "required_trace_fields": [
+      "run_id",
+      "graph_snapshot_id",
+      "question_hash",
+      "visited_node_hashes",
+      "visited_edge_hashes",
+      "visited_document_paths",
+      "used_semantic_edge_count",
+      "used_edge_statuses",
+      "resolved_source_references",
+      "decision",
+      "elapsed_ms",
+      "peak_rss_bytes",
+      "outbound_network_attempt_count"
+    ],
+    "post_answer_matching": "The evaluator matches runtime edge tuples and resolved source references to gold_edge_key after receiving the answer; gold identifiers are never injected into runtime."
+  },
+  "qa_contract": {
+    "gold": "gold/qa-cases.jsonl",
+    "accepted_decisions": [
+      "ACCEPTED",
+      "HOLD"
+    ],
+    "missing_reference_time_decision": "HOLD",
+    "missing_reference_time_reason_code": "reference_time_required"
+  },
+  "offline_contract": {
+    "network_enabled": false,
+    "cloud_or_api_fallback_allowed": false,
+    "maximum_outbound_network_attempt_count": 0,
+    "dependencies_and_models_must_be_present_before_run": true
+  },
+  "anti_hardcoding": {
+    "required_before_promotion": true,
+    "mutations": [
+      "randomize corpus file enumeration order",
+      "rename corpus files without changing their internal graph",
+      "replace project, work, employee, and person values in a structurally isomorphic corpus",
+      "shift both validity intervals while preserving their boundary relationship",
+      "paraphrase questions without embedding the original full strings"
+    ],
+    "acceptance": [
+      "The answer follows the mutated corpus values.",
+      "The original answer values do not leak into the mutated run.",
+      "Required semantic-edge and provenance gates still pass."
+    ]
+  },
+  "rollback": {
+    "feature_flag": "cross_document_semantic_graph",
+    "rollback_value": false,
+    "publish_strategy": "atomic separate snapshot",
+    "preserve_previous_good_snapshot": true,
+    "on_gate_failure": "Do not publish the candidate graph; cross-document intents return HOLD with graph_feature_rolled_back instead of a flat-retrieval guess."
+  }
+}

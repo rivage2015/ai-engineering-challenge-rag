@@ -1,9 +1,9 @@
 # GitHub収録物目録
 
-更新日: 2026-09-01
+更新日: 2026-09-03
 対象リポジトリ: `rivage2015/ai-engineering-challenge-rag`
-目録更新時の親コミット: `6d5cbeb`
-本更新を含む追跡ファイル: 362件
+目録更新時の親コミット: `e48e75e`
+本更新を含む追跡ファイル: 403件
 
 ## この目録の目的
 
@@ -114,7 +114,23 @@
 
 これは検索対象として配布する「知識」ではなく、システムが正しく動くか測る試験問題です。
 
-### 5. 設計・調査・引き継ぎ記録
+### 5. Cross-format Knowledge Graph評価セット
+
+| 項目 | 内容 |
+|---|---|
+| 状態 | **評価用・Phase 2 semantic overlay合格** |
+| 主な場所 | `evaluation/cross-format-kg-v0.1/` |
+| 目的 | DOCX、XLSX、PPTX、PDFへ意図的に分割した事実を、検証済みsemantic Edgeで横断して回答できるか判定する |
+| 中身 | 架空案件の固定5ファイル、14本の正解Edge、4件の回答ケース、1件のHOLDケース、固定hash manifest |
+| 現在地 | 4形式・5/5ファイルの読取に加え、14/14 Gold Edge、通常5/5問、物理Edge ablation 29/29件を合格。本番アプリ統合は未実施 |
+| 入口 | `evaluation/cross-format-kg-v0.1/README.md` |
+
+単に複数資料を検索結果へ並べることと、関係を辿って答えを導くことを区別するための評価セットです。
+Goldと質問はbuild入力から隔離し、必要Edgeを物理的に1本外したhash-validな独立SQLiteでも
+同じ断定回答を返さないことを検査します。この合格は評価用overlayの証明であり、現行macOSアプリの
+本番回答経路がsemantic entity Edgeを利用しているという意味ではありません。
+
+### 6. 設計・調査・引き継ぎ記録
 
 | 項目 | 内容 |
 |---|---|
@@ -134,7 +150,7 @@
 - `design/adaptive-document-reader-v4.md`: 形式別Reader、位置なしfallback、semantic shard、Question Evidence Graphの現行設計
 - `design/local-image-orchestration-evaluation-plan-2026-08-31.md`: 完全ローカル画像読取オーケストレーションの段階的評価計画
 
-### 6. GitHubに残っているコンペ履歴物
+### 7. GitHubに残っているコンペ履歴物
 
 | 場所 | 内容 | 状態 |
 |---|---|---|
@@ -206,5 +222,6 @@ git log --oneline -15
 - `scripts/`、`schemas/`、`tests/`が汎用基盤であり、特定問題への回答値を埋め込む場所ではありません。
 - `design/`は実装ではなく、設計判断と検証結果です。
 - `evaluation/general-memory-v0.1/`は試験問題であり、利用者のナレッジではありません。
+- `evaluation/cross-format-kg-v0.1/`も合成試験問題です。Phase 1の読取成功だけをKnowledge Graph成功とは扱いません。
 - safe-answer SQLiteは独立projectorの検証済みGraphだけを公開し、回答検索・Question Evidence Graph・cache・最終監査が同じretrievable Evidence集合を使います。`unresolved` Nodeと`schema_only`索引は回答経路で拒否します。
 - DMG、モデル、利用者資料がGitHubに入っているわけではありません。

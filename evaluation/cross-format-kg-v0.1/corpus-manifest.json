@@ -1,0 +1,40 @@
+{
+  "corpus_root": "corpus",
+  "dataset_id": "cross-format-kg-v0.1",
+  "file_count": 5,
+  "files": [
+    {
+      "format": "docx",
+      "path": "project-orion/01_ORION-27_案件定義書.docx",
+      "sha256": "0e06ff75fb69472c791dc822ee338141d86b4f468c4201dbc11a89da22fe43e1",
+      "size_bytes": 36178
+    },
+    {
+      "format": "xlsx",
+      "path": "project-orion/02_ORION-27_担当履歴.xlsx",
+      "sha256": "6930965d82620ca0cd467fb5f6b5df6db6c55a871966678069dc3127ae89fcd1",
+      "size_bytes": 3836
+    },
+    {
+      "format": "pptx",
+      "path": "project-orion/03_ORION-27_体制計画_v1.pptx",
+      "sha256": "9bb133f222091e3aa57deaed187679d237c28d65e12fe21521e56d90cc2e8362",
+      "size_bytes": 14414
+    },
+    {
+      "format": "pptx",
+      "path": "project-orion/04_ORION-27_体制計画_v2.pptx",
+      "sha256": "1bb032130571f79b47da74c88c48033e07da5ce4763cc66dd6a1519891cb5ca5",
+      "size_bytes": 14480
+    },
+    {
+      "format": "pdf",
+      "path": "project-orion/05_社員ID対応表_署名済.pdf",
+      "sha256": "6b1a3eba37a2fd864cc9531eb5c3eec4e58195cd314e1ffda8b19ce453f2e817",
+      "size_bytes": 52037
+    }
+  ],
+  "record_type": "cross_format_kg_corpus_manifest",
+  "schema_version": "0.1",
+  "source_set_sha256": "230b7521adeb15194a10043b96fe60fd13f1f8647bda6fbcc124597c8015d4d7"
+}

@@ -25,6 +25,8 @@
 evaluation/*
 !evaluation/general-memory-v0.1/
 !evaluation/general-memory-v0.1/**
+!evaluation/cross-format-kg-v0.1/
+!evaluation/cross-format-kg-v0.1/**
 
 # Reusable end-to-end runner. Runtime caches, answers, logs, assets and secrets
 # remain denied by the default rule above.
