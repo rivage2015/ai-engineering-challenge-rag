@@ -1,6 +1,6 @@
 # Local Memory Search macOS package
 
-> **開発マイルストーン:** Adaptive Document Reader v4 — OCR Phase 2
+> **開発マイルストーン:** Cross-document Semantic Graph — Shadow bootstrap v0.1
 >
 > **配布状態:** source-integrated / offline runtime bundle pending
 
@@ -33,6 +33,8 @@ PaddleOCRを使うには、固定されたPython 3.12環境と照合済みモデ
 - 長い抽出結果は全形式共通のsemantic境界で1,600文字以下のexact shardへ置き換え、hashと文字offsetで全文復元を検証する。埋め込みや回答監査でpacketの後半を黙って切らない。
 - AIを読取に使ったかはLayer 1 Evidenceのprovenanceから派生し、semantic stateの申告とvalidatorで照合する。
 - 初回はReader/security検証後にモデルを取得し、Gemmaが新規取得され画像がある場合だけ、別の空ディレクトリでsemantic/securityを再構築・再検証してから公開する。
+- 最終Reader/security世代から従来のsafe-answer indexを先に原子的公開する。その後、`cross_document_semantic_graph_shadow_enabled=true`の場合だけ、同じ世代の`04-semantic-graph-shadow/`へcross-document semantic graphを生成する。候補ディレクトリ内のSQLite・全Evidence/Node/Edge hashに加え、Content Security Gateと全6出力を入力から再生成して照合し、合格後だけディレクトリ単位で確定する。
+- shadow graphは`index_path`、検索、回答、最終監査へ渡さず、`used_for_index=false`、`used_for_answers=false`として観測する。空グラフ、契約不一致、timeoutなどはshadowだけを`held`にし、公開済みsafe-answer indexと回答提供を止めない。したがって、この段階では本番データで意味グラフを生成・測定できるが、回答にはまだ利用しない。
 - 世代にbuild IDとowner PIDを持たせ、起動時に中断を判定する。未公開の中断世代だけを整理して再実行へ案内し、公開済み世代はreadyに復旧する。
 - SQLite safe-answer index schema `0.3`は、検証済みの`graph_nodes`と`graph_edges`、Graph hash、安全partitionを埋め込みと同じ未公開DBへ書き、全検査成功後だけ`graph_status=validated_safe_partition`、`graph_retrieval_enabled=true`として原子的に公開する。prompt-library indexは`schema_only`のまま回答には使わない。
 - semantic validatorはSearchUnitとLayer 1 Evidenceから`derived_from`を独立再構築し、完全なfan-inだけを`semantic-lineage-relations.jsonl`へ昇格する。長文shardや未投影binaryを含むfan-inは理由付きで保留する。
@@ -55,3 +57,18 @@ PaddleOCRを使うには、固定されたPython 3.12環境と照合済みモデ
 - WebとOllamaはloopbackに限定。HomebrewのCLI-only Ollamaも検出し、daemon停止時は専用ログ付きで`ollama serve`をloopback起動する。
 - 資料内の命令文は命令として実行しない。
 - 監査不合格は「わかりません」に停止する。
+
+## Cross-document semantic graph shadow
+
+成功時のshadow成果物は、公開世代内の`04-semantic-graph-shadow/`に次の4ファイルとして残ります。
+
+- `semantic-graph.sqlite3`: 質問非依存の意味グラフ候補
+- `semantic-graph-state.json`: Builderの入力hash・logical snapshot・件数
+- `semantic-graph-validation.json`: SQLite整合性、全record hash、安全入力との結合を再検査した結果
+- `shadow-run-state.json`: `complete`、処理時間、SQLiteサイズ、Node／Edge件数。メインの`state.json`と世代markerにも同じ観測要約を残す
+
+`held`時は候補SQLiteを削除し、理由を記録した`shadow-run-state.json`だけを残します。rollbackは設定の`cross_document_semantic_graph_shadow_enabled`を`false`にして再構築します。設定項目がない既存環境では有効へ移行しますが、明示した`false`は維持します。shadow pathは本番CONFIGへ公開されないため、無効化前に生成済みのSQLiteも回答経路からは到達できません。
+
+shadow中にアプリ自体が終了した場合、次回起動で公開済みsafe-answer indexを保持したまま、固定名の未完成候補だけを削除して`held`へ復旧します。ディレクトリ確定まで完了していた場合は完成shadowを削除せず、その状態を復元します。
+
+safe-answer indexとready状態を先に公開するため、shadowの完了待ちは回答開始を遅らせません。ただし同じMac上で同期観測を続けるため、bootstrap worker全体の終了時間、CPU負荷、世代内ディスク使用量は増えます。

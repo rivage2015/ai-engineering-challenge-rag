@@ -774,9 +774,17 @@ class PackageTests(unittest.TestCase):
     def test_bootstrap_publishes_only_a_complete_generation(self) -> None:
         bootstrap = (ROOT / "app" / "bootstrap.py").read_text(encoding="utf-8")
         build_body = bootstrap[bootstrap.index("def build_index") : bootstrap.index("def main")]
+        shadow_call = build_body.index(
+            "run_cross_document_semantic_graph_shadow("
+        )
         index_build = build_body.index('build_local_semantic_index.py')
         publish = build_body.index('published_config.update')
         self.assertLess(index_build, publish)
+        self.assertLess(publish, shadow_call)
+        self.assertLess(
+            build_body.index("atomic_json(STATE, state)", publish),
+            shadow_call,
+        )
         self.assertIn('"--source-root", str(source)', build_body[index_build:publish])
         self.assertIn(
             '"--source-inventory", str(paths / "path-source-inventory.jsonl")',
@@ -788,6 +796,34 @@ class PackageTests(unittest.TestCase):
         self.assertIn('"index_path": str(index)', build_body[publish:])
         self.assertIn('if not generation_published and generation.exists():', build_body)
         self.assertIn('shutil.rmtree(generation)', build_body)
+
+    def test_cross_document_graph_is_shadow_only_at_bootstrap_boundary(self) -> None:
+        bootstrap = (ROOT / "app" / "bootstrap.py").read_text(encoding="utf-8")
+        shadow_body = bootstrap[
+            bootstrap.index("def run_cross_document_semantic_graph_shadow") :
+            bootstrap.index("def build_index")
+        ]
+        build_body = bootstrap[
+            bootstrap.index("def build_index") : bootstrap.index("def main")
+        ]
+        self.assertIn("build_cross_document_semantic_graph.py", shadow_body)
+        self.assertIn("validate_cross_document_semantic_graph.py", shadow_body)
+        self.assertIn('"used_for_index": False', bootstrap)
+        self.assertIn('"used_for_answers": False', bootstrap)
+        published_config = build_body[
+            build_body.index("published_config.update") :
+            build_body.index("atomic_json(CONFIG, published_config)")
+        ]
+        self.assertNotIn("semantic_graph_shadow_path", published_config)
+
+        server = (ROOT / "app" / "local_memory_server.py").read_text(
+            encoding="utf-8"
+        )
+        answer_body = server[
+            server.index("def answer_query") : server.index("class Handler")
+        ]
+        self.assertIn('index = Path(config["index_path"])', answer_body)
+        self.assertNotIn("semantic_graph_shadow", answer_body)
 
     def test_server_never_queries_an_incomplete_generation(self) -> None:
         server = (ROOT / "app" / "local_memory_server.py").read_text(encoding="utf-8")
@@ -814,8 +850,18 @@ class PackageTests(unittest.TestCase):
             "validate_intermediate_records_streaming.py",
             "adapt_layer1_to_local_memory.py", "local_image_ocr.py",
             "local_paddle_ocr.py", "image_canonicalizer.swift",
+            "build_cross_document_semantic_graph.py",
+            "query_cross_document_semantic_graph.py",
+            "validate_cross_document_semantic_graph.py",
         ):
             self.assertIn(name, package)
+        repository_scripts = ROOT.parents[1] / "scripts"
+        for name in (
+            "build_cross_document_semantic_graph.py",
+            "query_cross_document_semantic_graph.py",
+            "validate_cross_document_semantic_graph.py",
+        ):
+            self.assertTrue((repository_scripts / name).is_file())
         for name in (
             "paddleocr-requirements.lock.txt",
             "paddleocr-model-manifest.json",

@@ -18,6 +18,7 @@ ENGINE = REPOSITORY / "distribution" / "macos-local-memory" / "engine"
 DATASET = REPOSITORY / "evaluation" / "cross-format-kg-v0.1"
 BUILDER = SCRIPTS / "build_cross_document_semantic_graph.py"
 ANSWERER = SCRIPTS / "query_cross_document_semantic_graph.py"
+SHADOW_VALIDATOR = SCRIPTS / "validate_cross_document_semantic_graph.py"
 RUNTIME_PYTHON = (
     REPOSITORY / "rag" / ".venv" / "bin" / "python"
     if (REPOSITORY / "rag" / ".venv" / "bin" / "python").is_file()
@@ -181,6 +182,45 @@ class CrossFormatKgPhase2Test(unittest.TestCase):
         self.assertTrue(
             all(item["answer"]["trace"]["disabled_edge_ids"] == [] for item in self.results)
         )
+
+    def test_real_five_document_graph_passes_shadow_validation(self) -> None:
+        candidate = self.work / "04-semantic-graph-shadow.building"
+        candidate.mkdir()
+        database = candidate / "semantic-graph.sqlite3"
+        builder_state = candidate / "semantic-graph-state.json"
+        shutil.copy2(self.output / database.name, database)
+        shutil.copy2(self.output / builder_state.name, builder_state)
+        validation = candidate / "semantic-graph-validation.json"
+        run_checked([
+            str(Path(sys.executable)),
+            str(SHADOW_VALIDATOR),
+            "--database",
+            str(database),
+            "--state",
+            str(builder_state),
+            "--documents",
+            str(self.safe_phase1 / "semantic-documents.jsonl"),
+            "--source-evidence",
+            str(self.safe_phase1 / "semantic-evidence.jsonl"),
+            "--evidence",
+            str(self.safe_phase1 / "safe-answer-evidence.jsonl"),
+            "--security-state",
+            str(self.safe_phase1 / "content-security-state.json"),
+            "--security-gate-dir",
+            str(self.safe_phase1),
+            "--security-validator",
+            str(ENGINE / "validate_content_security_gate.py"),
+            "--generation-dir",
+            str(self.work),
+            "--output",
+            str(validation),
+        ])
+        state = json.loads(validation.read_text(encoding="utf-8"))
+        self.assertEqual("complete", state["status"])
+        self.assertEqual(5, state["counts"]["documents"])
+        self.assertEqual(144, state["counts"]["source_evidence"])
+        self.assertEqual(13, state["counts"]["nodes"])
+        self.assertEqual(16, state["counts"]["edges"])
 
     def test_answerer_inputs_contain_question_only(self) -> None:
         question_files = sorted((self.output / "answerer-io").glob("question-*.jsonl"))

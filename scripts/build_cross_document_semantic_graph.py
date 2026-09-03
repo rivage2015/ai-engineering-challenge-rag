@@ -27,7 +27,7 @@ from typing import Any, Iterable, Mapping, Sequence
 
 SCHEMA_VERSION = "0.1"
 BUILDER_NAME = "cross-document-semantic-graph-builder"
-BUILDER_VERSION = "0.1.0"
+BUILDER_VERSION = "0.1.1"
 NODE_TYPES = {
     "Project", "ProjectAlias", "Work", "WorkName", "Employee", "Person",
     "Claim", "Reason",
@@ -1305,6 +1305,9 @@ def build(
     document_records = _read_jsonl(documents_path, "document")
     evidence_records = _read_jsonl(evidence_path, "evidence")
     documents, evidence = _prepare_inputs(document_records, evidence_records)
+    # The document manifest can include a document whose Evidence was entirely
+    # quarantined.  Keep input coverage separate from safe graph membership.
+    graph_document_count = len({item.document_id for item in evidence})
     tables = _structured_tables(evidence)
     rows = _parse_structured_rows(tables)
     facts = _document_facts(documents, evidence, tables)
@@ -1334,7 +1337,7 @@ def build(
         "logical_snapshot_sha256": logical_sha256,
         "documents_input_sha256": sha256_file(documents_path),
         "evidence_input_sha256": sha256_file(evidence_path),
-        "document_count": len(documents),
+        "document_count": graph_document_count,
         "source_evidence_count": len(evidence),
         "node_count": len(nodes),
         "edge_count": len(edges),
@@ -1356,7 +1359,8 @@ def build(
             "record_type": "cross_document_semantic_graph_state",
             "sqlite_sha256": sqlite_sha256,
             "counts": {
-                "documents": len(documents),
+                "input_documents": len(documents),
+                "documents": graph_document_count,
                 "source_evidence": len(evidence),
                 "nodes": len(nodes),
                 "edges": len(edges),

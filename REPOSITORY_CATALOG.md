@@ -99,6 +99,8 @@
 | 適応型Reader検証 | `engine/validate_adaptive_semantic_graph.py` | 由来、hash、対応範囲、安全境界をfail-closedで検査する |
 | 安全分離 | `engine/content_security_gate.py` | 資料中の命令らしい記述を回答用Evidenceから隔離する |
 | 意味索引 | `engine/build_local_semantic_index.py` | ローカル埋め込みと検証済みsafe Graphを一つのSQLite世代へ原子的に作る |
+| Cross-document shadow Builder | `scripts/build_cross_document_semantic_graph.py` | 最終safe Evidenceから質問非依存のentity Node／semantic Edge候補を別SQLiteへ生成する |
+| Cross-document shadow Validator | `scripts/validate_cross_document_semantic_graph.py` | SQLite、全record hash、logical snapshotを再検査し、Content Security Gateと全6出力も入力から再生成して照合する |
 | パッケージ生成 | `build/build_package.sh` | 未署名DMG／ZIPを作る |
 
 ### 4. General Memory評価セット
@@ -122,13 +124,14 @@
 | 主な場所 | `evaluation/cross-format-kg-v0.1/` |
 | 目的 | DOCX、XLSX、PPTX、PDFへ意図的に分割した事実を、検証済みsemantic Edgeで横断して回答できるか判定する |
 | 中身 | 架空案件の固定5ファイル、14本の正解Edge、4件の回答ケース、1件のHOLDケース、固定hash manifest |
-| 現在地 | 4形式・5/5ファイルの読取に加え、14/14 Gold Edge、通常5/5問、物理Edge ablation 29/29件を合格。本番アプリ統合は未実施 |
+| 現在地 | 4形式・5/5ファイルの読取に加え、14/14 Gold Edge、通常5/5問、物理Edge ablation 29/29件を合格。本番bootstrapの非回答shadow生成・独立検証まで接続済み |
 | 入口 | `evaluation/cross-format-kg-v0.1/README.md` |
 
 単に複数資料を検索結果へ並べることと、関係を辿って答えを導くことを区別するための評価セットです。
 Goldと質問はbuild入力から隔離し、必要Edgeを物理的に1本外したhash-validな独立SQLiteでも
-同じ断定回答を返さないことを検査します。この合格は評価用overlayの証明であり、現行macOSアプリの
-本番回答経路がsemantic entity Edgeを利用しているという意味ではありません。
+同じ断定回答を返さないことを検査します。評価済みBuilderは現行macOSアプリの最終Security世代から
+shadow SQLiteを生成するところまで接続済みですが、CONFIG、検索索引、回答器へgraph pointerを渡して
+いません。したがって、本番回答経路がsemantic entity Edgeを利用しているという意味ではありません。
 
 ### 6. 設計・調査・引き継ぎ記録
 

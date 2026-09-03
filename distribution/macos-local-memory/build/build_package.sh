@@ -30,6 +30,9 @@ cp \
   "$ROOT/scripts/validate_intermediate_records_streaming.py" \
   "$ROOT/scripts/lexical_search_common.py" \
   "$ROOT/scripts/adapt_layer1_to_local_memory.py" \
+  "$ROOT/scripts/build_cross_document_semantic_graph.py" \
+  "$ROOT/scripts/query_cross_document_semantic_graph.py" \
+  "$ROOT/scripts/validate_cross_document_semantic_graph.py" \
   "$ROOT/scripts/local_image_ocr.py" \
   "$ROOT/scripts/local_paddle_ocr.py" \
   "$ROOT/scripts/extract_ocr_observations.py" \
