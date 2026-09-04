@@ -102,6 +102,7 @@
 | Cross-document shadow Builder | `scripts/build_cross_document_semantic_graph.py` | 最終safe Evidenceから質問非依存のentity Node／semantic Edge候補を別SQLiteへ生成する |
 | Cross-document shadow Validator | `scripts/validate_cross_document_semantic_graph.py` | SQLite、全record hash、logical snapshotを再検査し、Content Security Gateと全6出力も入力から再生成して照合する |
 | Cross-document storage Projector | `scripts/project_cross_document_graph_to_answer_index.py` | 検証済みshadowを、元safe-answer indexを壊さない別コピーの`semantic_graph_*`表へ保存する。Step 2では検索・回答に接続しない |
+| Cross-document query candidate | `engine/cross_document_semantic_graph_runtime.py` | 実質問時に保存済みsemantic Node／Edge／support Evidenceを検証・走査し、回答非反映の候補traceまたはHOLDを記録する |
 | パッケージ生成 | `build/build_package.sh` | 未署名DMG／ZIPを作る |
 
 ### 4. General Memory評価セット
@@ -125,13 +126,13 @@
 | 主な場所 | `evaluation/cross-format-kg-v0.1/` |
 | 目的 | DOCX、XLSX、PPTX、PDFへ意図的に分割した事実を、検証済みsemantic Edgeで横断して回答できるか判定する |
 | 中身 | 架空案件の固定5ファイル、14本の正解Edge、4件の回答ケース、1件のHOLDケース、固定hash manifest |
-| 現在地 | 4形式・5/5ファイルの読取に加え、14/14 Gold Edge、通常5/5問、物理Edge ablation 29/29件を合格。本番bootstrapのshadow生成・独立検証と、回答非接続のstorage-only保存まで接続 |
+| 現在地 | 4形式・5/5ファイルの読取に加え、14/14 Gold Edge、通常5/5問、物理Edge ablation 29/29件を合格。本番bootstrapのshadow生成・独立検証、storage-only保存、実質問でのquery candidate走査まで接続。候補は回答非反映 |
 | 入口 | `evaluation/cross-format-kg-v0.1/README.md` |
 
 単に複数資料を検索結果へ並べることと、関係を辿って答えを導くことを区別するための評価セットです。
 Goldと質問はbuild入力から隔離し、必要Edgeを物理的に1本外したhash-validな独立SQLiteでも
 同じ断定回答を返さないことを検査します。評価済みBuilderは現行macOSアプリの最終Security世代から
-shadow SQLiteを生成・検証し、先に公開した元safe-answer indexの別コピーへ`semantic_graph_*`表として保存するところまで接続しています。CONFIGには検証済みstorage-only SQLiteが登録されますが、`retrieval_enabled=false`、`used_for_answers=false`のままで、回答器はsemantic表を参照しません。したがって、本番回答経路がsemantic entity Edgeを利用するのはStep 3以降です。
+shadow SQLiteを生成・検証し、先に公開した元safe-answer indexの別コピーへ`semantic_graph_*`表として保存します。CONFIGに検証済みstorage-only SQLiteが登録されると、Step 3のquery candidateだけが、従来回答と従来最終監査の完了後に別プロセスでsemantic表を検証・走査し、候補の使用EdgeとEvidenceを監査済み回答記録へ後付けします。DB・state・元indexはCONFIGの登録hashに固定し、「N年前」は従来回答と監査済み記録で一致した`question_reference_date`へ固定します。timeout、改ざん、基準日の不一致は候補側だけをHOLDにします。既存の回答本文と最終採否はこの候補を入力にせず、`used_for_answers=false`を維持します。Step 4の独立Edge監査が未実装なので、semantic候補をユーザー回答へ昇格させる段階ではありません。
 
 ### 6. 設計・調査・引き継ぎ記録
 

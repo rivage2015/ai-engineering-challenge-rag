@@ -64,6 +64,213 @@ DATE_ISO = re.compile(
     r"(?P<month>1[0-2]|0?[1-9])[-/.]"
     r"(?P<day>3[01]|[12]\d|0?[1-9])(?!\d)"
 )
+ABSOLUTE_DATE_TEXT = (
+    r"(?:[12]\d{3}\s*年\s*(?:1[0-2]|0?[1-9])\s*月\s*"
+    r"(?:3[01]|[12]\d|0?[1-9])\s*日|"
+    r"[12]\d{3}[-/.](?:1[0-2]|0?[1-9])[-/.]"
+    r"(?:3[01]|[12]\d|0?[1-9]))"
+)
+ABSOLUTE_DATE_APPROX_OR_RANGE = re.compile(
+    rf"(?:約|およそ|だいたい|大体|おおむね|概ね|ほぼ|ざっと|"
+    rf"多分|たぶん|おそらく|恐らく|少なくとも|少なくても|"
+    rf"最低でも|最大でも|遅くとも|早くとも|多くとも)\s*"
+    rf"{ABSOLUTE_DATE_TEXT}"
+    rf"|{ABSOLUTE_DATE_TEXT}\s*"
+    rf"(?:頃|ごろ|前後|くらい|ぐらい|ほど|程度|あたり|辺り|付近|位|"
+    rf"から|以降|まで|以前|より昔|より(?:も|少し|も少し)?(?:後|前)|"
+    rf"(?:の\s*)?(?:直前|直後)|を中心に|"
+    rf"かそれ(?:以前|以降|より前|より後)|"
+    rf"ではない|じゃない|以外|を除く|かもしれない|"
+    rf"(?:〜|～|~|-|−|—|–|/|／)\s*"
+    rf"(?:[0-9〇零一二三四五六七八九十]+)(?:\s*日)?)"
+)
+ABSOLUTE_DATE_CALENDAR_DETAIL = re.compile(
+    rf"{ABSOLUTE_DATE_TEXT}\s*(?:の\s*)?"
+    rf"(?:前日|翌日|[0-9〇零一二三四五六七八九十]+\s*日\s*(?:前|後)|"
+    r"初め|初頭|前半|後半|終わり|年央|上旬|中旬|下旬|"
+    r"ゴールデンウィーク|午前|午後|正午|朝|昼|夕方|夜|深夜)"
+)
+RELATIVE_YEARS_AGO = re.compile(
+    r"(?<![0-9.+\-−〇零一二三四五六七八九十])"
+    r"(?P<years>[0-9〇零一二三四五六七八九十]+)\s*年前"
+)
+RELATIVE_YEAR_COUNT = r"(?:[0-9]+|[〇零一二三四五六七八九十]+)"
+RELATIVE_YEAR_APPROX_OR_RANGE = re.compile(
+    rf"(?:約|およそ|だいたい|大体|おおむね|概ね|ほぼ|ざっと|"
+    rf"多分|たぶん|おそらく|恐らく|少なくとも|少なくても|"
+    rf"最低でも|最大でも|遅くとも|早くとも|多くとも)\s*"
+    rf"{RELATIVE_YEAR_COUNT}\s*年前"
+    rf"|{RELATIVE_YEAR_COUNT}\s*年前\s*"
+    rf"(?:から|以降|まで|以前|より後|より前|より昔|ごろ|頃|"
+    rf"くらい|ぐらい|ほど|程度|あたり|辺り|付近|位|"
+    rf"以上|以下|以内|未満|超|"
+    rf"より昔|より(?:も|少し|も少し)?(?:前|後)|"
+    rf"(?:の\s*)?(?:直前|直後)|を中心に|"
+    rf"かそれ(?:以前|以降|より前|より後)|"
+    rf"ではない|じゃない|以外|を除く|かもしれない)"
+    rf"|{RELATIVE_YEAR_COUNT}\s*年前後"
+    rf"|{RELATIVE_YEAR_COUNT}\s*年\s*"
+    rf"(?:以上|以下|未満|超|より|ほど|くらい|ぐらい|程度)\s*前"
+    rf"|{RELATIVE_YEAR_COUNT}(?:\s*年)?\s*"
+    rf"(?:〜|～|~|-|−|—|–|/|／|、|,|・|か|から|ないし|"
+    rf"又は|または|あるいは|もしくは)\s*"
+    rf"{RELATIVE_YEAR_COUNT}\s*年前"
+)
+RELATIVE_YEAR_LIKE = re.compile(
+    rf"{RELATIVE_YEAR_COUNT}\s*年[^。?？!！\n]{{0,12}}?前"
+)
+RELATIVE_YEAR_CALENDAR_DETAIL = re.compile(
+    rf"{RELATIVE_YEAR_COUNT}\s*年前\s*(?:の\s*)?"
+    r"(?:時点(?:で|の)?\s*)?(?:は\s*)?(?:、|,)?\s*"
+    rf"(?:{RELATIVE_YEAR_COUNT}\s*月"
+    rf"(?:\s*{RELATIVE_YEAR_COUNT}\s*日)?|"
+    rf"{RELATIVE_YEAR_COUNT}\s*日|"
+    rf"{RELATIVE_YEAR_COUNT}\s*"
+    rf"(?:[/.-]\s*{RELATIVE_YEAR_COUNT}){{1,2}}|"
+    r"(?:[Qq][1-4]|[1-4][Qq])|"
+    rf"第?\s*{RELATIVE_YEAR_COUNT}\s*週|"
+    rf"年度(?:初|末|上期|下期)?|"
+    rf"第?\s*{RELATIVE_YEAR_COUNT}\s*四半期|"
+    r"上期|下期|上半期|下半期|月初|月末|年初|年末|年末年始|"
+    r"初め|初頭|前半|後半|終わり|年央|上旬|中旬|下旬|"
+    r"ゴールデンウィーク|元日|正月|同日|同月|同時期|今日|"
+    r"(?:月|火|水|木|金|土|日)曜日|"
+    r"午前|午後|正午|朝|昼|夕方|夜|深夜|春|夏|秋|冬)"
+)
+ALLOWED_RUN_DATE_ANCHOR = re.compile(
+    rf"(?:今|現在|現時点)\s*"
+    rf"(?:から\s*(?:(?:数えて|遡って|さかのぼって)\s*)?|"
+    rf"(?:を)?(?:基準|起点)(?:に|として)\s*)"
+    rf"(?:ちょうど|まさに)?\s*"
+    rf"(?P<relative>{RELATIVE_YEAR_COUNT}\s*年前)"
+)
+OTHER_TEMPORAL_CONTEXT = re.compile(
+    r"(?:一昨日|昨日|今日|明日|明後日|先日|当日|前日|翌日|"
+    r"先々週|先週|今週|来週|再来週|先々月|先月|今月|来月|再来月|"
+    r"一昨年度|昨年度|今年度|来年度|再来年度|"
+    r"一昨年|昨年|去年|今年|来年|再来年|"
+    r"現在|現時点|当時|その時|将来|今後|昔|過去)"
+    rf"|(?:{RELATIVE_YEAR_COUNT}|数|半)\s*"
+    r"(?:か月|ヶ月|ヵ月|ケ月|月|週間?|日間?|時間|分|秒)\s*"
+    r"(?:前|まえ|後|あと)"
+    r"|(?:数|半)\s*年(?:間)?"
+    r"|(?<!\d)[12]\d{3}\s*年"
+    rf"|(?:令和|平成|昭和)\s*(?:元|{RELATIVE_YEAR_COUNT})\s*年"
+)
+EVENT_RELATIVE_YEAR = re.compile(
+    rf"(?:開始|終了|交代|交替|変更|異動|退任|着任|入社|退社|"
+    rf"就任|離任|引き継ぎ|引継ぎ)(?:した|する)?(?:日|時点)?\s*"
+    rf"(?:の|から|より)?\s*(?:(?:数えて|遡って|さかのぼって)\s*)?"
+    rf"{RELATIVE_YEAR_COUNT}\s*年前"
+)
+ARBITRARY_RELATIVE_YEAR_ANCHOR = re.compile(
+    rf"(?:(?:から|より)\s*(?:(?:数えて|遡って|さかのぼって)\s*)?|"
+    rf"(?:を)?(?:基準|起点)(?:日|時点)?(?:に|として|から|より|の)\s*)"
+    rf"{RELATIVE_YEAR_COUNT}\s*年前"
+)
+RELATIVE_ALLOWED_PREFIX = re.compile(
+    r"(?:(?:今|現在|現時点)\s*"
+    r"(?:から\s*(?:(?:数えて|遡って|さかのぼって)\s*)?|"
+    r"(?:を)?(?:基準|起点)(?:に|として)\s*))?"
+    r"(?:ちょうど|まさに)?\s*$"
+)
+ABSOLUTE_ALLOWED_PREFIX = re.compile(r"(?:ちょうど|まさに)?\s*$")
+TEMPORAL_LEFT_BOUNDARY = re.compile(
+    r"(?:^|[、,。?？!！:：;；（(\[「『]|(?:は|で|に|を))\s*$"
+)
+EXACT_TIME_ALLOWED_SUFFIX = re.compile(
+    r"^\s*(?:"
+    r"(?:の\s*)?時点\s*(?:で(?:は|の)?|は|に(?:おける)?)|"
+    r"(?:現在|付)\s*(?:で(?:は|の)?|は|に)|"
+    r"を\s*(?:基準|起点)\s*(?:に|として)|"
+    r"で(?:は|の)?|は|に|の"
+    r")?\s*(?:、|,)?\s*"
+    r"(?=(?:誰|どなた|主担当|担当者?|受け持))"
+)
+OWNER_TIME_QUESTION_TAIL = re.compile(
+    r"^\s*(?:"
+    r"(?:誰|どなた)が\s*(?:この業務(?:を|の)?\s*)?"
+    r"(?:主担当|担当者?|担当|受け持ち)"
+    r"(?:でした|だった|です|なのか|していました|しています|していた|している)?"
+    r"(?:か|でしょうか)?|"
+    r"(?:主担当|担当者?|担当|受け持ち)(?:は|が)?\s*(?:誰|どなた)"
+    r"(?:でした|だった|です|なのか)?(?:か|でしょうか)?"
+    r")\s*[。.?？!！]*\s*$"
+)
+PROJECT_TO_WORK_BRIDGE = re.compile(
+    r"^\s*(?:の|で|における|内の)\s*[「『\"（(\[]*\s*$"
+)
+WORK_TO_TIME_BRIDGE = re.compile(
+    r"^\s*[」』\"）)\]]*\s*(?:は|で|について|の)?\s*(?:、|,)?\s*$"
+)
+ASSIGNMENT_CHANGE_QUESTION_TAIL = re.compile(
+    r"^\s*[」』\"）)\]]*\s*(?:"
+    r"で\s*(?:、|,)?\s*主担当が(?:切り替わった|交代した)日と\s*"
+    r"(?:、|,)?\s*(?:(?:変更前\s*(?:・|と)\s*変更後)|"
+    r"(?:前任\s*(?:・|と)\s*後任))(?:の担当者)?を"
+    r"(?:答えて|教えて)ください|"
+    r"の\s*主担当がいつ(?:変わった|変更された)か\s*(?:、|,)?\s*"
+    r"変更前後の担当者を(?:答えて|教えて)ください"
+    r")\s*[。.?？!！]*\s*$"
+)
+VERSION_CHANGE_QUESTION_TAIL = re.compile(
+    r"^\s*[」』\"）)\]]*\s*(?:"
+    r"について\s*(?:、|,)?\s*承認済みの担当変更理由と\s*"
+    r"(?:、|,)?\s*旧案から何が変わったかを(?:答えて|教えて)ください|"
+    r"で\s*(?:、|,)?\s*旧版から何が変わったのか\s*"
+    r"(?:、|,)?\s*担当変更の背景も(?:答えて|教えて)ください"
+    r")\s*[。.?？!！]*\s*$"
+)
+UNCONSUMED_TEMPORAL_SIGNAL = re.compile(
+    rf"{ABSOLUTE_DATE_TEXT}|{RELATIVE_YEAR_LIKE.pattern}|"
+    r"(?:約|およそ|だいたい|大体|おおむね|概ね|ほぼ|ざっと|"
+    r"多分|たぶん|おそらく|恐らく|もしかすると|たしか|確か|"
+    r"推定|推測|確証|記憶違い|仮|想定|可能性|予想|少なくとも|"
+    r"少なくても|最低でも|最大でも|遅くとも|早くとも|多くとも)|"
+    r"(?:かもしれない|かもしれません|かどうか|だったかも|"
+    r"だった(?:と思う|はず)|らしい|"
+    r"と思われる|ではない|ではなく|じゃない|以外|除く|"
+    r"または|又は|もしくは|あるいは|ないし|その前|もっと前|"
+    r"それ以前|それ以降|それより前|それより後|その後|後日|以後|"
+    r"継続|引き続き|そのまま|別の日|別日)|"
+    r"(?:頃|ごろ|時期|どこか|前後|くらい|ぐらい|ほど|程度|"
+    r"あたり|辺り|付近|近辺|近く|周辺|近傍|中心|境に|直前|直後|"
+    r"ちょっと|やや|若干|少し)|"
+    r"(?:前年|翌年|次年|前月|翌月|次月|前週|翌週|次週|"
+    r"前日|翌日|前々日|翌々日|次の日|前の日|前営業日|翌営業日|"
+    r"同日|その日|期首|期末|誕生日)|"
+    r"(?:初め|初頭|前半|後半|終わり|年央|上旬|中旬|下旬|"
+    r"ゴールデンウィーク|元日|正月|年末年始|月初|月末|年初|年末|"
+    r"上期|下期|上半期|下半期|四半期|"
+    r"午前|午後|正午|朝|昼|夕方|夜|深夜|春|夏|秋|冬)|"
+    r"(?:一昨日|昨日|今日|明日|明後日|先日|当日|"
+    r"先々週|先週|今週|来週|再来週|先々月|先月|今月|来月|再来月|"
+    r"一昨年度|昨年度|今年度|来年度|再来年度|"
+    r"一昨年|昨年|去年|今年|来年|再来年|"
+    r"現在|現時点|当時|その時|将来|今後|昔|過去)|"
+    rf"(?:{RELATIVE_YEAR_COUNT}|数|半)\s*"
+    r"(?:年|ねん|か月|ヶ月|ヵ月|ケ月|月|週間?|日間?|日|時間|分|秒)|"
+    rf"(?:令和|平成|昭和)\s*(?:元|{RELATIVE_YEAR_COUNT})\s*年|"
+    r"(?:開始|終了|交代|交替|変更|異動|退任|着任|入社|退社|"
+    r"就任|離任|引き継ぎ|引継ぎ)(?:した|する)?(?:日|時点)?\s*"
+    r"(?:から|より|の)|"
+    r"(?:基準|起点)(?:日|時点)?|時点|(?:の)?ときから"
+)
+QUESTION_TIME_SCOPE_SIGNAL = re.compile(
+    rf"(?:前年|翌年|次年|前月|翌月|次月|前週|翌週|次週|"
+    rf"前日|翌日|前々日|翌々日|前営業日|翌営業日|同日|その日|"
+    rf"春|夏|秋|冬|上期|下期|上半期|下半期|"
+    rf"今期|前期|当期|次期|今四半期|期首|期末|年初|年末|月末|年度末|"
+    rf"上旬|中旬|下旬|初日|最終日|午前|午後|正午|朝|昼|夕方|夜|深夜|"
+    rf"未明|夕刻|ゴールデンウィーク|盆|連休|"
+    rf"(?:月|火|水|木|金|土|日)曜日|[Qq][1-4]|"
+    rf"[12]\d{{3}}\s*[Qq][1-4]|"
+    rf"[12]\d{{3}}[-/.](?:1[0-2]|0?[1-9])(?![-/.]\d)|"
+    rf"(?<!\d)(?:1[0-2]|0?[1-9])[/.-](?:3[01]|[12]\d|0?[1-9])(?!\d)|"
+    rf"第?\s*{RELATIVE_YEAR_COUNT}\s*四半期|"
+    rf"{RELATIVE_YEAR_COUNT}\s*(?:月|年度|四半期|週))\s*"
+    r"(?:に|の|は|で|頃|ごろ|時点)?"
+)
 
 
 class GraphContractError(ValueError):
@@ -503,9 +710,147 @@ def _normalize_for_match(value: str) -> str:
     return unicodedata.normalize("NFKC", value).casefold().strip()
 
 
-def _parse_question_date(question: str) -> str | None:
+def _strict_reference_date(value: str | None) -> str | None:
+    if value is None:
+        return None
+    if not isinstance(value, str):
+        raise ValueError("reference_date must be strict ISO YYYY-MM-DD")
+    try:
+        parsed = date.fromisoformat(value)
+    except ValueError as exc:
+        raise ValueError(
+            "reference_date must be strict ISO YYYY-MM-DD"
+        ) from exc
+    if parsed.isoformat() != value:
+        raise ValueError("reference_date must be strict ISO YYYY-MM-DD")
+    return value
+
+
+def _japanese_integer(value: str) -> int | None:
+    normalized = unicodedata.normalize("NFKC", value)
+    if normalized.isdecimal():
+        return int(normalized)
+    digits = {
+        "一": 1, "二": 2, "三": 3, "四": 4, "五": 5,
+        "六": 6, "七": 7, "八": 8, "九": 9, "〇": 0, "零": 0,
+    }
+    if "十" in normalized:
+        if normalized.count("十") != 1:
+            return None
+        tens_text, ones_text = normalized.split("十")
+        if len(tens_text) > 1 or len(ones_text) > 1:
+            return None
+        tens = digits.get(tens_text, 1) if tens_text else 1
+        ones = digits.get(ones_text, 0) if ones_text else 0
+        if tens is None or ones is None or tens == 0:
+            return None
+        return tens * 10 + ones
+    if not normalized or any(character not in digits for character in normalized):
+        return None
+    return int("".join(str(digits[character]) for character in normalized))
+
+
+def _subtract_calendar_years(reference: date, years: int) -> date:
+    target_year = reference.year - years
+    if target_year < 1:
+        raise ResolutionError(
+            "reference_time_invalid", "relative date is outside the supported range"
+        )
+    try:
+        return reference.replace(year=target_year)
+    except ValueError as exc:
+        if reference.month == 2 and reference.day == 29:
+            return date(target_year, 2, 28)
+        raise ResolutionError(
+            "reference_time_invalid", "relative date could not be resolved"
+        ) from exc
+
+
+def _has_unconsumed_temporal_context(
+    question: str,
+    start: int,
+    end: int,
+    *,
+    relative: bool,
+    project_surfaces: Iterable[str],
+    work_surfaces: Iterable[str],
+) -> bool:
+    """Reject a point date when surrounding temporal language is left over.
+
+    The bounded owner query supports exactly one calendar day.  Consume only
+    the small grammar that preserves that meaning (for example, ``今から``
+    before ``5年前`` and ``時点で`` after a date).  Any remaining date,
+    range, modifier, event anchor, negation, or uncertainty signal makes the
+    reference time ambiguous and therefore fail-closed.
+    """
+
+    left = question[:start]
+    right = question[end:]
+    prefix_pattern = RELATIVE_ALLOWED_PREFIX if relative else ABSOLUTE_ALLOWED_PREFIX
+    prefix_match = prefix_pattern.search(left)
+    if prefix_match is None:
+        return True
+    if TEMPORAL_LEFT_BOUNDARY.search(left[:prefix_match.start()]) is None:
+        return True
+    subject_boundary = prefix_match.start()
+    subject_matches: list[tuple[int, int, int, int]] = []
+    for work_surface in work_surfaces:
+        normalized_work = _normalize_for_match(work_surface)
+        if not normalized_work:
+            continue
+        work_start = question.rfind(normalized_work, 0, subject_boundary)
+        if work_start < 0:
+            continue
+        work_end = work_start + len(normalized_work)
+        if WORK_TO_TIME_BRIDGE.fullmatch(
+            question[work_end:subject_boundary]
+        ) is None:
+            continue
+        for project_surface in project_surfaces:
+            normalized_project = _normalize_for_match(project_surface)
+            if not normalized_project:
+                continue
+            project_start = question.rfind(normalized_project, 0, work_start)
+            if project_start < 0:
+                continue
+            project_end = project_start + len(normalized_project)
+            if question[:project_start].strip():
+                continue
+            if PROJECT_TO_WORK_BRIDGE.fullmatch(
+                question[project_end:work_start]
+            ) is None:
+                continue
+            subject_matches.append(
+                (project_start, project_end, work_start, work_end)
+            )
+    if len(set(subject_matches)) != 1:
+        return True
+    suffix_match = EXACT_TIME_ALLOWED_SUFFIX.match(right)
+    if suffix_match is None:
+        return True
+    if OWNER_TIME_QUESTION_TAIL.fullmatch(right[suffix_match.end():]) is None:
+        return True
+    remainder = left[:prefix_match.start()] + " " + right[suffix_match.end():]
+    return UNCONSUMED_TEMPORAL_SIGNAL.search(remainder) is not None
+
+
+def _parse_question_date(
+    question: str,
+    reference_date: str | None = None,
+    *,
+    project_surfaces: Iterable[str] = (),
+    work_surfaces: Iterable[str] = (),
+) -> str | None:
     question = _normalize_for_match(question)
-    values: set[str] = set()
+    if (
+        ABSOLUTE_DATE_APPROX_OR_RANGE.search(question)
+        or ABSOLUTE_DATE_CALENDAR_DETAIL.search(question)
+    ):
+        raise ResolutionError(
+            "reference_time_ambiguous",
+            "approximate, ranged, or bounded absolute dates are unsupported",
+        )
+    explicit_matches: list[tuple[re.Match[str], str]] = []
     for pattern in (DATE_JA, DATE_ISO):
         for match in pattern.finditer(question):
             try:
@@ -518,12 +863,96 @@ def _parse_question_date(question: str) -> str | None:
                 raise ResolutionError(
                     "reference_time_invalid", "question contains an invalid date"
                 ) from exc
-            values.add(value)
-    if len(values) > 1:
+            explicit_matches.append((match, value))
+    relative_matches = list(RELATIVE_YEARS_AGO.finditer(question))
+    if len(explicit_matches) > 1 or (explicit_matches and relative_matches):
         raise ResolutionError(
             "reference_time_ambiguous", "question contains multiple reference dates"
         )
-    return next(iter(values), None)
+    if explicit_matches:
+        explicit_match, explicit_value = explicit_matches[0]
+        if _has_unconsumed_temporal_context(
+            question,
+            explicit_match.start(),
+            explicit_match.end(),
+            relative=False,
+            project_surfaces=project_surfaces,
+            work_surfaces=work_surfaces,
+        ):
+            raise ResolutionError(
+                "reference_time_ambiguous",
+                "non-exact or mixed absolute dates are unsupported",
+            )
+        return explicit_value
+    if relative_matches:
+        guarded_question = ALLOWED_RUN_DATE_ANCHOR.sub(
+            lambda match: match.group("relative"), question
+        )
+        temporal_remainder = RELATIVE_YEARS_AGO.sub(" ", guarded_question)
+        if (
+            RELATIVE_YEAR_APPROX_OR_RANGE.search(question)
+            or RELATIVE_YEAR_CALENDAR_DETAIL.search(question)
+            or EVENT_RELATIVE_YEAR.search(question)
+            or ARBITRARY_RELATIVE_YEAR_ANCHOR.search(guarded_question)
+            or OTHER_TEMPORAL_CONTEXT.search(temporal_remainder)
+        ):
+            raise ResolutionError(
+                "reference_time_ambiguous",
+                "non-exact or mixed relative dates are unsupported",
+            )
+        if len(relative_matches) != 1:
+            raise ResolutionError(
+                "reference_time_ambiguous",
+                "question contains multiple reference dates",
+            )
+        relative_match = relative_matches[0]
+        if _has_unconsumed_temporal_context(
+            question,
+            relative_match.start(),
+            relative_match.end(),
+            relative=True,
+            project_surfaces=project_surfaces,
+            work_surfaces=work_surfaces,
+        ):
+            raise ResolutionError(
+                "reference_time_ambiguous",
+                "non-exact or mixed relative dates are unsupported",
+            )
+        relative_years: set[int] = set()
+        for match in relative_matches:
+            years = _japanese_integer(match.group("years"))
+            if years is None or not 1 <= years <= 99:
+                raise ResolutionError(
+                    "reference_time_invalid",
+                    "relative year offset is outside the supported range",
+                )
+            relative_years.add(years)
+        if len(relative_years) != 1:
+            raise ResolutionError(
+                "reference_time_ambiguous",
+                "question contains multiple reference dates",
+            )
+        if reference_date is None:
+            raise ResolutionError(
+                "reference_time_required",
+                "相対日付を解決する実行基準日を確認できません。",
+            )
+        reference = date.fromisoformat(reference_date)
+        return _subtract_calendar_years(
+            reference, next(iter(relative_years))
+        ).isoformat()
+    return None
+
+
+def _question_has_reference_time(question: str) -> bool:
+    normalized = _normalize_for_match(question)
+    return bool(
+        DATE_JA.search(normalized)
+        or DATE_ISO.search(normalized)
+        or RELATIVE_YEAR_LIKE.search(normalized)
+        or OTHER_TEMPORAL_CONTEXT.search(normalized)
+        or QUESTION_TIME_SCOPE_SIGNAL.search(normalized)
+    )
 
 
 def _date_property(properties: dict[str, Any], key: str) -> date | None:
@@ -678,6 +1107,68 @@ def _resolve_subject(
     return project, work, selected_edges
 
 
+def _subject_surfaces(
+    traversal: Traversal,
+    project: Node,
+    work: Node,
+) -> tuple[set[str], set[str]]:
+    project_surfaces = {project.canonical_key}
+    project_surfaces.update(
+        traversal.node(edge.to_node_id).canonical_key
+        for edge in traversal.candidates(
+            "HAS_ALIAS", from_node_id=project.node_id
+        )
+    )
+    work_surfaces = {work.canonical_key}
+    work_surfaces.update(
+        traversal.node(edge.to_node_id).canonical_key
+        for edge in traversal.candidates(
+            "HAS_NAME", from_node_id=work.node_id
+        )
+    )
+    return project_surfaces, work_surfaces
+
+
+def _non_owner_question_form_supported(
+    question: str,
+    operation: str,
+    project_surfaces: Iterable[str],
+    work_surfaces: Iterable[str],
+) -> bool:
+    normalized = _normalize_for_match(question)
+    tail_pattern = {
+        "assignment_change": ASSIGNMENT_CHANGE_QUESTION_TAIL,
+        "version_change": VERSION_CHANGE_QUESTION_TAIL,
+    }.get(operation)
+    if tail_pattern is None:
+        return False
+    matching_layouts: set[tuple[int, int, int, int]] = set()
+    for project_surface in project_surfaces:
+        normalized_project = _normalize_for_match(project_surface)
+        if not normalized_project or not normalized.startswith(normalized_project):
+            continue
+        project_start = 0
+        project_end = len(normalized_project)
+        for work_surface in work_surfaces:
+            normalized_work = _normalize_for_match(work_surface)
+            if not normalized_work:
+                continue
+            work_start = normalized.find(normalized_work, project_end)
+            if work_start < 0:
+                continue
+            work_end = work_start + len(normalized_work)
+            if PROJECT_TO_WORK_BRIDGE.fullmatch(
+                normalized[project_end:work_start]
+            ) is None:
+                continue
+            if tail_pattern.fullmatch(normalized[work_end:]) is None:
+                continue
+            matching_layouts.add(
+                (project_start, project_end, work_start, work_end)
+            )
+    return len(matching_layouts) == 1
+
+
 def _role_for_question(question: str, assignment_edges: list[Edge]) -> str:
     roles = {
         str(edge.properties.get("role"))
@@ -768,13 +1259,23 @@ def _fact(field: str, value: str, *proof_edges: Edge) -> dict[str, Any]:
 def _answer_owner(
     traversal: Traversal,
     question: str,
+    project: Node,
     work: Node,
+    reference_date: str | None = None,
 ) -> tuple[str, list[dict[str, Any]], list[dict[str, Any]]]:
     assignments = traversal.candidates("ASSIGNED_TO", from_node_id=work.node_id)
     _validate_assignment_edges(assignments)
     role = _role_for_question(question, assignments)
     assignments = [edge for edge in assignments if edge.properties.get("role") == role]
-    reference_time = _parse_question_date(question)
+    project_surfaces, work_surfaces = _subject_surfaces(
+        traversal, project, work
+    )
+    reference_time = _parse_question_date(
+        question,
+        reference_date,
+        project_surfaces=project_surfaces,
+        work_surfaces=work_surfaces,
+    )
     if reference_time is None:
         for edge in assignments:
             traversal.use(edge)
@@ -1156,6 +1657,7 @@ def _trace(
     question_hash: str,
     decision: str,
     elapsed_ms: float,
+    reference_date: str | None,
 ) -> dict[str, Any]:
     used_edges = [
         traversal.snapshot.edges[edge_id] for edge_id in traversal.used_edge_ids
@@ -1182,10 +1684,13 @@ def _trace(
         "question_hash": question_hash,
         "disabled_edge_ids": sorted(traversal.disabled_edge_ids),
     }
+    if reference_date is not None:
+        run_identity["question_reference_date"] = reference_date
     return {
         "run_id": RUN_PREFIX + sha256_value(run_identity)[:32],
         "graph_snapshot_id": traversal.snapshot.graph_snapshot_id,
         "question_hash": question_hash,
+        "question_reference_date": reference_date,
         "visited_node_ids": sorted(traversal.visited_node_ids),
         "visited_node_hashes": sorted(
             traversal.snapshot.nodes[node_id].record_sha256
@@ -1213,10 +1718,12 @@ def answer_question(
     question: str,
     *,
     disabled_edge_ids: Iterable[str] = (),
+    reference_date: str | None = None,
 ) -> dict[str, Any]:
     if not isinstance(question, str) or not question.strip():
         raise ValueError("question must be a non-empty string")
     question = _normalize_surface(question)
+    reference_date = _strict_reference_date(reference_date)
     question_hash = sha256_text(question)
     traversal = Traversal(snapshot, disabled_edge_ids)
     started = time.perf_counter()
@@ -1229,10 +1736,29 @@ def answer_question(
     operation = "unresolved"
     try:
         operation = _operation(question)
-        _project, work, _identity_edges = _resolve_subject(traversal, question)
+        if operation != "owner" and _question_has_reference_time(question):
+            raise ResolutionError(
+                "temporal_context_unsupported",
+                "this graph operation does not support a question-time filter",
+            )
+        project, work, _identity_edges = _resolve_subject(traversal, question)
+        if operation in {"assignment_change", "version_change"}:
+            project_surfaces, work_surfaces = _subject_surfaces(
+                traversal, project, work
+            )
+            if not _non_owner_question_form_supported(
+                question,
+                operation,
+                project_surfaces,
+                work_surfaces,
+            ):
+                raise ResolutionError(
+                    "temporal_context_unsupported",
+                    "question is outside the exact non-temporal operation grammar",
+                )
         if operation == "owner":
             answer_text, asserted_facts, asserted_relations = _answer_owner(
-                traversal, question, work
+                traversal, question, project, work, reference_date
             )
         elif operation == "assignment_change":
             answer_text, asserted_facts, asserted_relations = (
@@ -1258,7 +1784,9 @@ def answer_question(
             answer_text = "必要な検証済みグラフ経路が足りないため回答できません。"
 
     elapsed_ms = (time.perf_counter() - started) * 1000
-    trace = _trace(traversal, question_hash, decision, elapsed_ms)
+    trace = _trace(
+        traversal, question_hash, decision, elapsed_ms, reference_date
+    )
     result = {
         "schema_version": SCHEMA_VERSION,
         "record_type": "cross_document_semantic_graph_answer",
@@ -1322,6 +1850,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--questions", required=True, type=Path)
     parser.add_argument("--out", required=True, type=Path)
     parser.add_argument("--disable-edge-id", action="append", default=[])
+    parser.add_argument("--reference-date")
     return parser.parse_args()
 
 
@@ -1332,7 +1861,10 @@ def main() -> int:
         questions = _read_questions(args.questions)
         answers = [
             answer_question(
-                snapshot, question, disabled_edge_ids=args.disable_edge_id
+                snapshot,
+                question,
+                disabled_edge_ids=args.disable_edge_id,
+                reference_date=args.reference_date,
             )
             for question in questions
         ]

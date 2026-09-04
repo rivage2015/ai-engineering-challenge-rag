@@ -35,6 +35,9 @@ GENERATION_NAME = re.compile(r"generation-[0-9a-f]{32}")
 GENERATION_MARKER = "build-generation.json"
 CROSS_DOCUMENT_SHADOW_FLAG = "cross_document_semantic_graph_shadow_enabled"
 CROSS_DOCUMENT_STORAGE_FLAG = "cross_document_semantic_graph_storage_enabled"
+CROSS_DOCUMENT_QUERY_CANDIDATE_FLAG = (
+    "cross_document_semantic_graph_query_candidate_enabled"
+)
 CROSS_DOCUMENT_SHADOW_DIR = "04-semantic-graph-shadow"
 CROSS_DOCUMENT_SHADOW_RUN_STATE = "shadow-run-state.json"
 CROSS_DOCUMENT_STORAGE_DIR = "05-semantic-answer-index"
@@ -169,6 +172,9 @@ def diagnose() -> dict:
         ),
         "cross_document_semantic_graph_storage_enabled": (
             config.get(CROSS_DOCUMENT_STORAGE_FLAG, True) is True
+        ),
+        "cross_document_semantic_graph_query_candidate_enabled": (
+            config.get(CROSS_DOCUMENT_QUERY_CANDIDATE_FLAG, True) is True
         ),
         "cross_document_semantic_graph_storage": config.get(
             CROSS_DOCUMENT_STORAGE_CONFIG_KEY
@@ -333,6 +339,7 @@ def configure_source(source: Path) -> dict:
         "sequential_model_loading": True,
         CROSS_DOCUMENT_SHADOW_FLAG: True,
         CROSS_DOCUMENT_STORAGE_FLAG: True,
+        CROSS_DOCUMENT_QUERY_CANDIDATE_FLAG: True,
         "port": 8765,
     })
     if (
@@ -344,6 +351,7 @@ def configure_source(source: Path) -> dict:
         config["model_profile"] = "gemma4-validated-v1"
     config.setdefault(CROSS_DOCUMENT_SHADOW_FLAG, True)
     config.setdefault(CROSS_DOCUMENT_STORAGE_FLAG, True)
+    config.setdefault(CROSS_DOCUMENT_QUERY_CANDIDATE_FLAG, True)
     config["source_root"] = str(source)
     config["workspace"] = str(SUPPORT / "data")
     # Selecting a source invalidates the active generation immediately.  A
@@ -550,6 +558,7 @@ def _ready_state(
     recovered: bool = False,
     semantic_graph_shadow: dict | None = None,
     semantic_graph_storage: dict | None = None,
+    semantic_graph_query_candidate_enabled: bool | None = None,
 ) -> dict:
     recovered_fields = {
         "recovered_after_interruption": True,
@@ -565,6 +574,15 @@ def _ready_state(
         if isinstance(semantic_graph_storage, dict)
         else {}
     )
+    candidate_fields = (
+        {
+            "cross_document_semantic_graph_query_candidate_enabled": (
+                semantic_graph_query_candidate_enabled
+            )
+        }
+        if isinstance(semantic_graph_query_candidate_enabled, bool)
+        else {}
+    )
     if reader_state.get("status") == "complete_with_limits":
         return {
             "phase": "ready_with_limits",
@@ -574,6 +592,7 @@ def _ready_state(
             **recovered_fields,
             **shadow_fields,
             **storage_fields,
+            **candidate_fields,
         }
     return {
         "phase": "ready",
@@ -582,6 +601,7 @@ def _ready_state(
         **recovered_fields,
         **shadow_fields,
         **storage_fields,
+        **candidate_fields,
     }
 
 
@@ -686,6 +706,9 @@ def _reconstruct_published_marker_for_observer_recovery(
         ),
         "cross_document_semantic_graph_storage_enabled": (
             config.get(CROSS_DOCUMENT_STORAGE_FLAG, True) is True
+        ),
+        "cross_document_semantic_graph_query_candidate_enabled": (
+            config.get(CROSS_DOCUMENT_QUERY_CANDIDATE_FLAG, True) is True
         ),
     }
 
@@ -1006,6 +1029,9 @@ def recover_interrupted_build() -> dict:
                 )
                 storage_action = "not_applicable"
             config = recovered_config
+            query_candidate_enabled = (
+                config.get(CROSS_DOCUMENT_QUERY_CANDIDATE_FLAG, True) is True
+            )
             storage_is_steady = (
                 not marker_reconstructed
                 and not shadow_pending
@@ -1014,6 +1040,14 @@ def recover_interrupted_build() -> dict:
                 and isinstance(recovered_storage, dict)
                 and recovered_storage == current_storage
                 and recovered_storage == marker_storage
+                and current.get(
+                    "cross_document_semantic_graph_query_candidate_enabled"
+                )
+                is query_candidate_enabled
+                and marker.get(
+                    "cross_document_semantic_graph_query_candidate_enabled"
+                )
+                is query_candidate_enabled
             )
             if storage_is_steady:
                 return {
@@ -1028,6 +1062,9 @@ def recover_interrupted_build() -> dict:
                 "status": "published",
                 "published_at": marker.get("published_at", now_iso()),
                 "index_path": config.get("index_path", ""),
+                "cross_document_semantic_graph_query_candidate_enabled": (
+                    query_candidate_enabled
+                ),
             }
             if isinstance(recovered_storage, dict):
                 marker_update[
@@ -1040,6 +1077,9 @@ def recover_interrupted_build() -> dict:
             atomic_json(marker_path, marker_update)
             recovered_state = {
                 **current,
+                "cross_document_semantic_graph_query_candidate_enabled": (
+                    query_candidate_enabled
+                ),
             }
             if isinstance(recovered_storage, dict):
                 recovered_state[
@@ -1145,6 +1185,10 @@ def recover_interrupted_build() -> dict:
                 **published_marker,
                 "status": "published",
                 "published_at": now_iso(),
+                "cross_document_semantic_graph_query_candidate_enabled": (
+                    config.get(CROSS_DOCUMENT_QUERY_CANDIDATE_FLAG, True)
+                    is True
+                ),
             }
             recovered_shadow = _recover_published_shadow_observer(
                 generation,
@@ -1217,6 +1261,10 @@ def recover_interrupted_build() -> dict:
                     recovered_storage
                     if isinstance(recovered_storage, dict)
                     else None
+                ),
+                semantic_graph_query_candidate_enabled=(
+                    config.get(CROSS_DOCUMENT_QUERY_CANDIDATE_FLAG, True)
+                    is True
                 ),
             )
             if storage_action == "base_index_invalid":
@@ -2555,6 +2603,7 @@ def build_index() -> None:
     # an explicit false remains the rollback switch.
     config.setdefault(CROSS_DOCUMENT_SHADOW_FLAG, True)
     config.setdefault(CROSS_DOCUMENT_STORAGE_FLAG, True)
+    config.setdefault(CROSS_DOCUMENT_QUERY_CANDIDATE_FLAG, True)
     source = Path(config["source_root"]).resolve(strict=True)
     workspace = Path(config.get("workspace", SUPPORT / "data"))
     generations = workspace / "generations"
@@ -2583,6 +2632,9 @@ def build_index() -> None:
         "cross_document_semantic_graph_storage_enabled": (
             config.get(CROSS_DOCUMENT_STORAGE_FLAG, True) is True
         ),
+        "cross_document_semantic_graph_query_candidate_enabled": (
+            config.get(CROSS_DOCUMENT_QUERY_CANDIDATE_FLAG, True) is True
+        ),
     }
     atomic_json(marker_path, marker)
     state = {
@@ -2593,6 +2645,9 @@ def build_index() -> None:
         "generation": generation.name,
         "owner_pid": os.getpid(),
         "started_at": marker["started_at"],
+        "cross_document_semantic_graph_query_candidate_enabled": (
+            config.get(CROSS_DOCUMENT_QUERY_CANDIDATE_FLAG, True) is True
+        ),
     }
     atomic_json(STATE, state)
     generation_published = False
@@ -2681,6 +2736,7 @@ def build_index() -> None:
                 raise RuntimeError("configuration_changed_during_build")
             published_config.setdefault(CROSS_DOCUMENT_SHADOW_FLAG, True)
             published_config.setdefault(CROSS_DOCUMENT_STORAGE_FLAG, True)
+            published_config.setdefault(CROSS_DOCUMENT_QUERY_CANDIDATE_FLAG, True)
             published_config.pop("semantic_graph_shadow_path", None)
             published_config.pop(CROSS_DOCUMENT_STORAGE_CONFIG_KEY, None)
             published_config.update({
@@ -2734,6 +2790,12 @@ def build_index() -> None:
                 "security_path": str(security),
                 "index_path": str(index),
                 BASE_ANSWER_INDEX_SHA256_KEY: base_index_sha256,
+                "cross_document_semantic_graph_query_candidate_enabled": (
+                    published_config.get(
+                        CROSS_DOCUMENT_QUERY_CANDIDATE_FLAG, True
+                    )
+                    is True
+                ),
                 "cross_document_semantic_graph_shadow": shadow_state,
                 "cross_document_semantic_graph_storage": storage_state,
             }
@@ -2746,6 +2808,12 @@ def build_index() -> None:
                 reader_state,
                 semantic_graph_shadow=shadow_state,
                 semantic_graph_storage=storage_state,
+                semantic_graph_query_candidate_enabled=(
+                    published_config.get(
+                        CROSS_DOCUMENT_QUERY_CANDIDATE_FLAG, True
+                    )
+                    is True
+                ),
             )
             if marker_warning:
                 state["generation_marker_warning"] = marker_warning
@@ -2973,6 +3041,12 @@ def build_index() -> None:
                         published_config.get(CROSS_DOCUMENT_STORAGE_FLAG, True)
                         is True
                     ),
+                    "cross_document_semantic_graph_query_candidate_enabled": (
+                        published_config.get(
+                            CROSS_DOCUMENT_QUERY_CANDIDATE_FLAG, True
+                        )
+                        is True
+                    ),
                     "cross_document_semantic_graph_shadow": shadow_state,
                     "cross_document_semantic_graph_storage": storage_state,
                 })
@@ -2982,6 +3056,12 @@ def build_index() -> None:
                 reader_state,
                 semantic_graph_shadow=shadow_state,
                 semantic_graph_storage=storage_state,
+                semantic_graph_query_candidate_enabled=(
+                    published_config.get(
+                        CROSS_DOCUMENT_QUERY_CANDIDATE_FLAG, True
+                    )
+                    is True
+                ),
             )
             if marker_warning:
                 state["generation_marker_warning"] = marker_warning

@@ -4,9 +4,10 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import html
 import json
-import os
+import re
 import subprocess
 import sys
 import tempfile
@@ -14,6 +15,8 @@ import threading
 import time
 import urllib.parse
 import urllib.request
+import unicodedata
+from datetime import date
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
@@ -24,6 +27,78 @@ BUILD_LOCK = threading.Lock()
 BASE = Path(__file__).resolve().parent
 ENGINE = BASE / "engine"
 OLLAMA_GENERATE = "http://127.0.0.1:11434/api/generate"
+SEMANTIC_GRAPH_CANDIDATE_KEY = (
+    "cross_document_semantic_graph_query_candidate"
+)
+SEMANTIC_GRAPH_CANDIDATE_TIMEOUT_SECONDS = 30.0
+SEMANTIC_GRAPH_RUN_PREFIX = "xkgr_"
+SEMANTIC_GRAPH_REGISTRATION_FIELDS = frozenset({
+    "schema_version",
+    "status",
+    "generation",
+    "database_path",
+    "database_sha256",
+    "state_path",
+    "state_sha256",
+    "base_index_path",
+    "base_index_sha256",
+    "graph_snapshot_id",
+    "logical_snapshot_sha256",
+    "counts",
+    "retrieval_enabled",
+    "used_for_answers",
+})
+SEMANTIC_GRAPH_CANDIDATE_FIELDS = frozenset({
+    "schema_version",
+    "record_type",
+    "adapter",
+    "adapter_version",
+    "status",
+    "decision",
+    "reason_code",
+    "diagnostic_code",
+    "operation",
+    "answer_text",
+    "asserted_facts",
+    "asserted_relations",
+    "trace",
+    "runtime_attestation",
+    "used_for_answers",
+    "independent_edge_audit_status",
+})
+GENERATION_PATTERN = re.compile(r"generation-[0-9a-f]{32}")
+SHA256_PATTERN = re.compile(r"[0-9a-f]{64}")
+SEMANTIC_GRAPH_OPERATIONS = frozenset({
+    "owner", "assignment_change", "version_change",
+})
+SEMANTIC_GRAPH_OPERATION_FACT_FIELDS = {
+    "owner": frozenset({
+        "reference_time", "role", "assignee_id", "assignee_name",
+    }),
+    "assignment_change": frozenset({
+        "change_effective_date", "previous_valid_to",
+        "from_assignee_id", "from_assignee_name",
+        "to_assignee_id", "to_assignee_name",
+    }),
+    "version_change": frozenset({
+        "effective_from", "old_plan_status", "old_plan_assignee_id",
+        "old_plan_assignee_name", "current_plan_status",
+        "current_plan_assignee_id", "current_plan_assignee_name",
+        "change_reason",
+    }),
+}
+SEMANTIC_GRAPH_OPERATION_RELATION_TYPES = {
+    "owner": frozenset(),
+    "assignment_change": frozenset(),
+    "version_change": frozenset({"SUPERSEDES", "CONTRADICTS"}),
+}
+SEMANTIC_GRAPH_ATTESTATION_FIELDS = frozenset({
+    "adapter", "adapter_version", "read_only", "read_snapshot",
+    "generation", "build_id", "index_sha256", "graph_snapshot_id",
+    "logical_snapshot_sha256", "projection_sha256", "node_count",
+    "edge_count", "edge_evidence_count", "eligible_evidence_count",
+    "outbound_network_attempt_count",
+})
 
 
 STYLE = """
@@ -154,6 +229,628 @@ def unload_ollama_model(model: str, timeout: int = 60) -> dict:
         }
 
 
+def semantic_graph_candidate_eligibility(
+    config: dict,
+    index: Path,
+) -> tuple[bool, str]:
+    """Allow the Step 3 observer only on its validated Step 2 index copy."""
+    if (
+        config.get(bootstrap.CROSS_DOCUMENT_QUERY_CANDIDATE_FLAG, True)
+        is not True
+    ):
+        return False, "feature_disabled"
+    if config.get(bootstrap.CROSS_DOCUMENT_STORAGE_FLAG, True) is not True:
+        return False, "semantic_storage_disabled"
+    registration = config.get(bootstrap.CROSS_DOCUMENT_STORAGE_CONFIG_KEY)
+    if not isinstance(registration, dict):
+        return False, "validated_storage_registration_missing"
+    if set(registration) != SEMANTIC_GRAPH_REGISTRATION_FIELDS:
+        return False, "validated_storage_registration_fields_invalid"
+    if (
+        registration.get("schema_version") != "0.1"
+        or registration.get("status") != "validated_storage_only"
+    ):
+        return False, "validated_storage_status_missing"
+    if (
+        registration.get("retrieval_enabled") is not False
+        or registration.get("used_for_answers") is not False
+    ):
+        return False, "step2_storage_boundary_invalid"
+    active_generation = config.get("active_generation")
+    if (
+        not isinstance(active_generation, str)
+        or GENERATION_PATTERN.fullmatch(active_generation) is None
+        or registration.get("generation") != active_generation
+    ):
+        return False, "storage_generation_mismatch"
+    workspace = Path(config.get("workspace", bootstrap.SUPPORT / "data"))
+    generation = workspace / "generations" / active_generation
+    expected_index = (
+        generation
+        / bootstrap.CROSS_DOCUMENT_STORAGE_DIR
+        / "safe-answer-index.sqlite3"
+    )
+    expected_state = (
+        expected_index.parent
+        / bootstrap.CROSS_DOCUMENT_STORAGE_RUN_STATE
+    )
+    expected_base = generation / "safe-answer-index.sqlite3"
+    required_paths = {
+        "database_path": expected_index,
+        "state_path": expected_state,
+        "base_index_path": expected_base,
+    }
+    if any(
+        not isinstance(registration.get(key), str)
+        or Path(registration[key]) != expected
+        for key, expected in required_paths.items()
+    ):
+        return False, "storage_registered_path_mismatch"
+    if any(
+        not isinstance(registration.get(key), str)
+        or SHA256_PATTERN.fullmatch(registration[key]) is None
+        for key in (
+            "database_sha256", "state_sha256", "base_index_sha256",
+            "logical_snapshot_sha256",
+        )
+    ):
+        return False, "storage_registered_hash_invalid"
+    logical_sha256 = registration["logical_snapshot_sha256"]
+    if registration.get("graph_snapshot_id") != (
+        "xkgs_" + logical_sha256[:32]
+    ):
+        return False, "storage_graph_snapshot_binding_invalid"
+    counts = registration.get("counts")
+    if (
+        not isinstance(counts, dict)
+        or set(counts) != {"nodes", "edges", "edge_evidence"}
+        or any(type(value) is not int or value < 1 for value in counts.values())
+    ):
+        return False, "storage_registered_counts_invalid"
+    registered_index = Path(registration["database_path"])
+    if index != registered_index or index != expected_index:
+        return False, "storage_index_pointer_mismatch"
+    return True, "validated_storage_candidate_enabled"
+
+
+def _empty_candidate_trace(
+    decision: str,
+    reference_date: str | None = None,
+) -> dict:
+    return {
+        "graph_snapshot_id": None,
+        "question_reference_date": reference_date,
+        "visited_node_ids": [],
+        "visited_node_hashes": [],
+        "visited_edge_ids": [],
+        "visited_edge_hashes": [],
+        "used_semantic_edge_ids": [],
+        "used_semantic_edge_count": 0,
+        "used_edge_statuses": [],
+        "visited_document_paths": [],
+        "resolved_source_references": [],
+        "disabled_edge_ids": [],
+        "decision": decision,
+        "outbound_network_attempt_count": 0,
+        "database_opened": False,
+    }
+
+
+def _held_candidate(
+    diagnostic_code: str,
+    reference_date: str | None = None,
+) -> dict:
+    """Return safe observer telemetry without changing the audited answer."""
+    return {
+        "schema_version": "0.1",
+        "record_type": SEMANTIC_GRAPH_CANDIDATE_KEY,
+        "adapter": "cross-document-semantic-graph-runtime",
+        "adapter_version": "0.1.0",
+        "status": "held",
+        "decision": "HOLD",
+        "reason_code": "semantic_graph_candidate_observer_failed",
+        "diagnostic_code": diagnostic_code,
+        "operation": None,
+        "answer_text": "",
+        "asserted_facts": [],
+        "asserted_relations": [],
+        "trace": _empty_candidate_trace("HOLD", reference_date),
+        "runtime_attestation": None,
+        "used_for_answers": False,
+        "independent_edge_audit_status": "not_implemented_step4",
+    }
+
+
+def _strict_candidate_json(payload: str) -> object:
+    def object_pairs(pairs: list[tuple[str, object]]) -> dict:
+        result = {}
+        for key, value in pairs:
+            if key in result:
+                raise ValueError("semantic_candidate_duplicate_json_key")
+            result[key] = value
+        return result
+
+    def reject_constant(_value: str) -> None:
+        raise ValueError("semantic_candidate_non_finite_json_number")
+
+    return json.loads(
+        payload,
+        object_pairs_hook=object_pairs,
+        parse_constant=reject_constant,
+    )
+
+
+def _strict_candidate_reference_date(value: object) -> str | None:
+    if value is None:
+        return None
+    if not isinstance(value, str):
+        raise ValueError("semantic_candidate_reference_date_invalid")
+    try:
+        parsed = date.fromisoformat(value)
+    except ValueError as exc:
+        raise ValueError(
+            "semantic_candidate_reference_date_invalid"
+        ) from exc
+    if parsed.isoformat() != value:
+        raise ValueError("semantic_candidate_reference_date_invalid")
+    return value
+
+
+def _record_reference_date(record: object) -> tuple[bool, str | None]:
+    """Read an optional legacy anchor while rejecting malformed/mutated values."""
+    if not isinstance(record, dict):
+        return False, None
+    if "question_reference_date" not in record:
+        return True, None
+    try:
+        return True, _strict_candidate_reference_date(
+            record["question_reference_date"]
+        )
+    except ValueError:
+        return False, None
+
+
+def _candidate_result_is_safe(
+    candidate: object,
+    registration: dict,
+    query: str,
+    reference_date: str | None = None,
+) -> bool:
+    if not isinstance(query, str) or not query.strip():
+        return False
+    if not isinstance(candidate, dict) or set(candidate) != (
+        SEMANTIC_GRAPH_CANDIDATE_FIELDS
+    ):
+        return False
+    status = candidate.get("status")
+    decision = candidate.get("decision")
+    expected_decisions = {
+        "accepted": "ACCEPTED",
+        "held": "HOLD",
+        "not_applicable": "NOT_APPLICABLE",
+    }
+    trace = candidate.get("trace")
+    if (
+        expected_decisions.get(status) != decision
+        or candidate.get("schema_version") != "0.1"
+        or candidate.get("record_type") != SEMANTIC_GRAPH_CANDIDATE_KEY
+        or candidate.get("adapter")
+        != "cross-document-semantic-graph-runtime"
+        or candidate.get("adapter_version") != "0.1.0"
+        or candidate.get("used_for_answers") is not False
+        or candidate.get("independent_edge_audit_status")
+        != "not_implemented_step4"
+        or not isinstance(candidate.get("answer_text"), str)
+        or not isinstance(candidate.get("asserted_facts"), list)
+        or not isinstance(candidate.get("asserted_relations"), list)
+        or not isinstance(trace, dict)
+    ):
+        return False
+    used_edge_count = trace.get("used_semantic_edge_count")
+    database_opened = trace.get("database_opened")
+    if (
+        type(used_edge_count) is not int
+        or used_edge_count < 0
+        or type(database_opened) is not bool
+        or "question_reference_date" not in trace
+        or trace.get("question_reference_date") != reference_date
+    ):
+        return False
+    list_fields = (
+        "visited_node_ids", "visited_node_hashes",
+        "visited_edge_ids", "visited_edge_hashes",
+        "used_semantic_edge_ids", "used_edge_statuses",
+        "visited_document_paths", "resolved_source_references",
+        "disabled_edge_ids",
+    )
+    if any(not isinstance(trace.get(key), list) for key in list_fields):
+        return False
+    used_edge_ids = trace["used_semantic_edge_ids"]
+    if (
+        len(used_edge_ids) != used_edge_count
+        or len(used_edge_ids) != len(set(used_edge_ids))
+        or any(
+            not isinstance(value, str) or not value.strip()
+            for value in used_edge_ids
+        )
+        or used_edge_count > registration["counts"]["edges"]
+        or trace.get("visited_edge_ids") != used_edge_ids
+        or len(trace["visited_edge_hashes"]) != len(used_edge_ids)
+        or any(
+            SHA256_PATTERN.fullmatch(value) is None
+            for value in trace["visited_edge_hashes"]
+            if isinstance(value, str)
+        )
+        or any(
+            not isinstance(value, str)
+            for value in trace["visited_edge_hashes"]
+        )
+        or len(trace["visited_node_ids"])
+        != len(trace["visited_node_hashes"])
+        or len(trace["visited_node_ids"])
+        != len(set(trace["visited_node_ids"]))
+        or any(
+            not isinstance(value, str) or not value.strip()
+            for value in trace["visited_node_ids"]
+        )
+        or len(trace["visited_node_ids"])
+        > registration["counts"]["nodes"]
+        or any(
+            not isinstance(value, str)
+            or SHA256_PATTERN.fullmatch(value) is None
+            for value in trace["visited_node_hashes"]
+        )
+        or trace.get("used_edge_statuses")
+        != (["verified"] if used_edge_ids else [])
+        or trace.get("decision") != decision
+        or trace.get("outbound_network_attempt_count") != 0
+        or any(
+            not isinstance(reference, dict)
+            for reference in trace["resolved_source_references"]
+        )
+    ):
+        return False
+
+    reference_fields = {
+        "edge_id", "evidence_id", "document_id", "path", "source_sha256",
+        "locator", "observed_text_sha256", "quote",
+    }
+    reference_pairs: set[tuple[str, str]] = set()
+    referenced_edges: set[str] = set()
+    reference_paths: set[str] = set()
+    referenced_evidence: set[str] = set()
+    for reference in trace["resolved_source_references"]:
+        if set(reference) != reference_fields:
+            return False
+        edge_id = reference["edge_id"]
+        evidence_id = reference["evidence_id"]
+        document_id = reference["document_id"]
+        path = reference["path"]
+        quote = reference["quote"]
+        pair = (edge_id, evidence_id)
+        if (
+            not isinstance(edge_id, str)
+            or edge_id not in used_edge_ids
+            or not isinstance(evidence_id, str)
+            or not evidence_id.strip()
+            or not isinstance(document_id, str)
+            or not document_id.strip()
+            or not isinstance(path, str)
+            or not path.strip()
+            or path.startswith("/")
+            or ".." in Path(path).parts
+            or not isinstance(reference["locator"], dict)
+            or not isinstance(quote, str)
+            or not quote.strip()
+            or not isinstance(reference["source_sha256"], str)
+            or SHA256_PATTERN.fullmatch(reference["source_sha256"]) is None
+            or not isinstance(reference["observed_text_sha256"], str)
+            or SHA256_PATTERN.fullmatch(
+                reference["observed_text_sha256"]
+            ) is None
+            or hashlib.sha256(quote.encode("utf-8")).hexdigest()
+            != reference["observed_text_sha256"]
+            or pair in reference_pairs
+        ):
+            return False
+        reference_pairs.add(pair)
+        referenced_edges.add(edge_id)
+        referenced_evidence.add(evidence_id)
+        reference_paths.add(path)
+    if (
+        referenced_edges != set(used_edge_ids)
+        or trace["visited_document_paths"] != sorted(reference_paths)
+        or len(trace["visited_document_paths"])
+        != len(set(trace["visited_document_paths"]))
+    ):
+        return False
+
+    fact_fields: set[str] = set()
+    for item in candidate["asserted_facts"]:
+        if not isinstance(item, dict) or set(item) != {
+            "field", "value", "proof_edge_ids",
+        }:
+            return False
+        field = item["field"]
+        value = item["value"]
+        proof = item["proof_edge_ids"]
+        if (
+            not isinstance(field, str)
+            or not field.strip()
+            or field in fact_fields
+            or not isinstance(value, str)
+            or not value.strip()
+            or not isinstance(proof, list)
+            or not proof
+            or len(proof) != len(set(proof))
+            or any(
+                not isinstance(edge_id, str) or edge_id not in used_edge_ids
+                for edge_id in proof
+            )
+        ):
+            return False
+        fact_fields.add(field)
+
+    relation_tuples: set[tuple[str, str, str]] = set()
+    for item in candidate["asserted_relations"]:
+        if not isinstance(item, dict) or set(item) != {
+            "from", "relation", "to", "proof_edge_ids",
+        }:
+            return False
+        asserted_tuple = (item["from"], item["relation"], item["to"])
+        proof = item["proof_edge_ids"]
+        if (
+            any(
+                not isinstance(value, str) or not value.strip()
+                for value in asserted_tuple
+            )
+            or asserted_tuple in relation_tuples
+            or not isinstance(proof, list)
+            or not proof
+            or len(proof) != len(set(proof))
+            or any(
+                not isinstance(edge_id, str) or edge_id not in used_edge_ids
+                for edge_id in proof
+            )
+        ):
+            return False
+        relation_tuples.add(asserted_tuple)
+    operation = candidate.get("operation")
+    if status == "accepted" and (
+        used_edge_count < 1
+        or database_opened is not True
+        or not candidate["asserted_facts"]
+        or operation not in SEMANTIC_GRAPH_OPERATIONS
+        or fact_fields != SEMANTIC_GRAPH_OPERATION_FACT_FIELDS.get(operation)
+        or {item[1] for item in relation_tuples}
+        != SEMANTIC_GRAPH_OPERATION_RELATION_TYPES.get(operation)
+        or candidate.get("reason_code") is not None
+        or candidate.get("diagnostic_code") is not None
+        or not candidate["answer_text"].strip()
+        or not trace["resolved_source_references"]
+    ):
+        return False
+    if status != "accepted" and (
+        candidate["asserted_facts"] or candidate["asserted_relations"]
+    ):
+        return False
+    if status == "not_applicable" and database_opened is not False:
+        return False
+    attestation = candidate.get("runtime_attestation")
+    if database_opened:
+        counts = registration["counts"]
+        question_hash = hashlib.sha256(
+            unicodedata.normalize("NFC", query).strip().encode("utf-8")
+        ).hexdigest()
+        run_identity = {
+            "graph_snapshot_id": registration["graph_snapshot_id"],
+            "question_hash": question_hash,
+            "disabled_edge_ids": [],
+            **(
+                {"question_reference_date": reference_date}
+                if reference_date is not None else {}
+            ),
+        }
+        expected_run_id = SEMANTIC_GRAPH_RUN_PREFIX + hashlib.sha256(
+            json.dumps(
+                run_identity,
+                ensure_ascii=False,
+                sort_keys=True,
+                separators=(",", ":"),
+                allow_nan=False,
+            ).encode("utf-8")
+        ).hexdigest()[:32]
+        expected_attestation = {
+            "adapter": "cross-document-semantic-graph-runtime",
+            "adapter_version": "0.1.0",
+            "read_only": True,
+            "read_snapshot": "single_sqlite_transaction",
+            "generation": registration["generation"],
+            "index_sha256": registration["database_sha256"],
+            "graph_snapshot_id": registration["graph_snapshot_id"],
+            "logical_snapshot_sha256": registration[
+                "logical_snapshot_sha256"
+            ],
+            "node_count": counts["nodes"],
+            "edge_count": counts["edges"],
+            "edge_evidence_count": counts["edge_evidence"],
+            "outbound_network_attempt_count": 0,
+        }
+        if (
+            not isinstance(attestation, dict)
+            or set(attestation) != SEMANTIC_GRAPH_ATTESTATION_FIELDS
+            or any(
+                attestation.get(key) != value
+                for key, value in expected_attestation.items()
+            )
+            or not isinstance(attestation.get("build_id"), str)
+            or not attestation["build_id"].strip()
+            or not isinstance(attestation.get("eligible_evidence_count"), int)
+            or isinstance(attestation["eligible_evidence_count"], bool)
+            or attestation["eligible_evidence_count"] < 1
+            or attestation["eligible_evidence_count"]
+            < len(referenced_evidence)
+            or not isinstance(attestation.get("projection_sha256"), str)
+            or SHA256_PATTERN.fullmatch(
+                attestation["projection_sha256"]
+            ) is None
+            or trace.get("graph_snapshot_id")
+            != registration["graph_snapshot_id"]
+            or trace.get("question_hash") != question_hash
+            or trace.get("run_id") != expected_run_id
+            or trace.get("disabled_edge_ids") != []
+            or len(reference_pairs) > counts["edge_evidence"]
+        ):
+            return False
+    elif attestation is not None or used_edge_ids:
+        return False
+    return True
+
+
+def run_semantic_graph_candidate(
+    query: str,
+    config: dict,
+    index: Path,
+    reference_date: str | None = None,
+) -> tuple[dict | None, dict]:
+    """Run the observer after final audit in a bounded separate process."""
+    enabled, reason = semantic_graph_candidate_eligibility(config, index)
+    if not enabled:
+        return None, {
+            "enabled": False,
+            "eligibility_reason": reason,
+            "seconds": 0.0,
+            "timed_out": False,
+        }
+    try:
+        reference_date = _strict_candidate_reference_date(reference_date)
+    except ValueError:
+        candidate = _held_candidate(
+            "semantic_candidate_reference_date_invalid"
+        )
+        return candidate, {
+            "enabled": True,
+            "eligibility_reason": reason,
+            "seconds": 0.0,
+            "timeout_seconds": SEMANTIC_GRAPH_CANDIDATE_TIMEOUT_SECONDS,
+            "timed_out": False,
+            "status": "held",
+        }
+    configured_timeout = config.get(
+        "cross_document_semantic_graph_query_candidate_timeout_seconds",
+        SEMANTIC_GRAPH_CANDIDATE_TIMEOUT_SECONDS,
+    )
+    timeout_seconds = (
+        float(configured_timeout)
+        if type(configured_timeout) in {int, float}
+        and 1 <= configured_timeout <= 120
+        else SEMANTIC_GRAPH_CANDIDATE_TIMEOUT_SECONDS
+    )
+    registration = config[bootstrap.CROSS_DOCUMENT_STORAGE_CONFIG_KEY]
+    command = [
+        sys.executable,
+        str(ENGINE / "cross_document_semantic_graph_runtime.py"),
+        query,
+        "--index",
+        str(index),
+        "--registration-json",
+        json.dumps(
+            registration,
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+        ),
+    ]
+    if reference_date is not None:
+        command.extend(("--reference-date", reference_date))
+    started = time.perf_counter()
+    try:
+        completed = subprocess.run(
+            command,
+            capture_output=True,
+            text=True,
+            timeout=timeout_seconds,
+            check=True,
+            close_fds=True,
+        )
+        candidate = _strict_candidate_json(completed.stdout)
+        if not _candidate_result_is_safe(
+            candidate, registration, query, reference_date
+        ):
+            candidate = _held_candidate(
+                "semantic_candidate_result_contract_invalid",
+                reference_date,
+            )
+        return candidate, {
+            "enabled": True,
+            "eligibility_reason": reason,
+            "seconds": round(time.perf_counter() - started, 3),
+            "timeout_seconds": timeout_seconds,
+            "timed_out": False,
+            "status": candidate["status"],
+        }
+    except subprocess.TimeoutExpired:
+        candidate = _held_candidate(
+            "semantic_candidate_timeout", reference_date
+        )
+        return candidate, {
+            "enabled": True,
+            "eligibility_reason": reason,
+            "seconds": round(time.perf_counter() - started, 3),
+            "timeout_seconds": timeout_seconds,
+            "timed_out": True,
+            "status": "held",
+        }
+    except Exception:
+        candidate = _held_candidate(
+            "semantic_candidate_runtime_failed", reference_date
+        )
+        return candidate, {
+            "enabled": True,
+            "eligibility_reason": reason,
+            "seconds": round(time.perf_counter() - started, 3),
+            "timeout_seconds": timeout_seconds,
+            "timed_out": False,
+            "status": "held",
+        }
+
+
+def semantic_graph_candidate_notice(record: dict) -> str:
+    """Render observer telemetry without exposing it as answer evidence."""
+    candidate = record.get(SEMANTIC_GRAPH_CANDIDATE_KEY)
+    if not isinstance(candidate, dict):
+        return ""
+    trace = candidate.get("trace")
+    trace = trace if isinstance(trace, dict) else {}
+    used_edge_count = trace.get("used_semantic_edge_count", 0)
+    if (
+        not isinstance(used_edge_count, int)
+        or isinstance(used_edge_count, bool)
+        or used_edge_count < 0
+    ):
+        used_edge_count = 0
+    used_for_answers = candidate.get("used_for_answers")
+    used_for_answers_label = (
+        "false" if used_for_answers is False
+        else "true" if used_for_answers is True
+        else "unknown"
+    )
+    return (
+        '<section class="card"><details><summary>意味グラフ候補の観測結果</summary>'
+        '<p class="small">候補status: '
+        + html.escape(str(candidate.get("status", "unknown")))
+        + "<br>使用Edge数: "
+        + str(used_edge_count)
+        + "<br>used_for_answers: "
+        + used_for_answers_label
+        + "<br>independent_edge_audit_status: "
+        + html.escape(str(candidate.get(
+            "independent_edge_audit_status", "unknown"
+        )))
+        + "</p></details></section>"
+    )
+
+
 def answer_query(query: str) -> dict:
     pipeline_started = time.perf_counter()
     config = bootstrap.load_json(bootstrap.CONFIG)
@@ -181,8 +878,10 @@ def answer_query(query: str) -> dict:
             "error": "", "reason": "same_model_reused" if reuse_loaded_model else "sequential_loading_disabled",
         }
     )
+    legacy_record = dict(record)
+    legacy_record.pop(SEMANTIC_GRAPH_CANDIDATE_KEY, None)
     with tempfile.NamedTemporaryFile("w", suffix=".json", encoding="utf-8", delete=False) as handle:
-        json.dump(record, handle, ensure_ascii=False)
+        json.dump(legacy_record, handle, ensure_ascii=False)
         temporary = Path(handle.name)
     try:
         audit_started = time.perf_counter()
@@ -192,10 +891,69 @@ def answer_query(query: str) -> dict:
         ], capture_output=True, text=True, timeout=600, check=True)
         audit_seconds = time.perf_counter() - audit_started
         audited_record = json.loads(audited.stdout)
+        audited_record.pop(SEMANTIC_GRAPH_CANDIDATE_KEY, None)
         audit_unload = (
             unload_ollama_model(config["audit_model"])
             if sequential else {"requested": False, "succeeded": False, "seconds": 0.0, "error": ""}
         )
+        candidate_started = time.perf_counter()
+        legacy_reference_valid, legacy_reference_date = (
+            _record_reference_date(legacy_record)
+        )
+        audited_reference_valid, audited_reference_date = (
+            _record_reference_date(audited_record)
+        )
+        try:
+            reference_binding_valid = (
+                legacy_reference_valid
+                and audited_reference_valid
+                and audited_reference_date == legacy_reference_date
+            )
+            if reference_binding_valid:
+                semantic_candidate, semantic_candidate_performance = (
+                    run_semantic_graph_candidate(
+                        query,
+                        config,
+                        index,
+                        legacy_reference_date,
+                    )
+                )
+            else:
+                candidate_enabled, eligibility_reason = (
+                    semantic_graph_candidate_eligibility(config, index)
+                )
+                semantic_candidate = (
+                    _held_candidate(
+                        "semantic_candidate_reference_date_binding_invalid"
+                    )
+                    if candidate_enabled else None
+                )
+                semantic_candidate_performance = {
+                    "enabled": candidate_enabled,
+                    "eligibility_reason": eligibility_reason,
+                    "seconds": round(
+                        time.perf_counter() - candidate_started, 3
+                    ),
+                    "timed_out": False,
+                    **(
+                        {"status": "held"}
+                        if candidate_enabled else {}
+                    ),
+                }
+        except Exception:
+            semantic_candidate = _held_candidate(
+                "semantic_candidate_observer_boundary_failed",
+                legacy_reference_date,
+            )
+            semantic_candidate_performance = {
+                "enabled": True,
+                "eligibility_reason": "observer_boundary_failed",
+                "seconds": round(time.perf_counter() - candidate_started, 3),
+                "timed_out": False,
+                "status": "held",
+            }
+        if semantic_candidate is not None:
+            audited_record[SEMANTIC_GRAPH_CANDIDATE_KEY] = semantic_candidate
         audited_record["pipeline_performance"] = {
             "sequential_model_loading": sequential,
             "same_model_reused_across_separate_contexts": reuse_loaded_model,
@@ -203,6 +961,7 @@ def answer_query(query: str) -> dict:
             "answer_model_unload": answer_unload,
             "audit_process_seconds": round(audit_seconds, 3),
             "audit_model_unload": audit_unload,
+            "semantic_graph_candidate": semantic_candidate_performance,
             "total_seconds": round(time.perf_counter() - pipeline_started, 3),
         }
         audited_log = bootstrap.SUPPORT / "logs" / "audited-answers.jsonl"
@@ -252,6 +1011,7 @@ class Handler(BaseHTTPRequestHandler):
                 record = answer_query(query)
                 answer = record["answer"]
                 audit = record.get("independent_final_audit", {})
+                semantic_candidate = semantic_graph_candidate_notice(record)
                 sources = "".join(
                     f"<li>{html.escape(item['relative_path'])} / {html.escape(json.dumps(item['locator'], ensure_ascii=False))}</li>"
                     for item in record.get("retrieved", [])[:8]
@@ -260,6 +1020,7 @@ class Handler(BaseHTTPRequestHandler):
                 <a class="button secondary" href="/">← 戻る</a><div class="eyebrow">AUDITED ANSWER</div><h1>{html.escape(query)}</h1>
                 <section class="card"><div class="answer">{html.escape(str(answer.get('answer','')))}</div><p class="small">回答モード: {html.escape(str(answer.get('answer_mode','')))}<br>独立監査: {html.escape(str(audit.get('verdict','未実行')))} — {html.escape(str(audit.get('reason','')))}</p></section>
                 <section class="card"><h2>参照候補</h2><ul>{sources or '<li>根拠候補なし</li>'}</ul><p class="small">候補のファイル名は回答の正しさを自動で保証するものではありません。監査不合格時は回答を停止します。</p></section>
+                {semantic_candidate}
                 {security_exclusion_notice()}
                 """))
             except Exception as exc:

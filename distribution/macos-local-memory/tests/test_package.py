@@ -7,10 +7,12 @@ import json
 import os
 import shutil
 import subprocess
+import sys
 import tempfile
 import unittest
 import zipfile
 from pathlib import Path
+from unittest import mock
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -92,6 +94,61 @@ def load_app(name: str):
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     return module
+
+
+def load_server():
+    app = ROOT / "app"
+    previous_bootstrap = sys.modules.pop("bootstrap", None)
+    sys.path.insert(0, str(app))
+    try:
+        return load_app("local_memory_server")
+    finally:
+        sys.path.remove(str(app))
+        sys.modules.pop("bootstrap", None)
+        if previous_bootstrap is not None:
+            sys.modules["bootstrap"] = previous_bootstrap
+
+
+def make_server_candidate_registration(
+    server,
+    workspace: Path,
+    generation: str,
+) -> tuple[Path, dict]:
+    generation_path = workspace / "generations" / generation
+    index = (
+        generation_path
+        / server.bootstrap.CROSS_DOCUMENT_STORAGE_DIR
+        / "safe-answer-index.sqlite3"
+    )
+    state_path = (
+        index.parent / server.bootstrap.CROSS_DOCUMENT_STORAGE_RUN_STATE
+    )
+    base_index = generation_path / "safe-answer-index.sqlite3"
+    index.parent.mkdir(parents=True)
+    index.write_bytes(b"validated-storage-index")
+    state_path.write_bytes(b"validated-storage-state")
+    base_index.write_bytes(b"validated-base-index")
+
+    def digest(path: Path) -> str:
+        return hashlib.sha256(path.read_bytes()).hexdigest()
+
+    logical_sha256 = "c" * 64
+    return index, {
+        "schema_version": "0.1",
+        "status": "validated_storage_only",
+        "generation": generation,
+        "database_path": str(index),
+        "database_sha256": digest(index),
+        "state_path": str(state_path),
+        "state_sha256": digest(state_path),
+        "base_index_path": str(base_index),
+        "base_index_sha256": digest(base_index),
+        "graph_snapshot_id": "xkgs_" + logical_sha256[:32],
+        "logical_snapshot_sha256": logical_sha256,
+        "counts": {"nodes": 2, "edges": 2, "edge_evidence": 2},
+        "retrieval_enabled": False,
+        "used_for_answers": False,
+    }
 
 
 class PackageTests(unittest.TestCase):
@@ -797,7 +854,7 @@ class PackageTests(unittest.TestCase):
         self.assertIn('if not generation_published and generation.exists():', build_body)
         self.assertIn('shutil.rmtree(generation)', build_body)
 
-    def test_cross_document_graph_remains_outside_the_answer_path_in_step_2(self) -> None:
+    def test_cross_document_graph_step_3_is_candidate_only(self) -> None:
         bootstrap = (ROOT / "app" / "bootstrap.py").read_text(encoding="utf-8")
         shadow_body = bootstrap[
             bootstrap.index("def run_cross_document_semantic_graph_shadow") :
@@ -824,7 +881,24 @@ class PackageTests(unittest.TestCase):
         ]
         self.assertIn('index = Path(config["index_path"])', answer_body)
         self.assertNotIn("semantic_graph_shadow", answer_body)
-        self.assertNotIn("cross_document_semantic_graph_storage", answer_body)
+        self.assertNotIn("--semantic-graph-candidate", answer_body)
+        self.assertIn("run_semantic_graph_candidate", answer_body)
+        self.assertIn(
+            'str(ENGINE / "cross_document_semantic_graph_runtime.py")',
+            server,
+        )
+        answer_process = answer_body.index("generated = subprocess.run")
+        final_audit = answer_body.index("final_answer_audit.py")
+        audited_parse = answer_body.index("audited_record = json.loads")
+        candidate_process = answer_body.index("run_semantic_graph_candidate")
+        self.assertLess(answer_process, final_audit)
+        self.assertLess(final_audit, audited_parse)
+        self.assertLess(audited_parse, candidate_process)
+        self.assertIn(
+            "legacy_record.pop(SEMANTIC_GRAPH_CANDIDATE_KEY, None)",
+            answer_body,
+        )
+        self.assertIn("semantic_graph_candidate_notice(record)", server)
 
         semantic_storage_tables = (
             "semantic_graph_nodes",
@@ -847,6 +921,652 @@ class PackageTests(unittest.TestCase):
                     answer_component,
                     f"Step 2 storage table leaked into answer path: {relative_path}",
                 )
+
+    def test_server_candidate_gate_requires_validated_step_2_storage(self) -> None:
+        server = load_server()
+        with tempfile.TemporaryDirectory() as temporary:
+            workspace = Path(temporary) / "data"
+            generation = "generation-" + "a" * 32
+            index, registration = make_server_candidate_registration(
+                server, workspace, generation
+            )
+            config = {
+                "workspace": str(workspace),
+                "active_generation": generation,
+                server.bootstrap.CROSS_DOCUMENT_STORAGE_FLAG: True,
+                server.bootstrap.CROSS_DOCUMENT_QUERY_CANDIDATE_FLAG: True,
+                server.bootstrap.CROSS_DOCUMENT_STORAGE_CONFIG_KEY: registration,
+            }
+
+            self.assertEqual(
+                (True, "validated_storage_candidate_enabled"),
+                server.semantic_graph_candidate_eligibility(config, index),
+            )
+
+            disabled = {**config,
+                server.bootstrap.CROSS_DOCUMENT_QUERY_CANDIDATE_FLAG: False,
+            }
+            self.assertEqual(
+                (False, "feature_disabled"),
+                server.semantic_graph_candidate_eligibility(disabled, index),
+            )
+            missing_registration = dict(config)
+            missing_registration.pop(
+                server.bootstrap.CROSS_DOCUMENT_STORAGE_CONFIG_KEY
+            )
+            self.assertEqual(
+                (False, "validated_storage_registration_missing"),
+                server.semantic_graph_candidate_eligibility(
+                    missing_registration, index
+                ),
+            )
+            invalid_boundary = {
+                **config,
+                server.bootstrap.CROSS_DOCUMENT_STORAGE_CONFIG_KEY: {
+                    **registration,
+                    "used_for_answers": True,
+                },
+            }
+            self.assertEqual(
+                (False, "step2_storage_boundary_invalid"),
+                server.semantic_graph_candidate_eligibility(
+                    invalid_boundary, index
+                ),
+            )
+            incomplete_registration = {
+                **config,
+                server.bootstrap.CROSS_DOCUMENT_STORAGE_CONFIG_KEY: {
+                    key: value
+                    for key, value in registration.items()
+                    if key != "database_sha256"
+                },
+            }
+            self.assertEqual(
+                (False, "validated_storage_registration_fields_invalid"),
+                server.semantic_graph_candidate_eligibility(
+                    incomplete_registration, index
+                ),
+            )
+
+    def test_server_candidate_notice_is_telemetry_not_answer_text(self) -> None:
+        server = load_server()
+        notice = server.semantic_graph_candidate_notice({
+            server.SEMANTIC_GRAPH_CANDIDATE_KEY: {
+                "status": "accepted",
+                "answer_text": "candidate answer must stay hidden",
+                "trace": {"used_semantic_edge_count": 4},
+                "used_for_answers": False,
+                "independent_edge_audit_status": "not_implemented_step4",
+            },
+        })
+
+        self.assertIn("候補status: accepted", notice)
+        self.assertIn("使用Edge数: 4", notice)
+        self.assertIn("used_for_answers: false", notice)
+        self.assertIn(
+            "independent_edge_audit_status: not_implemented_step4", notice
+        )
+        self.assertNotIn("candidate answer must stay hidden", notice)
+
+    def test_server_rejects_candidate_that_claims_answer_authority(self) -> None:
+        server = load_server()
+        with tempfile.TemporaryDirectory() as temporary:
+            workspace = Path(temporary) / "data"
+            generation = "generation-" + "f" * 32
+            index, registration = make_server_candidate_registration(
+                server, workspace, generation
+            )
+            config = {
+                "workspace": str(workspace),
+                "active_generation": generation,
+                server.bootstrap.CROSS_DOCUMENT_STORAGE_FLAG: True,
+                server.bootstrap.CROSS_DOCUMENT_QUERY_CANDIDATE_FLAG: True,
+                server.bootstrap.CROSS_DOCUMENT_STORAGE_CONFIG_KEY: registration,
+            }
+            unsafe = server._held_candidate("unsafe-test")
+            unsafe["used_for_answers"] = True
+            with mock.patch.object(
+                server.subprocess,
+                "run",
+                return_value=mock.Mock(stdout=json.dumps(unsafe)),
+            ):
+                candidate, performance = server.run_semantic_graph_candidate(
+                    "question", config, index
+                )
+            self.assertEqual("held", candidate["status"])
+            self.assertEqual(
+                "semantic_candidate_result_contract_invalid",
+                candidate["diagnostic_code"],
+            )
+            self.assertFalse(candidate["used_for_answers"])
+            self.assertEqual("held", performance["status"])
+
+            with mock.patch.object(server.subprocess, "run") as runner:
+                invalid_date, performance = (
+                    server.run_semantic_graph_candidate(
+                        "question",
+                        config,
+                        index,
+                        reference_date="2026-9-4",
+                    )
+                )
+            runner.assert_not_called()
+            self.assertEqual("held", invalid_date["status"])
+            self.assertEqual(
+                "semantic_candidate_reference_date_invalid",
+                invalid_date["diagnostic_code"],
+            )
+            self.assertEqual("held", performance["status"])
+
+    def test_server_dispatches_candidate_without_changing_legacy_answer(self) -> None:
+        server = load_server()
+        with tempfile.TemporaryDirectory() as temporary:
+            base = Path(temporary)
+            workspace = base / "data"
+            generation = "generation-" + "b" * 32
+            index, registration = make_server_candidate_registration(
+                server, workspace, generation
+            )
+            config = {
+                "workspace": str(workspace),
+                "active_generation": generation,
+                "index_path": str(index),
+                "answer_model": "gemma4:12b",
+                "audit_model": "gemma4:12b",
+                "sequential_model_loading": False,
+                server.bootstrap.CROSS_DOCUMENT_STORAGE_FLAG: True,
+                server.bootstrap.CROSS_DOCUMENT_QUERY_CANDIDATE_FLAG: True,
+                server.bootstrap.CROSS_DOCUMENT_STORAGE_CONFIG_KEY: registration,
+            }
+            generated_record = {
+                "question_reference_date": "2026-09-04",
+                "answer": {
+                    "answer": "legacy answer",
+                    "answer_mode": "grounded",
+                }
+            }
+            audited_record = {
+                **generated_record,
+                "independent_final_audit": {
+                    "verdict": "PASS",
+                    "reason": "legacy record passed",
+                },
+                server.SEMANTIC_GRAPH_CANDIDATE_KEY: {
+                    "status": "must-not-cross-audit-boundary",
+                    "used_for_answers": True,
+                },
+            }
+            candidate_question_hash = hashlib.sha256(
+                "question".encode("utf-8")
+            ).hexdigest()
+            candidate_run_identity = {
+                "graph_snapshot_id": registration["graph_snapshot_id"],
+                "question_hash": candidate_question_hash,
+                "disabled_edge_ids": [],
+                "question_reference_date": "2026-09-04",
+            }
+            candidate_run_id = "xkgr_" + hashlib.sha256(
+                json.dumps(
+                    candidate_run_identity,
+                    ensure_ascii=False,
+                    sort_keys=True,
+                    separators=(",", ":"),
+                    allow_nan=False,
+                ).encode("utf-8")
+            ).hexdigest()[:32]
+            candidate_quote_1 = "Project Orionの担当根拠1"
+            candidate_quote_2 = "Project Orionの担当根拠2"
+            candidate_record = {
+                "schema_version": "0.1",
+                "record_type": server.SEMANTIC_GRAPH_CANDIDATE_KEY,
+                "adapter": "cross-document-semantic-graph-runtime",
+                "adapter_version": "0.1.0",
+                "status": "accepted",
+                "decision": "ACCEPTED",
+                "reason_code": None,
+                "diagnostic_code": None,
+                "operation": "owner",
+                "answer_text": "candidate answer",
+                "asserted_facts": [
+                    {
+                        "field": "reference_time",
+                        "value": "2026-09-04",
+                        "proof_edge_ids": ["edge_1"],
+                    },
+                    {
+                        "field": "role",
+                        "value": "主担当",
+                        "proof_edge_ids": ["edge_1"],
+                    },
+                    {
+                        "field": "assignee_id",
+                        "value": "EMP-1",
+                        "proof_edge_ids": ["edge_1"],
+                    },
+                    {
+                        "field": "assignee_name",
+                        "value": "Person A",
+                        "proof_edge_ids": ["edge_2"],
+                    },
+                ],
+                "asserted_relations": [],
+                "trace": {
+                    "run_id": candidate_run_id,
+                    "graph_snapshot_id": registration["graph_snapshot_id"],
+                    "question_hash": candidate_question_hash,
+                    "question_reference_date": "2026-09-04",
+                    "visited_node_ids": ["node_1", "node_2"],
+                    "visited_node_hashes": ["1" * 64, "2" * 64],
+                    "visited_edge_ids": ["edge_1", "edge_2"],
+                    "visited_edge_hashes": ["3" * 64, "4" * 64],
+                    "used_semantic_edge_ids": ["edge_1", "edge_2"],
+                    "used_semantic_edge_count": 2,
+                    "used_edge_statuses": ["verified"],
+                    "visited_document_paths": ["source.docx"],
+                    "resolved_source_references": [
+                        {
+                            "edge_id": "edge_1",
+                            "evidence_id": "evidence_1",
+                            "document_id": "document_1",
+                            "path": "source.docx",
+                            "source_sha256": "6" * 64,
+                            "locator": {"paragraph": 1},
+                            "observed_text_sha256": hashlib.sha256(
+                                candidate_quote_1.encode("utf-8")
+                            ).hexdigest(),
+                            "quote": candidate_quote_1,
+                        },
+                        {
+                            "edge_id": "edge_2",
+                            "evidence_id": "evidence_2",
+                            "document_id": "document_1",
+                            "path": "source.docx",
+                            "source_sha256": "6" * 64,
+                            "locator": {"paragraph": 2},
+                            "observed_text_sha256": hashlib.sha256(
+                                candidate_quote_2.encode("utf-8")
+                            ).hexdigest(),
+                            "quote": candidate_quote_2,
+                        },
+                    ],
+                    "disabled_edge_ids": [],
+                    "decision": "ACCEPTED",
+                    "outbound_network_attempt_count": 0,
+                    "database_opened": True,
+                },
+                "runtime_attestation": {
+                    "adapter": "cross-document-semantic-graph-runtime",
+                    "adapter_version": "0.1.0",
+                    "read_only": True,
+                    "read_snapshot": "single_sqlite_transaction",
+                    "generation": generation,
+                    "build_id": "build-test",
+                    "index_sha256": registration["database_sha256"],
+                    "graph_snapshot_id": registration["graph_snapshot_id"],
+                    "logical_snapshot_sha256": registration[
+                        "logical_snapshot_sha256"
+                    ],
+                    "projection_sha256": "5" * 64,
+                    "node_count": registration["counts"]["nodes"],
+                    "edge_count": registration["counts"]["edges"],
+                    "edge_evidence_count": registration["counts"][
+                        "edge_evidence"
+                    ],
+                    "eligible_evidence_count": 2,
+                    "outbound_network_attempt_count": 0,
+                },
+                "used_for_answers": False,
+                "independent_edge_audit_status": "not_implemented_step4",
+            }
+
+            def execute(current_config: dict) -> tuple[dict, list[list[str]], dict]:
+                audit_input: dict = {}
+                call_number = 0
+
+                def run(command: list[str], **_kwargs):
+                    nonlocal call_number, audit_input
+                    call_number += 1
+                    if call_number == 1:
+                        return mock.Mock(stdout=json.dumps(generated_record))
+                    if call_number == 2:
+                        record_path = Path(
+                            command[command.index("--record") + 1]
+                        )
+                        audit_input = json.loads(
+                            record_path.read_text(encoding="utf-8")
+                        )
+                        return mock.Mock(stdout=json.dumps(audited_record))
+                    if call_number == 3:
+                        return mock.Mock(stdout=json.dumps(candidate_record))
+                    raise AssertionError("unexpected subprocess")
+
+                server.bootstrap.SUPPORT = base / "support"
+                with (
+                    mock.patch.object(
+                        server.bootstrap,
+                        "load_json",
+                        return_value=current_config,
+                    ),
+                    mock.patch.object(server.bootstrap, "start_ollama"),
+                    mock.patch.object(
+                        server.subprocess,
+                        "run",
+                        side_effect=run,
+                    ) as runner,
+                ):
+                    result = server.answer_query("question")
+                commands = [call.args[0] for call in runner.call_args_list]
+                return result, commands, audit_input
+
+            result, commands, audit_input = execute(config)
+            self.assertEqual(3, len(commands))
+            self.assertNotIn("--semantic-graph-candidate", commands[0])
+            self.assertTrue(commands[1][1].endswith("final_answer_audit.py"))
+            self.assertTrue(
+                commands[2][1].endswith(
+                    "cross_document_semantic_graph_runtime.py"
+                )
+            )
+            self.assertEqual(
+                "2026-09-04",
+                commands[2][commands[2].index("--reference-date") + 1],
+            )
+            self.assertNotIn(
+                server.SEMANTIC_GRAPH_CANDIDATE_KEY, audit_input
+            )
+            self.assertEqual("legacy answer", result["answer"]["answer"])
+            self.assertEqual(
+                candidate_record,
+                result[server.SEMANTIC_GRAPH_CANDIDATE_KEY],
+            )
+            self.assertFalse(
+                result[server.SEMANTIC_GRAPH_CANDIDATE_KEY][
+                    "used_for_answers"
+                ]
+            )
+            self.assertTrue(
+                server._candidate_result_is_safe(
+                    candidate_record,
+                    registration,
+                    "question",
+                    "2026-09-04",
+                )
+            )
+
+            invalid_candidates: dict[str, dict] = {}
+            missing_fact_field = json.loads(json.dumps(candidate_record))
+            del missing_fact_field["asserted_facts"][0]["field"]
+            invalid_candidates["fact-field-missing"] = missing_fact_field
+
+            unknown_edge_reference = json.loads(json.dumps(candidate_record))
+            unknown_edge_reference["trace"]["resolved_source_references"][0][
+                "edge_id"
+            ] = "edge_not_used"
+            invalid_candidates["unknown-reference-edge"] = unknown_edge_reference
+
+            incomplete_references = json.loads(json.dumps(candidate_record))
+            incomplete_references["trace"]["resolved_source_references"] = (
+                incomplete_references["trace"]["resolved_source_references"][:1]
+            )
+            invalid_candidates["used-edge-without-evidence"] = incomplete_references
+
+            duplicate_reference = json.loads(json.dumps(candidate_record))
+            duplicate_reference["trace"]["resolved_source_references"].append(
+                duplicate_reference["trace"]["resolved_source_references"][0]
+            )
+            invalid_candidates["duplicate-reference"] = duplicate_reference
+
+            mismatched_paths = json.loads(json.dumps(candidate_record))
+            mismatched_paths["trace"]["visited_document_paths"] = ["other.docx"]
+            invalid_candidates["visited-path-mismatch"] = mismatched_paths
+
+            forged_quote = json.loads(json.dumps(candidate_record))
+            forged_quote["trace"]["resolved_source_references"][0]["quote"] = (
+                "forged text"
+            )
+            invalid_candidates["quote-hash-mismatch"] = forged_quote
+
+            for name, invalid_candidate in invalid_candidates.items():
+                with self.subTest(candidate_transport_attack=name):
+                    self.assertFalse(
+                        server._candidate_result_is_safe(
+                            invalid_candidate,
+                            registration,
+                            "question",
+                            "2026-09-04",
+                        )
+                    )
+
+            audited_record["question_reference_date"] = "2026-09-05"
+            mismatched, commands, _audit_input = execute(config)
+            self.assertEqual(2, len(commands))
+            self.assertEqual("legacy answer", mismatched["answer"]["answer"])
+            self.assertEqual(
+                "semantic_candidate_reference_date_binding_invalid",
+                mismatched[server.SEMANTIC_GRAPH_CANDIDATE_KEY][
+                    "diagnostic_code"
+                ],
+            )
+            audited_record["question_reference_date"] = "2026-09-04"
+
+            disabled = {
+                **config,
+                server.bootstrap.CROSS_DOCUMENT_QUERY_CANDIDATE_FLAG: False,
+            }
+            result, commands, audit_input = execute(disabled)
+            self.assertEqual(2, len(commands))
+            self.assertEqual("legacy answer", result["answer"]["answer"])
+            self.assertNotIn(
+                server.SEMANTIC_GRAPH_CANDIDATE_KEY, result
+            )
+            self.assertEqual(
+                "feature_disabled",
+                result["pipeline_performance"]["semantic_graph_candidate"][
+                    "eligibility_reason"
+                ],
+            )
+
+    def test_server_candidate_timeout_holds_only_observer(self) -> None:
+        server = load_server()
+        with tempfile.TemporaryDirectory() as temporary:
+            base = Path(temporary)
+            workspace = base / "data"
+            generation = "generation-" + "d" * 32
+            index, registration = make_server_candidate_registration(
+                server, workspace, generation
+            )
+            config = {
+                "workspace": str(workspace),
+                "active_generation": generation,
+                "index_path": str(index),
+                "answer_model": "gemma4:12b",
+                "audit_model": "gemma4:12b",
+                "sequential_model_loading": False,
+                "cross_document_semantic_graph_query_candidate_timeout_seconds": 1,
+                server.bootstrap.CROSS_DOCUMENT_STORAGE_FLAG: True,
+                server.bootstrap.CROSS_DOCUMENT_QUERY_CANDIDATE_FLAG: True,
+                server.bootstrap.CROSS_DOCUMENT_STORAGE_CONFIG_KEY: registration,
+            }
+            legacy = {
+                "answer": {"answer": "13回です", "answer_mode": "grounded"}
+            }
+            calls = 0
+
+            def run(command: list[str], **_kwargs):
+                nonlocal calls
+                calls += 1
+                if calls == 1:
+                    return mock.Mock(stdout=json.dumps(legacy))
+                if calls == 2:
+                    return mock.Mock(stdout=json.dumps(legacy))
+                raise subprocess.TimeoutExpired(command, timeout=1)
+
+            server.bootstrap.SUPPORT = base / "support"
+            with (
+                mock.patch.object(
+                    server.bootstrap, "load_json", return_value=config
+                ),
+                mock.patch.object(server.bootstrap, "start_ollama"),
+                mock.patch.object(server.subprocess, "run", side_effect=run),
+            ):
+                result = server.answer_query(
+                    "2026年8月、分身ロボットカフェDAWNでは"
+                    "何回稼働していましたか？"
+                )
+            self.assertEqual("13回です", result["answer"]["answer"])
+            candidate = result[server.SEMANTIC_GRAPH_CANDIDATE_KEY]
+            self.assertEqual("held", candidate["status"])
+            self.assertEqual(
+                "semantic_candidate_timeout", candidate["diagnostic_code"]
+            )
+            self.assertTrue(
+                result["pipeline_performance"]["semantic_graph_candidate"][
+                    "timed_out"
+                ]
+            )
+
+    def test_dawn_thirteen_count_is_unchanged_for_non_applicable_candidate(
+        self,
+    ) -> None:
+        server = load_server()
+        with tempfile.TemporaryDirectory() as temporary:
+            base = Path(temporary)
+            workspace = base / "data"
+            generation = "generation-" + "e" * 32
+            index, registration = make_server_candidate_registration(
+                server, workspace, generation
+            )
+            config = {
+                "workspace": str(workspace),
+                "active_generation": generation,
+                "index_path": str(index),
+                "answer_model": "gemma4:12b",
+                "audit_model": "gemma4:12b",
+                "sequential_model_loading": False,
+                server.bootstrap.CROSS_DOCUMENT_STORAGE_FLAG: True,
+                server.bootstrap.CROSS_DOCUMENT_QUERY_CANDIDATE_FLAG: True,
+                server.bootstrap.CROSS_DOCUMENT_STORAGE_CONFIG_KEY: registration,
+            }
+            legacy = {
+                "answer": {"answer": "13回です", "answer_mode": "grounded"}
+            }
+            candidate = {
+                "schema_version": "0.1",
+                "record_type": server.SEMANTIC_GRAPH_CANDIDATE_KEY,
+                "adapter": "cross-document-semantic-graph-runtime",
+                "adapter_version": "0.1.0",
+                "status": "not_applicable",
+                "decision": "NOT_APPLICABLE",
+                "reason_code": "question_operation_unsupported",
+                "diagnostic_code": None,
+                "operation": None,
+                "answer_text": "",
+                "asserted_facts": [],
+                "asserted_relations": [],
+                "trace": {
+                    "graph_snapshot_id": None,
+                    "question_reference_date": None,
+                    "visited_node_ids": [],
+                    "visited_node_hashes": [],
+                    "visited_edge_ids": [],
+                    "visited_edge_hashes": [],
+                    "used_semantic_edge_ids": [],
+                    "used_semantic_edge_count": 0,
+                    "used_edge_statuses": [],
+                    "visited_document_paths": [],
+                    "resolved_source_references": [],
+                    "disabled_edge_ids": [],
+                    "decision": "NOT_APPLICABLE",
+                    "outbound_network_attempt_count": 0,
+                    "database_opened": False,
+                },
+                "runtime_attestation": None,
+                "used_for_answers": False,
+                "independent_edge_audit_status": "not_implemented_step4",
+            }
+            call_number = 0
+
+            def run(_command: list[str], **_kwargs):
+                nonlocal call_number
+                call_number += 1
+                if call_number in {1, 2}:
+                    return mock.Mock(stdout=json.dumps(legacy))
+                if call_number == 3:
+                    return mock.Mock(stdout=json.dumps(candidate))
+                raise AssertionError("unexpected subprocess")
+
+            server.bootstrap.SUPPORT = base / "support"
+            with (
+                mock.patch.object(
+                    server.bootstrap, "load_json", return_value=config
+                ),
+                mock.patch.object(server.bootstrap, "start_ollama"),
+                mock.patch.object(server.subprocess, "run", side_effect=run),
+            ):
+                result = server.answer_query(
+                    "2026年8月、分身ロボットカフェDAWNでは"
+                    "何回稼働していましたか？"
+                )
+
+            self.assertEqual(3, call_number)
+            self.assertEqual("13回です", result["answer"]["answer"])
+            observed = result[server.SEMANTIC_GRAPH_CANDIDATE_KEY]
+            self.assertEqual("not_applicable", observed["status"])
+            self.assertFalse(observed["trace"]["database_opened"])
+            self.assertFalse(observed["used_for_answers"])
+
+    def test_server_candidate_bug_cannot_replace_audited_answer(self) -> None:
+        server = load_server()
+        with tempfile.TemporaryDirectory() as temporary:
+            base = Path(temporary)
+            workspace = base / "data"
+            generation = "generation-" + "e" * 32
+            index, registration = make_server_candidate_registration(
+                server, workspace, generation
+            )
+            config = {
+                "workspace": str(workspace),
+                "active_generation": generation,
+                "index_path": str(index),
+                "answer_model": "gemma4:12b",
+                "audit_model": "gemma4:12b",
+                "sequential_model_loading": False,
+                server.bootstrap.CROSS_DOCUMENT_STORAGE_FLAG: True,
+                server.bootstrap.CROSS_DOCUMENT_QUERY_CANDIDATE_FLAG: True,
+                server.bootstrap.CROSS_DOCUMENT_STORAGE_CONFIG_KEY: registration,
+            }
+            legacy = {
+                "answer": {"answer": "legacy answer", "answer_mode": "grounded"},
+                "independent_final_audit": {"verdict": "PASS"},
+            }
+            server.bootstrap.SUPPORT = base / "support"
+            with (
+                mock.patch.object(
+                    server.bootstrap, "load_json", return_value=config
+                ),
+                mock.patch.object(server.bootstrap, "start_ollama"),
+                mock.patch.object(
+                    server.subprocess,
+                    "run",
+                    side_effect=[
+                        mock.Mock(stdout=json.dumps(legacy)),
+                        mock.Mock(stdout=json.dumps(legacy)),
+                    ],
+                ),
+                mock.patch.object(
+                    server,
+                    "run_semantic_graph_candidate",
+                    side_effect=RuntimeError("observer defect"),
+                ),
+            ):
+                result = server.answer_query("question")
+            self.assertEqual("legacy answer", result["answer"]["answer"])
+            candidate = result[server.SEMANTIC_GRAPH_CANDIDATE_KEY]
+            self.assertEqual("held", candidate["status"])
+            self.assertEqual(
+                "semantic_candidate_observer_boundary_failed",
+                candidate["diagnostic_code"],
+            )
 
     def test_server_never_queries_an_incomplete_generation(self) -> None:
         server = (ROOT / "app" / "local_memory_server.py").read_text(encoding="utf-8")

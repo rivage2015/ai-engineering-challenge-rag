@@ -631,6 +631,42 @@ class RuntimeRecoveryTests(unittest.TestCase):
 
             self.assertFalse(configured[bootstrap.CROSS_DOCUMENT_SHADOW_FLAG])
 
+    def test_configure_and_diagnose_preserve_candidate_rollback(self) -> None:
+        bootstrap = load_module(
+            "runtime_bootstrap_candidate_rollback",
+            ROOT / "app" / "bootstrap.py",
+        )
+        with TemporaryDirectory() as temporary:
+            base = Path(temporary)
+            source = base / "source"
+            source.mkdir()
+            bootstrap.SUPPORT = base / "support"
+            bootstrap.CONFIG = bootstrap.SUPPORT / "config.json"
+            bootstrap.atomic_json(bootstrap.CONFIG, {
+                "embedding_model": "embeddinggemma:latest",
+                "answer_model": "gemma4:12b",
+                "audit_model": "gemma4:12b",
+                bootstrap.CROSS_DOCUMENT_QUERY_CANDIDATE_FLAG: False,
+            })
+
+            configured = bootstrap.configure_source(source)
+
+            self.assertFalse(
+                configured[bootstrap.CROSS_DOCUMENT_QUERY_CANDIDATE_FLAG]
+            )
+            with (
+                mock.patch.object(bootstrap, "total_memory_gb", return_value=24),
+                mock.patch.object(bootstrap, "free_gb", return_value=80),
+                mock.patch.object(bootstrap, "ollama_binary", return_value=None),
+                mock.patch.object(bootstrap, "ollama_online", return_value=False),
+            ):
+                diagnosis = bootstrap.diagnose()
+            self.assertFalse(
+                diagnosis[
+                    "cross_document_semantic_graph_query_candidate_enabled"
+                ]
+            )
+
     def test_configure_source_enables_storage_and_clears_stale_registration(
         self,
     ) -> None:
@@ -998,6 +1034,22 @@ class RuntimeRecoveryTests(unittest.TestCase):
             self.assertEqual(b"immutable-base-index", immutable_base.read_bytes())
             runtime_state = bootstrap.load_json(bootstrap.STATE)
             self.assertEqual("ready", runtime_state["phase"])
+            self.assertTrue(
+                configured[bootstrap.CROSS_DOCUMENT_QUERY_CANDIDATE_FLAG]
+            )
+            self.assertTrue(
+                runtime_state[
+                    "cross_document_semantic_graph_query_candidate_enabled"
+                ]
+            )
+            marker = bootstrap.load_json(
+                promoted_output[0].parents[1] / bootstrap.GENERATION_MARKER
+            )
+            self.assertTrue(
+                marker[
+                    "cross_document_semantic_graph_query_candidate_enabled"
+                ]
+            )
             self.assertEqual(
                 "complete",
                 runtime_state["cross_document_semantic_graph_storage"][
@@ -1029,6 +1081,7 @@ class RuntimeRecoveryTests(unittest.TestCase):
                 "audit_model": "gemma4:12b",
                 bootstrap.CROSS_DOCUMENT_SHADOW_FLAG: True,
                 bootstrap.CROSS_DOCUMENT_STORAGE_FLAG: True,
+                bootstrap.CROSS_DOCUMENT_QUERY_CANDIDATE_FLAG: False,
             })
 
             def fake_semantic(_source, _paths, semantic, security, _log):
@@ -1201,6 +1254,20 @@ class RuntimeRecoveryTests(unittest.TestCase):
             storage_state = bootstrap.load_json(bootstrap.STATE)[
                 "cross_document_semantic_graph_storage"
             ]
+            runtime_state = bootstrap.load_json(bootstrap.STATE)
+            self.assertFalse(
+                runtime_state[
+                    "cross_document_semantic_graph_query_candidate_enabled"
+                ]
+            )
+            marker = bootstrap.load_json(
+                generation / bootstrap.GENERATION_MARKER
+            )
+            self.assertFalse(
+                marker[
+                    "cross_document_semantic_graph_query_candidate_enabled"
+                ]
+            )
             self.assertEqual("disabled", storage_state["status"])
             self.assertEqual(
                 "feature_disabled_during_registration",
@@ -1285,6 +1352,34 @@ class RuntimeRecoveryTests(unittest.TestCase):
             self.assertEqual(stable_files["config"], bootstrap.CONFIG.read_bytes())
             self.assertEqual(stable_files["state"], bootstrap.STATE.read_bytes())
             self.assertEqual(stable_files["marker"], marker_path.read_bytes())
+
+            for enabled in (False, True):
+                with self.subTest(query_candidate_flag=enabled):
+                    configured = bootstrap.load_json(bootstrap.CONFIG)
+                    configured[
+                        bootstrap.CROSS_DOCUMENT_QUERY_CANDIDATE_FLAG
+                    ] = enabled
+                    bootstrap.atomic_json(bootstrap.CONFIG, configured)
+                    with mock.patch.object(
+                        bootstrap, "_pid_is_alive", return_value=False
+                    ):
+                        flag_report = bootstrap.recover_interrupted_build()
+                    self.assertEqual(
+                        "recovered_published_observers",
+                        flag_report["status"],
+                    )
+                    self.assertIs(
+                        bootstrap.load_json(bootstrap.STATE)[
+                            "cross_document_semantic_graph_query_candidate_enabled"
+                        ],
+                        enabled,
+                    )
+                    self.assertIs(
+                        bootstrap.load_json(marker_path)[
+                            "cross_document_semantic_graph_query_candidate_enabled"
+                        ],
+                        enabled,
+                    )
 
     def test_bootstrap_independently_compares_stored_rows_with_shadow(self) -> None:
         bootstrap = load_module(

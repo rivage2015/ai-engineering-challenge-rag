@@ -3,8 +3,9 @@
 DOCX、XLSX、PPTX、PDFに分かれた合成事実を、単一文書検索ではなく、検証済みの
 semantic Edgeを通るKnowledge Graphとして回答に使えたかを判定する評価契約です。
 実在人物・顧客・案件の情報は含みません。fixture生成、Phase 1 baseline、評価専用の
-semantic Edge構築とPhase 2 E2E回答評価まで実行済みです。Phase 2はまだ
-macOSローカル検索アプリの本番経路には接続していません。
+semantic Edge構築とPhase 2 E2E回答評価まで実行済みです。macOSローカル検索アプリには、
+本番質問を複製して同じ意味グラフを走査するStep 3 query candidateまで接続しています。
+候補はまだユーザー回答へ反映しません。
 
 既存の`evaluation/general-memory-v0.1/`は比較用の基準としてそのまま残します。
 
@@ -125,9 +126,9 @@ python3 scripts/evaluate_cross_format_kg_phase2.py \
 - 関連回帰テスト48件が全件合格
 
 この合格は`PHASE2_SEMANTIC_GRAPH_PROOF_PASS_EVALUATION_ONLY`です。Gemmaや外部APIには
-問い合わせず、限定した担当・時点・版差分の質問を決定論的にグラフ探索しています。
+問い合わせず、限定した担当・時点・版差分の質問を決定論的にグラフ探索しています。実行時候補はProject、Work、正確な時点句、質問核の限定文法に合う質問面だけを受理し、それ以外は意味を推測せず`HOLD`にします。
 したがって「この合成5文書ではグラフを実際に使って正答できた」ことは示しますが、
-任意の文書・任意の質問へ一般化できたことは示しません。本番アプリは検証済みgraphのstorage-only保存まで接続していますが、検索・回答がsemantic表を使うStep 3は未実装です。
+任意の文書・任意の質問へ一般化できたことは示しません。本番アプリでは、検証済みgraphのstorage-only保存に加え、従来の最終監査後に別プロセスがsemantic表を検証・走査して候補結果、使用Edge、support Evidence、HOLD理由を記録するStep 3まで実装しています。ただし候補は`used_for_answers=false`であり、既存回答・最終採否には使いません。Step 4の独立Edge監査後に初めて回答への昇格を検討します。
 
 ## offline / anti-hardcoding / rollback
 
@@ -138,4 +139,4 @@ python3 scripts/evaluate_cross_format_kg_phase2.py \
   置換したcorpusで答えも追随し、旧答えを返した場合は不合格にする。
 - **Rollback:** 新グラフは別snapshotへ原子的にpublishする。本番保存は先に公開済みの元indexを残し、`cross_document_semantic_graph_storage_enabled=false`で無効化できる。gate失敗時は
   `cross_document_semantic_graph_shadow_enabled=false`へ戻し、直前の正常snapshotを保持する。cross-document質問を
-  flat検索の推測で埋めず、`graph_feature_rolled_back`として`HOLD`する。
+  flat検索の推測で埋めず、`graph_feature_rolled_back`として`HOLD`する。Step 3のdual-runだけを止める場合は`cross_document_semantic_graph_query_candidate_enabled=false`とし、既存回答経路はそのまま維持する。

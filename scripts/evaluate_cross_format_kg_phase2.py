@@ -63,6 +63,7 @@ TRACE_KEYS = {
     "run_id",
     "graph_snapshot_id",
     "question_hash",
+    "question_reference_date",
     "visited_node_ids",
     "visited_node_hashes",
     "visited_edge_ids",
@@ -928,6 +929,7 @@ def validate_answer_trace(
     question: str,
     *,
     disabled_edge_ids: Iterable[str] = (),
+    reference_date: str | None = None,
 ) -> dict[str, Any]:
     """Independently reconstruct all trace hashes, endpoints, documents and proof IDs."""
 
@@ -946,6 +948,8 @@ def validate_answer_trace(
         raise EvaluationError("answer trace fields mismatch")
     if trace.get("question_hash") != expected_question_hash:
         raise EvaluationError("trace question_hash mismatch")
+    if trace.get("question_reference_date") != reference_date:
+        raise EvaluationError("trace question_reference_date mismatch")
     if trace.get("graph_snapshot_id") != snapshot.graph_snapshot_id:
         raise EvaluationError("trace graph_snapshot_id mismatch")
     if trace.get("decision") != answer.get("decision"):
@@ -962,6 +966,8 @@ def validate_answer_trace(
         "question_hash": expected_question_hash,
         "disabled_edge_ids": disabled,
     }
+    if reference_date is not None:
+        run_payload["question_reference_date"] = reference_date
     expected_run_id = RUN_PREFIX + sha256_value(run_payload)[:32]
     if trace.get("run_id") != expected_run_id:
         raise EvaluationError("trace run_id mismatch")

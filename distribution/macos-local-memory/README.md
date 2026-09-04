@@ -1,8 +1,8 @@
 # Local Memory Search macOS package
 
-> **開発マイルストーン:** Cross-document Semantic Graph — Storage-only v0.2
+> **開発マイルストーン:** Cross-document Semantic Graph — Query candidate v0.3
 >
-> **配布状態:** offline runtime bundle regenerated / semantic retrieval pending
+> **配布状態:** source integrated / current DMG is still Storage-only v0.2
 
 非技術者向けの未署名macOS試作パッケージです。GitHubの操作は不要です。
 
@@ -36,7 +36,8 @@ PaddleOCRを使うには、固定されたPython 3.12環境と照合済みモデ
 - 最終Reader/security世代から従来のsafe-answer indexを先に原子的公開する。その後、`cross_document_semantic_graph_shadow_enabled=true`の場合だけ、同じ世代の`04-semantic-graph-shadow/`へcross-document semantic graphを生成する。候補ディレクトリ内のSQLite・全Evidence/Node/Edge hashに加え、Content Security Gateと全6出力を入力から再生成して照合し、合格後だけディレクトリ単位で確定する。
 - shadow graphは`index_path`、検索、回答、最終監査へ渡さず、`used_for_index=false`、`used_for_answers=false`として観測する。空グラフ、契約不一致、timeoutなどはshadowだけを`held`にし、公開済みsafe-answer indexと回答提供を止めない。したがって、この段階では本番データで意味グラフを生成・測定できるが、回答にはまだ利用しない。
 - shadow検証合格後、`cross_document_semantic_graph_storage_enabled=true`の場合だけ、先に公開した元safe-answer indexをSQLite backup APIで`05-semantic-answer-index.building/`へコピーし、名前空間を分けた`semantic_graph_*`表に検証済みgraphを保存する。元indexのEvidence・embedding・従来Graphの不変性とContent Security結合を再検査し、合格後だけ`05-semantic-answer-index/`として確定し、CONFIGの`index_path`とstorage登録を切り替える。
-- Step 2のsemantic graphは保存-onlyであり、`retrieval_enabled=false`、`used_for_answers=false`を維持する。回答器は新SQLiteの従来Evidence・embedding・Graphだけを読み、`semantic_graph_nodes`、`semantic_graph_edges`、`semantic_graph_edge_evidence`はまだ参照しない。検索・回答への接続はStep 3で別に実装・監査する。
+- Step 2のsemantic graphは保存-onlyであり、`retrieval_enabled=false`、`used_for_answers=false`を維持する。Step 3では従来の計画・検索・Gemma回答・最終監査が完了した後だけ、実質問を別プロセスのquery candidateへ複製する。新SQLiteの`semantic_graph_nodes`、`semantic_graph_edges`、`semantic_graph_edge_evidence`を1 read transactionで検証・走査し、候補回答、使用Edge、support Evidence、HOLD理由を監査済み回答記録へ後付けする。query candidateの情報は最終監査の入力にしない。
+- query candidateは`cross_document_semantic_graph_query_candidate_enabled=false`で即時停止できる。停止時はcandidate runtimeを起動せず、非対象質問ではsemantic SQLiteを開かない。どちらも既存回答経路だけを使う。候補は常に`used_for_answers=false`、`independent_edge_audit_status=not_implemented_step4`であり、Step 4がEdge走査を独立再構築して合格させるまではユーザー回答へ昇格しない。
 - 世代にbuild IDとowner PIDを持たせ、起動時に中断を判定する。未公開の中断世代だけを整理して再実行へ案内し、公開済み世代はreadyに復旧する。
 - SQLite safe-answer index schema `0.3`は、検証済みの`graph_nodes`と`graph_edges`、Graph hash、安全partitionを埋め込みと同じ未公開DBへ書き、全検査成功後だけ`graph_status=validated_safe_partition`、`graph_retrieval_enabled=true`として原子的に公開する。prompt-library indexは`schema_only`のまま回答には使わない。
 - semantic validatorはSearchUnitとLayer 1 Evidenceから`derived_from`を独立再構築し、完全なfan-inだけを`semantic-lineage-relations.jsonl`へ昇格する。長文shardや未投影binaryを含むfan-inは理由付きで保留する。
@@ -83,3 +84,9 @@ Step 2が合格すると、同じ公開世代の`05-semantic-answer-index/`に�
 - `semantic-answer-index-state.json`: 元index、shadow、Content Security、保存後SQLiteのhash、件数、`storage_only=true`、`retrieval_enabled=false`、`used_for_answers=false`の証明
 
 保存またはCONFIG登録が失敗した場合は、先に公開済みの元`safe-answer-index.sqlite3`をそのまま回答に使います。rollbackは`cross_document_semantic_graph_storage_enabled=false`にして再構築します。明示した`false`は維持され、保存処理もCONFIGのstorage登録も実行しません。元indexは削除せず同世代に保持します。
+
+## Cross-document semantic graph query candidate
+
+Step 3では、validated storage-only登録のDB・state・元indexのパス、hash、snapshot ID、件数、世代を再検査できた場合だけ、既存の最終監査後に実際の質問を`cross_document_semantic_graph_runtime.py`へ複製します。対応済みなのは、時点付き担当者、担当交代、承認済み版変更の3操作です。担当者質問の「5年前」のような正確な単一相対年は、従来回答が記録し最終監査後も一致した`question_reference_date`だけを実行基準日に使い、同じ基準日を候補traceとrun IDへ結合します。「約5年前」「5〜6年前」「5年前から」などの近似・範囲・境界表現と、担当交代／版変更へ質問時点を付ける組合せは、時点を黙って無視せず候補を`HOLD`にします。誤った一点化を避けるため、候補として受理する質問面は`Project名 -> Work名 -> 正確な時点句 -> 担当者質問`、または各非時点操作の限定文法へ固定し、それ以外の日本語表現は推測せず`HOLD`にします。現段階では質問文だけからProjectとWorkを一意に決められる必要があり、「この業務」のような前会話の指示対象を引き継ぐ処理は未実装です。Node／Edge／support Evidenceと各hashを再検査し、必要Edgeを辿った候補結果を回答JSONの`cross_document_semantic_graph_query_candidate`へ記録します。Edge不足、競合、改ざん、基準日の不一致、登録不一致は通常検索で補わず、候補側だけを`HOLD`にします。
+
+これは本番質問上のdual-run観測であり、候補の`answer_text`を画面の回答として表示しません。画面には候補status、使用Edge数、`used_for_answers=false`、独立Edge監査が未実装であることだけを表示します。別プロセスはデフォルト30秒上限（設定可能範囲1〜120秒）で、timeout・起動失敗・不正出力は候補側だけを`HOLD`にし、監査済みの既存回答は変えません。Step 4完了前なので、現在のDMG／ZIPは再生成していません。
