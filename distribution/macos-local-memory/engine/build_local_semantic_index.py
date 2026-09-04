@@ -17,6 +17,9 @@ from pathlib import Path
 
 
 OLLAMA_EMBED_URL = "http://127.0.0.1:11434/api/embed"
+LOCAL_HTTP_OPENER = urllib.request.build_opener(
+    urllib.request.ProxyHandler({})
+)
 MAX_EMBED_CHARS = 4_000
 EMBEDDING_SPACE_PROBE_VERSION = "local-memory-embedding-space-v1"
 EMBEDDING_SPACE_PROBE_TEXT = "local memory embedding space integrity probe v1"
@@ -214,7 +217,7 @@ def embed(model: str, texts: list[str], timeout: int) -> list[list[float]]:
         headers={"Content-Type": "application/json"},
         method="POST",
     )
-    with urllib.request.urlopen(request, timeout=timeout) as response:
+    with LOCAL_HTTP_OPENER.open(request, timeout=timeout) as response:
         value = json.loads(response.read().decode("utf-8"))
     vectors = value.get("embeddings")
     if not isinstance(vectors, list) or len(vectors) != len(texts):

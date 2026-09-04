@@ -18,6 +18,9 @@ from pathlib import Path
 
 OLLAMA_EMBED_URL = "http://127.0.0.1:11434/api/embed"
 OLLAMA_CHAT_URL = "http://127.0.0.1:11434/api/chat"
+LOCAL_HTTP_OPENER = urllib.request.build_opener(
+    urllib.request.ProxyHandler({})
+)
 MAX_EMBED_CHARS = 4_000
 EMBEDDING_SPACE_PROBE_VERSION = "local-memory-embedding-space-v1"
 EMBEDDING_SPACE_PROBE_TEXT = "local memory embedding space integrity probe v1"
@@ -130,7 +133,7 @@ def post_json(url: str, payload: dict, timeout: int) -> dict:
         headers={"Content-Type": "application/json"},
         method="POST",
     )
-    with urllib.request.urlopen(request, timeout=timeout) as response:
+    with LOCAL_HTTP_OPENER.open(request, timeout=timeout) as response:
         return json.loads(response.read().decode("utf-8"))
 
 

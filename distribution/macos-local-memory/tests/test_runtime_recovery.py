@@ -548,6 +548,102 @@ def prepare_completed_semantic_storage(
     return state, output
 
 
+class FakeSemanticGraphTrustStore:
+    """In-memory Keychain stand-in; runtime recovery never touches login Keychain."""
+
+    def __init__(self) -> None:
+        self.roots: dict[str, str] = {}
+        self.create_calls: list[tuple[str, str]] = []
+        self.read_calls: list[str] = []
+
+    def create_root(self, generation: str, root_sha256: str) -> None:
+        self.create_calls.append((generation, root_sha256))
+        if generation in self.roots:
+            raise ValueError("trust_store_create_failed")
+        self.roots[generation] = root_sha256
+
+    def read_root(self, generation: str) -> str:
+        self.read_calls.append(generation)
+        if generation not in self.roots:
+            raise ValueError("trust_store_read_failed")
+        return self.roots[generation]
+
+
+def prepare_trust_recovery_fixture(
+    bootstrap,
+    base: Path,
+    *,
+    promotion_enabled: bool,
+) -> tuple[Path, str, dict, dict, Path]:
+    """Prepare the real storage boundary at the pre-registration crash window."""
+    generation, _pending = prepare_published_generation(bootstrap, base)
+    build_id = "b" * 32
+    pending_shadow = bootstrap._shadow_run_base(
+        generation,
+        build_id,
+        status="pending",
+        reason_code="scheduled_after_production_publish",
+        elapsed_ms=0,
+    )
+    pending_storage = bootstrap._storage_run_base(
+        generation,
+        build_id,
+        status="pending",
+        reason_code="awaiting_validated_shadow",
+        elapsed_ms=0,
+    )
+    state, output = prepare_completed_semantic_storage(
+        bootstrap,
+        generation,
+        build_id=build_id,
+    )
+    base_index = generation / "safe-answer-index.sqlite3"
+    base_hash = bootstrap.sha256_file(base_index)
+    configured = bootstrap.load_json(bootstrap.CONFIG)
+    configured.update({
+        "index_path": str(base_index),
+        bootstrap.BASE_ANSWER_INDEX_SHA256_KEY: base_hash,
+        bootstrap.CROSS_DOCUMENT_STORAGE_FLAG: True,
+        bootstrap.CROSS_DOCUMENT_ANSWER_PROMOTION_FLAG: promotion_enabled,
+    })
+    configured.pop(bootstrap.CROSS_DOCUMENT_STORAGE_CONFIG_KEY, None)
+    configured.pop(bootstrap.CROSS_DOCUMENT_TRUST_CONFIG_KEY, None)
+    bootstrap.atomic_json(bootstrap.CONFIG, configured)
+
+    marker_path = generation / bootstrap.GENERATION_MARKER
+    marker = bootstrap.load_json(marker_path)
+    marker.update({
+        "status": "published",
+        "build_id": build_id,
+        bootstrap.BASE_ANSWER_INDEX_SHA256_KEY: base_hash,
+        "cross_document_semantic_graph_storage_enabled": True,
+        "cross_document_semantic_graph_answer_promotion_enabled": (
+            promotion_enabled
+        ),
+        "cross_document_semantic_graph_shadow": pending_shadow,
+        "cross_document_semantic_graph_storage": pending_storage,
+    })
+    bootstrap.atomic_json(marker_path, marker)
+    bootstrap.atomic_json(bootstrap.STATE, {
+        "phase": "ready",
+        "message": "索引の作成が完了しました。",
+        "error": "",
+        "cross_document_semantic_graph_answer_promotion_enabled": (
+            promotion_enabled
+        ),
+        "cross_document_semantic_graph_shadow": pending_shadow,
+        "cross_document_semantic_graph_storage": pending_storage,
+    })
+    registration = bootstrap._semantic_storage_registration(
+        generation,
+        state,
+        semantic=generation / "02-semantic",
+        security=generation / "03-security",
+        expected_build_id=build_id,
+    )
+    return generation, build_id, registration, state, output
+
+
 class RuntimeRecoveryTests(unittest.TestCase):
     def test_corrupt_config_and_state_fail_closed_with_readable_status(self) -> None:
         for corrupt_target in ("config", "state"):
@@ -607,6 +703,10 @@ class RuntimeRecoveryTests(unittest.TestCase):
             configured = bootstrap.configure_source(source)
 
             self.assertTrue(configured[bootstrap.CROSS_DOCUMENT_SHADOW_FLAG])
+            self.assertNotIn(
+                bootstrap.CROSS_DOCUMENT_ANSWER_PROMOTION_FLAG,
+                configured,
+            )
             self.assertNotIn("active_generation", configured)
             self.assertNotIn("semantic_graph_shadow_path", configured)
 
@@ -725,6 +825,9 @@ class RuntimeRecoveryTests(unittest.TestCase):
                 configured[
                     bootstrap.CROSS_DOCUMENT_INDEPENDENT_EDGE_AUDIT_FLAG
                 ]
+            )
+            self.assertTrue(
+                configured[bootstrap.CROSS_DOCUMENT_ANSWER_PROMOTION_FLAG]
             )
 
     def test_configure_source_enables_storage_and_clears_stale_registration(
@@ -1048,6 +1151,10 @@ class RuntimeRecoveryTests(unittest.TestCase):
                 types.SimpleNamespace(hex="5" * 32),
                 types.SimpleNamespace(hex="6" * 32),
             ]
+            trust_locator = {
+                "status": "trusted",
+                "generation": "generation-" + "5" * 32,
+            }
             with (
                 mock.patch.object(
                     bootstrap.uuid, "uuid4", side_effect=identifiers
@@ -1077,6 +1184,11 @@ class RuntimeRecoveryTests(unittest.TestCase):
                     "_semantic_storage_registration",
                     side_effect=fake_registration,
                 ),
+                mock.patch.object(
+                    bootstrap,
+                    "_publish_semantic_graph_trust_root",
+                    return_value=trust_locator,
+                ) as trust_publish,
             ):
                 bootstrap.build_index()
 
@@ -1088,6 +1200,14 @@ class RuntimeRecoveryTests(unittest.TestCase):
                     "status"
                 ],
             )
+            self.assertTrue(
+                configured[bootstrap.CROSS_DOCUMENT_ANSWER_PROMOTION_FLAG]
+            )
+            self.assertEqual(
+                trust_locator,
+                configured[bootstrap.CROSS_DOCUMENT_TRUST_CONFIG_KEY],
+            )
+            trust_publish.assert_called_once()
             immutable_base = (
                 promoted_output[0].parents[1] / "safe-answer-index.sqlite3"
             )
@@ -1494,6 +1614,310 @@ class RuntimeRecoveryTests(unittest.TestCase):
                         ],
                         enabled,
                     )
+
+    def test_promotion_trust_root_publish_then_recovery_binds_config_locator(
+        self,
+    ) -> None:
+        bootstrap = load_module(
+            "runtime_bootstrap_trust_publish_recovery",
+            ROOT / "app" / "bootstrap.py",
+        )
+        trust_module = load_module(
+            "runtime_bootstrap_trust_publish_module",
+            ROOT / "app" / "semantic_graph_trust.py",
+        )
+        store = FakeSemanticGraphTrustStore()
+        trust_module.KeychainTrustStore = lambda: store
+        with TemporaryDirectory() as temporary:
+            generation, build_id, registration, state, output = (
+                prepare_trust_recovery_fixture(
+                    bootstrap,
+                    Path(temporary),
+                    promotion_enabled=True,
+                )
+            )
+            with mock.patch.object(
+                bootstrap,
+                "_semantic_graph_trust_module",
+                return_value=trust_module,
+            ):
+                published_locator = (
+                    bootstrap._publish_semantic_graph_trust_root(
+                        generation,
+                        build_id,
+                        registration,
+                        state,
+                    )
+                )
+                self.assertEqual(
+                    trust_module.TRUST_REGISTRATION_FIELDS,
+                    set(published_locator),
+                )
+                self.assertEqual(1, len(store.create_calls))
+                self.assertEqual(generation.name, store.create_calls[0][0])
+                # Crash window: the independent root exists, while CONFIG still
+                # points at the base index and contains no trust locator.
+                configured_before = bootstrap.load_json(bootstrap.CONFIG)
+                self.assertEqual(
+                    str(generation / "safe-answer-index.sqlite3"),
+                    configured_before["index_path"],
+                )
+                self.assertNotIn(
+                    bootstrap.CROSS_DOCUMENT_TRUST_CONFIG_KEY,
+                    configured_before,
+                )
+                with mock.patch.object(
+                    bootstrap, "_pid_is_alive", return_value=False
+                ):
+                    report = bootstrap.recover_interrupted_build()
+
+            self.assertEqual(
+                "recovered_published_observers", report["status"]
+            )
+            self.assertEqual(
+                "completed_pointer_switch", report["storage_action"]
+            )
+            configured = bootstrap.load_json(bootstrap.CONFIG)
+            self.assertEqual(str(output), configured["index_path"])
+            self.assertTrue(
+                configured[bootstrap.CROSS_DOCUMENT_ANSWER_PROMOTION_FLAG]
+            )
+            recovered_locator = configured[
+                bootstrap.CROSS_DOCUMENT_TRUST_CONFIG_KEY
+            ]
+            self.assertEqual(published_locator, recovered_locator)
+            verified = trust_module.validate_trust_root(
+                generation, registration, store
+            )
+            trust_module.validate_trust_registration(
+                recovered_locator,
+                generation,
+                registration,
+                verified_root=verified,
+            )
+            self.assertTrue(
+                bootstrap.load_json(bootstrap.STATE)[
+                    "cross_document_semantic_graph_answer_promotion_enabled"
+                ]
+            )
+            self.assertTrue(
+                bootstrap.load_json(
+                    generation / bootstrap.GENERATION_MARKER
+                )[
+                    "cross_document_semantic_graph_answer_promotion_enabled"
+                ]
+            )
+
+    def test_promotion_recovery_with_manifest_but_missing_root_fails_closed(
+        self,
+    ) -> None:
+        bootstrap = load_module(
+            "runtime_bootstrap_trust_missing_root",
+            ROOT / "app" / "bootstrap.py",
+        )
+        trust_module = load_module(
+            "runtime_bootstrap_trust_missing_root_module",
+            ROOT / "app" / "semantic_graph_trust.py",
+        )
+        store = FakeSemanticGraphTrustStore()
+        trust_module.KeychainTrustStore = lambda: store
+        with TemporaryDirectory() as temporary:
+            generation, build_id, registration, state, _output = (
+                prepare_trust_recovery_fixture(
+                    bootstrap,
+                    Path(temporary),
+                    promotion_enabled=True,
+                )
+            )
+            manifest = trust_module.build_trust_manifest(
+                generation, build_id, registration, state
+            )
+            trust_module.write_trust_manifest(
+                generation, manifest, registration
+            )
+            with (
+                mock.patch.object(
+                    bootstrap,
+                    "_semantic_graph_trust_module",
+                    return_value=trust_module,
+                ),
+                mock.patch.object(
+                    bootstrap, "_pid_is_alive", return_value=False
+                ),
+            ):
+                report = bootstrap.recover_interrupted_build()
+
+            self.assertEqual("held", report["storage_status"])
+            self.assertEqual("kept_base", report["storage_action"])
+            configured = bootstrap.load_json(bootstrap.CONFIG)
+            self.assertEqual(
+                str(generation / "safe-answer-index.sqlite3"),
+                configured["index_path"],
+            )
+            self.assertTrue(
+                configured[bootstrap.CROSS_DOCUMENT_ANSWER_PROMOTION_FLAG]
+            )
+            self.assertNotIn(
+                bootstrap.CROSS_DOCUMENT_STORAGE_CONFIG_KEY, configured
+            )
+            self.assertNotIn(
+                bootstrap.CROSS_DOCUMENT_TRUST_CONFIG_KEY, configured
+            )
+            self.assertEqual([], store.create_calls)
+            self.assertGreaterEqual(len(store.read_calls), 1)
+
+    def test_promotion_recovery_before_manifest_never_mints_missing_root(
+        self,
+    ) -> None:
+        bootstrap = load_module(
+            "runtime_bootstrap_trust_before_manifest",
+            ROOT / "app" / "bootstrap.py",
+        )
+        trust_module = load_module(
+            "runtime_bootstrap_trust_before_manifest_module",
+            ROOT / "app" / "semantic_graph_trust.py",
+        )
+        store = FakeSemanticGraphTrustStore()
+        trust_module.KeychainTrustStore = lambda: store
+        with TemporaryDirectory() as temporary:
+            generation, _build_id, _registration, _state, _output = (
+                prepare_trust_recovery_fixture(
+                    bootstrap,
+                    Path(temporary),
+                    promotion_enabled=True,
+                )
+            )
+            self.assertFalse(
+                trust_module.trust_manifest_path(generation).exists()
+            )
+            with (
+                mock.patch.object(
+                    bootstrap,
+                    "_semantic_graph_trust_module",
+                    return_value=trust_module,
+                ),
+                mock.patch.object(
+                    bootstrap, "_pid_is_alive", return_value=False
+                ),
+            ):
+                report = bootstrap.recover_interrupted_build()
+
+            self.assertEqual("held", report["storage_status"])
+            self.assertEqual("kept_base", report["storage_action"])
+            configured = bootstrap.load_json(bootstrap.CONFIG)
+            self.assertEqual(
+                str(generation / "safe-answer-index.sqlite3"),
+                configured["index_path"],
+            )
+            self.assertNotIn(
+                bootstrap.CROSS_DOCUMENT_TRUST_CONFIG_KEY, configured
+            )
+            self.assertEqual([], store.create_calls)
+            self.assertGreaterEqual(len(store.read_calls), 1)
+
+    def test_promotion_recovery_after_config_before_marker_revalidates_root(
+        self,
+    ) -> None:
+        bootstrap = load_module(
+            "runtime_bootstrap_trust_config_marker_window",
+            ROOT / "app" / "bootstrap.py",
+        )
+        trust_module = load_module(
+            "runtime_bootstrap_trust_config_marker_module",
+            ROOT / "app" / "semantic_graph_trust.py",
+        )
+        store = FakeSemanticGraphTrustStore()
+        trust_module.KeychainTrustStore = lambda: store
+        with TemporaryDirectory() as temporary:
+            generation, build_id, registration, state, output = (
+                prepare_trust_recovery_fixture(
+                    bootstrap,
+                    Path(temporary),
+                    promotion_enabled=True,
+                )
+            )
+            with mock.patch.object(
+                bootstrap,
+                "_semantic_graph_trust_module",
+                return_value=trust_module,
+            ):
+                locator = bootstrap._publish_semantic_graph_trust_root(
+                    generation, build_id, registration, state
+                )
+                configured = bootstrap.load_json(bootstrap.CONFIG)
+                configured.update({
+                    "index_path": str(output),
+                    bootstrap.CROSS_DOCUMENT_STORAGE_CONFIG_KEY: registration,
+                    bootstrap.CROSS_DOCUMENT_TRUST_CONFIG_KEY: locator,
+                })
+                bootstrap.atomic_json(bootstrap.CONFIG, configured)
+                # Marker and STATE deliberately remain at their pending values.
+                with mock.patch.object(
+                    bootstrap, "_pid_is_alive", return_value=False
+                ):
+                    report = bootstrap.recover_interrupted_build()
+
+            self.assertEqual(
+                "recovered_published_observers", report["status"]
+            )
+            self.assertEqual("verified_complete", report["storage_action"])
+            recovered = bootstrap.load_json(bootstrap.CONFIG)
+            self.assertEqual(locator, recovered[
+                bootstrap.CROSS_DOCUMENT_TRUST_CONFIG_KEY
+            ])
+            self.assertEqual(str(output), recovered["index_path"])
+            self.assertGreaterEqual(len(store.read_calls), 2)
+
+    def test_promotion_false_survives_storage_recovery_without_trust_access(
+        self,
+    ) -> None:
+        bootstrap = load_module(
+            "runtime_bootstrap_trust_disabled_recovery",
+            ROOT / "app" / "bootstrap.py",
+        )
+        with TemporaryDirectory() as temporary:
+            generation, _build_id, _registration, _state, output = (
+                prepare_trust_recovery_fixture(
+                    bootstrap,
+                    Path(temporary),
+                    promotion_enabled=False,
+                )
+            )
+            with (
+                mock.patch.object(
+                    bootstrap,
+                    "_recover_semantic_graph_trust_root",
+                ) as trust_recovery,
+                mock.patch.object(
+                    bootstrap, "_pid_is_alive", return_value=False
+                ),
+            ):
+                report = bootstrap.recover_interrupted_build()
+
+            self.assertEqual(
+                "completed_pointer_switch", report["storage_action"]
+            )
+            trust_recovery.assert_not_called()
+            configured = bootstrap.load_json(bootstrap.CONFIG)
+            self.assertEqual(str(output), configured["index_path"])
+            self.assertFalse(
+                configured[bootstrap.CROSS_DOCUMENT_ANSWER_PROMOTION_FLAG]
+            )
+            self.assertNotIn(
+                bootstrap.CROSS_DOCUMENT_TRUST_CONFIG_KEY, configured
+            )
+            self.assertFalse(
+                bootstrap.load_json(bootstrap.STATE)[
+                    "cross_document_semantic_graph_answer_promotion_enabled"
+                ]
+            )
+            self.assertFalse(
+                bootstrap.load_json(
+                    generation / bootstrap.GENERATION_MARKER
+                )[
+                    "cross_document_semantic_graph_answer_promotion_enabled"
+                ]
+            )
 
     def test_bootstrap_independently_compares_stored_rows_with_shadow(self) -> None:
         bootstrap = load_module(
@@ -2023,6 +2447,18 @@ class RuntimeRecoveryTests(unittest.TestCase):
             self.assertTrue(published["security_path"].endswith("03-security-model-ready"))
             self.assertTrue(Path(published["index_path"]).is_file())
             self.assertTrue(published[bootstrap.CROSS_DOCUMENT_SHADOW_FLAG])
+            published_marker = bootstrap.load_json(
+                workspace
+                / "generations"
+                / published["active_generation"]
+                / bootstrap.GENERATION_MARKER
+            )
+            self.assertEqual(
+                bootstrap.BUILD_EXECUTION_LEASE_VERSION,
+                published_marker[
+                    bootstrap.BUILD_EXECUTION_LEASE_VERSION_KEY
+                ],
+            )
             runtime_state = bootstrap.load_json(state_path)
             self.assertEqual(runtime_state["phase"], "ready_with_limits")
             self.assertEqual(
@@ -2067,6 +2503,327 @@ class RuntimeRecoveryTests(unittest.TestCase):
             recovered_state = bootstrap.load_json(bootstrap.STATE)
             self.assertEqual(recovered_state["phase"], "error")
             self.assertEqual(recovered_state["recovery_action"], "retry_build")
+
+    def test_legacy_live_build_owner_remains_untouched(self) -> None:
+        bootstrap = load_module(
+            "runtime_bootstrap_legacy_live_owner",
+            ROOT / "app" / "bootstrap.py",
+        )
+        with TemporaryDirectory() as temporary:
+            base = Path(temporary)
+            support = base / "support"
+            workspace = support / "data"
+            name = "generation-" + "c" * 32
+            generation = workspace / "generations" / name
+            generation.mkdir(parents=True)
+            bootstrap.SUPPORT = support
+            bootstrap.CONFIG = support / "config.json"
+            bootstrap.STATE = support / "state.json"
+            bootstrap.atomic_json(
+                bootstrap.CONFIG,
+                {"workspace": str(workspace)},
+            )
+            bootstrap.atomic_json(
+                generation / bootstrap.GENERATION_MARKER,
+                {
+                    "status": "building",
+                    "generation": name,
+                    "owner_pid": 99_999_999,
+                },
+            )
+            original_state = {
+                "phase": "building",
+                "generation": name,
+                "owner_pid": 99_999_999,
+            }
+            bootstrap.atomic_json(bootstrap.STATE, original_state)
+
+            with mock.patch.object(
+                bootstrap,
+                "_pid_is_alive",
+                return_value=True,
+            ):
+                result = bootstrap.recover_interrupted_build()
+
+            self.assertEqual("active", result["status"])
+            self.assertTrue(generation.is_dir())
+            self.assertEqual(
+                original_state,
+                bootstrap.load_json(bootstrap.STATE),
+            )
+
+    def test_legacy_reused_build_owner_pid_is_recovered(self) -> None:
+        bootstrap = load_module(
+            "runtime_bootstrap_legacy_reused_owner",
+            ROOT / "app" / "bootstrap.py",
+        )
+        with TemporaryDirectory() as temporary:
+            base = Path(temporary)
+            support = base / "support"
+            workspace = support / "data"
+            name = "generation-" + "e" * 32
+            generation = workspace / "generations" / name
+            generation.mkdir(parents=True)
+            bootstrap.SUPPORT = support
+            bootstrap.CONFIG = support / "config.json"
+            bootstrap.STATE = support / "state.json"
+            started_at = "2026-09-04T10:00:00+09:00"
+            bootstrap.atomic_json(
+                bootstrap.CONFIG,
+                {"workspace": str(workspace)},
+            )
+            bootstrap.atomic_json(
+                generation / bootstrap.GENERATION_MARKER,
+                {
+                    "status": "building",
+                    "generation": name,
+                    "owner_pid": 99_999_999,
+                    "started_at": started_at,
+                },
+            )
+            bootstrap.atomic_json(
+                bootstrap.STATE,
+                {
+                    "phase": "building",
+                    "generation": name,
+                    "owner_pid": 99_999_999,
+                    "started_at": started_at,
+                },
+            )
+            reused_process_start = (
+                bootstrap.datetime.fromisoformat(started_at).timestamp() + 60
+            )
+
+            with (
+                mock.patch.object(
+                    bootstrap,
+                    "_pid_is_alive",
+                    return_value=True,
+                ),
+                mock.patch.object(
+                    bootstrap,
+                    "_legacy_process_identity",
+                    return_value={
+                        "started_at": reused_process_start,
+                        "state": "S",
+                        "command": "/usr/bin/unrelated-process",
+                    },
+                ),
+            ):
+                result = bootstrap.recover_interrupted_build()
+
+            self.assertEqual(
+                "interrupted_build_failed_closed",
+                result["status"],
+            )
+            self.assertFalse(generation.exists())
+            recovered_state = bootstrap.load_json(bootstrap.STATE)
+            self.assertEqual("error", recovered_state["phase"])
+            self.assertEqual("retry_build", recovered_state["recovery_action"])
+
+    def test_legacy_zombie_build_owner_is_not_live(self) -> None:
+        bootstrap = load_module(
+            "runtime_bootstrap_legacy_zombie_owner",
+            ROOT / "app" / "bootstrap.py",
+        )
+        started_at = "2026-09-04T10:00:00+09:00"
+        with (
+            mock.patch.object(
+                bootstrap,
+                "_pid_is_alive",
+                return_value=True,
+            ),
+            mock.patch.object(
+                bootstrap,
+                "_legacy_process_identity",
+                return_value={
+                    "started_at": (
+                        bootstrap.datetime.fromisoformat(
+                            started_at
+                        ).timestamp()
+                        - 60
+                    ),
+                    "state": "Z+",
+                    "command": "[Python] <defunct>",
+                },
+            ),
+        ):
+            self.assertFalse(
+                bootstrap._legacy_build_owner_is_live(
+                    99_999_999,
+                    {"started_at": started_at},
+                )
+            )
+
+    def test_legacy_pending_observer_recovers_after_pid_reuse(self) -> None:
+        bootstrap = load_module(
+            "runtime_bootstrap_legacy_observer_reused_pid",
+            ROOT / "app" / "bootstrap.py",
+        )
+        with TemporaryDirectory() as temporary:
+            generation, _pending = prepare_published_generation(
+                bootstrap,
+                Path(temporary),
+            )
+            marker_path = generation / bootstrap.GENERATION_MARKER
+            marker = bootstrap.load_json(marker_path)
+            started_at = "2026-09-04T10:00:00+09:00"
+            marker["started_at"] = started_at
+            bootstrap.atomic_json(marker_path, marker)
+            reused_process_start = (
+                bootstrap.datetime.fromisoformat(started_at).timestamp() + 60
+            )
+
+            with (
+                mock.patch.object(
+                    bootstrap,
+                    "_pid_is_alive",
+                    return_value=True,
+                ),
+                mock.patch.object(
+                    bootstrap,
+                    "_legacy_process_identity",
+                    return_value={
+                        "started_at": reused_process_start,
+                        "state": "S",
+                        "command": "/usr/bin/unrelated-process",
+                    },
+                ),
+            ):
+                result = bootstrap.recover_interrupted_build()
+
+            self.assertEqual("recovered_published_shadow", result["status"])
+            recovered_state = bootstrap.load_json(bootstrap.STATE)
+            self.assertEqual("ready", recovered_state["phase"])
+            self.assertEqual(
+                "held",
+                recovered_state[
+                    "cross_document_semantic_graph_shadow"
+                ]["status"],
+            )
+
+    def test_legacy_process_identity_parses_bounded_ps_record(self) -> None:
+        bootstrap = load_module(
+            "runtime_bootstrap_legacy_process_identity",
+            ROOT / "app" / "bootstrap.py",
+        )
+        completed = subprocess.CompletedProcess(
+            args=["/bin/ps"],
+            returncode=0,
+            stdout=(
+                "Thu Sep  4 09:30:00 2026 S+ "
+                "/usr/bin/python3 local_memory_server.py --port 8765\n"
+            ),
+            stderr="",
+        )
+        with mock.patch.object(
+            bootstrap.subprocess,
+            "run",
+            return_value=completed,
+        ) as run:
+            identity = bootstrap._legacy_process_identity(12345)
+        self.assertIsNotNone(identity)
+        assert identity is not None
+        self.assertEqual("S+", identity["state"])
+        self.assertIn("local_memory_server.py", identity["command"])
+        self.assertIsInstance(identity["started_at"], float)
+        self.assertEqual("C", run.call_args.kwargs["env"]["LC_ALL"])
+        self.assertEqual(1, run.call_args.kwargs["timeout"])
+
+    def test_lease_managed_build_ignores_reused_live_pid(self) -> None:
+        bootstrap = load_module(
+            "runtime_bootstrap_lease_managed_reused_pid",
+            ROOT / "app" / "bootstrap.py",
+        )
+        with TemporaryDirectory() as temporary:
+            base = Path(temporary)
+            support = base / "support"
+            workspace = support / "data"
+            name = "generation-" + "d" * 32
+            generation = workspace / "generations" / name
+            generation.mkdir(parents=True)
+            bootstrap.SUPPORT = support
+            bootstrap.CONFIG = support / "config.json"
+            bootstrap.STATE = support / "state.json"
+            lease_binding = {
+                bootstrap.BUILD_EXECUTION_LEASE_VERSION_KEY: (
+                    bootstrap.BUILD_EXECUTION_LEASE_VERSION
+                )
+            }
+            bootstrap.atomic_json(
+                bootstrap.CONFIG,
+                {"workspace": str(workspace)},
+            )
+            bootstrap.atomic_json(
+                generation / bootstrap.GENERATION_MARKER,
+                {
+                    "status": "building",
+                    "generation": name,
+                    "owner_pid": 99_999_999,
+                    **lease_binding,
+                },
+            )
+            bootstrap.atomic_json(
+                bootstrap.STATE,
+                {
+                    "phase": "building",
+                    "generation": name,
+                    "owner_pid": 99_999_999,
+                    **lease_binding,
+                },
+            )
+
+            with mock.patch.object(
+                bootstrap,
+                "_pid_is_alive",
+                return_value=True,
+            ):
+                result = bootstrap.recover_interrupted_build()
+
+            self.assertEqual(
+                "interrupted_build_failed_closed",
+                result["status"],
+            )
+            self.assertFalse(generation.exists())
+            recovered_state = bootstrap.load_json(bootstrap.STATE)
+            self.assertEqual("error", recovered_state["phase"])
+            self.assertEqual("retry_build", recovered_state["recovery_action"])
+
+    def test_lease_managed_pending_observer_ignores_reused_live_pid(
+        self,
+    ) -> None:
+        bootstrap = load_module(
+            "runtime_bootstrap_observer_reused_pid",
+            ROOT / "app" / "bootstrap.py",
+        )
+        with TemporaryDirectory() as temporary:
+            generation, _pending = prepare_published_generation(
+                bootstrap,
+                Path(temporary),
+            )
+            marker_path = generation / bootstrap.GENERATION_MARKER
+            marker = bootstrap.load_json(marker_path)
+            marker[bootstrap.BUILD_EXECUTION_LEASE_VERSION_KEY] = (
+                bootstrap.BUILD_EXECUTION_LEASE_VERSION
+            )
+            bootstrap.atomic_json(marker_path, marker)
+
+            with mock.patch.object(
+                bootstrap,
+                "_pid_is_alive",
+                return_value=True,
+            ):
+                result = bootstrap.recover_interrupted_build()
+
+            self.assertEqual("recovered_published_shadow", result["status"])
+            recovered_state = bootstrap.load_json(bootstrap.STATE)
+            self.assertEqual("ready", recovered_state["phase"])
+            self.assertEqual(
+                "held",
+                recovered_state[
+                    "cross_document_semantic_graph_shadow"
+                ]["status"],
+            )
 
     def test_dead_owner_restores_generation_already_atomically_published(self) -> None:
         bootstrap = load_module("runtime_bootstrap_published", ROOT / "app" / "bootstrap.py")
@@ -2925,6 +3682,10 @@ class RuntimeRecoveryTests(unittest.TestCase):
             args, kwargs = popen.call_args
             self.assertEqual(args[0], ["/opt/homebrew/bin/ollama", "serve"])
             self.assertEqual(kwargs["env"]["OLLAMA_HOST"], "127.0.0.1:11434")
+            self.assertIn("127.0.0.1", kwargs["env"]["NO_PROXY"].split(","))
+            self.assertIn("localhost", kwargs["env"]["NO_PROXY"].split(","))
+            self.assertIn("127.0.0.1", kwargs["env"]["no_proxy"].split(","))
+            self.assertIn("localhost", kwargs["env"]["no_proxy"].split(","))
             self.assertTrue(kwargs["start_new_session"])
             serve_log = bootstrap.SUPPORT / "logs" / "ollama-serve.log"
             self.assertTrue(serve_log.is_file())

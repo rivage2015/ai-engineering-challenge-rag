@@ -1,0 +1,73 @@
+{
+  "schema_version": "0.1",
+  "record_type": "cross_format_kg_anti_hardcoding_variant",
+  "variant_id": "aurora-shifted-renamed-v0.1",
+  "enumeration_seed": 731042,
+  "source_file_order": [
+    "project-orion/05_社員ID対応表_署名済.pdf",
+    "project-orion/02_ORION-27_担当履歴.xlsx",
+    "project-orion/04_ORION-27_体制計画_v2.pptx",
+    "project-orion/01_ORION-27_案件定義書.docx",
+    "project-orion/03_ORION-27_体制計画_v1.pptx"
+  ],
+  "renamed_files": {
+    "project-orion/01_ORION-27_案件定義書.docx": "mutated-aurora/40_project-context.docx",
+    "project-orion/02_ORION-27_担当履歴.xlsx": "mutated-aurora/10_assignment-timeline.xlsx",
+    "project-orion/03_ORION-27_体制計画_v1.pptx": "mutated-aurora/50_prior-plan.pptx",
+    "project-orion/04_ORION-27_体制計画_v2.pptx": "mutated-aurora/20_current-plan.pptx",
+    "project-orion/05_社員ID対応表_署名済.pdf": "mutated-aurora/30_identity-register.pdf"
+  },
+  "replacements": [
+    ["03_ORION-27_体制計画_v1.pptx", "50_prior-plan.pptx"],
+    ["本番移行フェーズへの移行に伴う運営体制の再編", "災害復旧フェーズへの移行に伴う運営体制の再編"],
+    ["移行リハーサル統括", "災害復旧演習統括"],
+    ["オリオン顧客移行", "オーロラ顧客統合"],
+    ["Project Orion", "Project Aurora"],
+    ["オリオン移行", "オーロラ統合"],
+    ["ORION-27", "AURORA-42"],
+    ["WS-MIG-04", "WS-DR-09"],
+    ["EMP-104", "EMP-731"],
+    ["EMP-208", "EMP-842"],
+    ["佐藤未来", "高藤未来"],
+    ["高橋蓮", "佐橋蓮"],
+    ["ASG-001", "ASG-731"],
+    ["ASG-002", "ASG-842"],
+    ["2021-04-01", "2024-04-01"],
+    ["2023-03-31", "2026-03-31"],
+    ["2023-04-01", "2026-04-01"],
+    ["2023-03-20", "2026-03-20"]
+  ],
+  "forbidden_old_values": [
+    "03_ORION-27_体制計画_v1.pptx",
+    "本番移行フェーズへの移行に伴う運営体制の再編",
+    "ORION-27",
+    "Project Orion",
+    "オリオン顧客移行",
+    "オリオン移行",
+    "WS-MIG-04",
+    "移行リハーサル統括",
+    "EMP-104",
+    "EMP-208",
+    "佐藤未来",
+    "高橋蓮",
+    "ASG-001",
+    "ASG-002",
+    "2021-04-01",
+    "2023-03-31",
+    "2023-04-01",
+    "2023-03-20"
+  ],
+  "required_new_graph_values": [
+    "AURORA-42",
+    "Project Aurora",
+    "オーロラ顧客統合",
+    "オーロラ統合",
+    "WS-DR-09",
+    "災害復旧演習統括",
+    "災害復旧フェーズへの移行に伴う運営体制の再編",
+    "EMP-731",
+    "EMP-842",
+    "高藤未来",
+    "佐橋蓮"
+  ]
+}

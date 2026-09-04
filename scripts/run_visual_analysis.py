@@ -18,6 +18,10 @@ import urllib.request
 from pathlib import Path
 from typing import Any
 
+LOCAL_HTTP_OPENER = urllib.request.build_opener(
+    urllib.request.ProxyHandler({})
+)
+
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts"))
 
@@ -100,7 +104,7 @@ def request_json(base_url: str, payload: dict[str, Any], timeout: float) -> dict
     data = json.dumps(payload).encode("utf-8")
     request = urllib.request.Request(url, data=data, headers={"Content-Type": "application/json"})
     try:
-        with urllib.request.urlopen(request, timeout=timeout) as response:
+        with LOCAL_HTTP_OPENER.open(request, timeout=timeout) as response:
             return json.loads(response.read().decode("utf-8"))
     except (urllib.error.URLError, TimeoutError, json.JSONDecodeError) as exc:
         raise RuntimeError(f"local Ollama visual request failed: {url}: {exc}") from exc

@@ -49,6 +49,9 @@ RULE_VERSION = "v0.2"
 VALIDATOR_VERSION = "0.1"
 DEFAULT_MODEL = "gemma4:12b"
 DEFAULT_BASE_URL = "http://127.0.0.1:11434"
+LOCAL_HTTP_OPENER = urllib.request.build_opener(
+    urllib.request.ProxyHandler({})
+)
 DEFAULT_MAX_BRANCHES = 16
 SUPPORTED_LANE_VERSION = "v0.1"
 INTENT_ORIGINS = {
@@ -4940,7 +4943,7 @@ class OllamaStructuredIntentClient:
             url, data=data, headers={"Content-Type": "application/json"}
         )
         try:
-            with urllib.request.urlopen(request, timeout=timeout) as response:
+            with LOCAL_HTTP_OPENER.open(request, timeout=timeout) as response:
                 raw = response.read(MAX_MODEL_OUTPUT_BYTES + 1)
         except urllib.error.HTTPError as exc:
             try:

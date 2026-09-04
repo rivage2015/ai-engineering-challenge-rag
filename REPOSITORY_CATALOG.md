@@ -1,9 +1,9 @@
 # GitHub収録物目録
 
-更新日: 2026-09-03
+更新日: 2026-09-04
 対象リポジトリ: `rivage2015/ai-engineering-challenge-rag`
-目録更新時の親コミット: `e48e75e`
-本更新を含む追跡ファイル: 403件
+目録更新時の親コミット: `6b8182a`
+本更新を含む追跡ファイル: 422件
 
 ## この目録の目的
 
@@ -38,7 +38,7 @@
 | 項目 | 内容 |
 |---|---|
 | 状態 | **基盤・現行** |
-| 主な場所 | `scripts/`（82件）、`schemas/`（28件）、`tests/`（95件） |
+| 主な場所 | `scripts/`（94件）、`schemas/`（28件）、`tests/`（115件） |
 | 目的 | Word、Excel、PowerPoint、PDF、CSV、JSON、画像などを、質問非依存のEvidenceへ変換し、検索・検証可能にする |
 | 主な出力概念 | `Document`、`Evidence`、`Relation`、`SearchUnit`、検索索引 |
 | できること | 構造抽出、語彙検索、意味検索、ハイブリッド検索、質問契約、視覚分類、OCR観測、Schema検証 |
@@ -74,7 +74,7 @@
 | 項目 | 内容 |
 |---|---|
 | 状態 | **現行PoC** |
-| 主な場所 | `distribution/macos-local-memory/`（28件） |
+| 主な場所 | `distribution/macos-local-memory/`（41件） |
 | 目的 | 利用者のMac内の資料を外部へ送らず、曖昧な質問から検索・回答する |
 | 対象 | テキスト、Office、PDF、画像などから生成したローカルEvidence |
 | 埋め込み | `embeddinggemma:latest` |
@@ -82,12 +82,15 @@
 | 監査 | 同じ`gemma4:12b`を別コンテキストの監査役として使用 |
 | 機械検証 | 質問契約、主張グラフ、Evidence ID、対象関係、時制、回答投影を検証 |
 | 停止方針 | 不整合や根拠不足は、誤答を返さず「わかりません」へ停止 |
+| ソース開発地点 | **Cross-document Answer promotion v0.5** |
+| 現行配布物 | ローカル生成済みDMG／ZIPは**Answer promotion v0.5**（app bundle 0.5 / build 5、adhoc署名・未公証） |
 
 内部の違い:
 
 | 名称 | ファイル | 役割 |
 |---|---|---|
 | 起動・初期設定 | `app/bootstrap.py`、`app/launch.sh` | 環境診断、モデル確認、索引構築 |
+| 起動直列化 | `app/launcher_lease.py` | Finderの同時起動をcross-process leaseで1本ずつ実行する |
 | ローカル画面 | `app/local_memory_server.py` | loopback限定の検索画面と処理統括 |
 | 回答生成v2 | `engine/answer_local_memory_v2.py` | 質問分解、項目別Graph Evidenceの実消費、検索、項目監査、回答投影 |
 | Question Evidence Graph | `engine/question_evidence_graph.py` | 永続GraphのRelationを辿り、回数・合計の再集計経路と、対応済み構造化レコード参照の項目別`row -> header -> value`経路を作る |
@@ -104,6 +107,8 @@
 | Cross-document storage Projector | `scripts/project_cross_document_graph_to_answer_index.py` | 検証済みshadowを、元safe-answer indexを壊さない別コピーの`semantic_graph_*`表へ保存する。Step 2では検索・回答に接続しない |
 | Cross-document query candidate | `engine/cross_document_semantic_graph_runtime.py` | 実質問時に保存済みsemantic Node／Edge／support Evidenceを検証・走査し、回答非反映の候補traceまたはHOLDを記録する |
 | Cross-document independent Edge audit | `app/cross_document_semantic_graph_edge_audit.py` | query candidateの申告を信頼せず、保存済みSQLiteから必要Edge／Evidence／回答値を決定論的に再構築して照合するshadow-only監査 |
+| Cross-document trust root | `app/semantic_graph_trust.py` | 保存用SQLite、state、元indexのmanifest hashを世代ごとにmacOS login Keychainへcreate-onlyで固定する |
+| Cross-document answer promotion | `app/semantic_graph_answer_promotion.py` | 3操作の候補・独立監査・最新CONFIG・trust・回答schemaを再検査し、全合格時だけ回答を昇格する |
 | パッケージ生成 | `build/build_package.sh` | 未署名DMG／ZIPを作る |
 
 ### 4. General Memory評価セット
@@ -127,13 +132,13 @@
 | 主な場所 | `evaluation/cross-format-kg-v0.1/` |
 | 目的 | DOCX、XLSX、PPTX、PDFへ意図的に分割した事実を、検証済みsemantic Edgeで横断して回答できるか判定する |
 | 中身 | 架空案件の固定5ファイル、14本の正解Edge、4件の回答ケース、1件のHOLDケース、固定hash manifest |
-| 現在地 | 4形式・5/5ファイルの読取に加え、14/14 Gold Edge、通常5/5問、物理Edge ablation 29/29件を合格。本番bootstrapのshadow生成・独立検証、storage-only保存、実質問でのquery candidate走査、Step 4a独立Edge監査まで接続。候補と監査はshadow-onlyで回答非反映 |
+| 現在地 | 4形式・5/5ファイルの読取に加え、14/14 Gold Edge、通常5/5問、物理Edge ablation 29/29件、anti-hardcoding変異5/5問（4`ACCEPTED`+1`HOLD`）を合格。本番ソースはStep 5 Answer promotion v0.5まで接続。候補と独立監査は`used_for_answers=false`を維持し、厳密ゲート合格時の昇格recordだけが`true` |
 | 入口 | `evaluation/cross-format-kg-v0.1/README.md` |
 
 単に複数資料を検索結果へ並べることと、関係を辿って答えを導くことを区別するための評価セットです。
 Goldと質問はbuild入力から隔離し、必要Edgeを物理的に1本外したhash-validな独立SQLiteでも
 同じ断定回答を返さないことを検査します。評価済みBuilderは現行macOSアプリの最終Security世代から
-shadow SQLiteを生成・検証し、先に公開した元safe-answer indexの別コピーへ`semantic_graph_*`表として保存します。CONFIGに検証済みstorage-only SQLiteが登録されると、Step 3のquery candidateが、従来回答と従来最終監査の完了後に別プロセスでsemantic表を検証・走査し、候補の使用EdgeとEvidenceを監査済み回答記録へ後付けします。Step 4aはさらに別プロセスで保存SQLiteから必要EdgeとEvidenceを決定論的に再構築し、candidateの申告と照合します。DB・state・元indexはCONFIGの登録hashに固定し、「N年前」は従来回答と監査済み記録で一致した`question_reference_date`へ固定します。timeout、改ざん、基準日の不一致は、候補側なら`HOLD`、独立監査側なら`REJECT`とし、従来回答には影響させません。既存の回答本文と最終採否はこれらを入力にせず、`used_for_answers=false`を維持します。独立Edge監査はshadow-onlyであり、その合格をユーザー回答へ昇格させる別ゲートは次工程です。rollbackは`cross_document_semantic_graph_independent_edge_audit_enabled=false`で独立監査だけを停止できます。現在のDMG／ZIPはStep 4aを含む再生成を行っていません。
+shadow SQLiteを生成・検証し、先に公開した元safe-answer indexの別コピーへ`semantic_graph_*`表として保存します。CONFIGに検証済みstorage-only SQLiteが登録されると、Step 3のquery candidateが従来回答と従来最終監査の完了後にsemantic表を走査し、Step 4aが別プロセスで必要EdgeとEvidenceを再構築して照合します。Step 5は`owner / assignment_change / version_change`の3操作に限り、accepted candidate、独立監査`PASS`、最新CONFIG、Keychain世代rootとmanifestで固定した全artifact、基準日、回答schemaの全合格で意味グラフ回答へ昇格します。昇格recordにはclosed trust receiptと初期・最新・最終CONFIG hashが残り、実5文書fixtureの3操作でruntimeからtrust・昇格まで回帰検証済みです。候補・独立監査は昇格後も`used_for_answers=false`で、昇格recordだけが`true`です。不合格と対象外質問は従来の監査済み回答をdeep-equalで保持し、DAWNの13回の回数質問も従来経路のままです。anti-hardcoding変異5問は4`ACCEPTED`+1`HOLD`、旧値漏洩0、outbound試行0で合格しています。`cross_document_semantic_graph_answer_promotion_enabled=false`で次の質問から従来回答へ戻せます。現在のソースとローカル生成済みDMG／ZIPはAnswer promotion v0.5です。配布物はadhoc署名・未公証で、実login Keychain受入試験は未実施です。
 
 ### 6. 設計・調査・引き継ぎ記録
 

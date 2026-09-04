@@ -2,15 +2,21 @@
 from __future__ import annotations
 
 import importlib.util
+import copy
 import hashlib
+import io
 import json
 import os
+import re
 import shutil
 import stat
 import subprocess
 import sys
 import tempfile
+import threading
+import time
 import unittest
+import urllib.parse
 import zipfile
 from pathlib import Path
 from unittest import mock
@@ -232,6 +238,149 @@ def make_server_edge_audit(
         "audit_attestation": audit_attestation,
         "used_for_answers": False,
         "allows_answer_activation": False,
+    }
+
+
+def make_server_accepted_candidate(
+    server,
+    registration: dict,
+    query: str,
+    reference_date: str,
+    *,
+    answer_text: str = "candidate answer",
+    source_path: str = "source.docx",
+    quote: str = "Project Orionの担当根拠",
+) -> dict:
+    question_hash = server._question_sha256(query)
+    run_identity = {
+        "graph_snapshot_id": registration["graph_snapshot_id"],
+        "question_hash": question_hash,
+        "disabled_edge_ids": [],
+        "question_reference_date": reference_date,
+    }
+    run_id = "xkgr_" + hashlib.sha256(
+        json.dumps(
+            run_identity,
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+            allow_nan=False,
+        ).encode("utf-8")
+    ).hexdigest()[:32]
+    return {
+        "schema_version": "0.1",
+        "record_type": server.SEMANTIC_GRAPH_CANDIDATE_KEY,
+        "adapter": "cross-document-semantic-graph-runtime",
+        "adapter_version": "0.1.0",
+        "status": "accepted",
+        "decision": "ACCEPTED",
+        "reason_code": None,
+        "diagnostic_code": None,
+        "operation": "owner",
+        "answer_text": answer_text,
+        "asserted_facts": [
+            {
+                "field": "reference_time",
+                "value": reference_date,
+                "proof_edge_ids": ["edge_1"],
+            },
+            {
+                "field": "role",
+                "value": "主担当",
+                "proof_edge_ids": ["edge_1"],
+            },
+            {
+                "field": "assignee_id",
+                "value": "EMP-1",
+                "proof_edge_ids": ["edge_1"],
+            },
+            {
+                "field": "assignee_name",
+                "value": "Person A",
+                "proof_edge_ids": ["edge_2"],
+            },
+        ],
+        "asserted_relations": [],
+        "trace": {
+            "run_id": run_id,
+            "graph_snapshot_id": registration["graph_snapshot_id"],
+            "question_hash": question_hash,
+            "question_reference_date": reference_date,
+            "visited_node_ids": ["node_1", "node_2"],
+            "visited_node_hashes": ["1" * 64, "2" * 64],
+            "visited_edge_ids": ["edge_1", "edge_2"],
+            "visited_edge_hashes": ["3" * 64, "4" * 64],
+            "used_semantic_edge_ids": ["edge_1", "edge_2"],
+            "used_semantic_edge_count": 2,
+            "used_edge_statuses": ["verified"],
+            "visited_document_paths": [source_path],
+            "resolved_source_references": [
+                {
+                    "edge_id": edge_id,
+                    "evidence_id": f"evidence_{number}",
+                    "document_id": "document_1",
+                    "path": source_path,
+                    "source_sha256": "6" * 64,
+                    "locator": {"paragraph": number},
+                    "observed_text_sha256": hashlib.sha256(
+                        quote.encode("utf-8")
+                    ).hexdigest(),
+                    "quote": quote,
+                }
+                for number, edge_id in ((1, "edge_1"), (2, "edge_2"))
+            ],
+            "disabled_edge_ids": [],
+            "decision": "ACCEPTED",
+            "outbound_network_attempt_count": 0,
+            "database_opened": True,
+        },
+        "runtime_attestation": {
+            "adapter": "cross-document-semantic-graph-runtime",
+            "adapter_version": "0.1.0",
+            "read_only": True,
+            "read_snapshot": "single_sqlite_transaction",
+            "generation": registration["generation"],
+            "build_id": "b" * 32,
+            "index_sha256": registration["database_sha256"],
+            "graph_snapshot_id": registration["graph_snapshot_id"],
+            "logical_snapshot_sha256": registration[
+                "logical_snapshot_sha256"
+            ],
+            "projection_sha256": "5" * 64,
+            "node_count": registration["counts"]["nodes"],
+            "edge_count": registration["counts"]["edges"],
+            "edge_evidence_count": registration["counts"]["edge_evidence"],
+            "eligible_evidence_count": 2,
+            "outbound_network_attempt_count": 0,
+        },
+        "used_for_answers": False,
+        "independent_edge_audit_status": "not_implemented_step4",
+    }
+
+
+def make_server_trust_receipt(server, registration: dict) -> dict:
+    return {
+        "generation": registration["generation"],
+        "build_id": "b" * 32,
+        "manifest_sha256": "7" * 64,
+        "keychain_service": server.semantic_graph_answer_promotion.KEYCHAIN_SERVICE,
+        "keychain_account": registration["generation"],
+        "activation_policy_version": (
+            server.semantic_graph_answer_promotion.ACTIVATION_POLICY_VERSION
+        ),
+        "storage_registration_sha256": server._canonical_sha256(registration),
+        "graph_snapshot_id": registration["graph_snapshot_id"],
+        "logical_snapshot_sha256": registration["logical_snapshot_sha256"],
+        "projection_sha256": "5" * 64,
+    }
+
+
+def make_server_trust_locator(server, registration: dict) -> dict:
+    return {
+        "schema_version": "0.1",
+        "status": "trusted",
+        "manifest_path": "/tmp/test-semantic-graph-trust-manifest.json",
+        **make_server_trust_receipt(server, registration),
     }
 
 
@@ -953,7 +1102,10 @@ class PackageTests(unittest.TestCase):
         self.assertIn('"used_for_answers": False', bootstrap)
         published_config = build_body[
             build_body.index("published_config.update") :
-            build_body.index("atomic_json(CONFIG, published_config)")
+            build_body.index(
+                "atomic_config_compare_and_swap(",
+                build_body.index("published_config.update"),
+            )
         ]
         self.assertNotIn("semantic_graph_shadow_path", published_config)
 
@@ -1595,6 +1747,9 @@ class PackageTests(unittest.TestCase):
                     raise AssertionError(f"unexpected subprocess: {command}")
 
                 server.bootstrap.SUPPORT = base / "support"
+                server.bootstrap.CONFIG = (
+                    server.bootstrap.SUPPORT / "config.json"
+                )
                 with (
                     mock.patch.object(
                         server.bootstrap,
@@ -1924,6 +2079,485 @@ class PackageTests(unittest.TestCase):
                 ]["eligibility_reason"],
             )
 
+    def test_step5_server_promotes_only_after_all_bindings_pass(self) -> None:
+        server = load_server()
+        with tempfile.TemporaryDirectory() as temporary:
+            base = Path(temporary)
+            workspace = base / "data"
+            generation = "generation-" + "8" * 32
+            index, registration = make_server_candidate_registration(
+                server, workspace, generation
+            )
+            trust_locator = make_server_trust_locator(server, registration)
+            config = {
+                "workspace": str(workspace),
+                "active_generation": generation,
+                "index_path": str(index),
+                "answer_model": "gemma4:12b",
+                "audit_model": "gemma4:12b",
+                "sequential_model_loading": False,
+                server.bootstrap.CROSS_DOCUMENT_STORAGE_FLAG: True,
+                server.bootstrap.CROSS_DOCUMENT_QUERY_CANDIDATE_FLAG: True,
+                server.bootstrap.CROSS_DOCUMENT_INDEPENDENT_EDGE_AUDIT_FLAG: True,
+                server.bootstrap.CROSS_DOCUMENT_ANSWER_PROMOTION_FLAG: True,
+                server.bootstrap.CROSS_DOCUMENT_STORAGE_CONFIG_KEY: registration,
+                server.bootstrap.CROSS_DOCUMENT_TRUST_CONFIG_KEY: trust_locator,
+            }
+            question = "question"
+            reference_date = "2026-09-04"
+            legacy_answer = {
+                "answer_status": "insufficient",
+                "answer_mode": "insufficient",
+                "answer": "わかりません",
+                "evidence_ids": [],
+                "basis_summary": "従来経路では直接根拠が不足しました。",
+                "uncertainties": ["直接根拠不足"],
+                "non_answer_reason": {
+                    "code": "missing_evidence",
+                    "explanation": "直接根拠がありません。",
+                },
+                "diagnostic_evidence_ids": [],
+                "needed_information": ["担当者の記録"],
+                "follow_up_question": "資料を追加しますか？",
+                "reconsideration_condition": "資料追加後。",
+                "verification_reminder": "",
+            }
+            generated = {
+                "question_reference_date": reference_date,
+                "answer": legacy_answer,
+            }
+            audited = {
+                **generated,
+                "independent_final_audit": {
+                    "verdict": "rejected",
+                    "reason": "legacy was insufficient",
+                },
+            }
+            candidate = make_server_accepted_candidate(
+                server,
+                registration,
+                question,
+                reference_date,
+                answer_text="2026年9月4日の主担当者はPerson Aです。",
+            )
+            edge_audit = make_server_edge_audit(
+                server,
+                candidate,
+                registration,
+                question,
+                reference_date,
+            )
+            server.bootstrap.SUPPORT = base / "support"
+            server.bootstrap.CONFIG = server.bootstrap.SUPPORT / "config.json"
+            with (
+                mock.patch.object(
+                    server.bootstrap,
+                    "load_json",
+                    side_effect=[config, config, config],
+                ),
+                mock.patch.object(server.bootstrap, "start_ollama"),
+                mock.patch.object(
+                    server.subprocess,
+                    "run",
+                    side_effect=[
+                        mock.Mock(stdout=json.dumps(generated)),
+                        mock.Mock(stdout=json.dumps(audited)),
+                    ],
+                ),
+                mock.patch.object(
+                    server,
+                    "run_semantic_graph_candidate",
+                    return_value=(candidate, {"status": "accepted"}),
+                ),
+                mock.patch.object(
+                    server,
+                    "run_semantic_graph_edge_audit",
+                    return_value=(edge_audit, {"status": "passed"}),
+                ),
+                mock.patch.object(
+                    server,
+                    "_semantic_graph_trust_is_safe",
+                    return_value=make_server_trust_receipt(
+                        server, registration
+                    ),
+                ) as trust_check,
+                mock.patch.object(
+                    server,
+                    "_validate_promoted_answer_with_engine",
+                ) as answer_check,
+            ):
+                result = server.answer_query(question)
+
+            self.assertEqual(candidate["answer_text"], result["answer"]["answer"])
+            self.assertEqual("grounded", result["answer"]["answer_mode"])
+            self.assertEqual(legacy_answer, result[
+                "pre_semantic_graph_promotion_answer"
+            ])
+            promotion = result[server.SEMANTIC_GRAPH_ANSWER_PROMOTION_KEY]
+            self.assertEqual("PROMOTE", promotion["decision"])
+            self.assertTrue(promotion["used_for_answers"])
+            self.assertEqual(
+                ["evidence_1", "evidence_2"],
+                promotion["evidence_ids"],
+            )
+            self.assertTrue(
+                all(value == "PASS" for value in promotion["checks"].values())
+            )
+            self.assertFalse(candidate["used_for_answers"])
+            self.assertFalse(edge_audit["allows_answer_activation"])
+            trust_check.assert_called_once()
+            answer_check.assert_called_once()
+
+    def test_step5_server_rolls_back_for_flag_config_or_trust_failure(self) -> None:
+        server = load_server()
+        with tempfile.TemporaryDirectory() as temporary:
+            base = Path(temporary)
+            workspace = base / "data"
+            generation = "generation-" + "9" * 32
+            index, registration = make_server_candidate_registration(
+                server, workspace, generation
+            )
+            trust_locator = make_server_trust_locator(server, registration)
+            base_config = {
+                "workspace": str(workspace),
+                "active_generation": generation,
+                "index_path": str(index),
+                "answer_model": "gemma4:12b",
+                "audit_model": "gemma4:12b",
+                "sequential_model_loading": False,
+                server.bootstrap.CROSS_DOCUMENT_STORAGE_FLAG: True,
+                server.bootstrap.CROSS_DOCUMENT_QUERY_CANDIDATE_FLAG: True,
+                server.bootstrap.CROSS_DOCUMENT_INDEPENDENT_EDGE_AUDIT_FLAG: True,
+                server.bootstrap.CROSS_DOCUMENT_ANSWER_PROMOTION_FLAG: True,
+                server.bootstrap.CROSS_DOCUMENT_STORAGE_CONFIG_KEY: registration,
+                server.bootstrap.CROSS_DOCUMENT_TRUST_CONFIG_KEY: trust_locator,
+            }
+            question = "question"
+            reference_date = "2026-09-04"
+            legacy_answer = {
+                "answer_status": "insufficient",
+                "answer_mode": "insufficient",
+                "answer": "わかりません",
+                "evidence_ids": [],
+                "basis_summary": "legacy",
+                "uncertainties": ["legacy"],
+                "non_answer_reason": {
+                    "code": "missing_evidence",
+                    "explanation": "legacy",
+                },
+                "diagnostic_evidence_ids": [],
+                "needed_information": ["legacy"],
+                "follow_up_question": "legacy?",
+                "reconsideration_condition": "legacy",
+                "verification_reminder": "",
+            }
+            record = {
+                "question_reference_date": reference_date,
+                "answer": legacy_answer,
+            }
+            candidate = make_server_accepted_candidate(
+                server, registration, question, reference_date
+            )
+            edge_audit = make_server_edge_audit(
+                server,
+                candidate,
+                registration,
+                question,
+                reference_date,
+            )
+
+            cases = []
+            disabled = {**base_config,
+                server.bootstrap.CROSS_DOCUMENT_ANSWER_PROMOTION_FLAG: False}
+            cases.append(("disabled", disabled, disabled, True, "feature_disabled"))
+            missing = {
+                key: value
+                for key, value in base_config.items()
+                if key != server.bootstrap.CROSS_DOCUMENT_ANSWER_PROMOTION_FLAG
+            }
+            cases.append(("missing", missing, missing, True, "feature_disabled"))
+            changed = {**base_config, "active_generation": "generation-" + "0" * 32}
+            cases.append((
+                "latest-config-changed",
+                base_config,
+                changed,
+                True,
+                "latest_config_binding_invalid",
+            ))
+            cases.append((
+                "trust-failed",
+                base_config,
+                base_config,
+                False,
+                "trust_root_binding_invalid",
+            ))
+
+            for name, initial, latest, trust_ok, reason in cases:
+                with self.subTest(name=name):
+                    server.bootstrap.SUPPORT = base / f"support-{name}"
+                    server.bootstrap.CONFIG = (
+                        server.bootstrap.SUPPORT / "config.json"
+                    )
+                    with (
+                        mock.patch.object(
+                            server.bootstrap,
+                            "load_json",
+                            side_effect=[initial, latest],
+                        ),
+                        mock.patch.object(server.bootstrap, "start_ollama"),
+                        mock.patch.object(
+                            server.subprocess,
+                            "run",
+                            side_effect=[
+                                mock.Mock(stdout=json.dumps(record)),
+                                mock.Mock(stdout=json.dumps(record)),
+                            ],
+                        ),
+                        mock.patch.object(
+                            server,
+                            "run_semantic_graph_candidate",
+                            return_value=(candidate, {"status": "accepted"}),
+                        ),
+                        mock.patch.object(
+                            server,
+                            "run_semantic_graph_edge_audit",
+                            return_value=(edge_audit, {"status": "passed"}),
+                        ),
+                        mock.patch.object(
+                            server,
+                            "_semantic_graph_trust_is_safe",
+                            return_value=trust_ok,
+                        ),
+                        mock.patch.object(
+                            server,
+                            "_validate_promoted_answer_with_engine",
+                        ),
+                    ):
+                        result = server.answer_query(question)
+                    self.assertEqual(legacy_answer, result["answer"])
+                    self.assertIsNot(legacy_answer, result["answer"])
+                    self.assertNotIn(
+                        "pre_semantic_graph_promotion_answer", result
+                    )
+                    promotion = result[
+                        server.SEMANTIC_GRAPH_ANSWER_PROMOTION_KEY
+                    ]
+                    self.assertEqual("FALLBACK", promotion["decision"])
+                    self.assertEqual(reason, promotion["reason_code"])
+                    self.assertFalse(promotion["used_for_answers"])
+
+    def test_step5_server_closes_build_and_final_config_races(self) -> None:
+        server = load_server()
+        with tempfile.TemporaryDirectory() as temporary:
+            base = Path(temporary)
+            workspace = base / "data"
+            generation = "generation-" + "7" * 32
+            index, registration = make_server_candidate_registration(
+                server, workspace, generation
+            )
+            config = {
+                "workspace": str(workspace),
+                "active_generation": generation,
+                "index_path": str(index),
+                server.bootstrap.CROSS_DOCUMENT_STORAGE_FLAG: True,
+                server.bootstrap.CROSS_DOCUMENT_QUERY_CANDIDATE_FLAG: True,
+                server.bootstrap.CROSS_DOCUMENT_INDEPENDENT_EDGE_AUDIT_FLAG: True,
+                server.bootstrap.CROSS_DOCUMENT_ANSWER_PROMOTION_FLAG: True,
+                server.bootstrap.CROSS_DOCUMENT_STORAGE_CONFIG_KEY: registration,
+                server.bootstrap.CROSS_DOCUMENT_TRUST_CONFIG_KEY: (
+                    make_server_trust_locator(server, registration)
+                ),
+            }
+            question = "question"
+            reference_date = "2026-09-04"
+            candidate = make_server_accepted_candidate(
+                server, registration, question, reference_date
+            )
+            edge_audit = make_server_edge_audit(
+                server,
+                candidate,
+                registration,
+                question,
+                reference_date,
+            )
+            legacy = {
+                "answer_status": "insufficient",
+                "answer_mode": "insufficient",
+                "answer": "わかりません",
+                "evidence_ids": [],
+                "basis_summary": "legacy",
+                "uncertainties": ["legacy"],
+                "non_answer_reason": {
+                    "code": "missing_evidence",
+                    "explanation": "legacy",
+                },
+                "diagnostic_evidence_ids": [],
+                "needed_information": ["legacy"],
+                "follow_up_question": "legacy?",
+                "reconsideration_condition": "legacy",
+                "verification_reminder": "",
+            }
+            server.bootstrap.SUPPORT = base / "support"
+            server.bootstrap.CONFIG = server.bootstrap.SUPPORT / "config.json"
+
+            changed = {
+                **config,
+                server.bootstrap.CROSS_DOCUMENT_ANSWER_PROMOTION_FLAG: False,
+            }
+            final_change_record = {"answer": copy.deepcopy(legacy)}
+            with (
+                mock.patch.object(
+                    server.bootstrap,
+                    "load_json",
+                    side_effect=[config, changed],
+                ),
+                mock.patch.object(
+                    server,
+                    "_semantic_graph_trust_is_safe",
+                    return_value=make_server_trust_receipt(
+                        server, registration
+                    ),
+                ) as trust_check,
+                mock.patch.object(
+                    server,
+                    "_validate_promoted_answer_with_engine",
+                ),
+            ):
+                server.apply_semantic_graph_answer_promotion(
+                    question,
+                    config,
+                    index,
+                    final_change_record,
+                    candidate,
+                    edge_audit,
+                    reference_date,
+                )
+            final_promotion = final_change_record[
+                server.SEMANTIC_GRAPH_ANSWER_PROMOTION_KEY
+            ]
+            self.assertEqual("FALLBACK", final_promotion["decision"])
+            self.assertEqual(
+                "final_config_binding_invalid",
+                final_promotion["reason_code"],
+            )
+            self.assertEqual(legacy, final_change_record["answer"])
+            trust_check.assert_called_once()
+
+            busy_record = {"answer": copy.deepcopy(legacy)}
+            with (
+                server.bootstrap._config_write_lease(),
+                mock.patch.object(
+                    server,
+                    "_semantic_graph_trust_is_safe",
+                    return_value=True,
+                ) as busy_trust,
+            ):
+                server.apply_semantic_graph_answer_promotion(
+                    question,
+                    config,
+                    index,
+                    busy_record,
+                    candidate,
+                    edge_audit,
+                    reference_date,
+                )
+            busy_promotion = busy_record[
+                server.SEMANTIC_GRAPH_ANSWER_PROMOTION_KEY
+            ]
+            self.assertEqual("FALLBACK", busy_promotion["decision"])
+            self.assertEqual(
+                "promotion_activation_busy",
+                busy_promotion["reason_code"],
+            )
+            self.assertEqual(legacy, busy_record["answer"])
+            busy_trust.assert_not_called()
+
+            concurrent_records = [
+                {"answer": copy.deepcopy(legacy)},
+                {"answer": copy.deepcopy(legacy)},
+            ]
+            barrier = threading.Barrier(2)
+            errors: list[Exception] = []
+
+            def concurrent_trust(*_args: object) -> dict:
+                barrier.wait(timeout=1.0)
+                return make_server_trust_receipt(server, registration)
+
+            def promote(record: dict) -> None:
+                try:
+                    server.apply_semantic_graph_answer_promotion(
+                        question,
+                        config,
+                        index,
+                        record,
+                        candidate,
+                        edge_audit,
+                        reference_date,
+                    )
+                except Exception as exc:
+                    errors.append(exc)
+
+            with (
+                mock.patch.object(
+                    server.bootstrap,
+                    "load_json",
+                    return_value=config,
+                ),
+                mock.patch.object(
+                    server,
+                    "_semantic_graph_trust_is_safe",
+                    side_effect=concurrent_trust,
+                ),
+                mock.patch.object(
+                    server,
+                    "_validate_promoted_answer_with_engine",
+                ),
+            ):
+                threads = [
+                    threading.Thread(target=promote, args=(record,))
+                    for record in concurrent_records
+                ]
+                for thread in threads:
+                    thread.start()
+                for thread in threads:
+                    thread.join(2.0)
+            self.assertFalse(errors)
+            self.assertTrue(all(not thread.is_alive() for thread in threads))
+            self.assertTrue(all(
+                record[server.SEMANTIC_GRAPH_ANSWER_PROMOTION_KEY]["decision"]
+                == "PROMOTE"
+                for record in concurrent_records
+            ))
+
+    def test_step5_semantic_source_notice_uses_and_escapes_selected_evidence(self) -> None:
+        server = load_server()
+        promotion = {
+            "decision": "PROMOTE",
+            "used_for_answers": True,
+            "source_references": [{
+                "path": "<source>.docx",
+                "locator": {"paragraph": "<2>"},
+                "quote": "<script>alert('x')</script>",
+                "evidence_id": "evidence_<1>",
+                "edge_id": "edge_<1>",
+            }],
+        }
+        heading, sources, note = server.answer_source_notice({
+            server.SEMANTIC_GRAPH_ANSWER_PROMOTION_KEY: promotion,
+            "retrieved": [{
+                "relative_path": "legacy-must-not-display.txt",
+                "locator": {},
+            }],
+        })
+        self.assertEqual("意味グラフで確認した根拠", heading)
+        self.assertIn("&lt;source&gt;.docx", sources)
+        self.assertIn("&lt;script&gt;alert(&#x27;x&#x27;)&lt;/script&gt;", sources)
+        self.assertIn("evidence_&lt;1&gt;", sources)
+        self.assertIn("edge_&lt;1&gt;", sources)
+        self.assertNotIn("<script>", sources)
+        self.assertNotIn("legacy-must-not-display", sources)
+        self.assertIn("実際に使い", note)
+
     def test_server_candidate_timeout_holds_only_observer(self) -> None:
         server = load_server()
         with tempfile.TemporaryDirectory() as temporary:
@@ -1960,6 +2594,7 @@ class PackageTests(unittest.TestCase):
                 raise subprocess.TimeoutExpired(command, timeout=1)
 
             server.bootstrap.SUPPORT = base / "support"
+            server.bootstrap.CONFIG = server.bootstrap.SUPPORT / "config.json"
             with (
                 mock.patch.object(
                     server.bootstrap, "load_json", return_value=config
@@ -2010,11 +2645,17 @@ class PackageTests(unittest.TestCase):
                 "sequential_model_loading": False,
                 server.bootstrap.CROSS_DOCUMENT_STORAGE_FLAG: True,
                 server.bootstrap.CROSS_DOCUMENT_QUERY_CANDIDATE_FLAG: True,
+                server.bootstrap.CROSS_DOCUMENT_INDEPENDENT_EDGE_AUDIT_FLAG: True,
+                server.bootstrap.CROSS_DOCUMENT_ANSWER_PROMOTION_FLAG: True,
                 server.bootstrap.CROSS_DOCUMENT_STORAGE_CONFIG_KEY: registration,
+                server.bootstrap.CROSS_DOCUMENT_TRUST_CONFIG_KEY: {
+                    "trust_root_id": "must-not-be-used-for-non-applicable"
+                },
             }
             legacy = {
                 "answer": {"answer": "13回です", "answer_mode": "grounded"}
             }
+            legacy_answer_before = json.loads(json.dumps(legacy["answer"]))
             question = (
                 "2026年8月、分身ロボットカフェDAWNでは"
                 "何回稼働していましたか？"
@@ -2101,6 +2742,7 @@ class PackageTests(unittest.TestCase):
                 raise AssertionError("unexpected subprocess")
 
             server.bootstrap.SUPPORT = base / "support"
+            server.bootstrap.CONFIG = server.bootstrap.SUPPORT / "config.json"
             with (
                 mock.patch.object(
                     server.bootstrap, "load_json", return_value=config
@@ -2111,7 +2753,8 @@ class PackageTests(unittest.TestCase):
                 result = server.answer_query(question)
 
             self.assertEqual(4, call_number)
-            self.assertEqual("13回です", result["answer"]["answer"])
+            self.assertEqual(legacy_answer_before, result["answer"])
+            self.assertIsNot(legacy["answer"], result["answer"])
             observed = result[server.SEMANTIC_GRAPH_CANDIDATE_KEY]
             self.assertEqual("not_applicable", observed["status"])
             self.assertFalse(observed["trace"]["database_opened"])
@@ -2123,6 +2766,12 @@ class PackageTests(unittest.TestCase):
                 edge_audit["audit_attestation"]["database_opened"]
             )
             self.assertFalse(edge_audit["allows_answer_activation"])
+            promotion = result[server.SEMANTIC_GRAPH_ANSWER_PROMOTION_KEY]
+            self.assertEqual("FALLBACK", promotion["decision"])
+            self.assertEqual(
+                "candidate_not_accepted", promotion["reason_code"]
+            )
+            self.assertFalse(promotion["used_for_answers"])
 
     def test_server_candidate_bug_cannot_replace_audited_answer(self) -> None:
         server = load_server()
@@ -2149,6 +2798,7 @@ class PackageTests(unittest.TestCase):
                 "independent_final_audit": {"verdict": "PASS"},
             }
             server.bootstrap.SUPPORT = base / "support"
+            server.bootstrap.CONFIG = server.bootstrap.SUPPORT / "config.json"
             with (
                 mock.patch.object(
                     server.bootstrap, "load_json", return_value=config
@@ -2192,7 +2842,8 @@ class PackageTests(unittest.TestCase):
         for name in (
             "bootstrap.py", "claim_graph_validator.py", "final_answer_audit.py",
             "cross_document_semantic_graph_edge_audit.py",
-            "local_memory_server.py", "launch.sh",
+            "semantic_graph_answer_promotion.py", "semantic_graph_trust.py",
+            "launcher_lease.py", "local_memory_server.py", "launch.sh",
         ):
             self.assertIn(name, app_copy)
         self.assertTrue(
@@ -2202,6 +2853,9 @@ class PackageTests(unittest.TestCase):
                 / "cross_document_semantic_graph_edge_audit.py"
             ).is_file()
         )
+        self.assertTrue((ROOT / "app" / "semantic_graph_answer_promotion.py").is_file())
+        self.assertTrue((ROOT / "app" / "semantic_graph_trust.py").is_file())
+        self.assertTrue((ROOT / "app" / "launcher_lease.py").is_file())
         for name in (
             "build_intermediate_records.py", "probe_intermediate_records.py",
             "evidence_text_chunking.py",
@@ -2245,6 +2899,29 @@ class PackageTests(unittest.TestCase):
             self.assertIn(name, package)
         self.assertIn('engine/layer1/schemas', package)
 
+    def test_package_build_is_versioned_portable_and_publish_after_verify(self) -> None:
+        package = (ROOT / "build" / "build_package.sh").read_text(encoding="utf-8")
+        self.assertIn('PACKAGE_VERSION="0.5"', package)
+        self.assertIn('PACKAGE_BUILD="5"', package)
+        self.assertIn("CFBundleShortVersionString string $PACKAGE_VERSION", package)
+        self.assertIn("CFBundleVersion string $PACKAGE_BUILD", package)
+        self.assertIn('OUTPUT_STAGE="$(mktemp -d ', package)
+        self.assertIn('/usr/bin/hdiutil verify "$DMG_CANDIDATE"', package)
+        self.assertIn('/usr/bin/unzip -tq "$ZIP_CANDIDATE"', package)
+        self.assertIn('cd "$OUTPUT_STAGE"', package)
+        self.assertIn(
+            '/usr/bin/shasum -a 256 "$DMG_NAME" "$ZIP_NAME"',
+            package,
+        )
+        self.assertNotIn('/usr/bin/shasum -a 256 "$DMG" "$ZIP"', package)
+        self.assertIn("FORBIDDEN_FILE=", package)
+        self.assertIn("-print -quit", package)
+        self.assertNotIn("| grep -q .", package)
+        verify_position = package.index('/usr/bin/hdiutil verify "$DMG_CANDIDATE"')
+        publish_position = package.index('/bin/mv -f "$DMG_CANDIDATE" "$DMG"')
+        self.assertLess(verify_position, publish_position)
+        self.assertNotIn('rm -f "$DMG" "$ZIP" "$CHECKSUM"', package)
+
     def test_packaged_paddle_contract_pins_runtime_and_model_identity(self) -> None:
         lock = (ROOT / "paddleocr-requirements.lock.txt").read_text(encoding="utf-8")
         for requirement in (
@@ -2269,6 +2946,1641 @@ class PackageTests(unittest.TestCase):
     def test_server_binds_loopback_only(self) -> None:
         text = (ROOT / "app" / "local_memory_server.py").read_text(encoding="utf-8")
         self.assertIn('if args.host not in {"127.0.0.1", "localhost"}', text)
+
+    def test_server_health_contract_is_fixed_and_side_effect_free(self) -> None:
+        server = load_server()
+        expected = {
+            "service": "LocalMemorySearch",
+            "protocol_version": "local-memory-search-step5-v1",
+            "build_id": server.SERVER_BUILD_ID,
+            "instance_id": "instance-test",
+            "graceful_restart": True,
+            "startup_state": "ready",
+        }
+        with mock.patch.object(
+            server.bootstrap,
+            "diagnose",
+            side_effect=AssertionError("health must not diagnose"),
+        ):
+            self.assertEqual(
+                expected,
+                server.server_health_payload("instance-test"),
+            )
+
+        handler = object.__new__(server.Handler)
+        handler.path = server.SERVER_HEALTH_PATH
+        handler.server = mock.Mock(
+            instance_id="instance-test",
+            startup_state="ready",
+            server_port=8765,
+        )
+        handler.headers = {"Host": "127.0.0.1:8765"}
+        handler.send_json = mock.Mock()
+        with mock.patch.object(
+            server,
+            "home",
+            side_effect=AssertionError("health must not render home"),
+        ):
+            handler.do_GET()
+        handler.send_json.assert_called_once_with(expected)
+
+    def test_server_rejects_untrusted_host_and_cross_site_posts(self) -> None:
+        server = load_server()
+        fake_server = mock.Mock(
+            instance_id="instance-test",
+            startup_state="ready",
+            server_port=8765,
+            server_address=("127.0.0.1", 8765),
+            ui_csrf_token="csrf-test-token",
+        )
+
+        bad_host = object.__new__(server.Handler)
+        bad_host.path = server.SERVER_HEALTH_PATH
+        bad_host.server = fake_server
+        bad_host.headers = {"Host": "attacker.example:8765"}
+        bad_host.send_json = mock.Mock()
+        bad_host.do_GET()
+        bad_host.send_json.assert_called_once_with(
+            {"status": "invalid_host"},
+            421,
+        )
+
+        def post_handler(body: str, **headers: str):
+            payload = body.encode("utf-8")
+            handler = object.__new__(server.Handler)
+            handler.path = "/build"
+            handler.server = fake_server
+            handler.headers = {
+                "Host": "127.0.0.1:8765",
+                "Content-Length": str(len(payload)),
+                **headers,
+            }
+            handler.rfile = io.BytesIO(payload)
+            handler.send = mock.Mock()
+            handler.send_json = mock.Mock()
+            return handler
+
+        encoded_token = urllib.parse.urlencode({
+            server.UI_CSRF_FIELD: "csrf-test-token",
+        })
+        cross_site = post_handler(
+            encoded_token,
+            Origin="https://attacker.example",
+            **{"Sec-Fetch-Site": "cross-site"},
+        )
+        cross_site.do_POST()
+        cross_site.send_json.assert_called_once_with(
+            {"status": "forbidden"},
+            403,
+        )
+
+        missing_token = post_handler(
+            "query=test",
+            Origin="http://127.0.0.1:8765",
+            **{"Sec-Fetch-Site": "same-origin"},
+        )
+        missing_token.do_POST()
+        missing_token.send_json.assert_called_once_with(
+            {"status": "forbidden"},
+            403,
+        )
+
+        valid = post_handler(
+            encoded_token,
+            Origin="http://127.0.0.1:8765",
+            **{"Sec-Fetch-Site": "same-origin"},
+        )
+        worker = mock.Mock()
+        with (
+            mock.patch.object(
+                server.threading,
+                "Thread",
+                return_value=worker,
+            ),
+            mock.patch.object(server, "home", return_value=b"home"),
+        ):
+            valid.do_POST()
+        worker.start.assert_called_once_with()
+        valid.send.assert_called_once_with(b"home")
+
+    def test_loopback_http_ignores_host_proxy_environment(self) -> None:
+        hostile_proxy_environment = {
+            "http_proxy": "http://127.0.0.1:9",
+            "HTTP_PROXY": "http://127.0.0.1:9",
+            "no_proxy": "",
+            "NO_PROXY": "",
+        }
+        with mock.patch.dict(
+            os.environ,
+            hostile_proxy_environment,
+            clear=False,
+        ):
+            engine = load_engine("answer_local_memory")
+        proxy_handlers = [
+            handler
+            for handler in engine.LOCAL_HTTP_OPENER.handlers
+            if isinstance(handler, engine.urllib.request.ProxyHandler)
+        ]
+        # urllib omits an explicitly empty ProxyHandler from the final chain.
+        # Its absence proves that no environment-derived proxy handler was
+        # installed in this dedicated opener.
+        self.assertEqual([], proxy_handlers)
+
+        response = mock.MagicMock()
+        response.__enter__.return_value.read.return_value = b'{"direct":true}'
+        with (
+            mock.patch.dict(
+                os.environ,
+                hostile_proxy_environment,
+                clear=False,
+            ),
+            mock.patch.object(
+                engine.LOCAL_HTTP_OPENER,
+                "open",
+                return_value=response,
+            ) as direct_open,
+            mock.patch.object(
+                engine.urllib.request,
+                "urlopen",
+                side_effect=AssertionError("environment proxy path used"),
+            ),
+        ):
+            result = engine.post_json(
+                "http://127.0.0.1:11434/api/test",
+                {"question": "local-only"},
+                2,
+            )
+        self.assertEqual({"direct": True}, result)
+        direct_open.assert_called_once()
+
+        python_http_files = (
+            ROOT / "app" / "bootstrap.py",
+            ROOT / "app" / "local_memory_server.py",
+            ROOT / "app" / "final_answer_audit.py",
+            ENGINE / "answer_local_memory.py",
+            ENGINE / "build_local_semantic_index.py",
+            ENGINE / "search_local_semantic_index.py",
+            ROOT.parents[1] / "scripts" / "ollama_embedding_common.py",
+            ROOT.parents[1] / "scripts" / "build_question_understanding.py",
+            ROOT.parents[1] / "scripts" / "run_visual_analysis.py",
+        )
+        for path in python_http_files:
+            source = path.read_text(encoding="utf-8")
+            self.assertIn("ProxyHandler({})", source, path.name)
+            self.assertNotIn("urllib.request.urlopen", source, path.name)
+
+    def test_server_build_identity_changes_with_executable_resources(self) -> None:
+        server = load_server()
+        with tempfile.TemporaryDirectory() as temporary:
+            base = Path(temporary) / "app"
+            engine = base / "engine"
+            engine.mkdir(parents=True)
+            (base / "server.py").write_text("version = 1\n", encoding="utf-8")
+            (base / "launch.sh").write_text("exit 0\n", encoding="utf-8")
+            launcher = base / "launcher.js"
+            launcher.write_text("run(1);\n", encoding="utf-8")
+            (base / "paddleocr-requirements.lock.txt").write_text(
+                "paddleocr==1\n", encoding="utf-8"
+            )
+            model_manifest = base / "paddleocr-model-manifest.json"
+            model_manifest.write_text("{}\n", encoding="utf-8")
+            target = engine / "runtime.py"
+            target.write_text("version = 1\n", encoding="utf-8")
+            swift = engine / "image_canonicalizer.swift"
+            swift.write_text("let version = 1\n", encoding="utf-8")
+            with (
+                mock.patch.object(server, "BASE", base),
+                mock.patch.object(server, "ENGINE", engine),
+            ):
+                first = server._server_build_id()
+                target.write_text("version = 2\n", encoding="utf-8")
+                second = server._server_build_id()
+                swift.write_text("let version = 2\n", encoding="utf-8")
+                third = server._server_build_id()
+                model_manifest.write_text('{"version":2}\n', encoding="utf-8")
+                fourth = server._server_build_id()
+                launcher.write_text("run(2);\n", encoding="utf-8")
+                fifth = server._server_build_id()
+            self.assertRegex(first, r"^[0-9a-f]{64}$")
+            self.assertNotEqual(first, second)
+            self.assertNotEqual(second, third)
+            self.assertNotEqual(third, fourth)
+            self.assertNotEqual(fourth, fifth)
+
+    def test_server_identity_is_private_and_bound_to_instance(self) -> None:
+        server = load_server()
+        with tempfile.TemporaryDirectory() as temporary:
+            support = Path(temporary) / "support"
+            running = mock.Mock(
+                instance_id="1" * 32,
+                shutdown_token="token_" + "2" * 40,
+            )
+            with mock.patch.object(server.bootstrap, "SUPPORT", support):
+                server._publish_server_identity(running, 8765)
+            identity_path = support / server.SERVER_IDENTITY_FILENAME
+            identity = json.loads(identity_path.read_text(encoding="utf-8"))
+            self.assertEqual("1" * 32, identity["instance_id"])
+            self.assertEqual(8765, identity["port"])
+            self.assertEqual(server.SERVER_PROTOCOL_VERSION, identity[
+                "protocol_version"
+            ])
+            self.assertEqual(server.SERVER_BUILD_ID, identity["build_id"])
+            self.assertEqual(
+                0o600,
+                stat.S_IMODE(identity_path.stat().st_mode),
+            )
+            with mock.patch.object(server.bootstrap, "SUPPORT", support):
+                server._remove_server_identity("wrong-instance")
+                self.assertTrue(identity_path.is_file())
+                server._remove_server_identity("1" * 32)
+            self.assertFalse(identity_path.exists())
+
+    def test_server_shutdown_reservation_fails_closed_while_busy(self) -> None:
+        server = load_server()
+        server.SERVER_SHUTDOWN_REQUESTED.clear()
+        server.ACTIVE_WORK_COUNT = 1
+        try:
+            self.assertFalse(server._reserve_server_shutdown())
+            self.assertFalse(server.SERVER_SHUTDOWN_REQUESTED.is_set())
+            server.ACTIVE_WORK_COUNT = 0
+            self.assertTrue(server._reserve_server_shutdown())
+            self.assertTrue(server.SERVER_SHUTDOWN_REQUESTED.is_set())
+            self.assertFalse(server._reserve_server_shutdown())
+            self.assertTrue(server.SERVER_SHUTDOWN_REQUESTED.is_set())
+        finally:
+            server.ACTIVE_WORK_COUNT = 0
+            server.SERVER_SHUTDOWN_REQUESTED.clear()
+
+    def test_server_cancels_shutdown_if_worker_cannot_start(self) -> None:
+        server = load_server()
+        fake_server = mock.Mock(
+            shutdown_token="shutdown-token",
+            startup_state="ready",
+            server_port=8765,
+            server_address=("127.0.0.1", 8765),
+        )
+
+        def make_handler():
+            handler = object.__new__(server.Handler)
+            handler.path = server.SERVER_SHUTDOWN_PATH
+            handler.server = fake_server
+            handler.headers = {
+                "Host": "127.0.0.1:8765",
+                "X-Local-Memory-Shutdown-Token": "shutdown-token",
+            }
+            handler.send_json = mock.Mock()
+            return handler
+
+        previous_active_work_count = server.ACTIVE_WORK_COUNT
+        server.ACTIVE_WORK_COUNT = 0
+        try:
+            for failure_stage in ("construct", "start"):
+                with self.subTest(failure_stage=failure_stage):
+                    server.SERVER_SHUTDOWN_REQUESTED.clear()
+                    shutdown_worker = mock.Mock()
+                    shutdown_worker.start.side_effect = RuntimeError(
+                        "worker start failed"
+                    )
+                    thread_effect = (
+                        RuntimeError("worker construction failed")
+                        if failure_stage == "construct"
+                        else None
+                    )
+                    handler = make_handler()
+                    with mock.patch.object(
+                        server.threading,
+                        "Thread",
+                        side_effect=(
+                            thread_effect
+                            if thread_effect is not None
+                            else None
+                        ),
+                        return_value=(
+                            shutdown_worker
+                            if thread_effect is None
+                            else mock.DEFAULT
+                        ),
+                    ):
+                        handler.do_POST()
+                    handler.send_json.assert_called_once_with(
+                        {"status": "shutdown_unavailable"},
+                        503,
+                    )
+                    self.assertFalse(
+                        server.SERVER_SHUTDOWN_REQUESTED.is_set()
+                    )
+                    fake_server.shutdown.assert_not_called()
+        finally:
+            server.ACTIVE_WORK_COUNT = previous_active_work_count
+            server.SERVER_SHUTDOWN_REQUESTED.clear()
+
+    def test_server_records_bounded_startup_recovery_failure(self) -> None:
+        server = load_server()
+
+        class RecoveryFailure(RuntimeError):
+            reason_code = "recovery_contract_failed"
+
+        with tempfile.TemporaryDirectory() as temporary:
+            support = Path(temporary) / "support"
+            with mock.patch.object(server.bootstrap, "SUPPORT", support):
+                server._log_startup_recovery_failure(
+                    RecoveryFailure("broken recovery state")
+                )
+            path = support / "logs" / "startup-recovery.jsonl"
+            record = json.loads(path.read_text(encoding="utf-8"))
+            self.assertEqual("startup_recovery_failed", record["status"])
+            self.assertEqual("RecoveryFailure", record["error_type"])
+            self.assertEqual(
+                "recovery_contract_failed", record["reason_code"]
+            )
+            self.assertEqual("broken recovery state", record["message"])
+            self.assertEqual(0o600, stat.S_IMODE(path.stat().st_mode))
+
+    def test_server_retries_every_active_recovery_status_before_ready(
+        self,
+    ) -> None:
+        server = load_server()
+        with (
+            mock.patch.object(
+                server.bootstrap,
+                "recover_interrupted_build",
+                side_effect=[
+                    {"status": "active_build", "removed": []},
+                    {"status": "active", "removed": []},
+                    {"status": "active_shadow", "removed": []},
+                    {"status": "active_semantic_storage", "removed": []},
+                    {"status": "unchanged", "removed": []},
+                ],
+            ) as recover,
+            mock.patch.object(server.time, "sleep") as sleep,
+        ):
+            self.assertEqual("ready", server._startup_recovery_outcome())
+        self.assertEqual(5, recover.call_count)
+        self.assertEqual(
+            [mock.call(server.STARTUP_RECOVERY_RETRY_SECONDS)] * 4,
+            sleep.call_args_list,
+        )
+
+    def test_server_fails_closed_after_bounded_active_recovery_wait(
+        self,
+    ) -> None:
+        server = load_server()
+        with (
+            mock.patch.object(
+                server.bootstrap,
+                "recover_interrupted_build",
+                return_value={"status": "active", "removed": []},
+            ) as recover,
+            mock.patch.object(server.time, "sleep") as sleep,
+            mock.patch.object(
+                server,
+                "STARTUP_RECOVERY_MAX_ACTIVE_RETRIES",
+                3,
+            ),
+            mock.patch.object(
+                server,
+                "_log_startup_recovery_failure",
+            ) as log_failure,
+        ):
+            self.assertEqual("failed", server._startup_recovery_outcome())
+        self.assertEqual(3, recover.call_count)
+        self.assertEqual(
+            [mock.call(server.STARTUP_RECOVERY_RETRY_SECONDS)] * 2,
+            sleep.call_args_list,
+        )
+        log_failure.assert_called_once()
+        timeout = log_failure.call_args.args[0]
+        self.assertEqual(
+            "startup_recovery_active_timeout",
+            getattr(timeout, "reason_code", None),
+        )
+
+    def test_server_removes_identity_if_publication_partially_fails(
+        self,
+    ) -> None:
+        server = load_server()
+
+        class FakeHTTPServer:
+            def __init__(self, address, handler_class) -> None:
+                self.address = address
+                self.handler_class = handler_class
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, exc_type, exc_value, traceback) -> bool:
+                return False
+
+            def serve_forever(self) -> None:
+                raise AssertionError("serve must not start")
+
+        previous_active_work_count = server.ACTIVE_WORK_COUNT
+        server.ACTIVE_WORK_COUNT = 0
+        server.SERVER_SHUTDOWN_REQUESTED.clear()
+        try:
+            with (
+                mock.patch.object(
+                    server,
+                    "ThreadingHTTPServer",
+                    FakeHTTPServer,
+                ),
+                mock.patch.object(
+                    server,
+                    "_publish_server_identity",
+                    side_effect=OSError("directory fsync failed after replace"),
+                ),
+                mock.patch.object(
+                    server,
+                    "_remove_server_identity",
+                ) as remove_identity,
+                mock.patch.object(
+                    sys,
+                    "argv",
+                    [
+                        "local_memory_server.py",
+                        "--host",
+                        "127.0.0.1",
+                        "--port",
+                        "8765",
+                    ],
+                ),
+            ):
+                with self.assertRaisesRegex(OSError, "directory fsync failed"):
+                    server.main()
+            self.assertEqual(0, server.ACTIVE_WORK_COUNT)
+            remove_identity.assert_called_once()
+        finally:
+            server.ACTIVE_WORK_COUNT = previous_active_work_count
+            server.SERVER_SHUTDOWN_REQUESTED.clear()
+
+    def test_server_removes_identity_if_recovery_thread_cannot_start(
+        self,
+    ) -> None:
+        server = load_server()
+
+        class FakeHTTPServer:
+            def __init__(self, address, handler_class) -> None:
+                self.address = address
+                self.handler_class = handler_class
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, exc_type, exc_value, traceback) -> bool:
+                return False
+
+            def serve_forever(self) -> None:
+                raise AssertionError("serve must not start")
+
+        recovery_thread = mock.Mock()
+        recovery_thread.start.side_effect = RuntimeError(
+            "thread resource unavailable"
+        )
+        previous_active_work_count = server.ACTIVE_WORK_COUNT
+        server.ACTIVE_WORK_COUNT = 0
+        server.SERVER_SHUTDOWN_REQUESTED.clear()
+        try:
+            with (
+                mock.patch.object(
+                    server,
+                    "ThreadingHTTPServer",
+                    FakeHTTPServer,
+                ),
+                mock.patch.object(server, "_publish_server_identity"),
+                mock.patch.object(
+                    server,
+                    "_remove_server_identity",
+                ) as remove_identity,
+                mock.patch.object(
+                    server.threading,
+                    "Thread",
+                    return_value=recovery_thread,
+                ),
+                mock.patch.object(
+                    sys,
+                    "argv",
+                    [
+                        "local_memory_server.py",
+                        "--host",
+                        "127.0.0.1",
+                        "--port",
+                        "8765",
+                    ],
+                ),
+            ):
+                with self.assertRaisesRegex(
+                    RuntimeError,
+                    "thread resource unavailable",
+                ):
+                    server.main()
+            self.assertEqual(0, server.ACTIVE_WORK_COUNT)
+            remove_identity.assert_called_once()
+        finally:
+            server.ACTIVE_WORK_COUNT = previous_active_work_count
+            server.SERVER_SHUTDOWN_REQUESTED.clear()
+
+    def test_server_removes_identity_if_recovery_thread_construction_fails(
+        self,
+    ) -> None:
+        server = load_server()
+
+        class FakeHTTPServer:
+            def __init__(self, address, handler_class) -> None:
+                self.address = address
+                self.handler_class = handler_class
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, exc_type, exc_value, traceback) -> bool:
+                return False
+
+            def serve_forever(self) -> None:
+                raise AssertionError("serve must not start")
+
+        previous_active_work_count = server.ACTIVE_WORK_COUNT
+        server.ACTIVE_WORK_COUNT = 0
+        server.SERVER_SHUTDOWN_REQUESTED.clear()
+        try:
+            with (
+                mock.patch.object(
+                    server,
+                    "ThreadingHTTPServer",
+                    FakeHTTPServer,
+                ),
+                mock.patch.object(server, "_publish_server_identity"),
+                mock.patch.object(
+                    server,
+                    "_remove_server_identity",
+                ) as remove_identity,
+                mock.patch.object(
+                    server.threading,
+                    "Thread",
+                    side_effect=MemoryError("thread allocation failed"),
+                ),
+                mock.patch.object(
+                    sys,
+                    "argv",
+                    [
+                        "local_memory_server.py",
+                        "--host",
+                        "127.0.0.1",
+                        "--port",
+                        "8765",
+                    ],
+                ),
+            ):
+                with self.assertRaisesRegex(
+                    MemoryError,
+                    "thread allocation failed",
+                ):
+                    server.main()
+            self.assertEqual(0, server.ACTIVE_WORK_COUNT)
+            remove_identity.assert_called_once()
+        finally:
+            server.ACTIVE_WORK_COUNT = previous_active_work_count
+            server.SERVER_SHUTDOWN_REQUESTED.clear()
+
+    def test_server_serves_health_while_startup_recovery_blocks_work(
+        self,
+    ) -> None:
+        server = load_server()
+        test_case = self
+        recovery_entered = threading.Event()
+        allow_recovery_to_finish = threading.Event()
+        recovery_returned = threading.Event()
+        identity_published = threading.Event()
+        observations: dict[str, object] = {}
+        fake_servers: list[object] = []
+        main_thread_id = threading.get_ident()
+
+        def make_handler(fake_server, path: str):
+            handler = object.__new__(server.Handler)
+            handler.path = path
+            handler.server = fake_server
+            handler.headers = {"Host": "127.0.0.1:8765"}
+            handler.send = mock.Mock()
+            handler.send_json = mock.Mock()
+            return handler
+
+        class FakeHTTPServer:
+            def __init__(self, address, handler_class) -> None:
+                self.address = address
+                self.handler_class = handler_class
+                self.shutdown_calls = 0
+                self.identity_published = False
+                self.server_address = address
+                self.server_port = address[1]
+                fake_servers.append(self)
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, exc_type, exc_value, traceback) -> bool:
+                return False
+
+            def shutdown(self) -> None:
+                self.shutdown_calls += 1
+
+            def serve_forever(self) -> None:
+                test_case.assertTrue(
+                    recovery_entered.wait(1),
+                    "startup recovery did not begin on its worker thread",
+                )
+                test_case.assertTrue(self.identity_published)
+                test_case.assertEqual("recovering", self.startup_state)
+                test_case.assertEqual(1, server.ACTIVE_WORK_COUNT)
+
+                health = make_handler(self, server.SERVER_HEALTH_PATH)
+                health.do_GET()
+                health.send_json.assert_called_once_with(
+                    server.server_health_payload(
+                        self.instance_id,
+                        "recovering",
+                    )
+                )
+
+                root = make_handler(self, "/")
+                root.do_GET()
+                test_case.assertEqual(503, root.send.call_args.args[1])
+
+                build = make_handler(self, "/build")
+                build.do_POST()
+                build.send_json.assert_called_once_with(
+                    {"status": "server_starting"},
+                    503,
+                )
+
+                shutdown = make_handler(self, server.SERVER_SHUTDOWN_PATH)
+                shutdown.headers = {
+                    "Host": "127.0.0.1:8765",
+                    "X-Local-Memory-Shutdown-Token": self.shutdown_token,
+                }
+                shutdown.do_POST()
+                shutdown.send_json.assert_called_once_with(
+                    {"status": "busy"},
+                    409,
+                )
+                test_case.assertEqual(0, self.shutdown_calls)
+                test_case.assertFalse(
+                    server.SERVER_SHUTDOWN_REQUESTED.is_set()
+                )
+
+                allow_recovery_to_finish.set()
+                test_case.assertTrue(
+                    recovery_returned.wait(1),
+                    "startup recovery did not return",
+                )
+                for _ in range(1000):
+                    if self.startup_state == "ready":
+                        break
+                    threading.Event().wait(0.001)
+                test_case.assertEqual("ready", self.startup_state)
+                test_case.assertEqual(0, server.ACTIVE_WORK_COUNT)
+
+                ready_health = make_handler(self, server.SERVER_HEALTH_PATH)
+                ready_health.do_GET()
+                ready_health.send_json.assert_called_once_with(
+                    server.server_health_payload(self.instance_id, "ready")
+                )
+
+                ready_root = make_handler(self, "/")
+                ready_root.do_GET()
+                ready_root.send.assert_called_once_with(b"ready-home")
+
+        def publish_identity(fake_server, port: int) -> None:
+            observations["publish_state"] = fake_server.startup_state
+            observations["publish_port"] = port
+            fake_server.identity_published = True
+            identity_published.set()
+
+        def recover_interrupted_build() -> dict:
+            observations["identity_before_recovery"] = (
+                identity_published.is_set()
+            )
+            observations["recovery_thread_id"] = threading.get_ident()
+            observations["recovery_thread_name"] = (
+                threading.current_thread().name
+            )
+            recovery_entered.set()
+            allow_recovery_to_finish.wait(1)
+            recovery_returned.set()
+            return {"status": "unchanged", "removed": []}
+
+        previous_active_work_count = server.ACTIVE_WORK_COUNT
+        server.ACTIVE_WORK_COUNT = 0
+        server.SERVER_SHUTDOWN_REQUESTED.clear()
+        try:
+            with (
+                mock.patch.object(
+                    server,
+                    "ThreadingHTTPServer",
+                    FakeHTTPServer,
+                ),
+                mock.patch.object(
+                    server,
+                    "_publish_server_identity",
+                    side_effect=publish_identity,
+                ),
+                mock.patch.object(
+                    server,
+                    "_remove_server_identity",
+                ) as remove_identity,
+                mock.patch.object(
+                    server.bootstrap,
+                    "recover_interrupted_build",
+                    side_effect=recover_interrupted_build,
+                ),
+                mock.patch.object(server, "home", return_value=b"ready-home"),
+                mock.patch.object(
+                    sys,
+                    "argv",
+                    [
+                        "local_memory_server.py",
+                        "--host",
+                        "127.0.0.1",
+                        "--port",
+                        "8765",
+                    ],
+                ),
+            ):
+                self.assertEqual(0, server.main())
+
+            self.assertEqual(1, len(fake_servers))
+            running = fake_servers[0]
+            self.assertEqual(("127.0.0.1", 8765), running.address)
+            self.assertIs(server.Handler, running.handler_class)
+            self.assertEqual("recovering", observations["publish_state"])
+            self.assertEqual(8765, observations["publish_port"])
+            self.assertTrue(observations["identity_before_recovery"])
+            self.assertNotEqual(
+                main_thread_id,
+                observations["recovery_thread_id"],
+            )
+            self.assertEqual(
+                "local-memory-startup-recovery",
+                observations["recovery_thread_name"],
+            )
+            remove_identity.assert_called_once_with(running.instance_id)
+        finally:
+            allow_recovery_to_finish.set()
+            server.ACTIVE_WORK_COUNT = previous_active_work_count
+            server.SERVER_SHUTDOWN_REQUESTED.clear()
+
+    def test_server_publishes_failed_only_after_recovery_work_ends(
+        self,
+    ) -> None:
+        server = load_server()
+        test_case = self
+        end_active_entered = threading.Event()
+        allow_end_active = threading.Event()
+        shutdown_called = threading.Event()
+        fake_servers: list[object] = []
+        real_end_active_work = server._end_active_work
+
+        def make_handler(fake_server, path: str):
+            handler = object.__new__(server.Handler)
+            handler.path = path
+            handler.server = fake_server
+            handler.headers = {"Host": "127.0.0.1:8765"}
+            handler.send_json = mock.Mock()
+            return handler
+
+        class FakeHTTPServer:
+            def __init__(self, address, handler_class) -> None:
+                self.address = address
+                self.handler_class = handler_class
+                self.shutdown_calls = 0
+                self.server_address = address
+                self.server_port = address[1]
+                fake_servers.append(self)
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, exc_type, exc_value, traceback) -> bool:
+                return False
+
+            def shutdown(self) -> None:
+                self.shutdown_calls += 1
+                shutdown_called.set()
+
+            def serve_forever(self) -> None:
+                test_case.assertTrue(
+                    end_active_entered.wait(1),
+                    "startup recovery did not reach active-work release",
+                )
+                test_case.assertEqual("recovering", self.startup_state)
+                test_case.assertEqual(1, server.ACTIVE_WORK_COUNT)
+
+                health = make_handler(self, server.SERVER_HEALTH_PATH)
+                health.do_GET()
+                health.send_json.assert_called_once_with(
+                    server.server_health_payload(
+                        self.instance_id,
+                        "recovering",
+                    )
+                )
+
+                allow_end_active.set()
+                for _ in range(1000):
+                    if self.startup_state == "failed":
+                        break
+                    threading.Event().wait(0.001)
+                test_case.assertEqual("failed", self.startup_state)
+                test_case.assertEqual(0, server.ACTIVE_WORK_COUNT)
+
+                shutdown = make_handler(self, server.SERVER_SHUTDOWN_PATH)
+                shutdown.headers = {
+                    "Host": "127.0.0.1:8765",
+                    "X-Local-Memory-Shutdown-Token": self.shutdown_token,
+                }
+                shutdown.do_POST()
+                shutdown.send_json.assert_called_once_with(
+                    {"status": "shutting_down"},
+                    202,
+                )
+                test_case.assertTrue(shutdown_called.wait(1))
+
+        def fail_recovery() -> None:
+            raise RuntimeError("startup recovery failed")
+
+        def delayed_end_active_work() -> None:
+            end_active_entered.set()
+            allow_end_active.wait(1)
+            real_end_active_work()
+
+        previous_active_work_count = server.ACTIVE_WORK_COUNT
+        server.ACTIVE_WORK_COUNT = 0
+        server.SERVER_SHUTDOWN_REQUESTED.clear()
+        try:
+            with (
+                mock.patch.object(
+                    server,
+                    "ThreadingHTTPServer",
+                    FakeHTTPServer,
+                ),
+                mock.patch.object(server, "_publish_server_identity"),
+                mock.patch.object(server, "_remove_server_identity"),
+                mock.patch.object(
+                    server.bootstrap,
+                    "recover_interrupted_build",
+                    side_effect=fail_recovery,
+                ),
+                mock.patch.object(
+                    server,
+                    "_log_startup_recovery_failure",
+                ),
+                mock.patch.object(
+                    server,
+                    "_end_active_work",
+                    side_effect=delayed_end_active_work,
+                ),
+                mock.patch.object(
+                    sys,
+                    "argv",
+                    [
+                        "local_memory_server.py",
+                        "--host",
+                        "127.0.0.1",
+                        "--port",
+                        "8765",
+                    ],
+                ),
+            ):
+                self.assertEqual(0, server.main())
+
+            self.assertEqual(1, len(fake_servers))
+            self.assertEqual(1, fake_servers[0].shutdown_calls)
+        finally:
+            allow_end_active.set()
+            server.ACTIVE_WORK_COUNT = previous_active_work_count
+            server.SERVER_SHUTDOWN_REQUESTED.clear()
+
+    def test_step5_home_status_and_explicit_migration_action(self) -> None:
+        server = load_server()
+        base = {
+            "index_ready": True,
+            "index_path": "/tmp/generation/safe-answer-index.sqlite3",
+            "models": [],
+            "warnings": [],
+            "memory_gb": 24,
+            "free_gb": 100,
+            "architecture": "arm64",
+            "ollama_online": True,
+            "source_root": "/tmp/source",
+            "cross_document_semantic_graph_storage_enabled": True,
+            "cross_document_semantic_graph_answer_promotion_configured": True,
+            "cross_document_semantic_graph_answer_promotion_enabled": False,
+            "cross_document_semantic_graph_storage": None,
+            "cross_document_semantic_graph_trust": None,
+        }
+        current = {"phase": "ready", "message": "ready", "error": ""}
+
+        legacy = server.semantic_graph_answer_path_status(base, current)
+        self.assertEqual("off_explicit", legacy["state"])
+        self.assertEqual("明示停止（従来経路）", legacy["label"])
+        self.assertFalse(legacy["show_rebuild"])
+
+        migration = server.semantic_graph_answer_path_status(
+            {
+                **base,
+                "cross_document_semantic_graph_answer_promotion_configured": (
+                    False
+                ),
+            },
+            current,
+        )
+        self.assertEqual("migration_required", migration["state"])
+        self.assertTrue(migration["show_rebuild"])
+
+        blocked = server.semantic_graph_answer_path_status(
+            {
+                **base,
+                "cross_document_semantic_graph_answer_promotion_enabled": True,
+            },
+            current,
+        )
+        self.assertEqual("blocked_dependency", blocked["state"])
+        self.assertTrue(blocked["show_rebuild"])
+
+        held = server.semantic_graph_answer_path_status(
+            {
+                **base,
+                "cross_document_semantic_graph_answer_promotion_enabled": True,
+            },
+            {
+                **current,
+                "cross_document_semantic_graph_storage": {
+                    "status": "held",
+                    "reason_code": "trust_root_binding_invalid",
+                },
+            },
+        )
+        self.assertEqual("held", held["state"])
+        self.assertTrue(held["show_rebuild"])
+        self.assertIn("trust_root_binding_invalid", held["label"])
+
+        storage_index = "/tmp/generation/05-semantic-answer-index/safe-answer-index.sqlite3"
+        active_diagnosis = {
+            **base,
+            "index_path": storage_index,
+            "cross_document_semantic_graph_answer_promotion_enabled": True,
+            "cross_document_semantic_graph_storage": {
+                "status": "validated_storage_only",
+                "database_path": storage_index,
+            },
+            "cross_document_semantic_graph_trust": {
+                "manifest_path": "/tmp/trust.json",
+            },
+        }
+        active = server.semantic_graph_answer_path_status(
+            active_diagnosis,
+            current,
+        )
+        self.assertEqual("armed_per_query", active["state"])
+        self.assertEqual("使用可能（質問ごとに検証）", active["label"])
+
+        migration_diagnosis = {
+            **base,
+            "cross_document_semantic_graph_answer_promotion_configured": False,
+        }
+        with (
+            mock.patch.object(
+                server.bootstrap,
+                "diagnose",
+                return_value=migration_diagnosis,
+            ),
+            mock.patch.object(server, "state", return_value=current),
+            mock.patch.object(
+                server,
+                "security_exclusion_notice",
+                return_value="",
+            ),
+        ):
+            rendered = server.home().decode("utf-8")
+        self.assertIn("migration_required", rendered)
+        self.assertIn("意味グラフ回答を有効化して再構築", rendered)
+        self.assertIn('<form method="post" action="/build">', rendered)
+
+        held_current = {
+            **current,
+            "cross_document_semantic_graph_storage": {
+                "status": "held",
+                "reason_code": "semantic_storage_registration_failed_non_gating",
+            },
+        }
+        held_diagnosis = {
+            **base,
+            "cross_document_semantic_graph_answer_promotion_enabled": True,
+        }
+        with (
+            mock.patch.object(
+                server.bootstrap,
+                "diagnose",
+                return_value=held_diagnosis,
+            ),
+            mock.patch.object(server, "state", return_value=held_current),
+            mock.patch.object(
+                server,
+                "security_exclusion_notice",
+                return_value="",
+            ),
+        ):
+            held_rendered = server.home().decode("utf-8")
+        self.assertIn("準備を保留しました", held_rendered)
+        self.assertIn(
+            "semantic_storage_registration_failed_non_gating",
+            held_rendered,
+        )
+        self.assertIn("意味グラフ回答を有効化して再構築", held_rendered)
+
+    def test_home_keeps_refreshing_for_pending_graph_observers(self) -> None:
+        server = load_server()
+        diagnosis = {
+            "index_ready": True,
+            "index_path": "/tmp/base.sqlite3",
+            "models": [],
+            "warnings": [],
+            "memory_gb": 24,
+            "free_gb": 100,
+            "architecture": "arm64",
+            "ollama_online": True,
+            "source_root": "/tmp/source",
+            "cross_document_semantic_graph_storage_enabled": True,
+            "cross_document_semantic_graph_answer_promotion_configured": True,
+            "cross_document_semantic_graph_answer_promotion_enabled": True,
+            "cross_document_semantic_graph_storage": None,
+            "cross_document_semantic_graph_trust": None,
+        }
+        current = {
+            "phase": "ready",
+            "message": "ready",
+            "error": "",
+            "cross_document_semantic_graph_storage": {"status": "pending"},
+        }
+        with (
+            mock.patch.object(
+                server.bootstrap, "diagnose", return_value=diagnosis
+            ),
+            mock.patch.object(server, "state", return_value=current),
+            mock.patch.object(
+                server, "security_exclusion_notice", return_value=""
+            ),
+        ):
+            rendered = server.home(
+                csrf_token="csrf-ui-token"
+            ).decode("utf-8")
+        self.assertIn('<meta http-equiv="refresh" content="4">', rendered)
+        self.assertIn("準備中（完了までは従来経路）", rendered)
+        self.assertIn(
+            f'name="{server.UI_CSRF_FIELD}" value="csrf-ui-token"',
+            rendered,
+        )
+
+    def test_step5_inspection_codes_and_all_sources_are_escaped(self) -> None:
+        server = load_server()
+        record = {
+            server.SEMANTIC_GRAPH_CANDIDATE_KEY: {
+                "status": "accepted",
+                "used_for_answers": False,
+                "independent_edge_audit_status": "pending",
+                "trace": {"used_semantic_edge_count": 1},
+            },
+            server.SEMANTIC_GRAPH_ANSWER_PROMOTION_KEY: {
+                "decision": "PROMOTE",
+                "source_answer": "semantic_graph",
+                "reason_code": "<reason>",
+                "diagnostic_code": "<diagnostic>",
+                "used_for_answers": True,
+                "source_references": [
+                    {
+                        "path": f"source-{number}.docx",
+                        "locator": {"paragraph": number},
+                        "quote": f"quote-{number}",
+                        "evidence_id": f"evidence-{number}",
+                        "edge_id": f"edge-{number}",
+                    }
+                    for number in range(1, 11)
+                ],
+            },
+        }
+        inspection = server.semantic_graph_candidate_notice(record)
+        self.assertIn("&lt;reason&gt;", inspection)
+        self.assertIn("&lt;diagnostic&gt;", inspection)
+        self.assertNotIn("<reason>", inspection)
+        _, sources, _ = server.answer_source_notice(record)
+        self.assertIn("source-10.docx", sources)
+        self.assertEqual(10, sources.count("<li>"))
+
+    def test_launcher_handshake_is_bounded_and_never_force_kills(self) -> None:
+        launcher = ROOT / "app" / "launch.sh"
+        syntax = subprocess.run(
+            ["/bin/zsh", "-n", str(launcher)],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        self.assertEqual(0, syntax.returncode, syntax.stderr)
+        text = launcher.read_text(encoding="utf-8")
+        self.assertIn('SERVER_PROTOCOL_VERSION="local-memory-search-step5-v1"', text)
+        self.assertIn('SERVER_HEALTH_PATH="/__local_memory_health"', text)
+        self.assertIn('SERVER_SHUTDOWN_PATH="/__local_memory_shutdown"', text)
+        self.assertIn("EXPECTED_SERVER_BUILD_ID", text)
+        self.assertIn('value.get("build_id")==sys.argv[3]', text)
+        self.assertIn("health_matches_known_protocol", text)
+        self.assertIn('value.get("startup_state")', text)
+        self.assertIn("validated_identity_pid", text)
+        self.assertIn("/usr/sbin/lsof", text)
+        self.assertIn("X-Local-Memory-Shutdown-Token", text)
+        self.assertIn("PORT < 1 || PORT > 65535", text)
+        self.assertIn("for attempt in {1..20}", text)
+        self.assertIn("for attempt in {1..480}", text)
+        self.assertIn("旧版を終了してから", text)
+        self.assertIn("launcher_lease.py", text)
+        self.assertIn("PYTHON_BOOTSTRAP_LOCK_FILE", text)
+        self.assertIn("zmodload zsh/system", text)
+        self.assertIn(
+            "zsystem flock -t 120 -i 0.25 -f "
+            "PYTHON_BOOTSTRAP_LOCK_FD",
+            text,
+        )
+        self.assertIn(
+            'zsystem flock -u "$PYTHON_BOOTSTRAP_LOCK_FD"',
+            text,
+        )
+        self.assertIn('PYTHON_PKG_PART="$PYTHON_PKG.part.$$"', text)
+        self.assertEqual(2, text.count("--noproxy '*'"))
+        self.assertIn("urllib.request.ProxyHandler({})", text)
+        self.assertEqual(1, text.count('r"(^|\\s)"'))
+        self.assertEqual(2, text.count('r"(\\s|$)"'))
+        self.assertNotIn('r"(^|\\\\s)"', text)
+        command = (
+            f"/usr/bin/python3 {ROOT / 'app' / 'local_memory_server.py'} "
+            "--port 8765"
+        )
+        self.assertIsNotNone(re.search(
+            r"(^|\s)" + re.escape(str(ROOT / "app" / "local_memory_server.py"))
+            + r"(\s|$)",
+            command,
+        ))
+        self.assertIsNotNone(re.search(
+            r"(^|\s)--port(?:=|\s+)8765(\s|$)",
+            command,
+        ))
+        self.assertNotIn("SIGKILL", text)
+        self.assertNotIn("kill -9", text)
+        self.assertNotIn("kill -KILL", text)
+
+    def test_launcher_handles_known_builds_before_slow_root_probe_and_spawn(
+        self,
+    ) -> None:
+        text = (ROOT / "app" / "launch.sh").read_text(encoding="utf-8")
+        known_protocol = text.index(
+            'if health_matches_known_protocol "$HEALTH_BODY"; then'
+        )
+        current_build = text.index(
+            'if health_matches_current_protocol "$HEALTH_BODY"; then',
+            known_protocol,
+        )
+        mismatch_branch = text.index(
+            "# A different build with the Step 5 handshake",
+            current_build,
+        )
+        root_probe = text.index("  ROOT_RESPONDS=false", mismatch_branch)
+        root_request = text.index(
+            "if /usr/bin/curl --noproxy '*' -sS --max-time 1 "
+            "-o /dev/null "
+            '"http://127.0.0.1:$PORT/"',
+            root_probe,
+        )
+        spawn = text.index(
+            '/usr/bin/nohup "$PYTHON" "$SERVER_SCRIPT" --port "$PORT"',
+            root_request,
+        )
+
+        self.assertLess(known_protocol, current_build)
+        self.assertLess(current_build, mismatch_branch)
+        self.assertLess(mismatch_branch, root_probe)
+        self.assertLess(root_probe, root_request)
+        self.assertLess(root_request, spawn)
+
+        known_server_branch = text[known_protocol:root_probe]
+        mismatch_only = text[mismatch_branch:root_probe]
+        self.assertIn(
+            'stop_validated_server "$IDENTITY_PID" "$HEALTH_INSTANCE"',
+            mismatch_only,
+        )
+        self.assertNotIn(
+            "curl --noproxy '*' -sS --max-time 1 -o /dev/null "
+            '"http://127.0.0.1:$PORT/"',
+            known_server_branch,
+        )
+        self.assertNotIn("/usr/bin/nohup", known_server_branch)
+
+        existing_recovery_wait = text.index(
+            "for attempt in {1..480}; do",
+            current_build,
+        )
+        self.assertLess(existing_recovery_wait, mismatch_branch)
+        existing_recovery_branch = text[
+            current_build:mismatch_branch
+        ]
+        self.assertEqual(
+            1,
+            existing_recovery_branch.count("for attempt in {1..480}; do"),
+        )
+        self.assertIn('if [ "$STARTUP_STATE" = "recovering" ]; then', existing_recovery_branch)
+        self.assertIn(
+            '[ "$OBSERVED_INSTANCE" = "$HEALTH_INSTANCE" ] || continue',
+            existing_recovery_branch,
+        )
+        self.assertIn(
+            '[ "$OBSERVED_PID" = "$IDENTITY_PID" ] || continue',
+            existing_recovery_branch,
+        )
+        self.assertIn("server_startup_recovery_timeout", existing_recovery_branch)
+        self.assertNotIn("/usr/bin/nohup", existing_recovery_branch)
+
+        new_server_branch = text[spawn:]
+        self.assertEqual(1, text.count('/usr/bin/nohup "$PYTHON"'))
+        self.assertEqual(
+            1,
+            new_server_branch.count("for attempt in {1..480}; do"),
+        )
+        self.assertIn(
+            '[ "$VERIFIED_NEW_PID" = "$NEW_SERVER_PID" ]',
+            new_server_branch,
+        )
+        self.assertIn('if [ "$STARTUP_STATE" = "ready" ]; then', new_server_branch)
+        self.assertIn('if [ "$STARTUP_STATE" = "failed" ]; then', new_server_branch)
+        self.assertIn(
+            'stop_validated_server "$NEW_SERVER_PID" '
+            '"$NEW_SERVER_INSTANCE"',
+            new_server_branch,
+        )
+
+    def test_launcher_lease_serializes_concurrent_processes(self) -> None:
+        helper = ROOT / "app" / "launcher_lease.py"
+        with tempfile.TemporaryDirectory() as temporary:
+            temporary_path = Path(temporary)
+            payload = temporary_path / "payload.zsh"
+            events = temporary_path / "events.txt"
+            lock = temporary_path / "launcher.lock"
+            payload.write_text(
+                "#!/bin/zsh\n"
+                'print -r -- "start:$1" >> "$2"\n'
+                "/bin/sleep 0.2\n"
+                'print -r -- "end:$1" >> "$2"\n',
+                encoding="utf-8",
+            )
+            payload.chmod(0o700)
+            environment = dict(os.environ)
+            environment.pop("LOCAL_MEMORY_LAUNCH_LEASE_HELD", None)
+            first = subprocess.Popen(
+                [
+                    sys.executable,
+                    str(helper),
+                    str(lock),
+                    str(payload),
+                    "first",
+                    str(events),
+                ],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                env=environment,
+            )
+            deadline = time.monotonic() + 3
+            while time.monotonic() < deadline:
+                if events.is_file() and "start:first" in events.read_text(
+                    encoding="utf-8"
+                ):
+                    break
+                time.sleep(0.01)
+            self.assertTrue(events.is_file(), "first launcher never started")
+            second = subprocess.Popen(
+                [
+                    sys.executable,
+                    str(helper),
+                    str(lock),
+                    str(payload),
+                    "second",
+                    str(events),
+                ],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                env=environment,
+            )
+            first_stdout, first_stderr = first.communicate(timeout=5)
+            second_stdout, second_stderr = second.communicate(timeout=5)
+            self.assertEqual(0, first.returncode, first_stdout + first_stderr)
+            self.assertEqual(
+                0,
+                second.returncode,
+                second_stdout + second_stderr,
+            )
+            self.assertEqual(
+                ["start:first", "end:first", "start:second", "end:second"],
+                events.read_text(encoding="utf-8").splitlines(),
+            )
+            self.assertEqual(0o600, stat.S_IMODE(lock.stat().st_mode))
+
+    def test_python_bootstrap_kernel_lock_serializes_processes(self) -> None:
+        launcher = ROOT / "app" / "launch.sh"
+        text = launcher.read_text(encoding="utf-8")
+        functions_start = text.index("release_python_bootstrap_lock() {")
+        functions_end = text.index(
+            "\ntrap release_python_bootstrap_lock EXIT",
+            functions_start,
+        )
+        lease_functions = text[functions_start:functions_end]
+        with tempfile.TemporaryDirectory() as temporary:
+            temporary_path = Path(temporary)
+            lock = temporary_path / "bootstrap.lock"
+            events = temporary_path / "events.txt"
+            harness = (
+                "set -u\n"
+                "umask 077\n"
+                'PYTHON_BOOTSTRAP_LOCK_FILE="$1"\n'
+                "PYTHON_BOOTSTRAP_LOCK_FD=\"\"\n"
+                + lease_functions
+                + "\nacquire_python_bootstrap_lock || exit 10\n"
+                '(print -r -- "start:$2") >>"$3"\n'
+                "/bin/sleep 0.2\n"
+                '(print -r -- "end:$2") >>"$3"\n'
+                "release_python_bootstrap_lock\n"
+            )
+            first = subprocess.Popen(
+                [
+                    "/bin/zsh",
+                    "-c",
+                    harness,
+                    "bootstrap-lock-test",
+                    str(lock),
+                    "first",
+                    str(events),
+                ],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+            )
+            deadline = time.monotonic() + 3
+            while time.monotonic() < deadline:
+                if events.is_file() and "start:first" in events.read_text(
+                    encoding="utf-8"
+                ):
+                    break
+                time.sleep(0.01)
+            self.assertTrue(events.is_file(), "first bootstrap never started")
+            second = subprocess.Popen(
+                [
+                    "/bin/zsh",
+                    "-c",
+                    harness,
+                    "bootstrap-lock-test",
+                    str(lock),
+                    "second",
+                    str(events),
+                ],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+            )
+            first_stdout, first_stderr = first.communicate(timeout=5)
+            second_stdout, second_stderr = second.communicate(timeout=5)
+            self.assertEqual(
+                0,
+                first.returncode,
+                first_stdout + first_stderr,
+            )
+            self.assertEqual(
+                0,
+                second.returncode,
+                second_stdout + second_stderr,
+            )
+            self.assertEqual(
+                ["start:first", "end:first", "start:second", "end:second"],
+                events.read_text(encoding="utf-8").splitlines(),
+            )
+            self.assertEqual(0o600, stat.S_IMODE(lock.stat().st_mode))
+
+    def test_python_bootstrap_kernel_lock_releases_after_sigkill(
+        self,
+    ) -> None:
+        launcher = ROOT / "app" / "launch.sh"
+        text = launcher.read_text(encoding="utf-8")
+        functions_start = text.index("release_python_bootstrap_lock() {")
+        functions_end = text.index(
+            "\ntrap release_python_bootstrap_lock EXIT",
+            functions_start,
+        )
+        lease_functions = text[functions_start:functions_end]
+        with tempfile.TemporaryDirectory() as temporary:
+            temporary_path = Path(temporary)
+            lock = temporary_path / "bootstrap.lock"
+            ready = temporary_path / "ready"
+            holder_harness = (
+                "set -u\n"
+                "umask 077\n"
+                'PYTHON_BOOTSTRAP_LOCK_FILE="$1"\n'
+                "PYTHON_BOOTSTRAP_LOCK_FD=\"\"\n"
+                + lease_functions
+                + "\nacquire_python_bootstrap_lock || exit 10\n"
+                '(print -r -- ready) >"$2"\n'
+                "while true; do :; done\n"
+            )
+            holder = subprocess.Popen(
+                [
+                    "/bin/zsh",
+                    "-c",
+                    holder_harness,
+                    "bootstrap-lock-test",
+                    str(lock),
+                    str(ready),
+                ],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+            )
+            deadline = time.monotonic() + 3
+            while time.monotonic() < deadline and not ready.is_file():
+                time.sleep(0.01)
+            self.assertTrue(ready.is_file(), "bootstrap holder never acquired")
+            holder.kill()
+            holder_stdout, holder_stderr = holder.communicate(timeout=3)
+            self.assertEqual(
+                -9,
+                holder.returncode,
+                holder_stdout + holder_stderr,
+            )
+            contender_harness = (
+                "set -u\n"
+                "umask 077\n"
+                'PYTHON_BOOTSTRAP_LOCK_FILE="$1"\n'
+                "PYTHON_BOOTSTRAP_LOCK_FD=\"\"\n"
+                + lease_functions
+                + "\nacquire_python_bootstrap_lock || exit 10\n"
+                "release_python_bootstrap_lock\n"
+            )
+            started = time.monotonic()
+            contender = subprocess.run(
+                [
+                    "/bin/zsh",
+                    "-c",
+                    contender_harness,
+                    "bootstrap-lock-test",
+                    str(lock),
+                ],
+                capture_output=True,
+                text=True,
+                timeout=2,
+                check=False,
+            )
+            elapsed = time.monotonic() - started
+            self.assertEqual(
+                0,
+                contender.returncode,
+                contender.stdout + contender.stderr,
+            )
+            self.assertLess(elapsed, 1.5)
+
+    def test_python_bootstrap_lock_explicit_release_precedes_shell_exit(
+        self,
+    ) -> None:
+        launcher = ROOT / "app" / "launch.sh"
+        text = launcher.read_text(encoding="utf-8")
+        functions_start = text.index("release_python_bootstrap_lock() {")
+        functions_end = text.index(
+            "\ntrap release_python_bootstrap_lock EXIT",
+            functions_start,
+        )
+        lease_functions = text[functions_start:functions_end]
+        with tempfile.TemporaryDirectory() as temporary:
+            temporary_path = Path(temporary)
+            lock = temporary_path / "bootstrap.lock"
+            released = temporary_path / "released"
+            holder_harness = (
+                "set -u\n"
+                "umask 077\n"
+                'PYTHON_BOOTSTRAP_LOCK_FILE="$1"\n'
+                "PYTHON_BOOTSTRAP_LOCK_FD=\"\"\n"
+                + lease_functions
+                + "\nacquire_python_bootstrap_lock || exit 10\n"
+                "release_python_bootstrap_lock\n"
+                '(print -r -- released) >"$2"\n'
+                "read -r _\n"
+            )
+            holder = subprocess.Popen(
+                [
+                    "/bin/zsh",
+                    "-c",
+                    holder_harness,
+                    "bootstrap-lock-test",
+                    str(lock),
+                    str(released),
+                ],
+                stdin=subprocess.PIPE,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+            )
+            deadline = time.monotonic() + 3
+            while time.monotonic() < deadline and not released.is_file():
+                time.sleep(0.01)
+            self.assertTrue(released.is_file(), "holder did not release lock")
+            contender_harness = (
+                "set -u\n"
+                "umask 077\n"
+                'PYTHON_BOOTSTRAP_LOCK_FILE="$1"\n'
+                "PYTHON_BOOTSTRAP_LOCK_FD=\"\"\n"
+                + lease_functions
+                + "\nacquire_python_bootstrap_lock || exit 10\n"
+                "release_python_bootstrap_lock\n"
+            )
+            contender = subprocess.run(
+                [
+                    "/bin/zsh",
+                    "-c",
+                    contender_harness,
+                    "bootstrap-lock-test",
+                    str(lock),
+                ],
+                capture_output=True,
+                text=True,
+                timeout=2,
+                check=False,
+            )
+            self.assertEqual(
+                0,
+                contender.returncode,
+                contender.stdout + contender.stderr,
+            )
+            assert holder.stdin is not None
+            holder.stdin.write("continue\n")
+            holder.stdin.flush()
+            holder_stdout, holder_stderr = holder.communicate(timeout=3)
+            self.assertEqual(
+                0,
+                holder.returncode,
+                holder_stdout + holder_stderr,
+            )
+
+    def test_launcher_lease_is_not_inherited_by_background_child(
+        self,
+    ) -> None:
+        helper = ROOT / "app" / "launcher_lease.py"
+        with tempfile.TemporaryDirectory() as temporary:
+            temporary_path = Path(temporary)
+            lock = temporary_path / "launcher.lock"
+            starts_background = temporary_path / "background.zsh"
+            starts_background.write_text(
+                "#!/bin/zsh\n"
+                "/bin/sleep 3 </dev/null >/dev/null 2>&1 &!\n",
+                encoding="utf-8",
+            )
+            starts_background.chmod(0o700)
+            exits_now = temporary_path / "exit.zsh"
+            exits_now.write_text("#!/bin/zsh\nexit 0\n", encoding="utf-8")
+            exits_now.chmod(0o700)
+            environment = dict(os.environ)
+            environment.pop("LOCAL_MEMORY_LAUNCH_LEASE_HELD", None)
+            first = subprocess.run(
+                [
+                    sys.executable,
+                    str(helper),
+                    str(lock),
+                    str(starts_background),
+                ],
+                capture_output=True,
+                text=True,
+                timeout=5,
+                env=environment,
+                check=False,
+            )
+            self.assertEqual(0, first.returncode, first.stdout + first.stderr)
+            started = time.monotonic()
+            second = subprocess.run(
+                [
+                    sys.executable,
+                    str(helper),
+                    str(lock),
+                    str(exits_now),
+                ],
+                capture_output=True,
+                text=True,
+                timeout=2,
+                env=environment,
+                check=False,
+            )
+            elapsed = time.monotonic() - started
+            self.assertEqual(
+                0,
+                second.returncode,
+                second.stdout + second.stderr,
+            )
+            self.assertLess(elapsed, 1.5)
 
     def test_bootstrap_downloads_are_official_and_verified(self) -> None:
         text = (ROOT / "app" / "launch.sh").read_text(encoding="utf-8")

@@ -4,11 +4,17 @@
 from __future__ import annotations
 
 import argparse
+import copy
+import fcntl
 import hashlib
+import hmac
 import html
+import importlib.util
 import json
 import os
 import re
+import secrets
+import stat
 import subprocess
 import sys
 import tempfile
@@ -17,22 +23,99 @@ import time
 import urllib.parse
 import urllib.request
 import unicodedata
+from contextlib import contextmanager
 from datetime import date
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
 import bootstrap
+import semantic_graph_answer_promotion
+import semantic_graph_trust
 
 
 BUILD_LOCK = threading.Lock()
+ACTIVE_WORK_LOCK = threading.Lock()
+ACTIVE_WORK_COUNT = 0
+SERVER_SHUTDOWN_REQUESTED = threading.Event()
 BASE = Path(__file__).resolve().parent
 ENGINE = BASE / "engine"
 OLLAMA_GENERATE = "http://127.0.0.1:11434/api/generate"
+LOCAL_HTTP_OPENER = urllib.request.build_opener(
+    urllib.request.ProxyHandler({})
+)
+SERVER_PROTOCOL_VERSION = "local-memory-search-step5-v1"
+SERVER_HEALTH_PATH = "/__local_memory_health"
+SERVER_SHUTDOWN_PATH = "/__local_memory_shutdown"
+SERVER_IDENTITY_FILENAME = "server-identity-v1.json"
+SERVER_IDENTITY_LOCK_FILENAME = ".server-identity-v1.lock"
+STARTUP_RECOVERY_RETRY_SECONDS = 0.25
+STARTUP_RECOVERY_MAX_ACTIVE_RETRIES = 480
+STARTUP_RECOVERY_ACTIVE_STATUSES = {
+    "active_build",
+    "active",
+    "active_shadow",
+    "active_semantic_storage",
+}
+UI_CSRF_FIELD = "_local_memory_csrf"
+MAX_FORM_BYTES = 64 * 1024
+
+
+def _server_build_id() -> str:
+    """Fingerprint the loaded server's complete executable resource set."""
+    paths = set(BASE.glob("*.py")) | set(BASE.glob("*.sh"))
+    paths |= set(BASE.glob("*.js"))
+    paths |= set(ENGINE.rglob("*.py"))
+    paths |= set(ENGINE.rglob("*.json"))
+    paths |= set(ENGINE.rglob("*.swift"))
+    runtime_contracts: list[tuple[str, Path]] = []
+    for name in (
+        "paddleocr-requirements.lock.txt",
+        "paddleocr-model-manifest.json",
+    ):
+        packaged = BASE / name
+        source_tree = BASE.parent / name
+        selected = packaged if packaged.is_file() else source_tree
+        if selected.is_file():
+            runtime_contracts.append((f"runtime-contract/{name}", selected))
+    bundle_contracts: list[tuple[str, Path]] = []
+    contents = BASE.parent
+    if contents.name == "Contents":
+        for logical_name, path in (
+            ("bundle/Info.plist", contents / "Info.plist"),
+            ("bundle/MacOS/applet", contents / "MacOS" / "applet"),
+            ("bundle/Scripts/main.scpt", BASE / "Scripts" / "main.scpt"),
+        ):
+            if not path.is_file():
+                raise RuntimeError("server_bundle_contract_missing")
+            bundle_contracts.append((logical_name, path))
+    if not paths or len(runtime_contracts) != 2:
+        raise RuntimeError("server_build_files_missing")
+    digest = hashlib.sha256()
+    resources = [
+        (path.relative_to(BASE).as_posix(), path)
+        for path in paths
+    ] + runtime_contracts + bundle_contracts
+    for relative_name, path in sorted(resources, key=lambda item: item[0]):
+        if path.is_symlink() or not path.is_file():
+            raise RuntimeError("server_build_file_invalid")
+        relative = relative_name.encode("utf-8")
+        digest.update(len(relative).to_bytes(8, "big"))
+        digest.update(relative)
+        data = path.read_bytes()
+        digest.update(len(data).to_bytes(8, "big"))
+        digest.update(data)
+    return digest.hexdigest()
+
+
+SERVER_BUILD_ID = _server_build_id()
 SEMANTIC_GRAPH_CANDIDATE_KEY = (
     "cross_document_semantic_graph_query_candidate"
 )
 SEMANTIC_GRAPH_EDGE_AUDIT_KEY = (
     "cross_document_semantic_graph_independent_edge_audit"
+)
+SEMANTIC_GRAPH_ANSWER_PROMOTION_KEY = (
+    "cross_document_semantic_graph_answer_promotion"
 )
 SEMANTIC_GRAPH_CANDIDATE_TIMEOUT_SECONDS = 30.0
 SEMANTIC_GRAPH_EDGE_AUDIT_TIMEOUT_SECONDS = 30.0
@@ -148,6 +231,370 @@ def state() -> dict:
     return bootstrap.load_json(bootstrap.STATE, {"phase": "not_started", "message": "まだ索引は作成されていません。", "error": ""})
 
 
+def _log_startup_recovery_failure(exc: Exception) -> None:
+    """Persist a bounded local diagnostic without changing startup outcome."""
+    path = bootstrap.SUPPORT / "logs" / "startup-recovery.jsonl"
+    descriptor = None
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        flags = (
+            os.O_WRONLY
+            | os.O_APPEND
+            | os.O_CREAT
+            | getattr(os, "O_NOFOLLOW", 0)
+        )
+        descriptor = os.open(path, flags, 0o600)
+        os.fchmod(descriptor, 0o600)
+        metadata = os.fstat(descriptor)
+        if (
+            not stat.S_ISREG(metadata.st_mode)
+            or metadata.st_uid != os.getuid()
+            or metadata.st_nlink != 1
+        ):
+            return
+        reason = getattr(exc, "reason_code", None)
+        record = {
+            "status": "startup_recovery_failed",
+            "error_type": type(exc).__name__,
+            "reason_code": (
+                str(reason)[:256]
+                if isinstance(reason, str) and reason
+                else None
+            ),
+            "message": str(exc)[:512],
+        }
+        os.write(
+            descriptor,
+            (json.dumps(
+                record,
+                ensure_ascii=False,
+                sort_keys=True,
+                separators=(",", ":"),
+            ) + "\n").encode("utf-8"),
+        )
+    except (OSError, TypeError, ValueError):
+        return
+    finally:
+        if descriptor is not None:
+            os.close(descriptor)
+
+
+def _startup_recovery_outcome() -> str:
+    """Wait out another process's build, then recover before serving work."""
+    active_retries = 0
+    while True:
+        try:
+            result = bootstrap.recover_interrupted_build()
+            if not isinstance(result, dict):
+                raise RuntimeError("startup_recovery_result_invalid")
+        except Exception as exc:
+            _log_startup_recovery_failure(exc)
+            return "failed"
+        if result.get("status") not in STARTUP_RECOVERY_ACTIVE_STATUSES:
+            return "ready"
+        active_retries += 1
+        if active_retries >= STARTUP_RECOVERY_MAX_ACTIVE_RETRIES:
+            timeout = RuntimeError("startup_recovery_active_timeout")
+            timeout.reason_code = "startup_recovery_active_timeout"
+            _log_startup_recovery_failure(timeout)
+            return "failed"
+        # Keep health in ``recovering`` and ACTIVE_WORK_COUNT above zero.  The
+        # external builder owns the cross-process lease; when it exits or is
+        # killed, the next iteration acquires that lease and repairs any dead
+        # ``building`` state before this server becomes ready.
+        time.sleep(STARTUP_RECOVERY_RETRY_SECONDS)
+
+
+def server_health_payload(
+    instance_id: str,
+    startup_state: str = "ready",
+) -> dict:
+    """Return the fixed, side-effect-free launcher handshake."""
+    if startup_state not in {"recovering", "ready", "failed"}:
+        raise ValueError("server_startup_state_invalid")
+    return {
+        "service": "LocalMemorySearch",
+        "protocol_version": SERVER_PROTOCOL_VERSION,
+        "build_id": SERVER_BUILD_ID,
+        "instance_id": instance_id,
+        "graceful_restart": True,
+        "startup_state": startup_state,
+    }
+
+
+def _bound_server_port(server: object) -> int | None:
+    port = getattr(server, "server_port", None)
+    if isinstance(port, int) and not isinstance(port, bool):
+        return port if 1 <= port <= 65535 else None
+    address = getattr(server, "server_address", None)
+    if (
+        isinstance(address, tuple)
+        and len(address) >= 2
+        and isinstance(address[1], int)
+        and not isinstance(address[1], bool)
+        and 1 <= address[1] <= 65535
+    ):
+        return address[1]
+    return None
+
+
+def _local_http_authorities(server: object) -> frozenset[str]:
+    port = _bound_server_port(server)
+    if port is None:
+        return frozenset()
+    suffix = "" if port == 80 else f":{port}"
+    return frozenset({f"127.0.0.1{suffix}", f"localhost{suffix}"})
+
+
+def _local_request_host_is_valid(server: object, headers: object) -> bool:
+    host = getattr(headers, "get", lambda *_args: None)("Host")
+    return (
+        isinstance(host, str)
+        and host.strip().lower() in _local_http_authorities(server)
+    )
+
+
+def _local_ui_post_is_authorized(
+    server: object,
+    headers: object,
+    form: dict[str, list[str]],
+) -> bool:
+    expected = getattr(server, "ui_csrf_token", "")
+    supplied_values = form.get(UI_CSRF_FIELD, [])
+    if (
+        not isinstance(expected, str)
+        or not expected
+        or not isinstance(supplied_values, list)
+        or len(supplied_values) != 1
+        or not isinstance(supplied_values[0], str)
+        or not hmac.compare_digest(supplied_values[0], expected)
+    ):
+        return False
+    authorities = _local_http_authorities(server)
+    origin = getattr(headers, "get", lambda *_args: None)("Origin")
+    if isinstance(origin, str) and origin:
+        if origin.strip().lower() not in {
+            f"http://{authority}" for authority in authorities
+        }:
+            return False
+    fetch_site = getattr(headers, "get", lambda *_args: None)(
+        "Sec-Fetch-Site"
+    )
+    if (
+        isinstance(fetch_site, str)
+        and fetch_site
+        and fetch_site.lower() not in {"same-origin", "none"}
+    ):
+        return False
+    return True
+
+
+def _begin_active_work() -> bool:
+    global ACTIVE_WORK_COUNT
+    with ACTIVE_WORK_LOCK:
+        if SERVER_SHUTDOWN_REQUESTED.is_set():
+            return False
+        ACTIVE_WORK_COUNT += 1
+        return True
+
+
+def _end_active_work() -> None:
+    global ACTIVE_WORK_COUNT
+    with ACTIVE_WORK_LOCK:
+        ACTIVE_WORK_COUNT = max(0, ACTIVE_WORK_COUNT - 1)
+
+
+def _reserve_server_shutdown() -> bool:
+    with ACTIVE_WORK_LOCK:
+        if (
+            SERVER_SHUTDOWN_REQUESTED.is_set()
+            or BUILD_LOCK.locked()
+            or ACTIVE_WORK_COUNT > 0
+        ):
+            return False
+        SERVER_SHUTDOWN_REQUESTED.set()
+        return True
+
+
+def _cancel_server_shutdown_reservation() -> None:
+    """Undo a reservation only when no shutdown worker could be started."""
+    with ACTIVE_WORK_LOCK:
+        SERVER_SHUTDOWN_REQUESTED.clear()
+
+
+@contextmanager
+def _server_identity_lease(*, shared: bool = False):
+    """Serialize identity publication/removal across server processes."""
+    path = bootstrap.SUPPORT / SERVER_IDENTITY_LOCK_FILENAME
+    path.parent.mkdir(parents=True, exist_ok=True)
+    flags = os.O_RDWR | os.O_CREAT | getattr(os, "O_NOFOLLOW", 0)
+    descriptor = os.open(path, flags, 0o600)
+    acquired = False
+    try:
+        os.fchmod(descriptor, 0o600)
+        metadata = os.fstat(descriptor)
+        if (
+            not stat.S_ISREG(metadata.st_mode)
+            or metadata.st_uid != os.getuid()
+            or metadata.st_nlink != 1
+        ):
+            raise RuntimeError("server_identity_lock_invalid")
+        fcntl.flock(
+            descriptor,
+            fcntl.LOCK_SH if shared else fcntl.LOCK_EX,
+        )
+        acquired = True
+        yield
+    finally:
+        if acquired:
+            fcntl.flock(descriptor, fcntl.LOCK_UN)
+        os.close(descriptor)
+
+
+def _publish_server_identity(server: ThreadingHTTPServer, port: int) -> None:
+    identity = {
+        "schema_version": "0.1",
+        "service": "LocalMemorySearch",
+        "protocol_version": SERVER_PROTOCOL_VERSION,
+        "build_id": SERVER_BUILD_ID,
+        "instance_id": server.instance_id,
+        "pid": os.getpid(),
+        "uid": os.getuid(),
+        "host": "127.0.0.1",
+        "port": port,
+        "server_script": str(Path(__file__).resolve()),
+        "shutdown_token": server.shutdown_token,
+    }
+    path = bootstrap.SUPPORT / SERVER_IDENTITY_FILENAME
+    with _server_identity_lease():
+        bootstrap.atomic_json(path, identity)
+        os.chmod(path, 0o600)
+
+
+def _remove_server_identity(instance_id: str) -> None:
+    """Remove only the identity file owned by this exact server instance."""
+    path = bootstrap.SUPPORT / SERVER_IDENTITY_FILENAME
+    try:
+        with _server_identity_lease():
+            flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0)
+            descriptor = os.open(path, flags)
+            try:
+                metadata = os.fstat(descriptor)
+                if (
+                    not stat.S_ISREG(metadata.st_mode)
+                    or stat.S_IMODE(metadata.st_mode) != 0o600
+                    or metadata.st_uid != os.getuid()
+                    or metadata.st_nlink != 1
+                ):
+                    return
+                data = os.read(descriptor, 4097)
+            finally:
+                os.close(descriptor)
+            if len(data) > 4096:
+                return
+            identity = json.loads(data.decode("utf-8"))
+            current = os.lstat(path)
+            if (
+                current.st_dev != metadata.st_dev
+                or current.st_ino != metadata.st_ino
+                or identity.get("instance_id") != instance_id
+                or identity.get("pid") != os.getpid()
+            ):
+                return
+            path.unlink()
+    except (OSError, UnicodeError, ValueError, TypeError, AttributeError):
+        return
+
+
+def semantic_graph_answer_path_status(
+    diagnosis: dict,
+    current: dict,
+) -> dict:
+    """Describe Step 5 without implying that per-question checks have passed."""
+    phase_ready = current.get("phase") in {"ready", "ready_with_limits"}
+    configured = diagnosis.get(
+        "cross_document_semantic_graph_answer_promotion_configured"
+    ) is True
+    enabled = diagnosis.get(
+        "cross_document_semantic_graph_answer_promotion_enabled"
+    ) is True
+    if not configured and diagnosis.get("index_ready") is True and phase_ready:
+        return {
+            "state": "migration_required",
+            "label": "migration_required（再構築が必要・現在は従来経路）",
+            "css_class": "warn",
+            "show_rebuild": True,
+        }
+    if not enabled:
+        return {
+            "state": "off_explicit",
+            "label": "明示停止（従来経路）",
+            "css_class": "small",
+            "show_rebuild": False,
+        }
+
+    registration = diagnosis.get("cross_document_semantic_graph_storage")
+    trust = diagnosis.get("cross_document_semantic_graph_trust")
+    index_path = diagnosis.get("index_path")
+    storage_run = current.get("cross_document_semantic_graph_storage")
+    storage_status = (
+        storage_run.get("status") if isinstance(storage_run, dict) else None
+    )
+    if storage_status == "pending":
+        return {
+            "state": "preparing",
+            "label": "準備中（完了までは従来経路）",
+            "css_class": "warn",
+            "show_rebuild": False,
+        }
+    if storage_status == "held":
+        reason = storage_run.get("reason_code")
+        reason_label = f" / {reason}" if isinstance(reason, str) else ""
+        return {
+            "state": "held",
+            "label": f"準備を保留しました{reason_label}（従来経路）",
+            "css_class": "bad",
+            "show_rebuild": True,
+        }
+    activated = (
+        diagnosis.get("cross_document_semantic_graph_storage_enabled") is True
+        and isinstance(registration, dict)
+        and registration.get("status") == "validated_storage_only"
+        and isinstance(registration.get("database_path"), str)
+        and bool(registration.get("database_path"))
+        and registration.get("database_path") == index_path
+        and isinstance(trust, dict)
+        and bool(trust)
+    )
+    if activated:
+        return {
+            "state": "armed_per_query",
+            "label": "使用可能（質問ごとに検証）",
+            "css_class": "ok",
+            "show_rebuild": False,
+        }
+    return {
+        "state": "blocked_dependency",
+        "label": "前段の保存または信頼確認が未完了（従来経路）",
+        "css_class": "warn",
+        "show_rebuild": (
+            diagnosis.get("cross_document_semantic_graph_storage_enabled")
+            is True
+        ),
+    }
+
+
+def _semantic_graph_observer_pending(current: dict) -> bool:
+    return any(
+        isinstance(current.get(key), dict)
+        and current[key].get("status") == "pending"
+        for key in (
+            "cross_document_semantic_graph_shadow",
+            "cross_document_semantic_graph_storage",
+        )
+    )
+
+
 def security_exclusion_notice() -> str:
     """Render transparent, non-sensitive information about gated Evidence."""
     config = bootstrap.load_json(bootstrap.CONFIG)
@@ -185,50 +632,78 @@ def security_exclusion_notice() -> str:
     )
 
 
-def home(message: str = "") -> bytes:
+def home(message: str = "", csrf_token: str = "") -> bytes:
     diagnosis = bootstrap.diagnose()
     current = state()
     ready = diagnosis["index_ready"] and current.get("phase") in {"ready", "ready_with_limits"}
+    answer_path = semantic_graph_answer_path_status(diagnosis, current)
     models = " / ".join(diagnosis["models"]) or "未確認"
     notices = "".join(f'<p class="warn">{html.escape(item)}</p>' for item in diagnosis["warnings"])
     transient = f'<p class="ok">{html.escape(message)}</p>' if message else ""
+    csrf_field = (
+        f'<input type="hidden" name="{UI_CSRF_FIELD}" '
+        f'value="{html.escape(csrf_token, quote=True)}">'
+    )
     setup = ""
     if current["phase"] == "building":
         setup = '<p class="progress">索引を作成中です。ファイル数と初回モデル取得により時間がかかります。この画面は自動更新します。</p>'
     elif current["phase"] == "error":
-        setup = f'<p class="bad">{html.escape(current["message"])}<br><span class="small">{html.escape(current.get("error", ""))}</span></p><form method="post" action="/build"><button>再実行</button></form>'
+        setup = f'<p class="bad">{html.escape(current["message"])}<br><span class="small">{html.escape(current.get("error", ""))}</span></p><form method="post" action="/build">{csrf_field}<button>再実行</button></form>'
     elif not ready:
-        setup = '<p>初回だけ、ローカルモデルの確認と索引作成を行います。このボタンで、不足モデルがある場合の公式Ollama経由の取得を開始します。ファイルは外部へ送信しません。</p><form method="post" action="/build"><button>初回セットアップを開始</button></form>'
+        setup = f'<p>初回だけ、ローカルモデルの確認と索引作成を行います。このボタンで、不足モデルがある場合の公式Ollama経由の取得を開始します。ファイルは外部へ送信しません。</p><form method="post" action="/build">{csrf_field}<button>初回セットアップを開始</button></form>'
     elif current["phase"] == "ready_with_limits":
         limitations = html.escape(json.dumps(current.get("reader_limitations", {}), ensure_ascii=False, sort_keys=True))
         setup = f'<p class="warn">{html.escape(current["message"])}<br><span class="small">{limitations}</span></p>'
     else:
         setup = '<p class="ok">準備完了。曖昧な記憶のまま質問できます。</p>'
-    ask = "" if not ready else """
+    ask = "" if not ready else f"""
     <section class="card"><div class="eyebrow">ASK YOUR MEMORY</div><h2>パソコンの中に質問する</h2>
-    <form method="post" action="/ask"><textarea name="query" required placeholder="例：あの頃、AIの講演で何を話したっけ？"></textarea><br><button>根拠を探して答える</button></form></section>
+    <form method="post" action="/ask">{csrf_field}<textarea name="query" required placeholder="例：あの頃、AIの講演で何を話したっけ？"></textarea><br><button>根拠を探して答える</button></form></section>
     """
-    refresh = 4 if current["phase"] == "building" else None
+    migration_action = (
+        f'<form method="post" action="/build">{csrf_field}<button>'
+        '意味グラフ回答を有効化して再構築'
+        '</button></form>'
+        if answer_path["show_rebuild"]
+        else ""
+    )
+    answer_path_notice = (
+        f'<p class="{html.escape(str(answer_path["css_class"]))}">'
+        '意味グラフ回答: '
+        f'{html.escape(str(answer_path["label"]))}</p>{migration_action}'
+    )
+    refresh = (
+        4
+        if current.get("phase") == "building"
+        or _semantic_graph_observer_pending(current)
+        else None
+    )
     return page(f"""
     <div class="eyebrow">PRIVATE / LOCAL / EVIDENCE-BASED</div><h1 class="hero">あなたのMacを、<br>曖昧な記憶から探す。</h1>
     <p class="sub">Word・Excel・PowerPoint・PDF・テキストなどの所在と内容をローカルで索引化。回答は根拠と別モデルの監査を通し、判断できない場合は理由付きで「わかりません」と停止します。</p>
     {transient}{notices}<section class="card"><div class="eyebrow">SYSTEM STATUS</div><h2>現在の状態</h2><div class="grid">
     <div class="metric">メモリ<b>{diagnosis['memory_gb'] or '?'} GB</b></div><div class="metric">空き容量<b>{diagnosis['free_gb']} GB</b></div>
     <div class="metric">チップ<b>{html.escape(diagnosis['architecture'])}</b></div><div class="metric">Ollama<b>{'起動中' if diagnosis['ollama_online'] else '停止中/未導入'}</b></div></div>
-    <p class="small">検索対象: {html.escape(diagnosis['source_root'] or '未選択')}<br>モデル: {html.escape(models)}</p>{setup}</section>{ask}
+    <p class="small">検索対象: {html.escape(diagnosis['source_root'] or '未選択')}<br>モデル: {html.escape(models)}</p>{answer_path_notice}{setup}</section>{ask}
     {security_exclusion_notice()}
     <section class="card"><details><summary>プライバシーと制限</summary><p class="small">質問・回答・索引は <code>~/Library/Application Support/LocalMemorySearch</code> に保存されます。通常利用中のAI処理は127.0.0.1のOllamaのみです。初回のOllama導入・モデル取得にはインターネットが必要です。画像はまずローカルOCRで位置付き文字を取り出し、位置付き結果が空の場合だけGemmaの座標なし文字起こしを暫定情報として残します。音声・動画は未対応です。</p></details></section>
     """, refresh=refresh)
 
 
 def build_worker() -> None:
+    if SERVER_SHUTDOWN_REQUESTED.is_set():
+        return
     if not BUILD_LOCK.acquire(blocking=False):
+        return
+    if not _begin_active_work():
+        BUILD_LOCK.release()
         return
     try:
         bootstrap.build_index()
     except Exception:
         pass
     finally:
+        _end_active_work()
         BUILD_LOCK.release()
 
 
@@ -242,7 +717,7 @@ def unload_ollama_model(model: str, timeout: int = 60) -> dict:
         method="POST",
     )
     try:
-        with urllib.request.urlopen(request, timeout=timeout) as response:
+        with LOCAL_HTTP_OPENER.open(request, timeout=timeout) as response:
             response.read()
         return {"requested": True, "succeeded": True, "seconds": round(time.perf_counter() - started, 3), "error": ""}
     except Exception as exc:
@@ -1365,8 +1840,309 @@ def run_semantic_graph_edge_audit(
             candidate_input.unlink(missing_ok=True)
 
 
+def _semantic_graph_latest_config_is_safe(
+    initial: object,
+    latest: object,
+    registration: object,
+    index: Path,
+) -> bool:
+    """Bind answer selection to the same enabled generation seen at start."""
+    if (
+        not isinstance(initial, dict)
+        or not isinstance(latest, dict)
+        or not isinstance(registration, dict)
+    ):
+        return False
+    required_true_flags = (
+        bootstrap.CROSS_DOCUMENT_STORAGE_FLAG,
+        bootstrap.CROSS_DOCUMENT_QUERY_CANDIDATE_FLAG,
+        bootstrap.CROSS_DOCUMENT_INDEPENDENT_EDGE_AUDIT_FLAG,
+        bootstrap.CROSS_DOCUMENT_ANSWER_PROMOTION_FLAG,
+    )
+    if any(
+        initial.get(key, False) is not True
+        or latest.get(key, False) is not True
+        for key in required_true_flags
+    ):
+        return False
+    stable_fields = (
+        "active_generation",
+        "index_path",
+        bootstrap.CROSS_DOCUMENT_STORAGE_CONFIG_KEY,
+        bootstrap.CROSS_DOCUMENT_TRUST_CONFIG_KEY,
+    )
+    if any(initial.get(key) != latest.get(key) for key in stable_fields):
+        return False
+    if (
+        initial.get(bootstrap.CROSS_DOCUMENT_STORAGE_CONFIG_KEY)
+        != registration
+        or latest.get(bootstrap.CROSS_DOCUMENT_STORAGE_CONFIG_KEY)
+        != registration
+        or initial.get("index_path") != str(index)
+        or latest.get("index_path") != str(index)
+        or registration.get("database_path") != str(index)
+    ):
+        return False
+    return True
+
+
+def _semantic_graph_trust_is_safe(
+    config: dict,
+    index: Path,
+    registration: dict,
+    candidate: dict,
+    audit: dict,
+) -> object:
+    """Verify trust inputs and return a closed receipt for the audit log."""
+    generation_name = config.get("active_generation")
+    workspace_value = config.get("workspace", bootstrap.SUPPORT / "data")
+    if (
+        not isinstance(generation_name, str)
+        or GENERATION_PATTERN.fullmatch(generation_name) is None
+        or not isinstance(config.get(bootstrap.CROSS_DOCUMENT_TRUST_CONFIG_KEY), dict)
+    ):
+        return False
+    generation = Path(workspace_value) / "generations" / generation_name
+    expected_index = (
+        generation
+        / bootstrap.CROSS_DOCUMENT_STORAGE_DIR
+        / "safe-answer-index.sqlite3"
+    )
+    if index != expected_index or Path(registration["database_path"]) != index:
+        return False
+    verified = semantic_graph_trust.validate_trust_root(
+        generation,
+        registration,
+        semantic_graph_trust.KeychainTrustStore(),
+    )
+    semantic_graph_trust.validate_trust_registration(
+        config[bootstrap.CROSS_DOCUMENT_TRUST_CONFIG_KEY],
+        generation,
+        registration,
+        verified_root=verified,
+    )
+    candidate_attestation = candidate.get("runtime_attestation")
+    audit_attestation = audit.get("audit_attestation")
+    if not isinstance(candidate_attestation, dict) or not isinstance(
+        audit_attestation, dict
+    ):
+        return False
+    expected = {
+        "generation": verified["generation"],
+        "graph_snapshot_id": verified["graph_snapshot_id"],
+        "logical_snapshot_sha256": verified["logical_snapshot_sha256"],
+        "projection_sha256": verified["projection_sha256"],
+    }
+    if any(
+        candidate_attestation.get(key) != value
+        or audit_attestation.get(key) != value
+        for key, value in expected.items()
+    ):
+        return False
+    if candidate_attestation.get("build_id") != verified["build_id"]:
+        return False
+    return {
+        key: verified[key]
+        for key in semantic_graph_answer_promotion.TRUST_BINDING_FIELDS
+    }
+
+
+_ANSWER_VALIDATOR_MODULE = None
+
+
+def _validate_promoted_answer_with_engine(
+    answer: dict,
+    allowed_ids: set[str],
+    expected_mode: str | None,
+    reminder_required: bool | None,
+) -> None:
+    """Reuse the production answer JSON validator without importing retrieval."""
+    global _ANSWER_VALIDATOR_MODULE
+    if _ANSWER_VALIDATOR_MODULE is None:
+        path = ENGINE / "answer_local_memory.py"
+        if path.is_symlink() or not path.is_file():
+            raise ValueError("semantic_promotion_answer_validator_missing")
+        module_name = "local_memory_semantic_promotion_answer_validator"
+        specification = importlib.util.spec_from_file_location(module_name, path)
+        if specification is None or specification.loader is None:
+            raise ValueError("semantic_promotion_answer_validator_unavailable")
+        module = importlib.util.module_from_spec(specification)
+        sys.modules[module_name] = module
+        try:
+            specification.loader.exec_module(module)
+        except Exception:
+            sys.modules.pop(module_name, None)
+            raise
+        _ANSWER_VALIDATOR_MODULE = module
+    _ANSWER_VALIDATOR_MODULE.validate_answer(
+        answer,
+        allowed_ids,
+        expected_mode,
+        reminder_required,
+    )
+
+
+def apply_semantic_graph_answer_promotion(
+    query: str,
+    initial_config: dict,
+    index: Path,
+    audited_record: dict,
+    candidate: object,
+    edge_audit: object,
+    reference_date: str | None,
+) -> dict:
+    """Select the graph answer only after every Step 5 gate passes."""
+    started = time.perf_counter()
+    registration = initial_config.get(
+        bootstrap.CROSS_DOCUMENT_STORAGE_CONFIG_KEY
+    )
+    legacy_answer = audited_record.get("answer")
+    feature_enabled = initial_config.get(
+        bootstrap.CROSS_DOCUMENT_ANSWER_PROMOTION_FLAG,
+        False,
+    ) is True
+
+    def run_gate(
+        latest_config: object,
+        activation_available: bool,
+    ) -> tuple[dict, dict]:
+        return semantic_graph_answer_promotion.promote_answer(
+            legacy_answer=legacy_answer,
+            question=query,
+            reference_date=reference_date,
+            candidate=candidate,
+            audit=edge_audit,
+            registration=registration,
+            feature_enabled=feature_enabled,
+            activation_available=activation_available,
+            initial_config=initial_config,
+            latest_config=latest_config,
+            candidate_validator=_candidate_result_is_safe,
+            audit_validator=_edge_audit_result_is_safe,
+            latest_config_validator=lambda first, latest, registered: (
+                _semantic_graph_latest_config_is_safe(
+                    first,
+                    latest,
+                    registered,
+                    index,
+                )
+            ),
+            trust_validator=lambda registered, accepted, passed: (
+                _semantic_graph_trust_is_safe(
+                    latest_config,
+                    index,
+                    registered,
+                    accepted,
+                    passed,
+                )
+            ),
+            final_config_loader=lambda: bootstrap.load_json(bootstrap.CONFIG),
+            answer_validator=_validate_promoted_answer_with_engine,
+        )
+
+    try:
+        if feature_enabled:
+            try:
+                with bootstrap.config_read_lease(blocking=False):
+                    try:
+                        latest_config = bootstrap.load_json(bootstrap.CONFIG)
+                    except Exception:
+                        latest_config = None
+                    selected, promotion = run_gate(latest_config, True)
+                    # Keep the cross-process CONFIG read lease through the
+                    # answer swap.  Every in-process and CLI CONFIG publisher
+                    # uses the matching exclusive lease; concurrent questions
+                    # may safely hold shared leases together.
+                    if promotion.get("decision") == "PROMOTE":
+                        audited_record[
+                            "pre_semantic_graph_promotion_answer"
+                        ] = copy.deepcopy(legacy_answer)
+                        audited_record["answer"] = selected
+            except BlockingIOError:
+                selected, promotion = run_gate(None, False)
+        else:
+            selected, promotion = run_gate(None, False)
+    except Exception as exc:
+        # A defect in the promotion boundary must never discard the separately
+        # audited legacy answer.  This record is intentionally small because
+        # no unvalidated promotion payload may cross the boundary.
+        def safe_hash(value: object) -> str | None:
+            try:
+                return _canonical_sha256(value)
+            except (TypeError, ValueError):
+                return None
+
+        checks = {
+            key: "NOT_APPLICABLE"
+            for key in semantic_graph_answer_promotion.PROMOTION_CHECK_FIELDS
+        }
+        checks["feature_enabled"] = (
+            "PASS"
+            if initial_config.get(
+                bootstrap.CROSS_DOCUMENT_ANSWER_PROMOTION_FLAG,
+                False,
+            )
+            is True
+            else "FAIL"
+        )
+        promotion = {
+            "schema_version": semantic_graph_answer_promotion.SCHEMA_VERSION,
+            "record_type": SEMANTIC_GRAPH_ANSWER_PROMOTION_KEY,
+            "promoter": semantic_graph_answer_promotion.PROMOTER,
+            "promoter_version": (
+                semantic_graph_answer_promotion.PROMOTER_VERSION
+            ),
+            "status": "fallback",
+            "decision": "FALLBACK",
+            "reason_code": "promotion_boundary_failed",
+            "diagnostic_code": type(exc).__name__,
+            "source_answer": "legacy",
+            "operation": None,
+            "question_sha256": _question_sha256(query),
+            "question_reference_date": None,
+            "candidate_sha256": safe_hash(candidate),
+            "edge_audit_sha256": safe_hash(edge_audit),
+            "registration_sha256": safe_hash(registration),
+            "graph_snapshot_id": (
+                registration.get("graph_snapshot_id")
+                if isinstance(registration, dict)
+                else None
+            ),
+            "trust_binding": {},
+            "initial_config_sha256": None,
+            "latest_config_sha256": None,
+            "final_config_sha256": None,
+            "legacy_answer_sha256": safe_hash(legacy_answer),
+            "selected_answer_sha256": safe_hash(legacy_answer),
+            "projected_answer": {},
+            "evidence_ids": [],
+            "source_references": [],
+            "checks": checks,
+            "used_for_answers": False,
+        }
+        selected = copy.deepcopy(legacy_answer)
+    audited_record[SEMANTIC_GRAPH_ANSWER_PROMOTION_KEY] = promotion
+    return {
+        "enabled": initial_config.get(
+            bootstrap.CROSS_DOCUMENT_ANSWER_PROMOTION_FLAG,
+            False,
+        )
+        is True,
+        "attempted": promotion.get("decision") == "PROMOTE"
+        or promotion.get("reason_code") not in {
+            "feature_disabled",
+            "candidate_absent",
+            "candidate_not_accepted",
+        },
+        "seconds": round(time.perf_counter() - started, 3),
+        "status": promotion.get("status", "fallback"),
+        "decision": promotion.get("decision", "FALLBACK"),
+        "reason_code": promotion.get("reason_code"),
+    }
+
+
 def semantic_graph_candidate_notice(record: dict) -> str:
-    """Render observer telemetry without exposing it as answer evidence."""
+    """Render candidate, audit, and final promotion telemetry."""
     candidate = record.get(SEMANTIC_GRAPH_CANDIDATE_KEY)
     if not isinstance(candidate, dict):
         return ""
@@ -1401,8 +2177,35 @@ def semantic_graph_candidate_notice(record: dict) -> str:
         if isinstance(edge_audit, dict)
         else "false"
     )
+    promotion = record.get(SEMANTIC_GRAPH_ANSWER_PROMOTION_KEY)
+    promotion_decision = (
+        str(promotion.get("decision", "unknown"))
+        if isinstance(promotion, dict)
+        else "not_run"
+    )
+    answer_source = (
+        str(promotion.get("source_answer", "unknown"))
+        if isinstance(promotion, dict)
+        else "legacy"
+    )
+    promotion_reason = (
+        str(promotion.get("reason_code"))
+        if isinstance(promotion, dict) and promotion.get("reason_code") is not None
+        else "none"
+    )
+    promotion_diagnostic = (
+        str(promotion.get("diagnostic_code"))
+        if isinstance(promotion, dict)
+        and promotion.get("diagnostic_code") is not None
+        else "none"
+    )
+    promoted = (
+        promotion.get("used_for_answers") is True
+        if isinstance(promotion, dict)
+        else False
+    )
     return (
-        '<section class="card"><details><summary>意味グラフ候補の観測結果</summary>'
+        '<section class="card"><details><summary>意味グラフ経路の検査結果</summary>'
         '<p class="small">候補status: '
         + html.escape(str(candidate.get("status", "unknown")))
         + "<br>使用Edge数: "
@@ -1419,7 +2222,60 @@ def semantic_graph_candidate_notice(record: dict) -> str:
         + html.escape(edge_audit_verdict)
         + "<br>allows_answer_activation: "
         + html.escape(answer_activation)
+        + "<br>promotion: "
+        + html.escape(promotion_decision)
+        + "<br>answer_source: "
+        + html.escape(answer_source)
+        + "<br>promotion_reason_code: "
+        + html.escape(promotion_reason)
+        + "<br>promotion_diagnostic_code: "
+        + html.escape(promotion_diagnostic)
+        + "<br>promotion_used_for_answers: "
+        + ("true" if promoted else "false")
         + "</p></details></section>"
+    )
+
+
+def answer_source_notice(record: dict) -> tuple[str, str, str]:
+    """Render only the Evidence that belongs to the selected answer path."""
+    promotion = record.get(SEMANTIC_GRAPH_ANSWER_PROMOTION_KEY)
+    if (
+        isinstance(promotion, dict)
+        and promotion.get("decision") == "PROMOTE"
+        and promotion.get("used_for_answers") is True
+    ):
+        references = promotion.get("source_references")
+        references = references if isinstance(references, list) else []
+        rows = []
+        for item in references:
+            if not isinstance(item, dict):
+                continue
+            path = html.escape(str(item.get("path", "(不明)")))
+            locator = html.escape(
+                json.dumps(item.get("locator", {}), ensure_ascii=False)
+            )
+            quote = html.escape(str(item.get("quote", "")))
+            evidence_id = html.escape(str(item.get("evidence_id", "")))
+            edge_id = html.escape(str(item.get("edge_id", "")))
+            rows.append(
+                f"<li>{path} / {locator}<br>「{quote}」"
+                f"<br>Evidence: {evidence_id} / Edge: {edge_id}</li>"
+            )
+        return (
+            "意味グラフで確認した根拠",
+            "".join(rows) or "<li>根拠を表示できません</li>",
+            "表示中の根拠は、回答に実際に使い、独立Edge監査で再構築したものです。",
+        )
+    rows = "".join(
+        f"<li>{html.escape(str(item.get('relative_path', '(不明)')))} / "
+        f"{html.escape(json.dumps(item.get('locator', {}), ensure_ascii=False))}</li>"
+        for item in record.get("retrieved", [])[:8]
+        if isinstance(item, dict)
+    )
+    return (
+        "参照候補",
+        rows or "<li>根拠候補なし</li>",
+        "候補のファイル名は回答の正しさを自動で保証するものではありません。監査不合格時は回答を停止します。",
     )
 
 
@@ -1453,6 +2309,8 @@ def answer_query(query: str) -> dict:
     legacy_record = dict(record)
     legacy_record.pop(SEMANTIC_GRAPH_CANDIDATE_KEY, None)
     legacy_record.pop(SEMANTIC_GRAPH_EDGE_AUDIT_KEY, None)
+    legacy_record.pop(SEMANTIC_GRAPH_ANSWER_PROMOTION_KEY, None)
+    legacy_record.pop("pre_semantic_graph_promotion_answer", None)
     with tempfile.NamedTemporaryFile("w", suffix=".json", encoding="utf-8", delete=False) as handle:
         json.dump(legacy_record, handle, ensure_ascii=False)
         temporary = Path(handle.name)
@@ -1466,6 +2324,8 @@ def answer_query(query: str) -> dict:
         audited_record = json.loads(audited.stdout)
         audited_record.pop(SEMANTIC_GRAPH_CANDIDATE_KEY, None)
         audited_record.pop(SEMANTIC_GRAPH_EDGE_AUDIT_KEY, None)
+        audited_record.pop(SEMANTIC_GRAPH_ANSWER_PROMOTION_KEY, None)
+        audited_record.pop("pre_semantic_graph_promotion_answer", None)
         audit_unload = (
             unload_ollama_model(config["audit_model"])
             if sequential else {"requested": False, "succeeded": False, "seconds": 0.0, "error": ""}
@@ -1583,6 +2443,15 @@ def answer_query(query: str) -> dict:
             audited_record[SEMANTIC_GRAPH_CANDIDATE_KEY] = semantic_candidate
         if semantic_edge_audit is not None:
             audited_record[SEMANTIC_GRAPH_EDGE_AUDIT_KEY] = semantic_edge_audit
+        semantic_promotion_performance = apply_semantic_graph_answer_promotion(
+            query,
+            config,
+            index,
+            audited_record,
+            semantic_candidate,
+            semantic_edge_audit,
+            edge_audit_reference_date,
+        )
         audited_record["pipeline_performance"] = {
             "sequential_model_loading": sequential,
             "same_model_reused_across_separate_contexts": reuse_loaded_model,
@@ -1593,6 +2462,9 @@ def answer_query(query: str) -> dict:
             "semantic_graph_candidate": semantic_candidate_performance,
             "semantic_graph_independent_edge_audit": (
                 semantic_edge_audit_performance
+            ),
+            "semantic_graph_answer_promotion": (
+                semantic_promotion_performance
             ),
             "total_seconds": round(time.perf_counter() - pipeline_started, 3),
         }
@@ -1608,59 +2480,199 @@ def answer_query(query: str) -> dict:
 
 
 class Handler(BaseHTTPRequestHandler):
-    server_version = "LocalMemorySearch/0.1"
+    server_version = "LocalMemorySearch/step5"
+
+    def send_local_security_headers(self) -> None:
+        self.send_header(
+            "Content-Security-Policy",
+            "default-src 'none'; style-src 'unsafe-inline'; "
+            "form-action 'self'; base-uri 'none'; frame-ancestors 'none'",
+        )
+        self.send_header("Cross-Origin-Resource-Policy", "same-origin")
+        self.send_header("Referrer-Policy", "no-referrer")
+        self.send_header("X-Content-Type-Options", "nosniff")
+        self.send_header("X-Frame-Options", "DENY")
 
     def send(self, content: bytes, status: int = 200) -> None:
         self.send_response(status)
         self.send_header("Content-Type", "text/html; charset=utf-8")
         self.send_header("Content-Length", str(len(content)))
         self.send_header("Cache-Control", "no-store")
+        self.send_local_security_headers()
+        self.end_headers()
+        self.wfile.write(content)
+
+    def send_json(self, value: dict, status: int = 200) -> None:
+        content = json.dumps(
+            value,
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+        ).encode("utf-8")
+        self.send_response(status)
+        self.send_header("Content-Type", "application/json; charset=utf-8")
+        self.send_header("Content-Length", str(len(content)))
+        self.send_header("Cache-Control", "no-store")
+        self.send_local_security_headers()
         self.end_headers()
         self.wfile.write(content)
 
     def do_GET(self) -> None:
+        if not _local_request_host_is_valid(self.server, self.headers):
+            self.send_json({"status": "invalid_host"}, 421)
+            return
+        if self.path == SERVER_HEALTH_PATH:
+            self.send_json(server_health_payload(
+                self.server.instance_id,
+                getattr(self.server, "startup_state", "ready"),
+            ))
+            return
         if self.path != "/":
             self.send(page("<h1>404</h1>"), 404)
             return
-        self.send(home())
+        startup_state = getattr(self.server, "startup_state", "ready")
+        if startup_state != "ready":
+            message = (
+                "起動時の復旧確認を実行中です。"
+                if startup_state == "recovering"
+                else "起動時の復旧確認に失敗しました。"
+            )
+            self.send(page(
+                f'<section class="card"><h1>{message}</h1>'
+                '<p>しばらく待ってから、もう一度アプリを開いてください。</p>'
+                "</section>"
+            ), 503)
+            return
+        self.send(home(csrf_token=self.server.ui_csrf_token))
 
     def do_POST(self) -> None:
-        length = int(self.headers.get("Content-Length", "0"))
+        if not _local_request_host_is_valid(self.server, self.headers):
+            self.send_json({"status": "invalid_host"}, 421)
+            return
+        if self.path == SERVER_SHUTDOWN_PATH:
+            supplied = self.headers.get("X-Local-Memory-Shutdown-Token", "")
+            expected = getattr(self.server, "shutdown_token", "")
+            if (
+                not supplied
+                or not expected
+                or not hmac.compare_digest(supplied, expected)
+            ):
+                self.send_json({"status": "forbidden"}, 403)
+                return
+            if not _reserve_server_shutdown():
+                self.send_json({"status": "busy"}, 409)
+                return
+            release_shutdown = threading.Event()
+
+            def shutdown_after_response() -> None:
+                release_shutdown.wait()
+                self.server.shutdown()
+
+            try:
+                shutdown_worker = threading.Thread(
+                    target=shutdown_after_response,
+                    name="local-memory-graceful-shutdown",
+                    daemon=True,
+                )
+                shutdown_worker.start()
+            except Exception:
+                _cancel_server_shutdown_reservation()
+                self.send_json({"status": "shutdown_unavailable"}, 503)
+                return
+            try:
+                self.send_json({"status": "shutting_down"}, 202)
+            finally:
+                release_shutdown.set()
+            return
+        if getattr(self.server, "startup_state", "ready") != "ready":
+            self.send_json({"status": "server_starting"}, 503)
+            return
+        try:
+            length = int(self.headers.get("Content-Length", "0"))
+        except (TypeError, ValueError):
+            self.send_json({"status": "invalid_content_length"}, 400)
+            return
+        if not 0 <= length <= MAX_FORM_BYTES:
+            self.send_json({"status": "request_too_large"}, 413)
+            return
         form = urllib.parse.parse_qs(self.rfile.read(length).decode("utf-8"))
+        if not _local_ui_post_is_authorized(
+            self.server,
+            self.headers,
+            form,
+        ):
+            self.send_json({"status": "forbidden"}, 403)
+            return
         if self.path == "/build":
+            if SERVER_SHUTDOWN_REQUESTED.is_set():
+                self.send_json({"status": "shutting_down"}, 503)
+                return
             threading.Thread(target=build_worker, daemon=True).start()
-            self.send(home("セットアップを開始しました。"))
+            self.send(home(
+                "セットアップを開始しました。",
+                self.server.ui_csrf_token,
+            ))
             return
         if self.path == "/ask":
             if state().get("phase") not in {"ready", "ready_with_limits"}:
-                self.send(home("索引の世代が完了していないため、質問を保留しました。"), 409)
+                self.send(home(
+                    "索引の世代が完了していないため、質問を保留しました。",
+                    self.server.ui_csrf_token,
+                ), 409)
                 return
             query = str(form.get("query", [""])[0]).strip()
             if not query:
-                self.send(home("質問を入力してください。"), 400)
+                self.send(home(
+                    "質問を入力してください。",
+                    self.server.ui_csrf_token,
+                ), 400)
+                return
+            if not _begin_active_work():
+                self.send_json({"status": "shutting_down"}, 503)
                 return
             try:
                 record = answer_query(query)
                 answer = record["answer"]
                 audit = record.get("independent_final_audit", {})
                 semantic_candidate = semantic_graph_candidate_notice(record)
-                sources = "".join(
-                    f"<li>{html.escape(item['relative_path'])} / {html.escape(json.dumps(item['locator'], ensure_ascii=False))}</li>"
-                    for item in record.get("retrieved", [])[:8]
+                source_heading, sources, source_note = answer_source_notice(
+                    record
+                )
+                promotion = record.get(SEMANTIC_GRAPH_ANSWER_PROMOTION_KEY)
+                graph_promoted = (
+                    isinstance(promotion, dict)
+                    and promotion.get("decision") == "PROMOTE"
+                    and promotion.get("used_for_answers") is True
+                )
+                edge_audit = record.get(SEMANTIC_GRAPH_EDGE_AUDIT_KEY, {})
+                audit_label = (
+                    "意味グラフ独立Edge監査: "
+                    + html.escape(str(edge_audit.get("verdict", "未実行")))
+                    + "<br>従来回答の独立監査: "
+                    + html.escape(str(audit.get("verdict", "未実行")))
+                    if graph_promoted
+                    else "独立監査: "
+                    + html.escape(str(audit.get("verdict", "未実行")))
+                    + " — "
+                    + html.escape(str(audit.get("reason", "")))
                 )
                 self.send(page(f"""
                 <a class="button secondary" href="/">← 戻る</a><div class="eyebrow">AUDITED ANSWER</div><h1>{html.escape(query)}</h1>
-                <section class="card"><div class="answer">{html.escape(str(answer.get('answer','')))}</div><p class="small">回答モード: {html.escape(str(answer.get('answer_mode','')))}<br>独立監査: {html.escape(str(audit.get('verdict','未実行')))} — {html.escape(str(audit.get('reason','')))}</p></section>
-                <section class="card"><h2>参照候補</h2><ul>{sources or '<li>根拠候補なし</li>'}</ul><p class="small">候補のファイル名は回答の正しさを自動で保証するものではありません。監査不合格時は回答を停止します。</p></section>
+                <section class="card"><div class="answer">{html.escape(str(answer.get('answer','')))}</div><p class="small">回答モード: {html.escape(str(answer.get('answer_mode','')))}<br>回答経路: {'意味グラフ' if graph_promoted else '従来検索'}<br>{audit_label}</p></section>
+                <section class="card"><h2>{html.escape(source_heading)}</h2><ul>{sources}</ul><p class="small">{html.escape(source_note)}</p></section>
                 {semantic_candidate}
                 {security_exclusion_notice()}
                 """))
             except Exception as exc:
                 self.send(page(f'<a class="button secondary" href="/">← 戻る</a><section class="card"><h1>回答を保留しました</h1><p class="bad">{html.escape(type(exc).__name__ + ": " + str(exc))}</p><p>ローカルモデル、索引、または監査の機械検証に失敗したため、推測で回答しません。</p></section>'), 500)
+            finally:
+                _end_active_work()
             return
         self.send(page("<h1>404</h1>"), 404)
 
     def log_message(self, format: str, *args) -> None:
+        if self.path == SERVER_HEALTH_PATH:
+            return
         path = bootstrap.SUPPORT / "logs" / "server.log"
         path.parent.mkdir(parents=True, exist_ok=True)
         with path.open("a", encoding="utf-8") as handle:
@@ -1674,9 +2686,41 @@ def main() -> int:
     args = parser.parse_args()
     if args.host not in {"127.0.0.1", "localhost"}:
         raise SystemExit("remote binding is forbidden")
-    bootstrap.recover_interrupted_build()
-    server = ThreadingHTTPServer((args.host, args.port), Handler)
-    server.serve_forever()
+    if not 1 <= args.port <= 65535:
+        raise SystemExit("port must be between 1 and 65535")
+    with ThreadingHTTPServer((args.host, args.port), Handler) as server:
+        server.instance_id = secrets.token_hex(16)
+        server.shutdown_token = secrets.token_urlsafe(32)
+        server.ui_csrf_token = secrets.token_urlsafe(32)
+        server.startup_state = "recovering"
+        if not _begin_active_work():
+            raise RuntimeError("server_startup_shutdown_already_requested")
+        startup_work_needs_release = True
+        try:
+            _publish_server_identity(server, args.port)
+
+            def recover_before_requests() -> None:
+                startup_outcome = _startup_recovery_outcome()
+                _end_active_work()
+                # Publish the terminal startup state only after recovery has
+                # left the active-work set.  The launcher treats ``failed`` as
+                # a safe point for authenticated shutdown; exposing it any
+                # earlier can race with the shutdown reservation and strand
+                # the failed child.
+                server.startup_state = startup_outcome
+
+            recovery_thread = threading.Thread(
+                target=recover_before_requests,
+                name="local-memory-startup-recovery",
+                daemon=True,
+            )
+            recovery_thread.start()
+            startup_work_needs_release = False
+            server.serve_forever()
+        finally:
+            if startup_work_needs_release:
+                _end_active_work()
+            _remove_server_identity(server.instance_id)
     return 0
 
 

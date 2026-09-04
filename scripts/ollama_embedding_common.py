@@ -11,6 +11,9 @@ from typing import Any
 
 DEFAULT_BASE_URL = "http://127.0.0.1:11434"
 DEFAULT_MODEL = "embeddinggemma"
+LOCAL_HTTP_OPENER = urllib.request.build_opener(
+    urllib.request.ProxyHandler({})
+)
 
 
 def request_json(base_url: str, path: str, payload: dict[str, Any] | None, timeout: float) -> dict[str, Any]:
@@ -18,7 +21,7 @@ def request_json(base_url: str, path: str, payload: dict[str, Any] | None, timeo
     data = None if payload is None else json.dumps(payload).encode("utf-8")
     request = urllib.request.Request(url, data=data, headers={"Content-Type": "application/json"})
     try:
-        with urllib.request.urlopen(request, timeout=timeout) as response:
+        with LOCAL_HTTP_OPENER.open(request, timeout=timeout) as response:
             return json.loads(response.read().decode("utf-8"))
     except urllib.error.HTTPError as exc:
         try:

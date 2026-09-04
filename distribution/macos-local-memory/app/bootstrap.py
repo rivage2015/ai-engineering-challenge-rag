@@ -4,6 +4,8 @@
 from __future__ import annotations
 
 import argparse
+import fcntl
+import functools
 import hashlib
 import importlib.util
 import json
@@ -12,6 +14,7 @@ import platform
 import re
 import shutil
 import sqlite3
+import stat
 import subprocess
 import sys
 import tempfile
@@ -19,6 +22,7 @@ import time
 import urllib.error
 import urllib.request
 import uuid
+from contextlib import contextmanager
 from datetime import datetime
 from pathlib import Path
 
@@ -29,6 +33,9 @@ CONFIG = SUPPORT / "config.json"
 STATE = SUPPORT / "state.json"
 ENGINE = Path(__file__).resolve().parent / "engine"
 OLLAMA = "http://127.0.0.1:11434"
+LOCAL_HTTP_OPENER = urllib.request.build_opener(
+    urllib.request.ProxyHandler({})
+)
 IMAGE_FALLBACK_MODEL = "gemma4:12b"
 IMAGE_SUFFIXES = {".png", ".jpg", ".jpeg", ".tif", ".tiff", ".bmp"}
 GENERATION_NAME = re.compile(r"generation-[0-9a-f]{32}")
@@ -41,11 +48,15 @@ CROSS_DOCUMENT_QUERY_CANDIDATE_FLAG = (
 CROSS_DOCUMENT_INDEPENDENT_EDGE_AUDIT_FLAG = (
     "cross_document_semantic_graph_independent_edge_audit_enabled"
 )
+CROSS_DOCUMENT_ANSWER_PROMOTION_FLAG = (
+    "cross_document_semantic_graph_answer_promotion_enabled"
+)
 CROSS_DOCUMENT_SHADOW_DIR = "04-semantic-graph-shadow"
 CROSS_DOCUMENT_SHADOW_RUN_STATE = "shadow-run-state.json"
 CROSS_DOCUMENT_STORAGE_DIR = "05-semantic-answer-index"
 CROSS_DOCUMENT_STORAGE_RUN_STATE = "semantic-answer-index-state.json"
 CROSS_DOCUMENT_STORAGE_CONFIG_KEY = "cross_document_semantic_graph_storage"
+CROSS_DOCUMENT_TRUST_CONFIG_KEY = "cross_document_semantic_graph_trust"
 CROSS_DOCUMENT_STORAGE_TOOL = "project_cross_document_graph_to_answer_index.py"
 BASE_ANSWER_INDEX_SHA256_KEY = "base_answer_index_sha256"
 CROSS_DOCUMENT_SHADOW_TIMEOUT_SECONDS = 300.0
@@ -54,13 +65,123 @@ CROSS_DOCUMENT_SHADOW_TOOLS = (
     "query_cross_document_semantic_graph.py",
     "validate_cross_document_semantic_graph.py",
 )
+BUILD_EXECUTION_LOCK_FILENAME = ".build-execution-v1.lock"
+BUILD_EXECUTION_LEASE_VERSION_KEY = "build_execution_lease_version"
+BUILD_EXECUTION_LEASE_VERSION = 1
+LEGACY_OWNER_START_TOLERANCE_SECONDS = 2.0
 
 
 def now_iso() -> str:
     return datetime.now().astimezone().isoformat(timespec="seconds")
 
 
-def atomic_json(path: Path, value: dict) -> None:
+@contextmanager
+def config_read_lease(*, blocking: bool = True):
+    """Hold a cross-process read lease while CONFIG is used for activation.
+
+    Every CONFIG writer in this module takes the matching exclusive advisory
+    lease through :func:`atomic_json`.  The lock is intentionally separate
+    from ``config.json`` because publication replaces that file atomically.
+    """
+    lock_path = CONFIG.parent / ".config-activation-v1.lock"
+    lock_path.parent.mkdir(parents=True, exist_ok=True)
+    flags = os.O_RDWR | os.O_CREAT | getattr(os, "O_NOFOLLOW", 0)
+    descriptor = os.open(lock_path, flags, 0o600)
+    acquired = False
+    try:
+        os.fchmod(descriptor, 0o600)
+        operation = fcntl.LOCK_SH
+        if not blocking:
+            operation |= fcntl.LOCK_NB
+        fcntl.flock(descriptor, operation)
+        acquired = True
+        yield
+    finally:
+        if acquired:
+            fcntl.flock(descriptor, fcntl.LOCK_UN)
+        os.close(descriptor)
+
+
+@contextmanager
+def _config_write_lease():
+    lock_path = CONFIG.parent / ".config-activation-v1.lock"
+    lock_path.parent.mkdir(parents=True, exist_ok=True)
+    flags = os.O_RDWR | os.O_CREAT | getattr(os, "O_NOFOLLOW", 0)
+    descriptor = os.open(lock_path, flags, 0o600)
+    acquired = False
+    try:
+        os.fchmod(descriptor, 0o600)
+        fcntl.flock(descriptor, fcntl.LOCK_EX)
+        acquired = True
+        yield
+    finally:
+        if acquired:
+            fcntl.flock(descriptor, fcntl.LOCK_UN)
+        os.close(descriptor)
+
+
+@contextmanager
+def build_execution_lease(*, blocking: bool = False):
+    """Allow only one index build across UI and CLI processes."""
+    lock_path = SUPPORT / BUILD_EXECUTION_LOCK_FILENAME
+    lock_path.parent.mkdir(parents=True, exist_ok=True)
+    flags = os.O_RDWR | os.O_CREAT | getattr(os, "O_NOFOLLOW", 0)
+    descriptor = os.open(lock_path, flags, 0o600)
+    acquired = False
+    try:
+        os.fchmod(descriptor, 0o600)
+        metadata = os.fstat(descriptor)
+        if (
+            not stat.S_ISREG(metadata.st_mode)
+            or metadata.st_uid != os.getuid()
+            or metadata.st_nlink != 1
+        ):
+            raise RuntimeError("build_execution_lock_invalid")
+        operation = fcntl.LOCK_EX
+        if not blocking:
+            operation |= fcntl.LOCK_NB
+        try:
+            fcntl.flock(descriptor, operation)
+        except BlockingIOError as exc:
+            raise RuntimeError("build_already_running") from exc
+        acquired = True
+        yield
+    finally:
+        if acquired:
+            fcntl.flock(descriptor, fcntl.LOCK_UN)
+        os.close(descriptor)
+
+
+def _single_build_execution(function):
+    """Decorate the public build entrypoint with its process-wide lease."""
+    @functools.wraps(function)
+    def serialized(*args, **kwargs):
+        with build_execution_lease(blocking=False):
+            return function(*args, **kwargs)
+
+    return serialized
+
+
+def _single_recovery_execution(function):
+    """Skip startup recovery while another process owns the build lease."""
+    @functools.wraps(function)
+    def serialized(*args, **kwargs):
+        lease = build_execution_lease(blocking=False)
+        try:
+            lease.__enter__()
+        except RuntimeError as exc:
+            if str(exc) == "build_already_running":
+                return {"status": "active_build", "removed": []}
+            raise
+        try:
+            return function(*args, **kwargs)
+        finally:
+            lease.__exit__(None, None, None)
+
+    return serialized
+
+
+def _atomic_json_unlocked(path: Path, value: dict) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     descriptor, temporary_name = tempfile.mkstemp(
         prefix=f".{path.name}.",
@@ -85,6 +206,39 @@ def atomic_json(path: Path, value: dict) -> None:
     except Exception:
         temporary.unlink(missing_ok=True)
         raise
+
+
+def atomic_json(path: Path, value: dict) -> None:
+    """Atomically replace JSON; CONFIG callers doing RMW must use CAS below."""
+    if path == CONFIG:
+        with _config_write_lease():
+            _atomic_json_unlocked(path, value)
+        return
+    _atomic_json_unlocked(path, value)
+
+
+def load_config_snapshot() -> tuple[bool, dict]:
+    """Read CONFIG and its existence under one cross-process read lease."""
+    with config_read_lease():
+        exists = CONFIG.exists()
+        return exists, load_json(CONFIG, {})
+
+
+def atomic_config_compare_and_swap(
+    expected: dict,
+    value: dict,
+    *,
+    expected_exists: bool = True,
+) -> None:
+    """Publish a CONFIG update only if the exact loaded snapshot is current."""
+    if not isinstance(expected, dict) or not isinstance(value, dict):
+        raise TypeError("configuration_compare_and_swap_requires_dict")
+    with _config_write_lease():
+        current_exists = CONFIG.exists()
+        current = load_json(CONFIG, {})
+        if current_exists is not expected_exists or current != expected:
+            raise RuntimeError("configuration_changed_before_publish")
+        _atomic_json_unlocked(CONFIG, value)
 
 
 def sha256_file(path: Path) -> str:
@@ -126,7 +280,9 @@ def ollama_binary() -> str | None:
 
 def ollama_online(timeout: int = 3) -> bool:
     try:
-        with urllib.request.urlopen(f"{OLLAMA}/api/tags", timeout=timeout) as response:
+        with LOCAL_HTTP_OPENER.open(
+            f"{OLLAMA}/api/tags", timeout=timeout
+        ) as response:
             return response.status == 200
     except (OSError, urllib.error.URLError):
         return False
@@ -134,7 +290,9 @@ def ollama_online(timeout: int = 3) -> bool:
 
 def model_names() -> set[str]:
     try:
-        with urllib.request.urlopen(f"{OLLAMA}/api/tags", timeout=5) as response:
+        with LOCAL_HTTP_OPENER.open(
+            f"{OLLAMA}/api/tags", timeout=5
+        ) as response:
             payload = json.loads(response.read().decode("utf-8"))
         return {str(item.get("name", "")) for item in payload.get("models", [])}
     except Exception:
@@ -183,8 +341,17 @@ def diagnose() -> dict:
             config.get(CROSS_DOCUMENT_INDEPENDENT_EDGE_AUDIT_FLAG, True)
             is True
         ),
+        "cross_document_semantic_graph_answer_promotion_enabled": (
+            config.get(CROSS_DOCUMENT_ANSWER_PROMOTION_FLAG, False) is True
+        ),
+        "cross_document_semantic_graph_answer_promotion_configured": (
+            CROSS_DOCUMENT_ANSWER_PROMOTION_FLAG in config
+        ),
         "cross_document_semantic_graph_storage": config.get(
             CROSS_DOCUMENT_STORAGE_CONFIG_KEY
+        ),
+        "cross_document_semantic_graph_trust": config.get(
+            CROSS_DOCUMENT_TRUST_CONFIG_KEY
         ),
         "ready": bool(python_ok and ollama_path and source and source.is_dir() and index and index.is_file()),
         "warnings": [
@@ -195,10 +362,21 @@ def diagnose() -> dict:
     }
 
 
-def run(command: list[str], log) -> None:
+def run(
+    command: list[str],
+    log,
+    *,
+    environment: dict[str, str] | None = None,
+) -> None:
     log.write("$ " + " ".join(command) + "\n")
     log.flush()
-    process = subprocess.Popen(command, stdout=log, stderr=subprocess.STDOUT, text=True)
+    process = subprocess.Popen(
+        command,
+        stdout=log,
+        stderr=subprocess.STDOUT,
+        text=True,
+        env=environment,
+    )
     code = process.wait()
     if code:
         raise RuntimeError(f"command_failed:{code}:{command[0]}")
@@ -246,6 +424,23 @@ def _write_shadow_log(log, message: str) -> None:
         pass
 
 
+def _loopback_no_proxy_environment() -> dict[str, str]:
+    """Preserve external proxy settings while forcing Ollama traffic local."""
+    environment = dict(os.environ)
+    for key in ("NO_PROXY", "no_proxy"):
+        existing = environment.get(key, "")
+        values = [
+            value.strip()
+            for value in existing.split(",")
+            if value.strip()
+        ]
+        for value in ("127.0.0.1", "localhost"):
+            if value not in values:
+                values.append(value)
+        environment[key] = ",".join(values)
+    return environment
+
+
 def _wait_for_ollama(timeout: float) -> bool:
     deadline = time.monotonic() + max(0.0, timeout)
     while time.monotonic() < deadline:
@@ -282,7 +477,7 @@ def start_ollama(log=None, timeout: float = 30.0) -> None:
         raise RuntimeError("ollama_not_installed")
     serve_log_path = SUPPORT / "logs" / "ollama-serve.log"
     serve_log_path.parent.mkdir(parents=True, exist_ok=True)
-    environment = dict(os.environ)
+    environment = _loopback_no_proxy_environment()
     environment["OLLAMA_HOST"] = "127.0.0.1:11434"
     with serve_log_path.open("a", encoding="utf-8", buffering=1) as serve_log:
         serve_log.write(f"[{now_iso()}] starting {binary} serve on loopback\n")
@@ -326,7 +521,11 @@ def ensure_models(models: list[str], log) -> list[str]:
     pulled: list[str] = []
     for model in dict.fromkeys(models):
         if not _model_installed(model, installed):
-            run([binary, "pull", model], log)
+            run(
+                [binary, "pull", model],
+                log,
+                environment=_loopback_no_proxy_environment(),
+            )
             installed = model_names()
             if not _model_installed(model, installed):
                 raise RuntimeError(f"model_pull_not_visible:{model}")
@@ -338,7 +537,7 @@ def configure_source(source: Path) -> dict:
     source = source.expanduser().resolve(strict=True)
     if not source.is_dir() or source.is_symlink():
         raise SystemExit("検索対象は実フォルダを指定してください。")
-    config = load_json(CONFIG, {
+    defaults = {
         "embedding_model": "embeddinggemma:latest",
         "answer_model": "gemma4:12b",
         "audit_model": "gemma4:12b",
@@ -348,8 +547,11 @@ def configure_source(source: Path) -> dict:
         CROSS_DOCUMENT_STORAGE_FLAG: True,
         CROSS_DOCUMENT_QUERY_CANDIDATE_FLAG: True,
         CROSS_DOCUMENT_INDEPENDENT_EDGE_AUDIT_FLAG: True,
+        CROSS_DOCUMENT_ANSWER_PROMOTION_FLAG: True,
         "port": 8765,
-    })
+    }
+    config_exists, loaded_config = load_config_snapshot()
+    config = dict(loaded_config) if config_exists else defaults
     if (
         config.get("answer_model") == "qwen3.5:9b"
         and config.get("audit_model") == "gemma4:12b"
@@ -361,6 +563,10 @@ def configure_source(source: Path) -> dict:
     config.setdefault(CROSS_DOCUMENT_STORAGE_FLAG, True)
     config.setdefault(CROSS_DOCUMENT_QUERY_CANDIDATE_FLAG, True)
     config.setdefault(CROSS_DOCUMENT_INDEPENDENT_EDGE_AUDIT_FLAG, True)
+    # Fresh installs opt into the fully gated Step 5 path through the defaults
+    # above.  Preserve a missing key in an older config so the UI can offer an
+    # explicit rebuild migration instead of silently turning answer promotion
+    # on while the old generation is still active.
     config["source_root"] = str(source)
     config["workspace"] = str(SUPPORT / "data")
     # Selecting a source invalidates the active generation immediately.  A
@@ -373,10 +579,15 @@ def configure_source(source: Path) -> dict:
         "security_path",
         "semantic_graph_shadow_path",
         CROSS_DOCUMENT_STORAGE_CONFIG_KEY,
+        CROSS_DOCUMENT_TRUST_CONFIG_KEY,
         BASE_ANSWER_INDEX_SHA256_KEY,
     ):
         config.pop(key, None)
-    atomic_json(CONFIG, config)
+    atomic_config_compare_and_swap(
+        loaded_config,
+        config,
+        expected_exists=config_exists,
+    )
     return config
 
 
@@ -420,6 +631,112 @@ def _pid_is_alive(pid: object) -> bool:
         return True
     except OSError:
         return False
+    return True
+
+
+def _uses_build_execution_lease(record: object) -> bool:
+    """Identify lifecycle records written while the build lease was held.
+
+    Recovery itself holds that same exclusive lease.  Therefore a matching
+    version proves that the original builder is no longer active even if its
+    saved PID has since been reused by an unrelated process.  Legacy records
+    lack the version and retain the conservative PID check.
+    """
+    return (
+        isinstance(record, dict)
+        and type(record.get(BUILD_EXECUTION_LEASE_VERSION_KEY)) is int
+        and record.get(BUILD_EXECUTION_LEASE_VERSION_KEY)
+        == BUILD_EXECUTION_LEASE_VERSION
+    )
+
+
+def _legacy_process_identity(pid: int) -> dict | None:
+    """Read a bounded process identity for versionless build records."""
+    try:
+        completed = subprocess.run(
+            [
+                "/bin/ps",
+                "-p",
+                str(pid),
+                "-o",
+                "lstart=",
+                "-o",
+                "stat=",
+                "-o",
+                "command=",
+            ],
+            capture_output=True,
+            text=True,
+            timeout=1,
+            check=False,
+            close_fds=True,
+            env={**os.environ, "LC_ALL": "C"},
+        )
+    except (OSError, subprocess.SubprocessError):
+        return None
+    if completed.returncode != 0:
+        return None
+    fields = completed.stdout.strip().split(None, 6)
+    if len(fields) < 6:
+        return None
+    try:
+        started_at = time.mktime(
+            time.strptime(" ".join(fields[:5]), "%a %b %d %H:%M:%S %Y")
+        )
+    except (OverflowError, ValueError):
+        return None
+    return {
+        "started_at": started_at,
+        "state": fields[5],
+        "command": fields[6] if len(fields) == 7 else "",
+    }
+
+
+def _record_started_timestamp(*records: object) -> float | None:
+    timestamps: list[float] = []
+    for record in records:
+        if not isinstance(record, dict):
+            continue
+        value = record.get("started_at")
+        if not isinstance(value, str) or not value:
+            continue
+        try:
+            timestamps.append(datetime.fromisoformat(value).timestamp())
+        except (OverflowError, ValueError):
+            continue
+    return min(timestamps) if timestamps else None
+
+
+def _legacy_build_owner_is_live(pid: object, *records: object) -> bool:
+    """Reject a reused or zombie PID while preserving a real legacy build."""
+    if not _pid_is_alive(pid):
+        return False
+    assert isinstance(pid, int) and not isinstance(pid, bool)
+    identity = _legacy_process_identity(pid)
+    if identity is None:
+        # Inspection may be restricted by local policy.  Never retire a
+        # possibly live legacy build merely because ``ps`` was unavailable.
+        return True
+    state = identity.get("state")
+    if isinstance(state, str) and state.upper().startswith("Z"):
+        return False
+    record_started_at = _record_started_timestamp(*records)
+    process_started_at = identity.get("started_at")
+    if (
+        record_started_at is not None
+        and isinstance(process_started_at, (int, float))
+        and not isinstance(process_started_at, bool)
+    ):
+        return (
+            float(process_started_at)
+            <= record_started_at + LEGACY_OWNER_START_TOLERANCE_SECONDS
+        )
+    command = identity.get("command")
+    if isinstance(command, str) and command:
+        return any(
+            name in command
+            for name in ("bootstrap.py", "local_memory_server.py")
+        )
     return True
 
 
@@ -569,6 +886,7 @@ def _ready_state(
     semantic_graph_storage: dict | None = None,
     semantic_graph_query_candidate_enabled: bool | None = None,
     semantic_graph_independent_edge_audit_enabled: bool | None = None,
+    semantic_graph_answer_promotion_enabled: bool | None = None,
 ) -> dict:
     recovered_fields = {
         "recovered_after_interruption": True,
@@ -602,6 +920,15 @@ def _ready_state(
         if isinstance(semantic_graph_independent_edge_audit_enabled, bool)
         else {}
     )
+    answer_promotion_fields = (
+        {
+            "cross_document_semantic_graph_answer_promotion_enabled": (
+                semantic_graph_answer_promotion_enabled
+            )
+        }
+        if isinstance(semantic_graph_answer_promotion_enabled, bool)
+        else {}
+    )
     if reader_state.get("status") == "complete_with_limits":
         return {
             "phase": "ready_with_limits",
@@ -613,6 +940,7 @@ def _ready_state(
             **storage_fields,
             **candidate_fields,
             **independent_audit_fields,
+            **answer_promotion_fields,
         }
     return {
         "phase": "ready",
@@ -623,6 +951,7 @@ def _ready_state(
         **storage_fields,
         **candidate_fields,
         **independent_audit_fields,
+        **answer_promotion_fields,
     }
 
 
@@ -735,9 +1064,13 @@ def _reconstruct_published_marker_for_observer_recovery(
             config.get(CROSS_DOCUMENT_INDEPENDENT_EDGE_AUDIT_FLAG, True)
             is True
         ),
+        "cross_document_semantic_graph_answer_promotion_enabled": (
+            config.get(CROSS_DOCUMENT_ANSWER_PROMOTION_FLAG, False) is True
+        ),
     }
 
 
+@_single_recovery_execution
 def recover_interrupted_build() -> dict:
     """Recover a published generation or retire a dead unpublished build.
 
@@ -781,10 +1114,13 @@ def recover_interrupted_build() -> dict:
     active_generation = config.get("active_generation")
     removed: list[str] = []
 
-    def owner_is_live(pid: object) -> bool:
+    def owner_is_live(pid: object, *records: object) -> bool:
         # Recovery runs before this server starts a build thread.  Equality can
         # only be a PID reused after reboot/process death, not a live owner.
-        return pid != os.getpid() and _pid_is_alive(pid)
+        return (
+            pid != os.getpid()
+            and _legacy_build_owner_is_live(pid, *records)
+        )
 
     def retire_if_orphan(name: str) -> bool:
         generation = _generation_path(workspace, name)
@@ -798,7 +1134,10 @@ def recover_interrupted_build() -> dict:
         if (
             marker.get("status") != "building"
             or marker.get("generation") != name
-            or owner_is_live(marker.get("owner_pid"))
+            or (
+                not _uses_build_execution_lease(marker)
+                and owner_is_live(marker.get("owner_pid"), marker)
+            )
         ):
             return False
         shutil.rmtree(generation)
@@ -1005,7 +1344,8 @@ def recover_interrupted_build() -> dict:
         if recover_observers:
             if (
                 (shadow_pending or storage_pending)
-                and owner_is_live(marker.get("owner_pid"))
+                and not _uses_build_execution_lease(marker)
+                and owner_is_live(marker.get("owner_pid"), marker, current)
             ):
                 return {
                     "status": (
@@ -1063,6 +1403,10 @@ def recover_interrupted_build() -> dict:
                 )
                 is True
             )
+            answer_promotion_enabled = (
+                config.get(CROSS_DOCUMENT_ANSWER_PROMOTION_FLAG, False)
+                is True
+            )
             storage_is_steady = (
                 not marker_reconstructed
                 and not shadow_pending
@@ -1087,6 +1431,14 @@ def recover_interrupted_build() -> dict:
                     "cross_document_semantic_graph_independent_edge_audit_enabled"
                 )
                 is independent_edge_audit_enabled
+                and current.get(
+                    "cross_document_semantic_graph_answer_promotion_enabled"
+                )
+                is answer_promotion_enabled
+                and marker.get(
+                    "cross_document_semantic_graph_answer_promotion_enabled"
+                )
+                is answer_promotion_enabled
             )
             if storage_is_steady:
                 return {
@@ -1107,6 +1459,9 @@ def recover_interrupted_build() -> dict:
                 "cross_document_semantic_graph_independent_edge_audit_enabled": (
                     independent_edge_audit_enabled
                 ),
+                "cross_document_semantic_graph_answer_promotion_enabled": (
+                    answer_promotion_enabled
+                ),
             }
             if isinstance(recovered_storage, dict):
                 marker_update[
@@ -1124,6 +1479,9 @@ def recover_interrupted_build() -> dict:
                 ),
                 "cross_document_semantic_graph_independent_edge_audit_enabled": (
                     independent_edge_audit_enabled
+                ),
+                "cross_document_semantic_graph_answer_promotion_enabled": (
+                    answer_promotion_enabled
                 ),
             }
             if isinstance(recovered_storage, dict):
@@ -1185,8 +1543,6 @@ def recover_interrupted_build() -> dict:
 
     if current.get("phase") == "building":
         owner_pid = current.get("owner_pid")
-        if owner_is_live(owner_pid):
-            return {"status": "active", "owner_pid": owner_pid, "removed": removed}
         generation_name = current.get("generation")
         generation = (
             _generation_path(workspace, generation_name)
@@ -1209,6 +1565,16 @@ def recover_interrupted_build() -> dict:
                     published_marker = loaded_marker
             except (OSError, ValueError, TypeError):
                 pass
+        if (
+            not _uses_build_execution_lease(current)
+            and not _uses_build_execution_lease(published_marker)
+            and owner_is_live(owner_pid, current, published_marker)
+        ):
+            return {
+                "status": "active",
+                "owner_pid": owner_pid,
+                "removed": removed,
+            }
         current_build_id = current.get("build_id")
         lifecycle_is_bound = (
             isinstance(current_build_id, str)
@@ -1238,6 +1604,10 @@ def recover_interrupted_build() -> dict:
                     config.get(
                         CROSS_DOCUMENT_INDEPENDENT_EDGE_AUDIT_FLAG, True
                     )
+                    is True
+                ),
+                "cross_document_semantic_graph_answer_promotion_enabled": (
+                    config.get(CROSS_DOCUMENT_ANSWER_PROMOTION_FLAG, False)
                     is True
                 ),
             }
@@ -1321,6 +1691,10 @@ def recover_interrupted_build() -> dict:
                     config.get(
                         CROSS_DOCUMENT_INDEPENDENT_EDGE_AUDIT_FLAG, True
                     )
+                    is True
+                ),
+                semantic_graph_answer_promotion_enabled=(
+                    config.get(CROSS_DOCUMENT_ANSWER_PROMOTION_FLAG, False)
                     is True
                 ),
             )
@@ -1439,6 +1813,84 @@ def _cross_document_storage_tool() -> Path:
     if candidate.is_file() and not candidate.is_symlink():
         return candidate
     raise RuntimeError("cross_document_semantic_graph_storage_tool_missing")
+
+
+def _semantic_graph_trust_module():
+    """Load the packaged trust module without relying on caller sys.path."""
+    module_name = "local_memory_semantic_graph_trust"
+    existing = sys.modules.get(module_name)
+    if existing is not None:
+        return existing
+    path = Path(__file__).resolve().with_name("semantic_graph_trust.py")
+    if path.is_symlink() or not path.is_file():
+        raise RuntimeError("semantic_graph_trust_module_missing")
+    specification = importlib.util.spec_from_file_location(module_name, path)
+    if specification is None or specification.loader is None:
+        raise RuntimeError("semantic_graph_trust_module_unavailable")
+    module = importlib.util.module_from_spec(specification)
+    sys.modules[module_name] = module
+    try:
+        specification.loader.exec_module(module)
+    except Exception:
+        sys.modules.pop(module_name, None)
+        raise
+    return module
+
+
+def _trust_locator_from_verified_root(module, verified: dict) -> dict:
+    locator = {
+        key: verified[key]
+        for key in module.TRUST_REGISTRATION_FIELDS
+    }
+    return locator
+
+
+def _publish_semantic_graph_trust_root(
+    generation: Path,
+    build_id: str,
+    registration: dict,
+    storage_state: dict,
+) -> dict:
+    """Create a per-generation Keychain root before answer activation."""
+    module = _semantic_graph_trust_module()
+    locator = module.publish_trust_root(
+        generation,
+        build_id,
+        registration,
+        storage_state,
+        module.KeychainTrustStore(),
+    )
+    module.validate_trust_registration(
+        locator,
+        generation,
+        registration,
+    )
+    return locator
+
+
+def _recover_semantic_graph_trust_root(
+    generation: Path,
+    build_id: str,
+    registration: dict,
+    storage_state: dict,
+) -> dict:
+    """Recover only when an already-existing Keychain root proves the bytes."""
+    module = _semantic_graph_trust_module()
+    verified = module.recover_trust_manifest(
+        generation,
+        build_id,
+        registration,
+        storage_state,
+        module.KeychainTrustStore(),
+    )
+    locator = _trust_locator_from_verified_root(module, verified)
+    module.validate_trust_registration(
+        locator,
+        generation,
+        registration,
+        verified_root=verified,
+    )
+    return locator
 
 
 def _content_security_shadow_validator() -> Path:
@@ -2503,6 +2955,16 @@ def _recover_published_semantic_graph_storage(
         )
         is True
     )
+    promotion_enabled = (
+        config.get(
+            CROSS_DOCUMENT_ANSWER_PROMOTION_FLAG,
+            marker.get(
+                "cross_document_semantic_graph_answer_promotion_enabled",
+                False,
+            ),
+        )
+        is True
+    )
 
     def base_config() -> dict:
         restored = {
@@ -2510,6 +2972,7 @@ def _recover_published_semantic_graph_storage(
             "index_path": str(base_index),
         }
         restored.pop(CROSS_DOCUMENT_STORAGE_CONFIG_KEY, None)
+        restored.pop(CROSS_DOCUMENT_TRUST_CONFIG_KEY, None)
         return restored
 
     observer_build_ids = {
@@ -2533,7 +2996,7 @@ def _recover_published_semantic_graph_storage(
     ):
         restored = base_config()
         if restored != config:
-            atomic_json(CONFIG, restored)
+            atomic_config_compare_and_swap(config, restored)
         return (
             restored,
             {
@@ -2565,7 +3028,7 @@ def _recover_published_semantic_graph_storage(
         ):
             return restored, current_storage, "disabled_steady"
         if restored != config:
-            atomic_json(CONFIG, restored)
+            atomic_config_compare_and_swap(config, restored)
         return (
             restored,
             {
@@ -2595,18 +3058,42 @@ def _recover_published_semantic_graph_storage(
                 security=Path(config["security_path"]),
                 expected_build_id=build_id,
             )
+            trust_registration = None
+            if promotion_enabled:
+                trust_registration = _recover_semantic_graph_trust_root(
+                    generation,
+                    build_id,
+                    registration,
+                    persisted,
+                )
+            elif isinstance(
+                config.get(CROSS_DOCUMENT_TRUST_CONFIG_KEY), dict
+            ):
+                try:
+                    trust_registration = _recover_semantic_graph_trust_root(
+                        generation,
+                        build_id,
+                        registration,
+                        persisted,
+                    )
+                except Exception:
+                    trust_registration = None
             promoted = {
                 **config,
                 "index_path": registration["database_path"],
                 CROSS_DOCUMENT_STORAGE_CONFIG_KEY: registration,
             }
+            if trust_registration is not None:
+                promoted[CROSS_DOCUMENT_TRUST_CONFIG_KEY] = trust_registration
+            else:
+                promoted.pop(CROSS_DOCUMENT_TRUST_CONFIG_KEY, None)
             action = (
                 "verified_complete"
                 if promoted == config
                 else "completed_pointer_switch"
             )
             if promoted != config:
-                atomic_json(CONFIG, promoted)
+                atomic_config_compare_and_swap(config, promoted)
             return promoted, persisted, action
         except Exception as exc:
             registration_error = f"{type(exc).__name__}: {exc}"
@@ -2616,7 +3103,7 @@ def _recover_published_semantic_graph_storage(
     restored = base_config()
     config_changed = restored != config
     if config_changed:
-        atomic_json(CONFIG, restored)
+        atomic_config_compare_and_swap(config, restored)
     if (
         isinstance(recorded, dict)
         and recorded.get("status") in {"held", "disabled"}
@@ -2654,14 +3141,22 @@ def _recover_published_semantic_graph_storage(
     )
 
 
+@_single_build_execution
 def build_index() -> None:
-    config = load_json(CONFIG)
-    # Existing installations predate the shadow flag.  Missing means enabled;
-    # an explicit false remains the rollback switch.
+    config_exists, loaded_config = load_config_snapshot()
+    if not config_exists:
+        raise RuntimeError("configuration_missing")
+    config = dict(loaded_config)
+    # Starting a rebuild is the explicit migration boundary for older
+    # installations. Missing feature flags adopt the current fully-gated
+    # pipeline, while an explicit false remains the rollback switch.
     config.setdefault(CROSS_DOCUMENT_SHADOW_FLAG, True)
     config.setdefault(CROSS_DOCUMENT_STORAGE_FLAG, True)
     config.setdefault(CROSS_DOCUMENT_QUERY_CANDIDATE_FLAG, True)
     config.setdefault(CROSS_DOCUMENT_INDEPENDENT_EDGE_AUDIT_FLAG, True)
+    if CROSS_DOCUMENT_ANSWER_PROMOTION_FLAG not in config:
+        config[CROSS_DOCUMENT_ANSWER_PROMOTION_FLAG] = True
+        atomic_config_compare_and_swap(loaded_config, config)
     source = Path(config["source_root"]).resolve(strict=True)
     workspace = Path(config.get("workspace", SUPPORT / "data"))
     generations = workspace / "generations"
@@ -2679,6 +3174,7 @@ def build_index() -> None:
     marker = {
         "schema_version": "0.1",
         "status": "building",
+        BUILD_EXECUTION_LEASE_VERSION_KEY: BUILD_EXECUTION_LEASE_VERSION,
         "build_id": build_id,
         "generation": generation.name,
         "owner_pid": os.getpid(),
@@ -2697,12 +3193,16 @@ def build_index() -> None:
             config.get(CROSS_DOCUMENT_INDEPENDENT_EDGE_AUDIT_FLAG, True)
             is True
         ),
+        "cross_document_semantic_graph_answer_promotion_enabled": (
+            config.get(CROSS_DOCUMENT_ANSWER_PROMOTION_FLAG, False) is True
+        ),
     }
     atomic_json(marker_path, marker)
     state = {
         "phase": "building",
         "message": "索引を作成中です。",
         "error": "",
+        BUILD_EXECUTION_LEASE_VERSION_KEY: BUILD_EXECUTION_LEASE_VERSION,
         "build_id": build_id,
         "generation": generation.name,
         "owner_pid": os.getpid(),
@@ -2713,6 +3213,9 @@ def build_index() -> None:
         "cross_document_semantic_graph_independent_edge_audit_enabled": (
             config.get(CROSS_DOCUMENT_INDEPENDENT_EDGE_AUDIT_FLAG, True)
             is True
+        ),
+        "cross_document_semantic_graph_answer_promotion_enabled": (
+            config.get(CROSS_DOCUMENT_ANSWER_PROMOTION_FLAG, False) is True
         ),
     }
     atomic_json(STATE, state)
@@ -2786,7 +3289,10 @@ def build_index() -> None:
                 "--output", str(index),
             ], log)
             base_index_sha256 = sha256_file(index)
-            published_config = load_json(CONFIG)
+            published_exists, published_snapshot = load_config_snapshot()
+            if not published_exists:
+                raise RuntimeError("configuration_changed_during_build")
+            published_config = dict(published_snapshot)
             try:
                 configuration_matches_build = (
                     Path(published_config["source_root"]).resolve(strict=True)
@@ -2795,6 +3301,8 @@ def build_index() -> None:
                         published_config.get("workspace", SUPPORT / "data")
                     ).resolve(strict=False)
                     == workspace.resolve(strict=False)
+                    and published_config.get("embedding_model")
+                    == config.get("embedding_model")
                 )
             except (KeyError, OSError, TypeError, ValueError):
                 configuration_matches_build = False
@@ -2806,8 +3314,12 @@ def build_index() -> None:
             published_config.setdefault(
                 CROSS_DOCUMENT_INDEPENDENT_EDGE_AUDIT_FLAG, True
             )
+            published_config.setdefault(
+                CROSS_DOCUMENT_ANSWER_PROMOTION_FLAG, True
+            )
             published_config.pop("semantic_graph_shadow_path", None)
             published_config.pop(CROSS_DOCUMENT_STORAGE_CONFIG_KEY, None)
+            published_config.pop(CROSS_DOCUMENT_TRUST_CONFIG_KEY, None)
             published_config.update({
                 "active_generation": generation.name,
                 "path_graph_path": str(paths),
@@ -2816,7 +3328,10 @@ def build_index() -> None:
                 "index_path": str(index),
                 BASE_ANSWER_INDEX_SHA256_KEY: base_index_sha256,
             })
-            atomic_json(CONFIG, published_config)
+            atomic_config_compare_and_swap(
+                published_snapshot,
+                published_config,
+            )
             active_index = index
             generation_published = True
             published_at = now_iso()
@@ -2871,6 +3386,12 @@ def build_index() -> None:
                     )
                     is True
                 ),
+                "cross_document_semantic_graph_answer_promotion_enabled": (
+                    published_config.get(
+                        CROSS_DOCUMENT_ANSWER_PROMOTION_FLAG, False
+                    )
+                    is True
+                ),
                 "cross_document_semantic_graph_shadow": shadow_state,
                 "cross_document_semantic_graph_storage": storage_state,
             }
@@ -2892,6 +3413,12 @@ def build_index() -> None:
                 semantic_graph_independent_edge_audit_enabled=(
                     published_config.get(
                         CROSS_DOCUMENT_INDEPENDENT_EDGE_AUDIT_FLAG, True
+                    )
+                    is True
+                ),
+                semantic_graph_answer_promotion_enabled=(
+                    published_config.get(
+                        CROSS_DOCUMENT_ANSWER_PROMOTION_FLAG, False
                     )
                     is True
                 ),
@@ -3075,12 +3602,74 @@ def build_index() -> None:
                                 "published base answer index remains active.",
                             )
                         else:
+                            promotion_enabled = (
+                                latest_registration_config.get(
+                                    CROSS_DOCUMENT_ANSWER_PROMOTION_FLAG,
+                                    False,
+                                )
+                                is True
+                            )
+                            trust_registration = (
+                                _publish_semantic_graph_trust_root(
+                                    generation,
+                                    build_id,
+                                    registration,
+                                    storage_state,
+                                )
+                                if promotion_enabled
+                                else None
+                            )
+                            (
+                                latest_activation_exists,
+                                latest_activation_snapshot,
+                            ) = load_config_snapshot()
+                            if not latest_activation_exists:
+                                raise RuntimeError(
+                                    "configuration_changed_during_trust_registration"
+                                )
+                            latest_activation_config = dict(
+                                latest_activation_snapshot
+                            )
+                            if (
+                                latest_activation_config.get(
+                                    "active_generation"
+                                )
+                                != generation.name
+                                or latest_activation_config.get("index_path")
+                                != str(index)
+                                or latest_activation_config.get(
+                                    CROSS_DOCUMENT_STORAGE_FLAG, True
+                                )
+                                is not True
+                                or (
+                                    latest_activation_config.get(
+                                        CROSS_DOCUMENT_ANSWER_PROMOTION_FLAG,
+                                        False,
+                                    )
+                                    is True
+                                )
+                                is not promotion_enabled
+                            ):
+                                raise RuntimeError(
+                                    "configuration_changed_during_trust_registration"
+                                )
                             promoted_config = {
-                                **latest_registration_config,
+                                **latest_activation_config,
                                 "index_path": registration["database_path"],
                                 CROSS_DOCUMENT_STORAGE_CONFIG_KEY: registration,
                             }
-                            atomic_json(CONFIG, promoted_config)
+                            if trust_registration is not None:
+                                promoted_config[
+                                    CROSS_DOCUMENT_TRUST_CONFIG_KEY
+                                ] = trust_registration
+                            else:
+                                promoted_config.pop(
+                                    CROSS_DOCUMENT_TRUST_CONFIG_KEY, None
+                                )
+                            atomic_config_compare_and_swap(
+                                latest_activation_snapshot,
+                                promoted_config,
+                            )
                             published_config = promoted_config
                             active_index = Path(registration["database_path"])
                     except Exception as exc:
@@ -3134,6 +3723,12 @@ def build_index() -> None:
                         )
                         is True
                     ),
+                    "cross_document_semantic_graph_answer_promotion_enabled": (
+                        published_config.get(
+                            CROSS_DOCUMENT_ANSWER_PROMOTION_FLAG, False
+                        )
+                        is True
+                    ),
                     "cross_document_semantic_graph_shadow": shadow_state,
                     "cross_document_semantic_graph_storage": storage_state,
                 })
@@ -3155,6 +3750,12 @@ def build_index() -> None:
                     )
                     is True
                 ),
+                semantic_graph_answer_promotion_enabled=(
+                    published_config.get(
+                        CROSS_DOCUMENT_ANSWER_PROMOTION_FLAG, False
+                    )
+                    is True
+                ),
             )
             if marker_warning:
                 state["generation_marker_warning"] = marker_warning
@@ -3165,8 +3766,6 @@ def build_index() -> None:
         if not generation_published and generation.exists():
             shutil.rmtree(generation)
         atomic_json(STATE, state)
-
-
 def main() -> int:
     parser = argparse.ArgumentParser()
     sub = parser.add_subparsers(dest="command", required=True)

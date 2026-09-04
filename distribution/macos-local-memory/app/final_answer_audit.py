@@ -15,6 +15,11 @@ from decimal import Decimal, InvalidOperation
 from pathlib import Path
 
 
+LOCAL_HTTP_OPENER = urllib.request.build_opener(
+    urllib.request.ProxyHandler({})
+)
+
+
 def resolve_answer_engine_path(audit_script: Path) -> Path:
     """Locate the answer engine in packaged and source-tree layouts."""
     script_dir = audit_script.resolve().parent
@@ -623,7 +628,7 @@ Evidence:
         headers={"Content-Type": "application/json"}, method="POST",
     )
     started = time.perf_counter()
-    with urllib.request.urlopen(request, timeout=timeout) as response:
+    with LOCAL_HTTP_OPENER.open(request, timeout=timeout) as response:
         raw = json.loads(response.read().decode("utf-8"))
     wall_seconds = time.perf_counter() - started
     result = json.loads(raw["message"]["content"])

@@ -7,17 +7,34 @@ STAGE="$ROOT/.tmp/local-memory-macos-package"
 APP="$STAGE/Local Memory Search.app"
 RESOURCES="$APP/Contents/Resources"
 DELIVERABLES="$ROOT/deliverables"
-DMG="$DELIVERABLES/Local-Memory-Search-macOS-unsigned.dmg"
-ZIP="$DELIVERABLES/Local-Memory-Search-macOS-unsigned.zip"
-CHECKSUM="$DELIVERABLES/Local-Memory-Search-macOS-unsigned.sha256.txt"
+PACKAGE_VERSION="0.5"
+PACKAGE_BUILD="5"
+DMG_NAME="Local-Memory-Search-macOS-unsigned.dmg"
+ZIP_NAME="Local-Memory-Search-macOS-unsigned.zip"
+CHECKSUM_NAME="Local-Memory-Search-macOS-unsigned.sha256.txt"
+DMG="$DELIVERABLES/$DMG_NAME"
+ZIP="$DELIVERABLES/$ZIP_NAME"
+CHECKSUM="$DELIVERABLES/$CHECKSUM_NAME"
+OUTPUT_STAGE=""
+
+cleanup_output_stage() {
+  if [ -n "${OUTPUT_STAGE:-}" ] && [ -d "$OUTPUT_STAGE" ]; then
+    rm -rf -- "$OUTPUT_STAGE"
+  fi
+}
+trap cleanup_output_stage EXIT
 
 rm -rf "$STAGE"
 mkdir -p "$STAGE/導入ガイド" "$DELIVERABLES"
+OUTPUT_STAGE="$(mktemp -d "$DELIVERABLES/.local-memory-package.XXXXXX")"
+DMG_CANDIDATE="$OUTPUT_STAGE/$DMG_NAME"
+ZIP_CANDIDATE="$OUTPUT_STAGE/$ZIP_NAME"
+CHECKSUM_CANDIDATE="$OUTPUT_STAGE/$CHECKSUM_NAME"
 ln -s /Applications "$STAGE/Applications"
 
 /usr/bin/osacompile -l JavaScript -o "$APP" "$SOURCE/app/launcher.js"
 mkdir -p "$RESOURCES/engine"
-cp "$SOURCE/app/bootstrap.py" "$SOURCE/app/claim_graph_validator.py" "$SOURCE/app/final_answer_audit.py" "$SOURCE/app/cross_document_semantic_graph_edge_audit.py" "$SOURCE/app/local_memory_server.py" "$SOURCE/app/launch.sh" "$RESOURCES/"
+cp "$SOURCE/app/bootstrap.py" "$SOURCE/app/claim_graph_validator.py" "$SOURCE/app/final_answer_audit.py" "$SOURCE/app/cross_document_semantic_graph_edge_audit.py" "$SOURCE/app/semantic_graph_answer_promotion.py" "$SOURCE/app/semantic_graph_trust.py" "$SOURCE/app/launcher_lease.py" "$SOURCE/app/local_memory_server.py" "$SOURCE/app/launch.sh" "$RESOURCES/"
 cp "$SOURCE/engine/"*.py "$RESOURCES/engine/"
 mkdir -p "$RESOURCES/engine/layer1/scripts" "$RESOURCES/engine/layer1/schemas"
 cp \
@@ -63,6 +80,8 @@ chmod +x "$RESOURCES/launch.sh" "$RESOURCES/"*.py "$RESOURCES/engine/"*.py "$RES
 PLIST="$APP/Contents/Info.plist"
 /usr/libexec/PlistBuddy -c "Add :CFBundleIdentifier string jp.rivage.local-memory-search" "$PLIST" 2>/dev/null || /usr/libexec/PlistBuddy -c "Set :CFBundleIdentifier jp.rivage.local-memory-search" "$PLIST"
 /usr/libexec/PlistBuddy -c "Add :LSMinimumSystemVersion string 14.0" "$PLIST" 2>/dev/null || /usr/libexec/PlistBuddy -c "Set :LSMinimumSystemVersion 14.0" "$PLIST"
+/usr/libexec/PlistBuddy -c "Add :CFBundleShortVersionString string $PACKAGE_VERSION" "$PLIST" 2>/dev/null || /usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString $PACKAGE_VERSION" "$PLIST"
+/usr/libexec/PlistBuddy -c "Add :CFBundleVersion string $PACKAGE_BUILD" "$PLIST" 2>/dev/null || /usr/libexec/PlistBuddy -c "Set :CFBundleVersion $PACKAGE_BUILD" "$PLIST"
 for key in NSAppleMusicUsageDescription NSCalendarsUsageDescription NSCameraUsageDescription NSContactsUsageDescription NSHomeKitUsageDescription NSMicrophoneUsageDescription NSPhotoLibraryUsageDescription NSRemindersUsageDescription NSSiriUsageDescription NSSystemAdministrationUsageDescription; do
   /usr/libexec/PlistBuddy -c "Delete :$key" "$PLIST" 2>/dev/null || true
 done
@@ -70,15 +89,26 @@ done
 
 # Remove build-machine metadata and prove that no runtime/user data is included.
 find "$STAGE" -name '.DS_Store' -delete
-if find "$STAGE" -type f \( -name '*.sqlite3' -o -name '*.jsonl' -o -name '*.log' \) | grep -q .; then
-  print -u2 "refusing to package generated data"
+FORBIDDEN_FILE="$(find "$STAGE" -type f \( -name '*.sqlite3' -o -name '*.jsonl' -o -name '*.log' \) -print -quit)"
+if [ -n "$FORBIDDEN_FILE" ]; then
+  print -u2 "refusing to package generated data: $FORBIDDEN_FILE"
   exit 1
 fi
 
-rm -f "$DMG" "$ZIP" "$CHECKSUM"
-/usr/bin/hdiutil create -volname "Local Memory Search" -srcfolder "$STAGE" -ov -format UDZO "$DMG" >/dev/null
-(cd "$STAGE" && /usr/bin/ditto -c -k --sequesterRsrc --keepParent "Local Memory Search.app" "$ZIP")
-/usr/bin/shasum -a 256 "$DMG" "$ZIP" > "$CHECKSUM"
+/usr/bin/codesign --verify --deep --strict "$APP"
+/usr/bin/hdiutil create -volname "Local Memory Search" -srcfolder "$STAGE" -ov -format UDZO "$DMG_CANDIDATE" >/dev/null
+(cd "$STAGE" && /usr/bin/ditto -c -k --sequesterRsrc --keepParent "Local Memory Search.app" "$ZIP_CANDIDATE")
+/usr/bin/hdiutil verify "$DMG_CANDIDATE" >/dev/null
+/usr/bin/unzip -tq "$ZIP_CANDIDATE"
+(
+  cd "$OUTPUT_STAGE"
+  /usr/bin/shasum -a 256 "$DMG_NAME" "$ZIP_NAME" > "$CHECKSUM_NAME"
+)
+
+# Keep the last complete release until every candidate artifact has passed.
+/bin/mv -f "$DMG_CANDIDATE" "$DMG"
+/bin/mv -f "$ZIP_CANDIDATE" "$ZIP"
+/bin/mv -f "$CHECKSUM_CANDIDATE" "$CHECKSUM"
 print "created: $DMG"
 print "created: $ZIP"
 print "created: $CHECKSUM"
