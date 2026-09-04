@@ -38,6 +38,9 @@ CROSS_DOCUMENT_STORAGE_FLAG = "cross_document_semantic_graph_storage_enabled"
 CROSS_DOCUMENT_QUERY_CANDIDATE_FLAG = (
     "cross_document_semantic_graph_query_candidate_enabled"
 )
+CROSS_DOCUMENT_INDEPENDENT_EDGE_AUDIT_FLAG = (
+    "cross_document_semantic_graph_independent_edge_audit_enabled"
+)
 CROSS_DOCUMENT_SHADOW_DIR = "04-semantic-graph-shadow"
 CROSS_DOCUMENT_SHADOW_RUN_STATE = "shadow-run-state.json"
 CROSS_DOCUMENT_STORAGE_DIR = "05-semantic-answer-index"
@@ -175,6 +178,10 @@ def diagnose() -> dict:
         ),
         "cross_document_semantic_graph_query_candidate_enabled": (
             config.get(CROSS_DOCUMENT_QUERY_CANDIDATE_FLAG, True) is True
+        ),
+        "cross_document_semantic_graph_independent_edge_audit_enabled": (
+            config.get(CROSS_DOCUMENT_INDEPENDENT_EDGE_AUDIT_FLAG, True)
+            is True
         ),
         "cross_document_semantic_graph_storage": config.get(
             CROSS_DOCUMENT_STORAGE_CONFIG_KEY
@@ -340,6 +347,7 @@ def configure_source(source: Path) -> dict:
         CROSS_DOCUMENT_SHADOW_FLAG: True,
         CROSS_DOCUMENT_STORAGE_FLAG: True,
         CROSS_DOCUMENT_QUERY_CANDIDATE_FLAG: True,
+        CROSS_DOCUMENT_INDEPENDENT_EDGE_AUDIT_FLAG: True,
         "port": 8765,
     })
     if (
@@ -352,6 +360,7 @@ def configure_source(source: Path) -> dict:
     config.setdefault(CROSS_DOCUMENT_SHADOW_FLAG, True)
     config.setdefault(CROSS_DOCUMENT_STORAGE_FLAG, True)
     config.setdefault(CROSS_DOCUMENT_QUERY_CANDIDATE_FLAG, True)
+    config.setdefault(CROSS_DOCUMENT_INDEPENDENT_EDGE_AUDIT_FLAG, True)
     config["source_root"] = str(source)
     config["workspace"] = str(SUPPORT / "data")
     # Selecting a source invalidates the active generation immediately.  A
@@ -559,6 +568,7 @@ def _ready_state(
     semantic_graph_shadow: dict | None = None,
     semantic_graph_storage: dict | None = None,
     semantic_graph_query_candidate_enabled: bool | None = None,
+    semantic_graph_independent_edge_audit_enabled: bool | None = None,
 ) -> dict:
     recovered_fields = {
         "recovered_after_interruption": True,
@@ -583,6 +593,15 @@ def _ready_state(
         if isinstance(semantic_graph_query_candidate_enabled, bool)
         else {}
     )
+    independent_audit_fields = (
+        {
+            "cross_document_semantic_graph_independent_edge_audit_enabled": (
+                semantic_graph_independent_edge_audit_enabled
+            )
+        }
+        if isinstance(semantic_graph_independent_edge_audit_enabled, bool)
+        else {}
+    )
     if reader_state.get("status") == "complete_with_limits":
         return {
             "phase": "ready_with_limits",
@@ -593,6 +612,7 @@ def _ready_state(
             **shadow_fields,
             **storage_fields,
             **candidate_fields,
+            **independent_audit_fields,
         }
     return {
         "phase": "ready",
@@ -602,6 +622,7 @@ def _ready_state(
         **shadow_fields,
         **storage_fields,
         **candidate_fields,
+        **independent_audit_fields,
     }
 
 
@@ -709,6 +730,10 @@ def _reconstruct_published_marker_for_observer_recovery(
         ),
         "cross_document_semantic_graph_query_candidate_enabled": (
             config.get(CROSS_DOCUMENT_QUERY_CANDIDATE_FLAG, True) is True
+        ),
+        "cross_document_semantic_graph_independent_edge_audit_enabled": (
+            config.get(CROSS_DOCUMENT_INDEPENDENT_EDGE_AUDIT_FLAG, True)
+            is True
         ),
     }
 
@@ -1032,6 +1057,12 @@ def recover_interrupted_build() -> dict:
             query_candidate_enabled = (
                 config.get(CROSS_DOCUMENT_QUERY_CANDIDATE_FLAG, True) is True
             )
+            independent_edge_audit_enabled = (
+                config.get(
+                    CROSS_DOCUMENT_INDEPENDENT_EDGE_AUDIT_FLAG, True
+                )
+                is True
+            )
             storage_is_steady = (
                 not marker_reconstructed
                 and not shadow_pending
@@ -1048,6 +1079,14 @@ def recover_interrupted_build() -> dict:
                     "cross_document_semantic_graph_query_candidate_enabled"
                 )
                 is query_candidate_enabled
+                and current.get(
+                    "cross_document_semantic_graph_independent_edge_audit_enabled"
+                )
+                is independent_edge_audit_enabled
+                and marker.get(
+                    "cross_document_semantic_graph_independent_edge_audit_enabled"
+                )
+                is independent_edge_audit_enabled
             )
             if storage_is_steady:
                 return {
@@ -1065,6 +1104,9 @@ def recover_interrupted_build() -> dict:
                 "cross_document_semantic_graph_query_candidate_enabled": (
                     query_candidate_enabled
                 ),
+                "cross_document_semantic_graph_independent_edge_audit_enabled": (
+                    independent_edge_audit_enabled
+                ),
             }
             if isinstance(recovered_storage, dict):
                 marker_update[
@@ -1079,6 +1121,9 @@ def recover_interrupted_build() -> dict:
                 **current,
                 "cross_document_semantic_graph_query_candidate_enabled": (
                     query_candidate_enabled
+                ),
+                "cross_document_semantic_graph_independent_edge_audit_enabled": (
+                    independent_edge_audit_enabled
                 ),
             }
             if isinstance(recovered_storage, dict):
@@ -1189,6 +1234,12 @@ def recover_interrupted_build() -> dict:
                     config.get(CROSS_DOCUMENT_QUERY_CANDIDATE_FLAG, True)
                     is True
                 ),
+                "cross_document_semantic_graph_independent_edge_audit_enabled": (
+                    config.get(
+                        CROSS_DOCUMENT_INDEPENDENT_EDGE_AUDIT_FLAG, True
+                    )
+                    is True
+                ),
             }
             recovered_shadow = _recover_published_shadow_observer(
                 generation,
@@ -1264,6 +1315,12 @@ def recover_interrupted_build() -> dict:
                 ),
                 semantic_graph_query_candidate_enabled=(
                     config.get(CROSS_DOCUMENT_QUERY_CANDIDATE_FLAG, True)
+                    is True
+                ),
+                semantic_graph_independent_edge_audit_enabled=(
+                    config.get(
+                        CROSS_DOCUMENT_INDEPENDENT_EDGE_AUDIT_FLAG, True
+                    )
                     is True
                 ),
             )
@@ -2604,6 +2661,7 @@ def build_index() -> None:
     config.setdefault(CROSS_DOCUMENT_SHADOW_FLAG, True)
     config.setdefault(CROSS_DOCUMENT_STORAGE_FLAG, True)
     config.setdefault(CROSS_DOCUMENT_QUERY_CANDIDATE_FLAG, True)
+    config.setdefault(CROSS_DOCUMENT_INDEPENDENT_EDGE_AUDIT_FLAG, True)
     source = Path(config["source_root"]).resolve(strict=True)
     workspace = Path(config.get("workspace", SUPPORT / "data"))
     generations = workspace / "generations"
@@ -2635,6 +2693,10 @@ def build_index() -> None:
         "cross_document_semantic_graph_query_candidate_enabled": (
             config.get(CROSS_DOCUMENT_QUERY_CANDIDATE_FLAG, True) is True
         ),
+        "cross_document_semantic_graph_independent_edge_audit_enabled": (
+            config.get(CROSS_DOCUMENT_INDEPENDENT_EDGE_AUDIT_FLAG, True)
+            is True
+        ),
     }
     atomic_json(marker_path, marker)
     state = {
@@ -2647,6 +2709,10 @@ def build_index() -> None:
         "started_at": marker["started_at"],
         "cross_document_semantic_graph_query_candidate_enabled": (
             config.get(CROSS_DOCUMENT_QUERY_CANDIDATE_FLAG, True) is True
+        ),
+        "cross_document_semantic_graph_independent_edge_audit_enabled": (
+            config.get(CROSS_DOCUMENT_INDEPENDENT_EDGE_AUDIT_FLAG, True)
+            is True
         ),
     }
     atomic_json(STATE, state)
@@ -2737,6 +2803,9 @@ def build_index() -> None:
             published_config.setdefault(CROSS_DOCUMENT_SHADOW_FLAG, True)
             published_config.setdefault(CROSS_DOCUMENT_STORAGE_FLAG, True)
             published_config.setdefault(CROSS_DOCUMENT_QUERY_CANDIDATE_FLAG, True)
+            published_config.setdefault(
+                CROSS_DOCUMENT_INDEPENDENT_EDGE_AUDIT_FLAG, True
+            )
             published_config.pop("semantic_graph_shadow_path", None)
             published_config.pop(CROSS_DOCUMENT_STORAGE_CONFIG_KEY, None)
             published_config.update({
@@ -2796,6 +2865,12 @@ def build_index() -> None:
                     )
                     is True
                 ),
+                "cross_document_semantic_graph_independent_edge_audit_enabled": (
+                    published_config.get(
+                        CROSS_DOCUMENT_INDEPENDENT_EDGE_AUDIT_FLAG, True
+                    )
+                    is True
+                ),
                 "cross_document_semantic_graph_shadow": shadow_state,
                 "cross_document_semantic_graph_storage": storage_state,
             }
@@ -2811,6 +2886,12 @@ def build_index() -> None:
                 semantic_graph_query_candidate_enabled=(
                     published_config.get(
                         CROSS_DOCUMENT_QUERY_CANDIDATE_FLAG, True
+                    )
+                    is True
+                ),
+                semantic_graph_independent_edge_audit_enabled=(
+                    published_config.get(
+                        CROSS_DOCUMENT_INDEPENDENT_EDGE_AUDIT_FLAG, True
                     )
                     is True
                 ),
@@ -3047,6 +3128,12 @@ def build_index() -> None:
                         )
                         is True
                     ),
+                    "cross_document_semantic_graph_independent_edge_audit_enabled": (
+                        published_config.get(
+                            CROSS_DOCUMENT_INDEPENDENT_EDGE_AUDIT_FLAG, True
+                        )
+                        is True
+                    ),
                     "cross_document_semantic_graph_shadow": shadow_state,
                     "cross_document_semantic_graph_storage": storage_state,
                 })
@@ -3059,6 +3146,12 @@ def build_index() -> None:
                 semantic_graph_query_candidate_enabled=(
                     published_config.get(
                         CROSS_DOCUMENT_QUERY_CANDIDATE_FLAG, True
+                    )
+                    is True
+                ),
+                semantic_graph_independent_edge_audit_enabled=(
+                    published_config.get(
+                        CROSS_DOCUMENT_INDEPENDENT_EDGE_AUDIT_FLAG, True
                     )
                     is True
                 ),

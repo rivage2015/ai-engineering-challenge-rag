@@ -17,7 +17,7 @@ ln -s /Applications "$STAGE/Applications"
 
 /usr/bin/osacompile -l JavaScript -o "$APP" "$SOURCE/app/launcher.js"
 mkdir -p "$RESOURCES/engine"
-cp "$SOURCE/app/bootstrap.py" "$SOURCE/app/claim_graph_validator.py" "$SOURCE/app/final_answer_audit.py" "$SOURCE/app/local_memory_server.py" "$SOURCE/app/launch.sh" "$RESOURCES/"
+cp "$SOURCE/app/bootstrap.py" "$SOURCE/app/claim_graph_validator.py" "$SOURCE/app/final_answer_audit.py" "$SOURCE/app/cross_document_semantic_graph_edge_audit.py" "$SOURCE/app/local_memory_server.py" "$SOURCE/app/launch.sh" "$RESOURCES/"
 cp "$SOURCE/engine/"*.py "$RESOURCES/engine/"
 mkdir -p "$RESOURCES/engine/layer1/scripts" "$RESOURCES/engine/layer1/schemas"
 cp \

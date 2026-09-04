@@ -7,6 +7,7 @@ import argparse
 import hashlib
 import html
 import json
+import os
 import re
 import subprocess
 import sys
@@ -30,7 +31,11 @@ OLLAMA_GENERATE = "http://127.0.0.1:11434/api/generate"
 SEMANTIC_GRAPH_CANDIDATE_KEY = (
     "cross_document_semantic_graph_query_candidate"
 )
+SEMANTIC_GRAPH_EDGE_AUDIT_KEY = (
+    "cross_document_semantic_graph_independent_edge_audit"
+)
 SEMANTIC_GRAPH_CANDIDATE_TIMEOUT_SECONDS = 30.0
+SEMANTIC_GRAPH_EDGE_AUDIT_TIMEOUT_SECONDS = 30.0
 SEMANTIC_GRAPH_RUN_PREFIX = "xkgr_"
 SEMANTIC_GRAPH_REGISTRATION_FIELDS = frozenset({
     "schema_version",
@@ -97,6 +102,26 @@ SEMANTIC_GRAPH_ATTESTATION_FIELDS = frozenset({
     "generation", "build_id", "index_sha256", "graph_snapshot_id",
     "logical_snapshot_sha256", "projection_sha256", "node_count",
     "edge_count", "edge_evidence_count", "eligible_evidence_count",
+    "outbound_network_attempt_count",
+})
+SEMANTIC_GRAPH_EDGE_AUDIT_FIELDS = frozenset({
+    "schema_version", "record_type", "auditor", "auditor_version",
+    "status", "verdict", "reason_code", "diagnostic_code", "operation",
+    "candidate_sha256", "registration_sha256", "question_sha256",
+    "question_reference_date", "graph_snapshot_id",
+    "reconstructed_semantics_sha256", "checks", "audit_attestation",
+    "used_for_answers", "allows_answer_activation",
+})
+SEMANTIC_GRAPH_EDGE_AUDIT_CHECK_FIELDS = frozenset({
+    "candidate_contract", "question_classification",
+    "registered_storage_integrity", "independent_graph_reconstruction",
+    "candidate_semantics",
+})
+SEMANTIC_GRAPH_EDGE_AUDIT_ATTESTATION_FIELDS = frozenset({
+    "read_only", "read_snapshot", "database_opened", "generation",
+    "index_sha256", "graph_snapshot_id", "logical_snapshot_sha256",
+    "projection_sha256", "node_count", "edge_count",
+    "edge_evidence_count", "eligible_evidence_count",
     "outbound_network_attempt_count",
 })
 
@@ -378,6 +403,36 @@ def _strict_candidate_json(payload: str) -> object:
         object_pairs_hook=object_pairs,
         parse_constant=reject_constant,
     )
+
+
+def _canonical_json(value: object) -> str:
+    return json.dumps(
+        value,
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+        allow_nan=False,
+    )
+
+
+def _canonical_sha256(value: object) -> str:
+    return hashlib.sha256(_canonical_json(value).encode("utf-8")).hexdigest()
+
+
+def _deterministic_candidate_semantics(candidate: dict) -> dict:
+    """Project only deterministic Step 3 fields for Step 4 hash equality."""
+    trace = candidate.get("trace")
+    if not isinstance(trace, dict):
+        raise ValueError("semantic_candidate_trace_invalid")
+    deterministic_trace = {
+        key: value
+        for key, value in trace.items()
+        if key not in {"elapsed_ms", "peak_rss_bytes"}
+    }
+    return {
+        key: deterministic_trace if key == "trace" else candidate[key]
+        for key in SEMANTIC_GRAPH_CANDIDATE_FIELDS
+    }
 
 
 def _strict_candidate_reference_date(value: object) -> str | None:
@@ -815,6 +870,501 @@ def run_semantic_graph_candidate(
         }
 
 
+def _question_sha256(query: str) -> str:
+    normalized = unicodedata.normalize("NFC", query).strip()
+    return hashlib.sha256(normalized.encode("utf-8")).hexdigest()
+
+
+def _empty_edge_audit_attestation() -> dict:
+    return {
+        "read_only": True,
+        "read_snapshot": None,
+        "database_opened": False,
+        "generation": None,
+        "index_sha256": None,
+        "graph_snapshot_id": None,
+        "logical_snapshot_sha256": None,
+        "projection_sha256": None,
+        "node_count": None,
+        "edge_count": None,
+        "edge_evidence_count": None,
+        "eligible_evidence_count": None,
+        "outbound_network_attempt_count": 0,
+    }
+
+
+def _rejected_edge_audit(
+    diagnostic_code: str,
+    candidate: object,
+    registration: object,
+    query: str,
+    reference_date: str | None,
+) -> dict:
+    try:
+        candidate_sha256 = _canonical_sha256(candidate)
+    except (TypeError, ValueError):
+        candidate_sha256 = None
+    try:
+        registration_sha256 = _canonical_sha256(registration)
+    except (TypeError, ValueError):
+        registration_sha256 = None
+    operation = candidate.get("operation") if isinstance(candidate, dict) else None
+    if operation not in SEMANTIC_GRAPH_OPERATIONS:
+        operation = None
+    return {
+        "schema_version": "0.1",
+        "record_type": SEMANTIC_GRAPH_EDGE_AUDIT_KEY,
+        "auditor": "cross-document-semantic-graph-independent-edge-audit",
+        "auditor_version": "0.1.0",
+        "status": "rejected",
+        "verdict": "REJECT",
+        "reason_code": "independent_audit_observer_failed",
+        "diagnostic_code": diagnostic_code,
+        "operation": operation,
+        "candidate_sha256": candidate_sha256,
+        "registration_sha256": registration_sha256,
+        "question_sha256": _question_sha256(query),
+        "question_reference_date": reference_date,
+        "graph_snapshot_id": None,
+        "reconstructed_semantics_sha256": None,
+        "checks": {
+            "candidate_contract": (
+                "PASS" if isinstance(candidate, dict) else "FAIL"
+            ),
+            "question_classification": "NOT_APPLICABLE",
+            "registered_storage_integrity": "NOT_APPLICABLE",
+            "independent_graph_reconstruction": "NOT_APPLICABLE",
+            "candidate_semantics": "FAIL",
+        },
+        "audit_attestation": _empty_edge_audit_attestation(),
+        "used_for_answers": False,
+        "allows_answer_activation": False,
+    }
+
+
+def semantic_graph_edge_audit_eligibility(
+    config: dict,
+    index: Path,
+    candidate: object,
+) -> tuple[bool, str]:
+    """Gate Step 4 independently from the Step 3 observer."""
+    if (
+        config.get(
+            bootstrap.CROSS_DOCUMENT_INDEPENDENT_EDGE_AUDIT_FLAG,
+            True,
+        )
+        is not True
+    ):
+        return False, "feature_disabled"
+    if not isinstance(candidate, dict):
+        return False, "candidate_absent"
+    candidate_enabled, candidate_reason = semantic_graph_candidate_eligibility(
+        config, index
+    )
+    if not candidate_enabled:
+        return False, "candidate_" + candidate_reason
+    return True, "validated_candidate_edge_audit_enabled"
+
+
+def _edge_audit_result_is_safe(
+    audit: object,
+    candidate: dict,
+    registration: dict,
+    query: str,
+    reference_date: str | None,
+) -> bool:
+    """Validate the independent auditor transport before recording it."""
+    try:
+        expected_candidate_sha256 = _canonical_sha256(candidate)
+        expected_registration_sha256 = _canonical_sha256(registration)
+        expected_semantics_sha256 = _canonical_sha256(
+            _deterministic_candidate_semantics(candidate)
+        )
+    except (KeyError, TypeError, ValueError):
+        return False
+    if (
+        not isinstance(audit, dict)
+        or set(audit) != SEMANTIC_GRAPH_EDGE_AUDIT_FIELDS
+        or audit.get("schema_version") != "0.1"
+        or audit.get("record_type") != SEMANTIC_GRAPH_EDGE_AUDIT_KEY
+        or audit.get("auditor")
+        != "cross-document-semantic-graph-independent-edge-audit"
+        or audit.get("auditor_version") != "0.1.0"
+        or audit.get("used_for_answers") is not False
+        or audit.get("allows_answer_activation") is not False
+        or audit.get("candidate_sha256") != expected_candidate_sha256
+        or audit.get("registration_sha256")
+        != expected_registration_sha256
+        or audit.get("question_sha256") != _question_sha256(query)
+        or audit.get("question_reference_date") != reference_date
+    ):
+        return False
+    status = audit.get("status")
+    verdict = audit.get("verdict")
+    if {"passed": "PASS", "rejected": "REJECT"}.get(status) != verdict:
+        return False
+    operation = audit.get("operation")
+    if operation is not None and operation not in SEMANTIC_GRAPH_OPERATIONS:
+        return False
+    checks = audit.get("checks")
+    if (
+        not isinstance(checks, dict)
+        or set(checks) != SEMANTIC_GRAPH_EDGE_AUDIT_CHECK_FIELDS
+        or any(
+            value not in {"PASS", "FAIL", "NOT_APPLICABLE"}
+            for value in checks.values()
+        )
+    ):
+        return False
+    attestation = audit.get("audit_attestation")
+    if (
+        not isinstance(attestation, dict)
+        or set(attestation)
+        != SEMANTIC_GRAPH_EDGE_AUDIT_ATTESTATION_FIELDS
+        or attestation.get("read_only") is not True
+        or type(attestation.get("database_opened")) is not bool
+        or type(attestation.get("outbound_network_attempt_count")) is not int
+        or attestation["outbound_network_attempt_count"] < 0
+        or (
+            status == "passed"
+            and attestation["outbound_network_attempt_count"] != 0
+        )
+    ):
+        return False
+    database_opened = attestation["database_opened"]
+    graph_fields = (
+        "generation", "index_sha256", "graph_snapshot_id",
+        "logical_snapshot_sha256", "projection_sha256", "node_count",
+        "edge_count", "edge_evidence_count", "eligible_evidence_count",
+    )
+    if database_opened and status == "passed":
+        counts = registration["counts"]
+        if (
+            attestation.get("read_snapshot")
+            != "single_sqlite_transaction"
+            or attestation.get("generation") != registration["generation"]
+            or attestation.get("index_sha256")
+            != registration["database_sha256"]
+            or attestation.get("graph_snapshot_id")
+            != registration["graph_snapshot_id"]
+            or attestation.get("logical_snapshot_sha256")
+            != registration["logical_snapshot_sha256"]
+            or not isinstance(attestation.get("projection_sha256"), str)
+            or SHA256_PATTERN.fullmatch(attestation["projection_sha256"])
+            is None
+            or any(
+                type(attestation.get(field)) is not int
+                for field in (
+                    "node_count",
+                    "edge_count",
+                    "edge_evidence_count",
+                )
+            )
+            or attestation.get("node_count") != counts["nodes"]
+            or attestation.get("edge_count") != counts["edges"]
+            or attestation.get("edge_evidence_count")
+            != counts["edge_evidence"]
+            or type(attestation.get("eligible_evidence_count")) is not int
+            or attestation["eligible_evidence_count"] < 1
+            or audit.get("graph_snapshot_id")
+            != registration["graph_snapshot_id"]
+        ):
+            return False
+    elif database_opened:
+        counts = registration["counts"]
+        if (
+            attestation.get("read_snapshot")
+            not in {
+                "connection_opened_no_transaction",
+                "single_sqlite_transaction",
+            }
+            or attestation.get("generation") != registration["generation"]
+            or attestation.get("index_sha256")
+            != registration["database_sha256"]
+            or (
+                attestation.get("graph_snapshot_id") is not None
+                and attestation["graph_snapshot_id"]
+                != registration["graph_snapshot_id"]
+            )
+            or (
+                attestation.get("logical_snapshot_sha256") is not None
+                and attestation["logical_snapshot_sha256"]
+                != registration["logical_snapshot_sha256"]
+            )
+            or (
+                attestation.get("projection_sha256") is not None
+                and (
+                    not isinstance(
+                        attestation["projection_sha256"], str
+                    )
+                    or SHA256_PATTERN.fullmatch(
+                        attestation["projection_sha256"]
+                    )
+                    is None
+                )
+            )
+            or any(
+                attestation.get(field) is not None
+                and (
+                    type(attestation[field]) is not int
+                    or attestation[field] < 0
+                )
+                for field in (
+                    "node_count",
+                    "edge_count",
+                    "edge_evidence_count",
+                    "eligible_evidence_count",
+                )
+            )
+            or (
+                audit.get("graph_snapshot_id") is not None
+                and audit.get("graph_snapshot_id")
+                != attestation.get("graph_snapshot_id")
+            )
+            or (
+                attestation.get("node_count") is not None
+                and attestation["node_count"] != counts["nodes"]
+            )
+            or (
+                attestation.get("edge_count") is not None
+                and attestation["edge_count"] != counts["edges"]
+            )
+            or (
+                attestation.get("edge_evidence_count") is not None
+                and attestation["edge_evidence_count"]
+                != counts["edge_evidence"]
+            )
+        ):
+            return False
+    elif (
+        attestation.get("read_snapshot") is not None
+        or any(attestation.get(field) is not None for field in graph_fields)
+        or audit.get("graph_snapshot_id") is not None
+    ):
+        return False
+    reconstructed_sha256 = audit.get("reconstructed_semantics_sha256")
+    if reconstructed_sha256 is not None and (
+        not isinstance(reconstructed_sha256, str)
+        or SHA256_PATTERN.fullmatch(reconstructed_sha256) is None
+    ):
+        return False
+    if status == "passed":
+        expected_checks = {
+            "candidate_contract": "PASS",
+            "question_classification": "PASS",
+            "registered_storage_integrity": (
+                "PASS" if database_opened else "NOT_APPLICABLE"
+            ),
+            "independent_graph_reconstruction": (
+                "PASS"
+            ),
+            "candidate_semantics": "PASS",
+        }
+        if (
+            checks != expected_checks
+            or audit.get("reason_code") is not None
+            or audit.get("diagnostic_code") is not None
+            or reconstructed_sha256 != expected_semantics_sha256
+            or operation != candidate.get("operation")
+            or (
+                candidate.get("status") == "not_applicable"
+                and database_opened
+            )
+            or (
+                candidate.get("status") != "not_applicable"
+                and not database_opened
+            )
+        ):
+            return False
+        if database_opened:
+            candidate_attestation = candidate.get("runtime_attestation")
+            if (
+                not isinstance(candidate_attestation, dict)
+                or set(candidate_attestation)
+                != SEMANTIC_GRAPH_ATTESTATION_FIELDS
+                or attestation.get("projection_sha256")
+                != candidate_attestation.get("projection_sha256")
+                or attestation.get("eligible_evidence_count")
+                != candidate_attestation.get("eligible_evidence_count")
+            ):
+                return False
+    elif (
+        not isinstance(audit.get("reason_code"), str)
+        or not audit["reason_code"].strip()
+        or not isinstance(audit.get("diagnostic_code"), str)
+        or not audit["diagnostic_code"].strip()
+        or "FAIL" not in checks.values()
+    ):
+        return False
+    return True
+
+
+def run_semantic_graph_edge_audit(
+    query: str,
+    config: dict,
+    index: Path,
+    candidate: dict | None,
+    reference_date: str | None = None,
+) -> tuple[dict | None, dict]:
+    """Run Step 4 after Step 3 and keep it outside answer authority."""
+    enabled, reason = semantic_graph_edge_audit_eligibility(
+        config, index, candidate
+    )
+    if not enabled:
+        return None, {
+            "enabled": False,
+            "attempted": False,
+            "eligibility_reason": reason,
+            "seconds": 0.0,
+            "timed_out": False,
+        }
+    assert isinstance(candidate, dict)
+    registration = config[bootstrap.CROSS_DOCUMENT_STORAGE_CONFIG_KEY]
+    try:
+        reference_date = _strict_candidate_reference_date(reference_date)
+    except ValueError:
+        audit = _rejected_edge_audit(
+            "semantic_edge_audit_reference_date_invalid",
+            candidate,
+            registration,
+            query,
+            None,
+        )
+        return audit, {
+            "enabled": True,
+            "attempted": False,
+            "eligibility_reason": reason,
+            "seconds": 0.0,
+            "timeout_seconds": SEMANTIC_GRAPH_EDGE_AUDIT_TIMEOUT_SECONDS,
+            "timed_out": False,
+            "status": "rejected",
+        }
+    configured_timeout = config.get(
+        "cross_document_semantic_graph_independent_edge_audit_timeout_seconds",
+        SEMANTIC_GRAPH_EDGE_AUDIT_TIMEOUT_SECONDS,
+    )
+    timeout_seconds = (
+        float(configured_timeout)
+        if type(configured_timeout) in {int, float}
+        and 1 <= configured_timeout <= 120
+        else SEMANTIC_GRAPH_EDGE_AUDIT_TIMEOUT_SECONDS
+    )
+    started = time.perf_counter()
+    request_input: Path | None = None
+    candidate_input: Path | None = None
+    try:
+        request_payload = {
+            "schema_version": "0.1",
+            "question": query,
+            "index_path": str(index),
+            "registration": registration,
+            "question_reference_date": reference_date,
+        }
+        with tempfile.NamedTemporaryFile(
+            "w",
+            suffix=".json",
+            encoding="utf-8",
+            delete=False,
+        ) as handle:
+            request_input = Path(handle.name)
+            os.fchmod(handle.fileno(), 0o600)
+            handle.write(_canonical_json(request_payload))
+        with tempfile.NamedTemporaryFile(
+            "w",
+            suffix=".json",
+            encoding="utf-8",
+            delete=False,
+        ) as handle:
+            candidate_input = Path(handle.name)
+            os.fchmod(handle.fileno(), 0o600)
+            handle.write(_canonical_json(candidate))
+        command = [
+            sys.executable,
+            str(BASE / "cross_document_semantic_graph_edge_audit.py"),
+            "--request-file",
+            str(request_input),
+            "--candidate-file",
+            str(candidate_input),
+        ]
+        completed = subprocess.run(
+            command,
+            capture_output=True,
+            text=True,
+            timeout=timeout_seconds,
+            check=True,
+            close_fds=True,
+        )
+        try:
+            audit = _strict_candidate_json(completed.stdout)
+        except (TypeError, ValueError):
+            audit = _rejected_edge_audit(
+                "semantic_edge_audit_output_invalid",
+                candidate,
+                registration,
+                query,
+                reference_date,
+            )
+        else:
+            if not _edge_audit_result_is_safe(
+                audit, candidate, registration, query, reference_date
+            ):
+                audit = _rejected_edge_audit(
+                    "semantic_edge_audit_result_contract_invalid",
+                    candidate,
+                    registration,
+                    query,
+                    reference_date,
+                )
+        return audit, {
+            "enabled": True,
+            "attempted": True,
+            "eligibility_reason": reason,
+            "seconds": round(time.perf_counter() - started, 3),
+            "timeout_seconds": timeout_seconds,
+            "timed_out": False,
+            "status": audit["status"],
+        }
+    except subprocess.TimeoutExpired:
+        audit = _rejected_edge_audit(
+            "semantic_edge_audit_timeout",
+            candidate,
+            registration,
+            query,
+            reference_date,
+        )
+        return audit, {
+            "enabled": True,
+            "attempted": True,
+            "eligibility_reason": reason,
+            "seconds": round(time.perf_counter() - started, 3),
+            "timeout_seconds": timeout_seconds,
+            "timed_out": True,
+            "status": "rejected",
+        }
+    except Exception:
+        audit = _rejected_edge_audit(
+            "semantic_edge_audit_runtime_failed",
+            candidate,
+            registration,
+            query,
+            reference_date,
+        )
+        return audit, {
+            "enabled": True,
+            "attempted": True,
+            "eligibility_reason": reason,
+            "seconds": round(time.perf_counter() - started, 3),
+            "timeout_seconds": timeout_seconds,
+            "timed_out": False,
+            "status": "rejected",
+        }
+    finally:
+        if request_input is not None:
+            request_input.unlink(missing_ok=True)
+        if candidate_input is not None:
+            candidate_input.unlink(missing_ok=True)
+
+
 def semantic_graph_candidate_notice(record: dict) -> str:
     """Render observer telemetry without exposing it as answer evidence."""
     candidate = record.get(SEMANTIC_GRAPH_CANDIDATE_KEY)
@@ -835,6 +1385,22 @@ def semantic_graph_candidate_notice(record: dict) -> str:
         else "true" if used_for_answers is True
         else "unknown"
     )
+    edge_audit = record.get(SEMANTIC_GRAPH_EDGE_AUDIT_KEY)
+    edge_audit_status = (
+        str(edge_audit.get("status", "unknown"))
+        if isinstance(edge_audit, dict)
+        else "not_run"
+    )
+    edge_audit_verdict = (
+        str(edge_audit.get("verdict", "unknown"))
+        if isinstance(edge_audit, dict)
+        else "not_run"
+    )
+    answer_activation = (
+        str(edge_audit.get("allows_answer_activation", "unknown")).lower()
+        if isinstance(edge_audit, dict)
+        else "false"
+    )
     return (
         '<section class="card"><details><summary>意味グラフ候補の観測結果</summary>'
         '<p class="small">候補status: '
@@ -843,10 +1409,16 @@ def semantic_graph_candidate_notice(record: dict) -> str:
         + str(used_edge_count)
         + "<br>used_for_answers: "
         + used_for_answers_label
-        + "<br>independent_edge_audit_status: "
+        + "<br>candidate_pre_audit_marker: "
         + html.escape(str(candidate.get(
             "independent_edge_audit_status", "unknown"
         )))
+        + "<br>independent_edge_audit: "
+        + html.escape(edge_audit_status)
+        + " / "
+        + html.escape(edge_audit_verdict)
+        + "<br>allows_answer_activation: "
+        + html.escape(answer_activation)
         + "</p></details></section>"
     )
 
@@ -880,6 +1452,7 @@ def answer_query(query: str) -> dict:
     )
     legacy_record = dict(record)
     legacy_record.pop(SEMANTIC_GRAPH_CANDIDATE_KEY, None)
+    legacy_record.pop(SEMANTIC_GRAPH_EDGE_AUDIT_KEY, None)
     with tempfile.NamedTemporaryFile("w", suffix=".json", encoding="utf-8", delete=False) as handle:
         json.dump(legacy_record, handle, ensure_ascii=False)
         temporary = Path(handle.name)
@@ -892,6 +1465,7 @@ def answer_query(query: str) -> dict:
         audit_seconds = time.perf_counter() - audit_started
         audited_record = json.loads(audited.stdout)
         audited_record.pop(SEMANTIC_GRAPH_CANDIDATE_KEY, None)
+        audited_record.pop(SEMANTIC_GRAPH_EDGE_AUDIT_KEY, None)
         audit_unload = (
             unload_ollama_model(config["audit_model"])
             if sequential else {"requested": False, "succeeded": False, "seconds": 0.0, "error": ""}
@@ -952,8 +1526,63 @@ def answer_query(query: str) -> dict:
                 "timed_out": False,
                 "status": "held",
             }
+        edge_audit_reference_date = (
+            legacy_reference_date
+            if reference_binding_valid
+            else None
+        )
+        try:
+            semantic_edge_audit, semantic_edge_audit_performance = (
+                run_semantic_graph_edge_audit(
+                    query,
+                    config,
+                    index,
+                    semantic_candidate,
+                    edge_audit_reference_date,
+                )
+            )
+        except Exception:
+            registration = config.get(
+                bootstrap.CROSS_DOCUMENT_STORAGE_CONFIG_KEY,
+                {},
+            )
+            edge_audit_enabled = (
+                config.get(
+                    bootstrap.CROSS_DOCUMENT_INDEPENDENT_EDGE_AUDIT_FLAG,
+                    True,
+                )
+                is True
+            )
+            semantic_edge_audit = (
+                _rejected_edge_audit(
+                    "semantic_edge_audit_observer_boundary_failed",
+                    semantic_candidate,
+                    registration,
+                    query,
+                    edge_audit_reference_date,
+                )
+                if edge_audit_enabled and semantic_candidate is not None
+                else None
+            )
+            semantic_edge_audit_performance = {
+                "enabled": edge_audit_enabled and semantic_candidate is not None,
+                "attempted": False,
+                "eligibility_reason": (
+                    "observer_boundary_failed"
+                    if edge_audit_enabled else "feature_disabled"
+                ),
+                "seconds": 0.0,
+                "timed_out": False,
+                **(
+                    {"status": "rejected"}
+                    if edge_audit_enabled and semantic_candidate is not None
+                    else {}
+                ),
+            }
         if semantic_candidate is not None:
             audited_record[SEMANTIC_GRAPH_CANDIDATE_KEY] = semantic_candidate
+        if semantic_edge_audit is not None:
+            audited_record[SEMANTIC_GRAPH_EDGE_AUDIT_KEY] = semantic_edge_audit
         audited_record["pipeline_performance"] = {
             "sequential_model_loading": sequential,
             "same_model_reused_across_separate_contexts": reuse_loaded_model,
@@ -962,6 +1591,9 @@ def answer_query(query: str) -> dict:
             "audit_process_seconds": round(audit_seconds, 3),
             "audit_model_unload": audit_unload,
             "semantic_graph_candidate": semantic_candidate_performance,
+            "semantic_graph_independent_edge_audit": (
+                semantic_edge_audit_performance
+            ),
             "total_seconds": round(time.perf_counter() - pipeline_started, 3),
         }
         audited_log = bootstrap.SUPPORT / "logs" / "audited-answers.jsonl"

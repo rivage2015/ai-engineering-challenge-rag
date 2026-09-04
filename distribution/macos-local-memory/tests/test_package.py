@@ -6,6 +6,7 @@ import hashlib
 import json
 import os
 import shutil
+import stat
 import subprocess
 import sys
 import tempfile
@@ -148,6 +149,89 @@ def make_server_candidate_registration(
         "counts": {"nodes": 2, "edges": 2, "edge_evidence": 2},
         "retrieval_enabled": False,
         "used_for_answers": False,
+    }
+
+
+def make_server_edge_audit(
+    server,
+    candidate: dict,
+    registration: dict,
+    query: str,
+    reference_date: str | None = None,
+) -> dict:
+    database_opened = candidate["trace"]["database_opened"]
+    runtime_attestation = candidate.get("runtime_attestation")
+    if database_opened:
+        assert isinstance(runtime_attestation, dict)
+        audit_attestation = {
+            "read_only": True,
+            "read_snapshot": "single_sqlite_transaction",
+            "database_opened": True,
+            "generation": runtime_attestation["generation"],
+            "index_sha256": runtime_attestation["index_sha256"],
+            "graph_snapshot_id": runtime_attestation["graph_snapshot_id"],
+            "logical_snapshot_sha256": runtime_attestation[
+                "logical_snapshot_sha256"
+            ],
+            "projection_sha256": runtime_attestation["projection_sha256"],
+            "node_count": runtime_attestation["node_count"],
+            "edge_count": runtime_attestation["edge_count"],
+            "edge_evidence_count": runtime_attestation[
+                "edge_evidence_count"
+            ],
+            "eligible_evidence_count": runtime_attestation[
+                "eligible_evidence_count"
+            ],
+            "outbound_network_attempt_count": 0,
+        }
+    else:
+        audit_attestation = {
+            "read_only": True,
+            "read_snapshot": None,
+            "database_opened": False,
+            "generation": None,
+            "index_sha256": None,
+            "graph_snapshot_id": None,
+            "logical_snapshot_sha256": None,
+            "projection_sha256": None,
+            "node_count": None,
+            "edge_count": None,
+            "edge_evidence_count": None,
+            "eligible_evidence_count": None,
+            "outbound_network_attempt_count": 0,
+        }
+    return {
+        "schema_version": "0.1",
+        "record_type": server.SEMANTIC_GRAPH_EDGE_AUDIT_KEY,
+        "auditor": "cross-document-semantic-graph-independent-edge-audit",
+        "auditor_version": "0.1.0",
+        "status": "passed",
+        "verdict": "PASS",
+        "reason_code": None,
+        "diagnostic_code": None,
+        "operation": candidate["operation"],
+        "candidate_sha256": server._canonical_sha256(candidate),
+        "registration_sha256": server._canonical_sha256(registration),
+        "question_sha256": server._question_sha256(query),
+        "question_reference_date": reference_date,
+        "graph_snapshot_id": (
+            registration["graph_snapshot_id"] if database_opened else None
+        ),
+        "reconstructed_semantics_sha256": server._canonical_sha256(
+            server._deterministic_candidate_semantics(candidate)
+        ),
+        "checks": {
+            "candidate_contract": "PASS",
+            "question_classification": "PASS",
+            "registered_storage_integrity": (
+                "PASS" if database_opened else "NOT_APPLICABLE"
+            ),
+            "independent_graph_reconstruction": "PASS",
+            "candidate_semantics": "PASS",
+        },
+        "audit_attestation": audit_attestation,
+        "used_for_answers": False,
+        "allows_answer_activation": False,
     }
 
 
@@ -998,14 +1082,21 @@ class PackageTests(unittest.TestCase):
                 "used_for_answers": False,
                 "independent_edge_audit_status": "not_implemented_step4",
             },
+            server.SEMANTIC_GRAPH_EDGE_AUDIT_KEY: {
+                "status": "passed",
+                "verdict": "PASS",
+                "allows_answer_activation": False,
+            },
         })
 
         self.assertIn("候補status: accepted", notice)
         self.assertIn("使用Edge数: 4", notice)
         self.assertIn("used_for_answers: false", notice)
         self.assertIn(
-            "independent_edge_audit_status: not_implemented_step4", notice
+            "candidate_pre_audit_marker: not_implemented_step4", notice
         )
+        self.assertIn("independent_edge_audit: passed / PASS", notice)
+        self.assertIn("allows_answer_activation: false", notice)
         self.assertNotIn("candidate answer must stay hidden", notice)
 
     def test_server_rejects_candidate_that_claims_answer_authority(self) -> None:
@@ -1058,6 +1149,212 @@ class PackageTests(unittest.TestCase):
             )
             self.assertEqual("held", performance["status"])
 
+    def test_server_edge_audit_failures_are_shadow_only_and_cleaned(
+        self,
+    ) -> None:
+        server = load_server()
+        with tempfile.TemporaryDirectory() as temporary:
+            workspace = Path(temporary) / "data"
+            generation = "generation-" + "7" * 32
+            index, registration = make_server_candidate_registration(
+                server, workspace, generation
+            )
+            config = {
+                "workspace": str(workspace),
+                "active_generation": generation,
+                server.bootstrap.CROSS_DOCUMENT_STORAGE_FLAG: True,
+                server.bootstrap.CROSS_DOCUMENT_QUERY_CANDIDATE_FLAG: True,
+                server.bootstrap.CROSS_DOCUMENT_INDEPENDENT_EDGE_AUDIT_FLAG: (
+                    True
+                ),
+                server.bootstrap.CROSS_DOCUMENT_STORAGE_CONFIG_KEY: registration,
+            }
+            candidate = server._held_candidate(
+                "semantic_candidate_no_eligible_graph_edges",
+                "2026-09-04",
+            )
+            original_candidate = json.loads(json.dumps(candidate))
+            expected_request = {
+                "schema_version": "0.1",
+                "question": "question",
+                "index_path": str(index),
+                "registration": registration,
+                "question_reference_date": "2026-09-04",
+            }
+            malformed_outputs = {
+                "syntax": "{",
+                "duplicate-key": '{"schema_version":"0.1",'
+                '"schema_version":"0.1"}',
+                "non-finite": "NaN",
+            }
+
+            for name, stdout in malformed_outputs.items():
+                with self.subTest(malformed_audit_output=name):
+                    captured: dict = {}
+
+                    def malformed_run(command: list[str], **_kwargs):
+                        request_path = Path(
+                            command[command.index("--request-file") + 1]
+                        )
+                        candidate_path = Path(
+                            command[command.index("--candidate-file") + 1]
+                        )
+                        captured["request_path"] = request_path
+                        captured["request_mode"] = stat.S_IMODE(
+                            request_path.stat().st_mode
+                        )
+                        captured["request"] = json.loads(
+                            request_path.read_text(encoding="utf-8")
+                        )
+                        captured["candidate_path"] = candidate_path
+                        captured["candidate_mode"] = stat.S_IMODE(
+                            candidate_path.stat().st_mode
+                        )
+                        captured["candidate"] = json.loads(
+                            candidate_path.read_text(encoding="utf-8")
+                        )
+                        self.assertNotIn("--candidate-json", command)
+                        self.assertNotIn("--registration-json", command)
+                        self.assertNotIn("--index", command)
+                        self.assertNotIn("--reference-date", command)
+                        self.assertNotIn("question", command)
+                        return mock.Mock(stdout=stdout)
+
+                    with mock.patch.object(
+                        server.subprocess, "run", side_effect=malformed_run
+                    ):
+                        audit, performance = (
+                            server.run_semantic_graph_edge_audit(
+                                "question",
+                                config,
+                                index,
+                                candidate,
+                                "2026-09-04",
+                            )
+                        )
+                    self.assertEqual("rejected", audit["status"])
+                    self.assertEqual(
+                        "semantic_edge_audit_output_invalid",
+                        audit["diagnostic_code"],
+                    )
+                    self.assertFalse(audit["allows_answer_activation"])
+                    self.assertEqual("rejected", performance["status"])
+                    self.assertEqual(0o600, captured["request_mode"])
+                    self.assertEqual(0o600, captured["candidate_mode"])
+                    self.assertEqual(expected_request, captured["request"])
+                    self.assertEqual(candidate, captured["candidate"])
+                    self.assertFalse(captured["request_path"].exists())
+                    self.assertFalse(captured["candidate_path"].exists())
+                    self.assertEqual(original_candidate, candidate)
+
+            real_named_temporary_file = tempfile.NamedTemporaryFile
+            original_canonical_json = server._canonical_json
+            for fail_on_call in (1, 2):
+                with self.subTest(temp_write_failure=fail_on_call):
+                    created_paths: list[Path] = []
+                    canonical_calls = [0]
+
+                    def tracking_named_temporary_file(*args, **kwargs):
+                        handle = real_named_temporary_file(*args, **kwargs)
+                        created_paths.append(Path(handle.name))
+                        return handle
+
+                    def failing_canonical_json(value):
+                        canonical_calls[0] += 1
+                        if canonical_calls[0] == fail_on_call:
+                            raise OSError("injected temporary write failure")
+                        return original_canonical_json(value)
+
+                    with (
+                        mock.patch.object(
+                            server.tempfile,
+                            "NamedTemporaryFile",
+                            side_effect=tracking_named_temporary_file,
+                        ),
+                        mock.patch.object(
+                            server,
+                            "_canonical_json",
+                            side_effect=failing_canonical_json,
+                        ),
+                        mock.patch.object(server.subprocess, "run") as runner,
+                    ):
+                        audit, performance = (
+                            server.run_semantic_graph_edge_audit(
+                                "question",
+                                config,
+                                index,
+                                candidate,
+                                "2026-09-04",
+                            )
+                        )
+                    runner.assert_not_called()
+                    self.assertEqual("rejected", audit["status"])
+                    self.assertEqual(
+                        "semantic_edge_audit_runtime_failed",
+                        audit["diagnostic_code"],
+                    )
+                    self.assertEqual("rejected", performance["status"])
+                    self.assertEqual(fail_on_call, len(created_paths))
+                    self.assertTrue(
+                        all(not path.exists() for path in created_paths)
+                    )
+                    self.assertEqual(original_candidate, candidate)
+
+            for failure, diagnostic, timed_out in (
+                (
+                    subprocess.TimeoutExpired(["auditor"], timeout=1),
+                    "semantic_edge_audit_timeout",
+                    True,
+                ),
+                (
+                    subprocess.CalledProcessError(1, ["auditor"]),
+                    "semantic_edge_audit_runtime_failed",
+                    False,
+                ),
+            ):
+                with self.subTest(auditor_failure=diagnostic):
+                    captured_paths: list[Path] = []
+
+                    def failed_run(command: list[str], **_kwargs):
+                        captured_paths.append(
+                            Path(
+                                command[
+                                    command.index("--request-file") + 1
+                                ]
+                            )
+                        )
+                        captured_paths.append(
+                            Path(
+                                command[
+                                    command.index("--candidate-file") + 1
+                                ]
+                            )
+                        )
+                        raise failure
+
+                    with mock.patch.object(
+                        server.subprocess, "run", side_effect=failed_run
+                    ):
+                        audit, performance = (
+                            server.run_semantic_graph_edge_audit(
+                                "question",
+                                config,
+                                index,
+                                candidate,
+                                "2026-09-04",
+                            )
+                        )
+                    self.assertEqual("rejected", audit["status"])
+                    self.assertEqual(diagnostic, audit["diagnostic_code"])
+                    self.assertFalse(audit["used_for_answers"])
+                    self.assertFalse(audit["allows_answer_activation"])
+                    self.assertIs(performance["timed_out"], timed_out)
+                    self.assertEqual(2, len(captured_paths))
+                    self.assertTrue(
+                        all(not path.exists() for path in captured_paths)
+                    )
+                    self.assertEqual(original_candidate, candidate)
+
     def test_server_dispatches_candidate_without_changing_legacy_answer(self) -> None:
         server = load_server()
         with tempfile.TemporaryDirectory() as temporary:
@@ -1083,7 +1380,13 @@ class PackageTests(unittest.TestCase):
                 "answer": {
                     "answer": "legacy answer",
                     "answer_mode": "grounded",
-                }
+                },
+                server.SEMANTIC_GRAPH_CANDIDATE_KEY: {
+                    "status": "forged-generator-candidate",
+                },
+                server.SEMANTIC_GRAPH_EDGE_AUDIT_KEY: {
+                    "status": "forged-generator-audit",
+                },
             }
             audited_record = {
                 **generated_record,
@@ -1094,6 +1397,10 @@ class PackageTests(unittest.TestCase):
                 server.SEMANTIC_GRAPH_CANDIDATE_KEY: {
                     "status": "must-not-cross-audit-boundary",
                     "used_for_answers": True,
+                },
+                server.SEMANTIC_GRAPH_EDGE_AUDIT_KEY: {
+                    "status": "must-not-cross-audit-boundary",
+                    "allows_answer_activation": True,
                 },
             }
             candidate_question_hash = hashlib.sha256(
@@ -1220,25 +1527,72 @@ class PackageTests(unittest.TestCase):
             }
 
             def execute(current_config: dict) -> tuple[dict, list[list[str]], dict]:
-                audit_input: dict = {}
-                call_number = 0
+                captured: dict = {}
 
                 def run(command: list[str], **_kwargs):
-                    nonlocal call_number, audit_input
-                    call_number += 1
-                    if call_number == 1:
+                    executable = str(command[1])
+                    if executable.endswith("answer_local_memory_v2.py"):
                         return mock.Mock(stdout=json.dumps(generated_record))
-                    if call_number == 2:
+                    if executable.endswith("final_answer_audit.py"):
                         record_path = Path(
                             command[command.index("--record") + 1]
                         )
-                        audit_input = json.loads(
+                        captured["legacy_audit_input"] = json.loads(
                             record_path.read_text(encoding="utf-8")
                         )
                         return mock.Mock(stdout=json.dumps(audited_record))
-                    if call_number == 3:
+                    if executable.endswith(
+                        "cross_document_semantic_graph_runtime.py"
+                    ):
                         return mock.Mock(stdout=json.dumps(candidate_record))
-                    raise AssertionError("unexpected subprocess")
+                    if executable.endswith(
+                        "cross_document_semantic_graph_edge_audit.py"
+                    ):
+                        self.assertNotIn("--candidate-json", command)
+                        self.assertNotIn("--registration-json", command)
+                        self.assertNotIn("--index", command)
+                        self.assertNotIn("--reference-date", command)
+                        self.assertNotIn("question", command)
+                        request_path = Path(
+                            command[command.index("--request-file") + 1]
+                        )
+                        candidate_path = Path(
+                            command[command.index("--candidate-file") + 1]
+                        )
+                        captured["request_file_path"] = request_path
+                        captured["request_file_mode"] = stat.S_IMODE(
+                            request_path.stat().st_mode
+                        )
+                        captured["edge_request"] = json.loads(
+                            request_path.read_text(encoding="utf-8")
+                        )
+                        captured["candidate_file_path"] = candidate_path
+                        captured["candidate_file_mode"] = stat.S_IMODE(
+                            candidate_path.stat().st_mode
+                        )
+                        edge_candidate = json.loads(
+                            candidate_path.read_text(encoding="utf-8")
+                        )
+                        captured["edge_candidate"] = edge_candidate
+                        if edge_candidate == candidate_record:
+                            edge_audit = make_server_edge_audit(
+                                server,
+                                edge_candidate,
+                                registration,
+                                "question",
+                                "2026-09-04",
+                            )
+                        else:
+                            edge_audit = server._rejected_edge_audit(
+                                "test_independent_mismatch",
+                                edge_candidate,
+                                registration,
+                                "question",
+                                None,
+                            )
+                        captured["edge_audit"] = edge_audit
+                        return mock.Mock(stdout=json.dumps(edge_audit))
+                    raise AssertionError(f"unexpected subprocess: {command}")
 
                 server.bootstrap.SUPPORT = base / "support"
                 with (
@@ -1256,10 +1610,10 @@ class PackageTests(unittest.TestCase):
                 ):
                     result = server.answer_query("question")
                 commands = [call.args[0] for call in runner.call_args_list]
-                return result, commands, audit_input
+                return result, commands, captured
 
-            result, commands, audit_input = execute(config)
-            self.assertEqual(3, len(commands))
+            result, commands, captured = execute(config)
+            self.assertEqual(4, len(commands))
             self.assertNotIn("--semantic-graph-candidate", commands[0])
             self.assertTrue(commands[1][1].endswith("final_answer_audit.py"))
             self.assertTrue(
@@ -1267,13 +1621,38 @@ class PackageTests(unittest.TestCase):
                     "cross_document_semantic_graph_runtime.py"
                 )
             )
+            self.assertTrue(
+                commands[3][1].endswith(
+                    "cross_document_semantic_graph_edge_audit.py"
+                )
+            )
             self.assertEqual(
                 "2026-09-04",
                 commands[2][commands[2].index("--reference-date") + 1],
             )
             self.assertNotIn(
-                server.SEMANTIC_GRAPH_CANDIDATE_KEY, audit_input
+                server.SEMANTIC_GRAPH_CANDIDATE_KEY,
+                captured["legacy_audit_input"],
             )
+            self.assertNotIn(
+                server.SEMANTIC_GRAPH_EDGE_AUDIT_KEY,
+                captured["legacy_audit_input"],
+            )
+            self.assertEqual(
+                {
+                    "schema_version": "0.1",
+                    "question": "question",
+                    "index_path": str(index),
+                    "registration": registration,
+                    "question_reference_date": "2026-09-04",
+                },
+                captured["edge_request"],
+            )
+            self.assertEqual(candidate_record, captured["edge_candidate"])
+            self.assertEqual(0o600, captured["request_file_mode"])
+            self.assertEqual(0o600, captured["candidate_file_mode"])
+            self.assertFalse(captured["request_file_path"].exists())
+            self.assertFalse(captured["candidate_file_path"].exists())
             self.assertEqual("legacy answer", result["answer"]["answer"])
             self.assertEqual(
                 candidate_record,
@@ -1282,6 +1661,15 @@ class PackageTests(unittest.TestCase):
             self.assertFalse(
                 result[server.SEMANTIC_GRAPH_CANDIDATE_KEY][
                     "used_for_answers"
+                ]
+            )
+            self.assertEqual(
+                captured["edge_audit"],
+                result[server.SEMANTIC_GRAPH_EDGE_AUDIT_KEY],
+            )
+            self.assertFalse(
+                result[server.SEMANTIC_GRAPH_EDGE_AUDIT_KEY][
+                    "allows_answer_activation"
                 ]
             )
             self.assertTrue(
@@ -1337,9 +1725,140 @@ class PackageTests(unittest.TestCase):
                         )
                     )
 
+            valid_edge_audit = captured["edge_audit"]
+            partial_rejection = server._rejected_edge_audit(
+                "edge_audit_test_failure_after_open",
+                candidate_record,
+                registration,
+                "question",
+                "2026-09-04",
+            )
+            partial_rejection["audit_attestation"].update({
+                "read_snapshot": "single_sqlite_transaction",
+                "database_opened": True,
+                "generation": registration["generation"],
+                "index_sha256": registration["database_sha256"],
+                "outbound_network_attempt_count": 1,
+            })
+            self.assertTrue(
+                server._edge_audit_result_is_safe(
+                    partial_rejection,
+                    candidate_record,
+                    registration,
+                    "question",
+                    "2026-09-04",
+                )
+            )
+            connection_only_rejection = json.loads(
+                json.dumps(partial_rejection)
+            )
+            connection_only_rejection["audit_attestation"][
+                "read_snapshot"
+            ] = "connection_opened_no_transaction"
+            self.assertTrue(
+                server._edge_audit_result_is_safe(
+                    connection_only_rejection,
+                    candidate_record,
+                    registration,
+                    "question",
+                    "2026-09-04",
+                )
+            )
+            one_node_registration = json.loads(json.dumps(registration))
+            one_node_registration["counts"]["nodes"] = 1
+            one_node_candidate = json.loads(json.dumps(candidate_record))
+            one_node_candidate["runtime_attestation"]["node_count"] = 1
+            boolean_count_audit = make_server_edge_audit(
+                server,
+                one_node_candidate,
+                one_node_registration,
+                "question",
+                "2026-09-04",
+            )
+            boolean_count_audit["audit_attestation"]["node_count"] = True
+            self.assertFalse(
+                server._edge_audit_result_is_safe(
+                    boolean_count_audit,
+                    one_node_candidate,
+                    one_node_registration,
+                    "question",
+                    "2026-09-04",
+                )
+            )
+            invalid_edge_audits: dict[str, dict] = {}
+
+            semantics_swap = json.loads(json.dumps(valid_edge_audit))
+            semantics_swap["reconstructed_semantics_sha256"] = "0" * 64
+            invalid_edge_audits["semantics-hash-swap"] = semantics_swap
+
+            database_bypass = json.loads(json.dumps(valid_edge_audit))
+            database_bypass["audit_attestation"]["database_opened"] = False
+            invalid_edge_audits["accepted-without-database"] = database_bypass
+
+            projection_swap = json.loads(json.dumps(valid_edge_audit))
+            projection_swap["audit_attestation"]["projection_sha256"] = (
+                "0" * 64
+            )
+            invalid_edge_audits["projection-hash-swap"] = projection_swap
+
+            evidence_count_swap = json.loads(json.dumps(valid_edge_audit))
+            evidence_count_swap["audit_attestation"][
+                "eligible_evidence_count"
+            ] += 1
+            invalid_edge_audits["eligible-evidence-count-swap"] = (
+                evidence_count_swap
+            )
+
+            authority_escalation = json.loads(json.dumps(valid_edge_audit))
+            authority_escalation["allows_answer_activation"] = True
+            invalid_edge_audits["answer-authority-escalation"] = (
+                authority_escalation
+            )
+
+            candidate_hash_swap = json.loads(json.dumps(valid_edge_audit))
+            candidate_hash_swap["candidate_sha256"] = "0" * 64
+            invalid_edge_audits["candidate-hash-swap"] = candidate_hash_swap
+
+            reference_date_swap = json.loads(json.dumps(valid_edge_audit))
+            reference_date_swap["question_reference_date"] = "2026-09-05"
+            invalid_edge_audits["reference-date-swap"] = reference_date_swap
+
+            reconstruction_bypass = json.loads(json.dumps(valid_edge_audit))
+            reconstruction_bypass["checks"][
+                "independent_graph_reconstruction"
+            ] = "NOT_APPLICABLE"
+            invalid_edge_audits["reconstruction-check-bypass"] = (
+                reconstruction_bypass
+            )
+
+            negative_network_count = json.loads(json.dumps(partial_rejection))
+            negative_network_count["audit_attestation"][
+                "outbound_network_attempt_count"
+            ] = -1
+            invalid_edge_audits["negative-network-count"] = (
+                negative_network_count
+            )
+
+            for name, invalid_audit in invalid_edge_audits.items():
+                with self.subTest(edge_audit_transport_attack=name):
+                    self.assertFalse(
+                        server._edge_audit_result_is_safe(
+                            invalid_audit,
+                            candidate_record,
+                            registration,
+                            "question",
+                            "2026-09-04",
+                        )
+                    )
+
             audited_record["question_reference_date"] = "2026-09-05"
-            mismatched, commands, _audit_input = execute(config)
-            self.assertEqual(2, len(commands))
+            mismatched, commands, mismatch_capture = execute(config)
+            self.assertEqual(3, len(commands))
+            self.assertTrue(
+                commands[2][1].endswith(
+                    "cross_document_semantic_graph_edge_audit.py"
+                )
+            )
             self.assertEqual("legacy answer", mismatched["answer"]["answer"])
             self.assertEqual(
                 "semantic_candidate_reference_date_binding_invalid",
@@ -1347,6 +1866,17 @@ class PackageTests(unittest.TestCase):
                     "diagnostic_code"
                 ],
             )
+            self.assertEqual(
+                "rejected",
+                mismatched[server.SEMANTIC_GRAPH_EDGE_AUDIT_KEY]["status"],
+            )
+            self.assertFalse(
+                mismatched[server.SEMANTIC_GRAPH_EDGE_AUDIT_KEY][
+                    "allows_answer_activation"
+                ]
+            )
+            self.assertFalse(mismatch_capture["request_file_path"].exists())
+            self.assertFalse(mismatch_capture["candidate_file_path"].exists())
             audited_record["question_reference_date"] = "2026-09-04"
 
             disabled = {
@@ -1359,11 +1889,39 @@ class PackageTests(unittest.TestCase):
             self.assertNotIn(
                 server.SEMANTIC_GRAPH_CANDIDATE_KEY, result
             )
+            self.assertNotIn(server.SEMANTIC_GRAPH_EDGE_AUDIT_KEY, result)
             self.assertEqual(
                 "feature_disabled",
                 result["pipeline_performance"]["semantic_graph_candidate"][
                     "eligibility_reason"
                 ],
+            )
+            self.assertEqual(
+                "candidate_absent",
+                result["pipeline_performance"][
+                    "semantic_graph_independent_edge_audit"
+                ]["eligibility_reason"],
+            )
+
+            audit_disabled = {
+                **config,
+                server.bootstrap.CROSS_DOCUMENT_INDEPENDENT_EDGE_AUDIT_FLAG: (
+                    False
+                ),
+            }
+            result, commands, _captured = execute(audit_disabled)
+            self.assertEqual(3, len(commands))
+            self.assertEqual("legacy answer", result["answer"]["answer"])
+            self.assertEqual(
+                candidate_record,
+                result[server.SEMANTIC_GRAPH_CANDIDATE_KEY],
+            )
+            self.assertNotIn(server.SEMANTIC_GRAPH_EDGE_AUDIT_KEY, result)
+            self.assertEqual(
+                "feature_disabled",
+                result["pipeline_performance"][
+                    "semantic_graph_independent_edge_audit"
+                ]["eligibility_reason"],
             )
 
     def test_server_candidate_timeout_holds_only_observer(self) -> None:
@@ -1424,6 +1982,13 @@ class PackageTests(unittest.TestCase):
                     "timed_out"
                 ]
             )
+            edge_audit = result[server.SEMANTIC_GRAPH_EDGE_AUDIT_KEY]
+            self.assertEqual("rejected", edge_audit["status"])
+            self.assertEqual(
+                "semantic_edge_audit_timeout",
+                edge_audit["diagnostic_code"],
+            )
+            self.assertFalse(edge_audit["allows_answer_activation"])
 
     def test_dawn_thirteen_count_is_unchanged_for_non_applicable_candidate(
         self,
@@ -1450,6 +2015,10 @@ class PackageTests(unittest.TestCase):
             legacy = {
                 "answer": {"answer": "13回です", "answer_mode": "grounded"}
             }
+            question = (
+                "2026年8月、分身ロボットカフェDAWNでは"
+                "何回稼働していましたか？"
+            )
             candidate = {
                 "schema_version": "0.1",
                 "record_type": server.SEMANTIC_GRAPH_CANDIDATE_KEY,
@@ -1486,13 +2055,49 @@ class PackageTests(unittest.TestCase):
             }
             call_number = 0
 
-            def run(_command: list[str], **_kwargs):
+            def run(command: list[str], **_kwargs):
                 nonlocal call_number
                 call_number += 1
                 if call_number in {1, 2}:
                     return mock.Mock(stdout=json.dumps(legacy))
                 if call_number == 3:
                     return mock.Mock(stdout=json.dumps(candidate))
+                if call_number == 4:
+                    request_path = Path(
+                        command[command.index("--request-file") + 1]
+                    )
+                    candidate_path = Path(
+                        command[command.index("--candidate-file") + 1]
+                    )
+                    observed_request = json.loads(
+                        request_path.read_text(encoding="utf-8")
+                    )
+                    observed_candidate = json.loads(
+                        candidate_path.read_text(encoding="utf-8")
+                    )
+                    self.assertEqual(question, observed_request["question"])
+                    self.assertEqual(str(index), observed_request["index_path"])
+                    self.assertEqual(
+                        registration, observed_request["registration"]
+                    )
+                    self.assertIsNone(
+                        observed_request["question_reference_date"]
+                    )
+                    self.assertEqual(candidate, observed_candidate)
+                    self.assertNotIn("--index", command)
+                    self.assertNotIn("--registration-json", command)
+                    self.assertNotIn("--reference-date", command)
+                    self.assertNotIn(question, command)
+                    return mock.Mock(
+                        stdout=json.dumps(
+                            make_server_edge_audit(
+                                server,
+                                observed_candidate,
+                                registration,
+                                question,
+                            )
+                        )
+                    )
                 raise AssertionError("unexpected subprocess")
 
             server.bootstrap.SUPPORT = base / "support"
@@ -1503,17 +2108,21 @@ class PackageTests(unittest.TestCase):
                 mock.patch.object(server.bootstrap, "start_ollama"),
                 mock.patch.object(server.subprocess, "run", side_effect=run),
             ):
-                result = server.answer_query(
-                    "2026年8月、分身ロボットカフェDAWNでは"
-                    "何回稼働していましたか？"
-                )
+                result = server.answer_query(question)
 
-            self.assertEqual(3, call_number)
+            self.assertEqual(4, call_number)
             self.assertEqual("13回です", result["answer"]["answer"])
             observed = result[server.SEMANTIC_GRAPH_CANDIDATE_KEY]
             self.assertEqual("not_applicable", observed["status"])
             self.assertFalse(observed["trace"]["database_opened"])
             self.assertFalse(observed["used_for_answers"])
+            edge_audit = result[server.SEMANTIC_GRAPH_EDGE_AUDIT_KEY]
+            self.assertEqual("passed", edge_audit["status"])
+            self.assertEqual("PASS", edge_audit["verdict"])
+            self.assertFalse(
+                edge_audit["audit_attestation"]["database_opened"]
+            )
+            self.assertFalse(edge_audit["allows_answer_activation"])
 
     def test_server_candidate_bug_cannot_replace_audited_answer(self) -> None:
         server = load_server()
@@ -1582,9 +2191,17 @@ class PackageTests(unittest.TestCase):
         )
         for name in (
             "bootstrap.py", "claim_graph_validator.py", "final_answer_audit.py",
+            "cross_document_semantic_graph_edge_audit.py",
             "local_memory_server.py", "launch.sh",
         ):
             self.assertIn(name, app_copy)
+        self.assertTrue(
+            (
+                ROOT
+                / "app"
+                / "cross_document_semantic_graph_edge_audit.py"
+            ).is_file()
+        )
         for name in (
             "build_intermediate_records.py", "probe_intermediate_records.py",
             "evidence_text_chunking.py",

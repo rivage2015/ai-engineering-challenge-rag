@@ -1,6 +1,6 @@
 # Local Memory Search macOS package
 
-> **開発マイルストーン:** Cross-document Semantic Graph — Query candidate v0.3
+> **開発マイルストーン:** Cross-document Semantic Graph — Independent Edge audit v0.4 (shadow-only)
 >
 > **配布状態:** source integrated / current DMG is still Storage-only v0.2
 
@@ -37,7 +37,8 @@ PaddleOCRを使うには、固定されたPython 3.12環境と照合済みモデ
 - shadow graphは`index_path`、検索、回答、最終監査へ渡さず、`used_for_index=false`、`used_for_answers=false`として観測する。空グラフ、契約不一致、timeoutなどはshadowだけを`held`にし、公開済みsafe-answer indexと回答提供を止めない。したがって、この段階では本番データで意味グラフを生成・測定できるが、回答にはまだ利用しない。
 - shadow検証合格後、`cross_document_semantic_graph_storage_enabled=true`の場合だけ、先に公開した元safe-answer indexをSQLite backup APIで`05-semantic-answer-index.building/`へコピーし、名前空間を分けた`semantic_graph_*`表に検証済みgraphを保存する。元indexのEvidence・embedding・従来Graphの不変性とContent Security結合を再検査し、合格後だけ`05-semantic-answer-index/`として確定し、CONFIGの`index_path`とstorage登録を切り替える。
 - Step 2のsemantic graphは保存-onlyであり、`retrieval_enabled=false`、`used_for_answers=false`を維持する。Step 3では従来の計画・検索・Gemma回答・最終監査が完了した後だけ、実質問を別プロセスのquery candidateへ複製する。新SQLiteの`semantic_graph_nodes`、`semantic_graph_edges`、`semantic_graph_edge_evidence`を1 read transactionで検証・走査し、候補回答、使用Edge、support Evidence、HOLD理由を監査済み回答記録へ後付けする。query candidateの情報は最終監査の入力にしない。
-- query candidateは`cross_document_semantic_graph_query_candidate_enabled=false`で即時停止できる。停止時はcandidate runtimeを起動せず、非対象質問ではsemantic SQLiteを開かない。どちらも既存回答経路だけを使う。候補は常に`used_for_answers=false`、`independent_edge_audit_status=not_implemented_step4`であり、Step 4がEdge走査を独立再構築して合格させるまではユーザー回答へ昇格しない。
+- query candidateは`cross_document_semantic_graph_query_candidate_enabled=false`で即時停止できる。停止時はcandidate runtimeを起動せず、非対象質問ではsemantic SQLiteを開かない。どちらも既存回答経路だけを使う。候補は常に`used_for_answers=false`であり、Step 4aの独立Edge監査が合格してもまだユーザー回答へは昇格しない。
+- Step 4aは`cross_document_semantic_graph_edge_audit.py`を別プロセスで実行し、candidateが申告した使用Edgeとsupport Evidenceを信頼せず、保存済みSQLiteから決定論的に再構築して照合する。監査結果もshadow-onlyで、既存の回答本文と最終採否には使わない。`cross_document_semantic_graph_independent_edge_audit_enabled=false`で独立監査だけを即時停止でき、明示した`false`は再構築と中断復旧でも維持する。回答への昇格は次の別ゲートであり、現在も無効のままとする。
 - 世代にbuild IDとowner PIDを持たせ、起動時に中断を判定する。未公開の中断世代だけを整理して再実行へ案内し、公開済み世代はreadyに復旧する。
 - SQLite safe-answer index schema `0.3`は、検証済みの`graph_nodes`と`graph_edges`、Graph hash、安全partitionを埋め込みと同じ未公開DBへ書き、全検査成功後だけ`graph_status=validated_safe_partition`、`graph_retrieval_enabled=true`として原子的に公開する。prompt-library indexは`schema_only`のまま回答には使わない。
 - semantic validatorはSearchUnitとLayer 1 Evidenceから`derived_from`を独立再構築し、完全なfan-inだけを`semantic-lineage-relations.jsonl`へ昇格する。長文shardや未投影binaryを含むfan-inは理由付きで保留する。
@@ -89,4 +90,12 @@ Step 2が合格すると、同じ公開世代の`05-semantic-answer-index/`に�
 
 Step 3では、validated storage-only登録のDB・state・元indexのパス、hash、snapshot ID、件数、世代を再検査できた場合だけ、既存の最終監査後に実際の質問を`cross_document_semantic_graph_runtime.py`へ複製します。対応済みなのは、時点付き担当者、担当交代、承認済み版変更の3操作です。担当者質問の「5年前」のような正確な単一相対年は、従来回答が記録し最終監査後も一致した`question_reference_date`だけを実行基準日に使い、同じ基準日を候補traceとrun IDへ結合します。「約5年前」「5〜6年前」「5年前から」などの近似・範囲・境界表現と、担当交代／版変更へ質問時点を付ける組合せは、時点を黙って無視せず候補を`HOLD`にします。誤った一点化を避けるため、候補として受理する質問面は`Project名 -> Work名 -> 正確な時点句 -> 担当者質問`、または各非時点操作の限定文法へ固定し、それ以外の日本語表現は推測せず`HOLD`にします。現段階では質問文だけからProjectとWorkを一意に決められる必要があり、「この業務」のような前会話の指示対象を引き継ぐ処理は未実装です。Node／Edge／support Evidenceと各hashを再検査し、必要Edgeを辿った候補結果を回答JSONの`cross_document_semantic_graph_query_candidate`へ記録します。Edge不足、競合、改ざん、基準日の不一致、登録不一致は通常検索で補わず、候補側だけを`HOLD`にします。
 
-これは本番質問上のdual-run観測であり、候補の`answer_text`を画面の回答として表示しません。画面には候補status、使用Edge数、`used_for_answers=false`、独立Edge監査が未実装であることだけを表示します。別プロセスはデフォルト30秒上限（設定可能範囲1〜120秒）で、timeout・起動失敗・不正出力は候補側だけを`HOLD`にし、監査済みの既存回答は変えません。Step 4完了前なので、現在のDMG／ZIPは再生成していません。
+これは本番質問上のdual-run観測であり、候補の`answer_text`を画面の回答として表示しません。画面には候補status、使用Edge数、`used_for_answers=false`と独立Edge監査の観測結果だけを表示します。候補・独立監査の各別プロセスはデフォルト30秒上限（設定可能範囲1〜120秒）で、timeout・起動失敗・不正出力は候補側なら`HOLD`、独立監査側なら`REJECT`とし、監査済みの既存回答は変えません。
+
+## Cross-document independent Edge audit
+
+Step 4aはquery candidateの後に、候補と同じ質問・基準日・登録済みstorageを使い、別プロセスで必要Edge、support Evidence、回答値を独立再構築します。candidate申告と完全一致した場合だけ監査を`PASS`とし、Edge不足・競合・改ざん・バインド不一致・監査プロセスの異常は独立監査を`REJECT`にします。候補も既存回答も変更しません。
+
+この段階は**shadow-only**です。独立監査が`PASS`でも`used_for_answers=false`を維持し、既存のGemma回答と最終採否は変更しません。回答への昇格は別の次ゲートで、その実装と評価は未実施です。独立監査だけのrollbackは`cross_document_semantic_graph_independent_edge_audit_enabled=false`です。現在のDMG／ZIPはStep 4aを含む再生成を行っておらず、Storage-only v0.2のままです。
+
+Step 4aの改ざん検出は、CONFIGに登録されたhashとDB・state・元indexの一致を信頼根とします。これら全成果物をローカル管理者が自己整合的に一括書き換える攻撃は現段階の脅威範囲外です。将来、独立監査の合格を回答へ昇格する前に、別保管したroot hashまたは署名済みmanifestを追加する必要があります。
