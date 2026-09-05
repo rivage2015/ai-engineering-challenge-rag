@@ -1,8 +1,8 @@
 # Local Memory Search macOS package
 
-> **開発マイルストーン:** Cross-document Semantic Graph — Answer promotion v0.5 (source)
+> **開発マイルストーン:** Local visual Reader / OCR scheduling v0.6（Answer promotion v0.5を含む）
 >
-> **配布状態:** Answer promotion v0.5 / unsigned DMG and ZIP regenerated locally
+> **配布状態:** app version 0.6 / unsigned DMG and ZIP regenerated locally
 
 非技術者向けの未署名macOS試作パッケージです。GitHubの操作は不要です。
 
@@ -14,19 +14,33 @@
 
 生成物:
 
-- `deliverables/Local-Memory-Search-macOS-unsigned.dmg`
-- `deliverables/Local-Memory-Search-macOS-unsigned.zip`
-- `deliverables/Local-Memory-Search-macOS-unsigned.sha256.txt`
+- `deliverables/Local-Memory-Search-v0.6-macOS-unsigned.dmg`
+- `deliverables/Local-Memory-Search-v0.6-macOS-unsigned.zip`
+- `deliverables/Local-Memory-Search-v0.6-macOS-unsigned.sha256.txt`
 
-app bundleの表示版は`0.5`、build番号は`5`です。checksumにはファイル名だけを記録し、ビルドしたMacのローカルパスを含めません。生成後は次でDMGとZIPをまとめて照合できます。
+app bundleの表示版は`0.6`、build番号は`6`です。checksumにはファイル名だけを記録し、ビルドしたMacのローカルパスを含めません。生成後は次でDMGとZIPをまとめて照合できます。
 
 ```bash
-(cd deliverables && /usr/bin/shasum -a 256 -c Local-Memory-Search-macOS-unsigned.sha256.txt)
+(cd deliverables && /usr/bin/shasum -a 256 -c Local-Memory-Search-v0.6-macOS-unsigned.sha256.txt)
 ```
 
 DMGにはユーザーデータ、既存索引、回答ログ、モデル本体を含めません。PaddleOCRについても、workerと固定版ロック・モデル照合manifestのみを含み、Python仮想環境、wheel、cache、モデルバイナリは同梱しません。
 
 PaddleOCRを使うには、固定されたPython 3.12環境と照合済みモデルの一回限りの別途ローカル導入が必要です。導入されていない場合は、PaddleOCRは自動取得せず利用不可として停止します。導入後の推論はローカルで実行し、72依存のlock、2モデルのhash、CPU実行設定が一致しなければfail-closedに停止します。workerは暗黙のdownloadを持たず、macOSの`deny network` sandboxとPython socket guardの二重で推論中のIP通信を禁止します。
+
+### Step 8 OCR高速化（実装・実機受入・配布再ビルド済み）
+
+現行の精度設定による実画像の再測定は`23.556〜23.761秒`、peak child RSSは参考値約`7.6 GiB`で、Paddle推論が主な所要時間でした。1600 pxへの縮小は認識文字列が変わるため不採用です。全engineの無条件並行実行も`17.625秒`まで短縮する一方でpeak child RSSが参考値約`11.54 GiB`へ増え、24 GB MacでGemmaと併用する余裕を損なうため採用しません。
+
+実装は、1 build中に同時に最大1つのPaddle workerだけを持ち、同一文書内の連続するOCR要求でmodel初期化を再利用します。同じcanonical画像バイト列と処理fingerprintに対する成功結果だけを最大32件・16 MiBの範囲でbuild内memo化します。sessionとmemoはbuild中維持しますが、native workerは各文書のGemma phase前に解放するため、別文書では必要に応じて再初期化します。失敗・timeout・不正出力は再利用せず、各出現箇所のsource locatorとprovenanceは個別に保持します。
+
+本番buildは1文書ごとに「全画像のOCR → Paddle解放 → Gemma観測 → Document確定」の順で動きます。一時画像はSHA-256とsizeで固定したprivate spoolへ保存し、改ざん・symlink・materialization不一致は文書単位でrollbackします。Gemma単体の失敗と20 MiB入力上限では、座標付きOCRを捨てず`partial`にします。座標付きOCRが0行の場合の全画像転記だけは、従来どおりその場でGemmaを使う例外経路です。
+
+`local_visual_observation` runnerは`0.3.0`です。各観測をkill可能な隔離child processで実行し、画像変換、推論、通信、応答検証を1つのabsolute execution deadlineで制限します。timeout後のTERM→KILL・reapには最大1.25秒のcleanup猶予を別枠で持ち、timeout、割り込み、異常終了、またはreap未確認ではprocess-global latchを立てて、同じprocess内で後続のローカル視覚観測やPaddle再起動を行いません。Ollama応答はstrict JSON、完了状態、assistant role、tool call不在、推論前後で同一のmodel digestを確認します。worker応答は一時fileへ受け、2 MiB以下を確認してから読みます。0.5秒timeoutの実機故障注入では`0.504891秒`で停止し、残留workerは0、後続Paddle再起動は拒否されました。
+
+2026-09-05の実機受入では、同一画像の初回が`20.465秒`、同一build内の2回目が`4.201秒`で、timing以外の意味signatureは一致しました。最新の異なる画像2枚の再受入ではOCR全体が`8.615324秒 / 6.005938秒`で、同じPaddle PIDを使い、2枚目は`setup_ms=0 / pipeline_reused=true / cache_hit=false`でした。Paddle解放後のGemma観測は`83.383064秒`、対象プロセスのpeak RSS監視値はPaddle `4.212 GiB`、Gemma `7.964 GiB`です。原画像hashは不変で、外部通信・download・終了後のPaddle残留はいずれも0でした。
+
+同じ2画像を埋め込んだDOCXを本番builderで処理した結果は`178.971597秒`、Document 1件、Evidence 20件、Relation 20件、OCR 14行、Gemma視覚Evidence 2件で、親Evidence・入力hashの結合とDraft 2020-12 streaming validatorが合格しました。対象プロセスのpeak RSS監視値はPaddle `4.14 GiB`、Ollama `8.543 GiB`です。重複画像と初期化の費用は削減できましたが、初出画像のPaddle推論とGemma推論は引き続き主な所要時間です。
 
 ## 設計上の境界
 
@@ -34,12 +48,20 @@ PaddleOCRを使うには、固定されたPython 3.12環境と照合済みモデ
 - パス棚卸し→形式・領域別Reader→位置付きEvidence→関係を保つSearchUnit→コンテンツ安全分離→安全索引の順で作る。
 - Validatorは処理の目的ではなく、読取りの欠落や不確実性を見つけ、次のReader・再読・留保へ分岐させるために使う。
 - XLSXはセル位置と数式をnative構造から読む。画像はApple Visionと、利用可能な場合のTesseractをローカルで切り替える。
+- DOCX・XLSX・PPTXは、追加のPythonパッケージがないMacでも標準ライブラリOOXML fallbackを使う。本文・表・スライド順・対応図表・明示SmartArtは保持し、高度書式、変更履歴、継承レイアウト、グループ座標などの未解決部分は`partial`と理由を残す。暗号化Officeの復号だけは別途`msoffcrypto-tool`が必要となる。
 - 画像の独立した複数観測の一致は高信頼、単独観測や同一engine内の一致は暫定とする。位置付きOCRが空な場合は導入済みGemmaの座標なし全体文字起こしも暫定で残し、暫定Evidenceだけの確定回答を機械検証で停止する。
+- Step 7のsource実装では、PDFをページ単位でローカル描画し、スキャンPDFとPDF内の写真・図表を既存OCRへ渡す。DOCX、XLSX、PPTX、NotebookのPNG/JPEG/TIFF/BMP埋め込み画像も元ファイル、ページ・スライド・セル・member、materialization hashへ結合したまま同じ経路へ渡す。ただしOffice・Notebook埋め込み画像のraw bytesは表示representation・crop・透過・transformを再現していないため、OCRが複数方式で一致しても`[暫定読取]`へ降格し、確定グラフの根拠から除外する。
+- XLSX・PPTXの表示用関係パーツから正規の祖先経路で到達できるネイティブグラフは、グラフXMLのhash、元パーツ、relationship IDと保存済みラベル/値cacheを`verified_ooxml_chart_cache`として検索化する。この`verified`は出典結合と構造検証を意味し、Officeでの最新再計算やcache内容の業務上の正しさまで保証しない。cache欠落や長さ不一致は`partial`にする。DOCX内のネイティブグラフ構造はまだ対応外である。
+- PPTX SmartArtはスライドと明示的に結合したdiagram dataのテキスト要素と、ファイル内の`srcId`/`destId`接続を保持する。接続typeの意味、因果、階層は推定せず、IDの重複・欠落や端点不解決は`partial`にする。
+- `gemma4:12b`による質問非依存の視覚観測は、見える対象、明示ラベル、明示関係、文字で明記されたラベル付き値だけを保存する。全行を`[暫定読取]`に固定し、検索可能なEvidenceにはするが、cross-document semantic graph builderはNode/Edge生成から除外する。表示対象そのものを検証済みラスタにした単体画像・PDFページでは、独立したOCR方式が位置と文字で一致した`high`だけを確定グラフの候補根拠にできる。
+- PDFKit/JXA描画、Apple Vision/Tesseract/PaddleOCR、Ollama/Gemma推論はMac内またはloopbackだけで実行し、原本と画像を外部APIへアップロードしない。初回のPython/Ollama/モデル導入には別途ダウンロードが必要だが、導入後の読取りと質問回答はローカル完結とする。
+- 対応外画像、OCR/VLM/cacheの不足、PDFまたは埋め込み画像の件数・容量・画素数・時間の安全上限到達は`partial`と理由を保持する。Officeのスライド/ページ/シート全体の視覚レンダリング、SmartArtの意味解釈、独立した転記/視覚観測/融合Agentの完全経路は未実装。
 - XLSXの数式は式とファイル保存時の値を別Evidenceで保持し、未再計算であることを明記してcell/rowの両検索経路へ渡す。
 - 長い抽出結果は全形式共通のsemantic境界で1,600文字以下のexact shardへ置き換え、hashと文字offsetで全文復元を検証する。埋め込みや回答監査でpacketの後半を黙って切らない。
 - AIを読取に使ったかはLayer 1 Evidenceのprovenanceから派生し、semantic stateの申告とvalidatorで照合する。
-- 初回はReader/security検証後にモデルを取得し、Gemmaが新規取得され画像がある場合だけ、別の空ディレクトリでsemantic/securityを再構築・再検証してから公開する。
+- 初回はReader/security検証後にモデルを取得し、Gemmaが新規取得され画像、PDF、対応Office・Notebook containerがある場合だけ、別の空ディレクトリでsemantic/securityを再構築・再検証してから公開する。
 - 最終Reader/security世代から従来のsafe-answer indexを先に原子的公開する。その後、`cross_document_semantic_graph_shadow_enabled=true`の場合だけ、同じ世代の`04-semantic-graph-shadow/`へcross-document semantic graphを生成する。候補ディレクトリ内のSQLite・全Evidence/Node/Edge hashに加え、Content Security Gateと全6出力を入力から再生成して照合し、合格後だけディレクトリ単位で確定する。
+- 公開したReader世代は、実行コード・Schema・処理fingerprint・全中間成果物のhashに結合したcontractをCONFIGへ登録する。アプリ更新後に旧世代と現行Readerが異なる場合は、旧索引での回答を維持したまま`reader_migration_required`と明示的な再構築導線を表示し、モデル取得を含む自動再構築は行わない。
 - shadow graphは`index_path`、検索、回答、最終監査へ渡さず、`used_for_index=false`、`used_for_answers=false`として観測する。空グラフ、契約不一致、timeoutなどはshadowだけを`held`にし、公開済みsafe-answer indexと回答提供を止めない。したがって、この段階では本番データで意味グラフを生成・測定できるが、回答にはまだ利用しない。
 - shadow検証合格後、`cross_document_semantic_graph_storage_enabled=true`の場合だけ、先に公開した元safe-answer indexをSQLite backup APIで`05-semantic-answer-index.building/`へコピーし、名前空間を分けた`semantic_graph_*`表に検証済みgraphを保存する。元indexのEvidence・embedding・従来Graphの不変性とContent Security結合を再検査し、合格後だけ`05-semantic-answer-index/`として確定し、CONFIGの`index_path`とstorage登録を切り替える。
 - Step 2のsemantic graphは保存-onlyであり、`retrieval_enabled=false`、`used_for_answers=false`を維持する。Step 3では従来の計画・検索・Gemma回答・最終監査が完了した後だけ、実質問を別プロセスのquery candidateへ複製する。新SQLiteの`semantic_graph_nodes`、`semantic_graph_edges`、`semantic_graph_edge_evidence`を1 read transactionで検証・走査し、候補回答、使用Edge、support Evidence、HOLD理由を監査済み回答記録へ後付けする。query candidateの情報は最終監査の入力にしない。
@@ -119,4 +141,4 @@ trust manifestは同じ世代の保存用SQLite、storage state、元safe-answer
 
 `cross_document_semantic_graph_answer_promotion_enabled=false`にすると、次の質問から意味グラフ回答への昇格を停止し、従来の監査済み回答だけに戻ります。意味グラフの生成・保存・candidate・独立監査も含めて完全停止するには、それぞれの`cross_document_semantic_graph_*_enabled`も`false`にします。新規設定は昇格を`true`で作成します。既存設定に昇格keyがない場合は自動で有効化せず、画面の明示的な再構築案内から再構築した時点で`true`へ移行します。既存の明示的な`false`は再構築と中断復旧でも維持します。
 
-現在のソースとローカル生成済みDMG／ZIPはAnswer promotion v0.5です。DMG内appはadhoc署名で、Apple Developer IDによる署名・公証は行っていません。macOS実機のlogin Keychainでの発行・復旧試験も未実施です。
+現在のソースとローカル生成済みDMG／ZIPは、app版`0.6`／build `6`です。Step 7・Step 8のsource変更を含みます。DMG内appはadhoc署名で、Apple Developer IDによる署名・公証は行っていません。macOS実機のlogin Keychainでの発行・復旧試験も未実施です。

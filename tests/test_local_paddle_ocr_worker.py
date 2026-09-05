@@ -152,8 +152,8 @@ class LocalPaddleOCRWorkerTests(unittest.TestCase):
                     return self
 
             image_module = types.ModuleType("PIL.Image")
-            image_module.open = lambda path: (
-                captured.setdefault("input", Path(path)),
+            image_module.open = lambda stream: (
+                captured.setdefault("input_bytes", stream.read()),
                 FakeImageValue(),
             )[1]
             pil_module = types.ModuleType("PIL")
@@ -231,7 +231,8 @@ class LocalPaddleOCRWorkerTests(unittest.TestCase):
             self.assertFalse(result["external_network_used"])
             self.assertFalse(result["downloads_performed"])
             self.assertEqual(output.stat().st_mode & 0o777, 0o600)
-            self.assertEqual(captured["input"], source.resolve())
+            self.assertEqual(captured["input_bytes"], b"image-bytes")
+            self.assertEqual(source.read_bytes(), b"image-bytes")
             self.assertEqual(captured["image_mode"], "RGB")
             self.assertEqual(captured["predict_input"], "rgb-array")
             kwargs = captured["kwargs"]

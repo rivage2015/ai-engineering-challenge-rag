@@ -133,12 +133,12 @@ class PaddleImageProvenanceTests(unittest.TestCase):
             "paddleocr",
         )
 
-    def test_honest_paddle_provenance_uses_reader_v05(self) -> None:
+    def test_honest_paddle_provenance_uses_reader_v070(self) -> None:
         probe = self.extract_observation(self.honest_line())
 
         self.assertEqual(
             probe.documents[0]["extraction"]["parser"],
-            "adaptive-local-image-reader-v0.5",
+            "adaptive-local-image-reader-v0.7.0",
         )
         ocr_line = next(
             item for item in probe.evidence if item["evidence_type"] == "ocr_line"
@@ -199,8 +199,8 @@ class PaddleImageProvenanceTests(unittest.TestCase):
             json.dumps(state) + "\n", encoding="utf-8"
         )
 
-        self.assertEqual(probe_records.EXTRACTOR_VERSION, "0.6.0")
-        self.assertEqual(builder.EXTRACTOR_VERSION, "0.9.0")
+        self.assertEqual(probe_records.EXTRACTOR_VERSION, "0.7.1")
+        self.assertEqual(builder.EXTRACTOR_VERSION, "0.11.0")
         with self.assertRaisesRegex(ValueError, "resume mismatch for extractor_version"):
             builder.load_state(output, self.root, None)
 

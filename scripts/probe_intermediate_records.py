@@ -15,9 +15,15 @@ import hashlib
 import io
 import json
 import mimetypes
+import os
 import posixpath
 import re
+import shutil
+import stat
+import tempfile
+import time
 import unicodedata
+import urllib.parse
 import zipfile
 from datetime import date, datetime, timezone
 from pathlib import Path, PurePosixPath
@@ -32,7 +38,7 @@ from evidence_text_chunking import (
 
 SCHEMA_VERSION = "0.1"
 EXTRACTOR = "intermediate-record-probe"
-EXTRACTOR_VERSION = "0.6.0"
+EXTRACTOR_VERSION = "0.7.1"
 FORMULA_CACHED_VALUE_STATUS = "stored_in_file_not_recalculated"
 
 PLAIN_TEXT_SUFFIXES = {
@@ -43,6 +49,7 @@ OCR_QUALITY_BY_AGREEMENT = {
     "independent_agreement": "high",
     "same_engine_agreement": "provisional",
     "provisional_single_pass": "provisional",
+    "display_transform_unresolved": "provisional",
 }
 PROVISIONAL_OCR_MARKER = "[暫定読取]"
 OCR_BBOX_COORDINATE_SYSTEMS = {
@@ -71,7 +78,109 @@ MAX_OOXML_ZIP_ENTRIES = 10_000
 MAX_OOXML_MEMBER_BYTES = 128 * 1024 * 1024
 MAX_OOXML_TOTAL_BYTES = 512 * 1024 * 1024
 MAX_OOXML_COMPRESSION_RATIO = 500.0
+MAX_EMBEDDED_VISUALS_PER_DOCUMENT = 128
+MAX_EMBEDDED_VISUAL_BYTES_PER_DOCUMENT = 256 * 1024 * 1024
+MAX_EMBEDDED_VISUAL_SECONDS_PER_DOCUMENT = 900.0
+VISUAL_OBSERVATION_MODES = {
+    "immediate",
+    "deferred_per_document",
+    "suppressed",
+}
+MAX_DEFERRED_VISUAL_TASKS = 128
+MAX_DEFERRED_VISUAL_SPOOL_BYTES = 256 * 1024 * 1024
 OOXML_FORBIDDEN_XML = (b"<!DOCTYPE", b"<!ENTITY")
+OOXML_DOCUMENT_RELATIONSHIP_NAMESPACES = {
+    "http://schemas.openxmlformats.org/officeDocument/2006/relationships",
+    "http://purl.oclc.org/ooxml/officeDocument/relationships",
+}
+OOXML_PACKAGE_RELATIONSHIP_NAMESPACES = {
+    "http://schemas.openxmlformats.org/package/2006/relationships",
+    "http://purl.oclc.org/ooxml/package/relationships",
+}
+OOXML_PRESENTATION_NAMESPACES = {
+    "http://schemas.openxmlformats.org/presentationml/2006/main",
+    "http://purl.oclc.org/ooxml/presentationml/main",
+}
+OOXML_SPREADSHEET_NAMESPACES = {
+    "http://schemas.openxmlformats.org/spreadsheetml/2006/main",
+    "http://purl.oclc.org/ooxml/spreadsheetml/main",
+}
+OOXML_WORDPROCESSING_NAMESPACES = {
+    "http://schemas.openxmlformats.org/wordprocessingml/2006/main",
+    "http://purl.oclc.org/ooxml/wordprocessingml/main",
+}
+OOXML_DRAWING_NAMESPACES = {
+    "http://schemas.openxmlformats.org/drawingml/2006/main",
+    "http://purl.oclc.org/ooxml/drawingml/main",
+}
+OOXML_DRAWING_TABLE_URIS = {
+    "http://schemas.openxmlformats.org/drawingml/2006/table",
+    "http://purl.oclc.org/ooxml/drawingml/table",
+}
+OOXML_CHART_NAMESPACES = {
+    "http://schemas.openxmlformats.org/drawingml/2006/chart",
+    "http://purl.oclc.org/ooxml/drawingml/chart",
+}
+OOXML_DIAGRAM_NAMESPACES = {
+    "http://schemas.openxmlformats.org/drawingml/2006/diagram",
+    "http://purl.oclc.org/ooxml/drawingml/diagram",
+}
+OOXML_SPREADSHEET_DRAWING_NAMESPACES = {
+    "http://schemas.openxmlformats.org/drawingml/2006/spreadsheetDrawing",
+    "http://purl.oclc.org/ooxml/drawingml/spreadsheetDrawing",
+}
+OOXML_RELATIONSHIP_CARRIER_NAMESPACES = (
+    OOXML_PRESENTATION_NAMESPACES
+    | OOXML_SPREADSHEET_NAMESPACES
+    | OOXML_WORDPROCESSING_NAMESPACES
+    | OOXML_DRAWING_NAMESPACES
+    | OOXML_CHART_NAMESPACES
+    | OOXML_DIAGRAM_NAMESPACES
+    | OOXML_SPREADSHEET_DRAWING_NAMESPACES
+    | {"urn:schemas-microsoft-com:vml", "urn:schemas-microsoft-com:office:office"}
+)
+OOXML_RELATIONSHIP_CARRIERS: dict[tuple[str, str], frozenset[str]] = {}
+for _namespace in OOXML_DRAWING_NAMESPACES:
+    OOXML_RELATIONSHIP_CARRIERS.update({
+        (_namespace, "blip"): frozenset({"embed", "link"}),
+        (_namespace, "hlinkClick"): frozenset({"id"}),
+        (_namespace, "hlinkHover"): frozenset({"id"}),
+    })
+for _namespace in OOXML_CHART_NAMESPACES:
+    OOXML_RELATIONSHIP_CARRIERS[(_namespace, "chart")] = frozenset({"id"})
+for _namespace in OOXML_DIAGRAM_NAMESPACES:
+    OOXML_RELATIONSHIP_CARRIERS[(_namespace, "relIds")] = frozenset(
+        {"dm", "lo", "qs", "cs"}
+    )
+for _namespace in OOXML_PRESENTATION_NAMESPACES:
+    OOXML_RELATIONSHIP_CARRIERS.update({
+        (_namespace, "sldId"): frozenset({"id"}),
+        (_namespace, "oleObj"): frozenset({"id"}),
+        (_namespace, "contentPart"): frozenset({"id"}),
+    })
+for _namespace in OOXML_SPREADSHEET_NAMESPACES:
+    OOXML_RELATIONSHIP_CARRIERS.update({
+        (_namespace, "sheet"): frozenset({"id"}),
+        (_namespace, "drawing"): frozenset({"id"}),
+        (_namespace, "legacyDrawing"): frozenset({"id"}),
+        (_namespace, "legacyDrawingHF"): frozenset({"id"}),
+        (_namespace, "oleObject"): frozenset({"id"}),
+    })
+for _namespace in OOXML_WORDPROCESSING_NAMESPACES:
+    OOXML_RELATIONSHIP_CARRIERS.update({
+        (_namespace, "headerReference"): frozenset({"id"}),
+        (_namespace, "footerReference"): frozenset({"id"}),
+        (_namespace, "altChunk"): frozenset({"id"}),
+        (_namespace, "subDoc"): frozenset({"id"}),
+    })
+OOXML_RELATIONSHIP_CARRIERS.update({
+    ("urn:schemas-microsoft-com:vml", "imagedata"): frozenset(
+        {"id", "href"}
+    ),
+    ("urn:schemas-microsoft-com:office:office", "OLEObject"): frozenset(
+        {"id"}
+    ),
+})
 DOCX_REQUIRED_OOXML_MEMBERS = frozenset({
     "[Content_Types].xml",
     "_rels/.rels",
@@ -89,6 +198,10 @@ XML_DECLARATION_ENCODING = re.compile(
 )
 DATA_URI_PATTERN = re.compile(
     r"data:(image/[A-Za-z0-9.+-]+);base64,([A-Za-z0-9+/=\r\n\t ]+)",
+    re.IGNORECASE,
+)
+NOTEBOOK_ATTACHMENT_PATTERN = re.compile(
+    r"attachment:([^)\s\"'>]+)",
     re.IGNORECASE,
 )
 CONTROL_PATTERN = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]")
@@ -500,6 +613,1786 @@ def validate_xml_bytes(value: bytes) -> None:
         raise ValueError("ooxml_xml_encoding_invalid")
 
 
+def _ooxml_relationship_source(member: str) -> str | None:
+    """Map an OOXML ``*.rels`` member to the part it describes."""
+    parts = PurePosixPath(member).parts
+    if len(parts) < 2 or parts[-2] != "_rels" or not parts[-1].endswith(".rels"):
+        return None
+    if parts == ("_rels", ".rels"):
+        return ""
+    source_name = parts[-1][:-5]
+    if not source_name:
+        return None
+    prefix = parts[:-2]
+    return PurePosixPath(*prefix, source_name).as_posix()
+
+
+def _resolve_ooxml_target(source_part: str, target: str) -> str | None:
+    """Resolve an internal OOXML relationship target without filesystem access."""
+    if not target or "\\" in target or "\x00" in target:
+        return None
+    if target.startswith("/"):
+        candidate = target[1:]
+    else:
+        candidate = posixpath.join(posixpath.dirname(source_part), target)
+    normalized = posixpath.normpath(candidate)
+    pure = PurePosixPath(normalized)
+    if (
+        not normalized
+        or normalized == "."
+        or pure.is_absolute()
+        or normalized == ".."
+        or normalized.startswith("../")
+        or any(part in {"", ".", ".."} for part in pure.parts)
+    ):
+        return None
+    return normalized
+
+
+def _xml_name(tag: str) -> tuple[str | None, str]:
+    if tag.startswith("{") and "}" in tag:
+        namespace, local_name = tag[1:].split("}", 1)
+        return namespace, local_name
+    return None, tag
+
+
+def _ooxml_relationship_kind(value: str) -> str | None:
+    for namespace in OOXML_DOCUMENT_RELATIONSHIP_NAMESPACES:
+        prefix = namespace + "/"
+        if value.startswith(prefix):
+            kind = value[len(prefix):]
+            if kind and "/" not in kind:
+                return kind
+    return None
+
+
+def _ooxml_part_root_matches(
+    archive: zipfile.ZipFile,
+    source_part: str,
+    namespaces: set[str],
+    local_names: set[str],
+) -> bool:
+    if source_part not in archive.namelist():
+        return False
+    raw = archive.read(source_part)
+    validate_xml_bytes(raw)
+    try:
+        root = ElementTree.fromstring(raw)
+    except ElementTree.ParseError as exc:
+        raise ValueError("ooxml_source_xml_invalid") from exc
+    namespace, local_name = _xml_name(root.tag)
+    return namespace in namespaces and local_name in local_names
+
+
+def _word_visual_source_part_allowed(
+    archive: zipfile.ZipFile,
+    source_part: str,
+) -> bool:
+    if source_part == "word/document.xml":
+        expected_roots = {"document"}
+    elif re.fullmatch(r"word/header[0-9]+\.xml", source_part):
+        expected_roots = {"hdr"}
+    elif re.fullmatch(r"word/footer[0-9]+\.xml", source_part):
+        expected_roots = {"ftr"}
+    else:
+        return False
+    return _ooxml_part_root_matches(
+        archive,
+        source_part,
+        OOXML_WORDPROCESSING_NAMESPACES,
+        expected_roots,
+    )
+
+
+def _ooxml_relationships(
+    archive: zipfile.ZipFile,
+) -> dict[str, list[dict[str, str]]]:
+    relationships: dict[str, list[dict[str, str]]] = {}
+    for member in sorted(archive.namelist()):
+        source_part = _ooxml_relationship_source(member)
+        if source_part is None:
+            continue
+        raw = archive.read(member)
+        validate_xml_bytes(raw)
+        try:
+            root = ElementTree.fromstring(raw)
+        except ElementTree.ParseError as exc:
+            raise ValueError("ooxml_relationship_xml_invalid") from exc
+        root_namespace, root_name = _xml_name(root.tag)
+        if (
+            root_namespace not in OOXML_PACKAGE_RELATIONSHIP_NAMESPACES
+            or root_name != "Relationships"
+        ):
+            raise ValueError("ooxml_relationship_root_invalid")
+        rows: list[dict[str, str]] = []
+        seen_ids: set[str] = set()
+        for item in root:
+            item_namespace, item_name = _xml_name(item.tag)
+            if (
+                item_namespace not in OOXML_PACKAGE_RELATIONSHIP_NAMESPACES
+                or item_name != "Relationship"
+            ):
+                continue
+            relationship_id = item.attrib.get("Id", "")
+            target = item.attrib.get("Target", "")
+            relationship_type = item.attrib.get("Type", "")
+            target_mode = item.attrib.get("TargetMode", "")
+            if (
+                not relationship_id
+                or relationship_id in seen_ids
+                or not target
+                or not relationship_type
+                or target_mode.casefold() not in {"", "internal", "external"}
+            ):
+                raise ValueError("ooxml_relationship_invalid")
+            seen_ids.add(relationship_id)
+            rows.append({
+                "id": relationship_id,
+                "target": target,
+                "type": relationship_type,
+                "target_mode": target_mode,
+            })
+        relationships[source_part] = rows
+    return relationships
+
+
+def _ooxml_used_relationship_ids(
+    archive: zipfile.ZipFile,
+    source_part: str,
+) -> dict[str, int]:
+    if source_part == "":
+        return {
+            item["id"]: 1
+            for item in _ooxml_relationships(archive).get("", [])
+        }
+    if (
+        source_part not in archive.namelist()
+        or not source_part.casefold().endswith((".xml", ".vml"))
+    ):
+        return {}
+    raw = archive.read(source_part)
+    validate_xml_bytes(raw)
+    try:
+        root = ElementTree.fromstring(raw)
+    except ElementTree.ParseError as exc:
+        raise ValueError("ooxml_source_xml_invalid") from exc
+    counts: dict[str, int] = {}
+    for relationship_use in _ooxml_relationship_uses_from_root(root):
+        relationship_id = relationship_use["relationship_id"]
+        counts[relationship_id] = counts.get(relationship_id, 0) + 1
+    return counts
+
+
+def _ooxml_relationship_uses_from_root(
+    root: ElementTree.Element,
+) -> list[dict[str, str]]:
+    """Return relationship-id occurrences with a conservative visual role.
+
+    OOXML relationship ids are ordinary attribute values.  Keeping the XML
+    ancestor path lets the visual projector distinguish a PowerPoint picture
+    from a background or a shape fill without treating every package image as
+    displayed content.
+    """
+    uses: list[dict[str, str]] = []
+
+    def visit(item: ElementTree.Element, ancestors: tuple[str, ...]) -> None:
+        item_namespace, local = _xml_name(item.tag)
+        path = (*ancestors, local)
+        lowered = {value.casefold() for value in path}
+        if "bg" in lowered or "background" in lowered:
+            usage_kind = "background"
+        elif "pic" in lowered:
+            usage_kind = "picture"
+        elif "blipfill" in lowered:
+            usage_kind = "shape_fill"
+        elif local.casefold() == "imagedata":
+            usage_kind = "picture"
+        else:
+            usage_kind = "other"
+        allowed_attribute_names = OOXML_RELATIONSHIP_CARRIERS.get(
+            (str(item_namespace), local),
+            frozenset(),
+        )
+        for key, value in item.attrib.items():
+            namespace = (
+                key[1:].split("}", 1)[0]
+                if key.startswith("{") and "}" in key else None
+            )
+            attribute_name = _xml_name(key)[1]
+            if (
+                item_namespace in OOXML_RELATIONSHIP_CARRIER_NAMESPACES
+                and attribute_name in allowed_attribute_names
+                and
+                namespace in OOXML_DOCUMENT_RELATIONSHIP_NAMESPACES
+                and isinstance(value, str)
+                and value
+            ):
+                uses.append({
+                    "relationship_id": value,
+                    "usage_kind": usage_kind,
+                })
+        for child_item in item:
+            visit(child_item, path)
+
+    visit(root, ())
+    return uses
+
+
+def _ooxml_relationship_uses(
+    archive: zipfile.ZipFile,
+    source_part: str,
+) -> list[dict[str, str]]:
+    if source_part == "" or source_part not in archive.namelist():
+        return []
+    if not source_part.casefold().endswith((".xml", ".vml")):
+        return []
+    raw = archive.read(source_part)
+    validate_xml_bytes(raw)
+    try:
+        root = ElementTree.fromstring(raw)
+    except ElementTree.ParseError as exc:
+        raise ValueError("ooxml_source_xml_invalid") from exc
+    return _ooxml_relationship_uses_from_root(root)
+
+
+def _direct_xml_children(
+    parent: ElementTree.Element,
+    namespaces: set[str],
+    local_name: str,
+) -> list[ElementTree.Element]:
+    return [
+        child
+        for child in parent
+        if _xml_name(child.tag)[0] in namespaces
+        and _xml_name(child.tag)[1] == local_name
+    ]
+
+
+def _ooxml_xml_root(
+    archive: zipfile.ZipFile,
+    member: str,
+    *,
+    namespaces: set[str],
+    local_names: set[str],
+) -> ElementTree.Element:
+    """Read one validated OOXML part and require its exact root contract."""
+    if member not in archive.namelist():
+        raise ValueError("ooxml_required_part_missing")
+    raw = archive.read(member)
+    validate_xml_bytes(raw)
+    try:
+        root = ElementTree.fromstring(raw)
+    except ElementTree.ParseError as exc:
+        raise ValueError("ooxml_source_xml_invalid") from exc
+    namespace, local_name = _xml_name(root.tag)
+    if namespace not in namespaces or local_name not in local_names:
+        raise ValueError("ooxml_source_root_invalid")
+    return root
+
+
+def _require_ooxml_office_document_binding(
+    archive: zipfile.ZipFile,
+    relationships: dict[str, list[dict[str, str]]],
+    expected_member: str,
+) -> None:
+    """Require the package root to bind exactly one expected main part."""
+    candidates = [
+        row
+        for row in relationships.get("", [])
+        if _ooxml_relationship_kind(row["type"]) == "officeDocument"
+    ]
+    if len(candidates) != 1 or candidates[0]["target_mode"].casefold() == "external":
+        raise ValueError("ooxml_office_document_binding_invalid")
+    target = _resolve_ooxml_target("", candidates[0]["target"])
+    if target != expected_member or target not in archive.namelist():
+        raise ValueError("ooxml_office_document_binding_invalid")
+
+
+def _xml_attribute(
+    item: ElementTree.Element,
+    namespaces: set[str],
+    local_name: str,
+) -> str | None:
+    values = [
+        value
+        for key, value in item.attrib.items()
+        if _xml_name(key)[0] in namespaces
+        and _xml_name(key)[1] == local_name
+        and isinstance(value, str)
+    ]
+    if len(values) > 1:
+        raise ValueError("ooxml_attribute_ambiguous")
+    return values[0] if values else None
+
+
+def _word_paragraph_text(paragraph: ElementTree.Element) -> str:
+    """Read visible Word text from canonical run/container paths only."""
+    paragraph_namespace, paragraph_name = _xml_name(paragraph.tag)
+    if (
+        paragraph_namespace not in OOXML_WORDPROCESSING_NAMESPACES
+        or paragraph_name != "p"
+    ):
+        raise ValueError("ooxml_word_paragraph_invalid")
+    fragments: list[str] = []
+    containers = {
+        "customXml", "fldSimple", "hyperlink", "ins", "moveTo", "sdt",
+        "sdtContent", "smartTag",
+    }
+
+    def visit(container: ElementTree.Element) -> None:
+        for child_item in container:
+            namespace, local_name = _xml_name(child_item.tag)
+            if namespace not in OOXML_WORDPROCESSING_NAMESPACES:
+                continue
+            if local_name == "r":
+                for run_item in child_item:
+                    run_namespace, run_name = _xml_name(run_item.tag)
+                    if run_namespace not in OOXML_WORDPROCESSING_NAMESPACES:
+                        continue
+                    if run_name == "t" and run_item.text:
+                        fragments.append(run_item.text)
+                    elif run_name == "tab":
+                        fragments.append("\t")
+                    elif run_name in {"br", "cr"}:
+                        fragments.append("\n")
+            elif local_name in containers:
+                visit(child_item)
+
+    visit(paragraph)
+    return "".join(fragments)
+
+
+def _word_paragraph_style_id(paragraph: ElementTree.Element) -> str | None:
+    properties = _direct_xml_children(
+        paragraph, OOXML_WORDPROCESSING_NAMESPACES, "pPr"
+    )
+    if len(properties) > 1:
+        raise ValueError("ooxml_word_paragraph_properties_ambiguous")
+    if not properties:
+        return None
+    styles = _direct_xml_children(
+        properties[0], OOXML_WORDPROCESSING_NAMESPACES, "pStyle"
+    )
+    if len(styles) > 1:
+        raise ValueError("ooxml_word_paragraph_style_ambiguous")
+    return (
+        _xml_attribute(styles[0], OOXML_WORDPROCESSING_NAMESPACES, "val")
+        if styles else None
+    )
+
+
+def _word_paragraph_has_outline_level(paragraph: ElementTree.Element) -> bool:
+    properties = _direct_xml_children(
+        paragraph, OOXML_WORDPROCESSING_NAMESPACES, "pPr"
+    )
+    if not properties:
+        return False
+    outline = _direct_xml_children(
+        properties[0], OOXML_WORDPROCESSING_NAMESPACES, "outlineLvl"
+    )
+    if len(outline) > 1:
+        raise ValueError("ooxml_word_outline_level_ambiguous")
+    if not outline:
+        return False
+    value = _xml_attribute(
+        outline[0], OOXML_WORDPROCESSING_NAMESPACES, "val"
+    )
+    if value is None:
+        return True
+    try:
+        return 0 <= int(value) <= 8
+    except ValueError:
+        return False
+
+
+def _word_style_catalog(
+    archive: zipfile.ZipFile,
+    relationships: dict[str, list[dict[str, str]]],
+) -> dict[str, dict[str, str | None]]:
+    """Return relationship-bound paragraph style names and inheritance."""
+    style_rows = [
+        row for row in relationships.get("word/document.xml", [])
+        if _ooxml_relationship_kind(row["type"]) == "styles"
+        and row["target_mode"].casefold() != "external"
+    ]
+    if len(style_rows) > 1:
+        raise ValueError("ooxml_word_styles_binding_ambiguous")
+    if not style_rows:
+        return {}
+    member = _resolve_ooxml_target(
+        "word/document.xml", style_rows[0]["target"]
+    )
+    if member is None:
+        raise ValueError("ooxml_word_styles_binding_invalid")
+    root = _ooxml_xml_root(
+        archive,
+        member,
+        namespaces=OOXML_WORDPROCESSING_NAMESPACES,
+        local_names={"styles"},
+    )
+    styles: dict[str, dict[str, str | None]] = {}
+    for item in _direct_xml_children(
+        root, OOXML_WORDPROCESSING_NAMESPACES, "style"
+    ):
+        style_type = _xml_attribute(
+            item, OOXML_WORDPROCESSING_NAMESPACES, "type"
+        )
+        style_id = _xml_attribute(
+            item, OOXML_WORDPROCESSING_NAMESPACES, "styleId"
+        )
+        if style_type != "paragraph" or not style_id:
+            continue
+        if style_id in styles:
+            raise ValueError("ooxml_word_style_id_ambiguous")
+        names = _direct_xml_children(
+            item, OOXML_WORDPROCESSING_NAMESPACES, "name"
+        )
+        based_on = _direct_xml_children(
+            item, OOXML_WORDPROCESSING_NAMESPACES, "basedOn"
+        )
+        if len(names) > 1 or len(based_on) > 1:
+            raise ValueError("ooxml_word_style_definition_ambiguous")
+        styles[style_id] = {
+            "name": (
+                _xml_attribute(
+                    names[0], OOXML_WORDPROCESSING_NAMESPACES, "val"
+                ) if names else None
+            ),
+            "based_on": (
+                _xml_attribute(
+                    based_on[0], OOXML_WORDPROCESSING_NAMESPACES, "val"
+                ) if based_on else None
+            ),
+        }
+    return styles
+
+
+def _word_style_is_heading(
+    style_id: str | None,
+    styles: dict[str, dict[str, str | None]],
+) -> bool:
+    seen: set[str] = set()
+    current = style_id
+    while current and current not in seen:
+        seen.add(current)
+        row = styles.get(current, {})
+        candidates = [current, row.get("name")]
+        if any(
+            isinstance(value, str)
+            and re.match(r"^heading(?:\s|[-_])*[0-9]*$", value.strip(), re.I)
+            for value in candidates
+        ):
+            return True
+        based_on = row.get("based_on")
+        current = based_on if isinstance(based_on, str) else None
+    return False
+
+
+def _word_block_children(
+    container: ElementTree.Element,
+) -> list[ElementTree.Element]:
+    """Return body/cell blocks, descending only through canonical SDT content."""
+    blocks: list[ElementTree.Element] = []
+    for item in container:
+        namespace, local_name = _xml_name(item.tag)
+        if namespace not in OOXML_WORDPROCESSING_NAMESPACES:
+            continue
+        if local_name in {"p", "tbl"}:
+            blocks.append(item)
+        elif local_name in {"sdt", "sdtContent", "customXml"}:
+            blocks.extend(_word_block_children(item))
+    return blocks
+
+
+def _drawing_paragraph_text(paragraph: ElementTree.Element) -> str:
+    fragments: list[str] = []
+    for item in paragraph:
+        namespace, local_name = _xml_name(item.tag)
+        if namespace not in OOXML_DRAWING_NAMESPACES:
+            continue
+        if local_name in {"r", "fld"}:
+            texts = _direct_xml_children(
+                item, OOXML_DRAWING_NAMESPACES, "t"
+            )
+            if len(texts) > 1:
+                raise ValueError("ooxml_drawing_run_text_ambiguous")
+            if texts and texts[0].text:
+                fragments.append(texts[0].text)
+        elif local_name == "br":
+            fragments.append("\n")
+    return "".join(fragments)
+
+
+def _drawing_text_body_text(body: ElementTree.Element) -> str:
+    paragraphs = _direct_xml_children(
+        body, OOXML_DRAWING_NAMESPACES, "p"
+    )
+    return "\n".join(_drawing_paragraph_text(item) for item in paragraphs)
+
+
+def _pptx_shape_tree(root: ElementTree.Element) -> ElementTree.Element | None:
+    root_namespace, root_name = _xml_name(root.tag)
+    if (
+        root_namespace not in OOXML_PRESENTATION_NAMESPACES
+        or root_name != "sld"
+    ):
+        raise ValueError("ooxml_slide_root_invalid")
+    common = _direct_xml_children(
+        root, OOXML_PRESENTATION_NAMESPACES, "cSld"
+    )
+    if len(common) > 1:
+        raise ValueError("ooxml_slide_content_ambiguous")
+    if not common:
+        return None
+    trees = _direct_xml_children(
+        common[0], OOXML_PRESENTATION_NAMESPACES, "spTree"
+    )
+    if len(trees) > 1:
+        raise ValueError("ooxml_slide_shape_tree_ambiguous")
+    return trees[0] if trees else None
+
+
+def _pptx_shape_identity(
+    shape: ElementTree.Element,
+) -> tuple[str | None, str | None]:
+    _, local_name = _xml_name(shape.tag)
+    containers = {
+        "sp": "nvSpPr",
+        "pic": "nvPicPr",
+        "graphicFrame": "nvGraphicFramePr",
+        "cxnSp": "nvCxnSpPr",
+        "grpSp": "nvGrpSpPr",
+    }
+    container_name = containers.get(local_name)
+    if container_name is None:
+        return None, None
+    candidates = _direct_xml_children(
+        shape, OOXML_PRESENTATION_NAMESPACES, container_name
+    )
+    if len(candidates) > 1:
+        raise ValueError("ooxml_slide_shape_identity_ambiguous")
+    if not candidates:
+        return None, None
+    nonvisual = _direct_xml_children(
+        candidates[0], OOXML_PRESENTATION_NAMESPACES, "cNvPr"
+    )
+    if len(nonvisual) > 1:
+        raise ValueError("ooxml_slide_shape_identity_ambiguous")
+    if not nonvisual:
+        return None, None
+    return nonvisual[0].attrib.get("id"), nonvisual[0].attrib.get("name")
+
+
+def _pptx_shape_geometry(
+    shape: ElementTree.Element,
+    *,
+    nested_in_group: bool,
+) -> tuple[dict[str, Any] | None, bool]:
+    _, local_name = _xml_name(shape.tag)
+    if local_name == "graphicFrame":
+        transforms = _direct_xml_children(
+            shape, OOXML_PRESENTATION_NAMESPACES, "xfrm"
+        )
+    else:
+        property_name = "grpSpPr" if local_name == "grpSp" else "spPr"
+        properties = _direct_xml_children(
+            shape, OOXML_PRESENTATION_NAMESPACES, property_name
+        )
+        if len(properties) > 1:
+            raise ValueError("ooxml_slide_shape_geometry_ambiguous")
+        transforms = (
+            _direct_xml_children(
+                properties[0], OOXML_DRAWING_NAMESPACES, "xfrm"
+            ) if properties else []
+        )
+    if len(transforms) > 1:
+        raise ValueError("ooxml_slide_shape_geometry_ambiguous")
+    if not transforms:
+        return None, False
+    offsets = _direct_xml_children(
+        transforms[0], OOXML_DRAWING_NAMESPACES, "off"
+    )
+    extents = _direct_xml_children(
+        transforms[0], OOXML_DRAWING_NAMESPACES, "ext"
+    )
+    if len(offsets) > 1 or len(extents) > 1:
+        raise ValueError("ooxml_slide_shape_geometry_ambiguous")
+    if not offsets or not extents:
+        return None, False
+    try:
+        x = int(offsets[0].attrib["x"])
+        y = int(offsets[0].attrib["y"])
+        width = int(extents[0].attrib["cx"])
+        height = int(extents[0].attrib["cy"])
+    except (KeyError, ValueError) as exc:
+        raise ValueError("ooxml_slide_shape_geometry_invalid") from exc
+    if width < 0 or height < 0:
+        raise ValueError("ooxml_slide_shape_geometry_invalid")
+    return {
+        "coordinate_space": "slide" if not nested_in_group else "other",
+        "unit": "emu",
+        "x": x,
+        "y": y,
+        "width": width,
+        "height": height,
+    }, nested_in_group
+
+
+def _pptx_shape_text(shape: ElementTree.Element) -> str:
+    bodies = _direct_xml_children(
+        shape, OOXML_PRESENTATION_NAMESPACES, "txBody"
+    )
+    if len(bodies) > 1:
+        raise ValueError("ooxml_slide_shape_text_ambiguous")
+    return _drawing_text_body_text(bodies[0]) if bodies else ""
+
+
+def _pptx_table(
+    frame: ElementTree.Element,
+) -> ElementTree.Element | None:
+    graphics = _direct_xml_children(
+        frame, OOXML_DRAWING_NAMESPACES, "graphic"
+    )
+    if len(graphics) > 1:
+        raise ValueError("ooxml_graphic_carrier_ambiguous")
+    if not graphics:
+        return None
+    data = _direct_xml_children(
+        graphics[0], OOXML_DRAWING_NAMESPACES, "graphicData"
+    )
+    if len(data) > 1:
+        raise ValueError("ooxml_graphic_data_ambiguous")
+    if not data or data[0].attrib.get("uri") not in OOXML_DRAWING_TABLE_URIS:
+        return None
+    tables = _direct_xml_children(
+        data[0], OOXML_DRAWING_NAMESPACES, "tbl"
+    )
+    if len(tables) > 1:
+        raise ValueError("ooxml_drawing_table_ambiguous")
+    return tables[0] if tables else None
+
+
+def _pptx_table_rows(
+    table: ElementTree.Element,
+) -> list[list[str]]:
+    values: list[list[str]] = []
+    for row in _direct_xml_children(
+        table, OOXML_DRAWING_NAMESPACES, "tr"
+    ):
+        cells: list[str] = []
+        for cell in _direct_xml_children(
+            row, OOXML_DRAWING_NAMESPACES, "tc"
+        ):
+            bodies = _direct_xml_children(
+                cell, OOXML_DRAWING_NAMESPACES, "txBody"
+            )
+            if len(bodies) > 1:
+                raise ValueError("ooxml_drawing_table_cell_ambiguous")
+            cells.append(
+                _drawing_text_body_text(bodies[0]) if bodies else ""
+            )
+        values.append(cells)
+    return values
+
+
+def _relationship_attribute(
+    item: ElementTree.Element,
+    local_name: str,
+) -> str | None:
+    values = [
+        value
+        for key, value in item.attrib.items()
+        if _xml_name(key)[0] in OOXML_DOCUMENT_RELATIONSHIP_NAMESPACES
+        and _xml_name(key)[1] == local_name
+        and isinstance(value, str)
+        and value
+    ]
+    if len(values) > 1:
+        raise ValueError("ooxml_relationship_attribute_ambiguous")
+    return values[0] if values else None
+
+
+def _pptx_slide_context(
+    archive: zipfile.ZipFile,
+    relationships: dict[str, list[dict[str, str]]],
+) -> dict[str, tuple[int, ...]]:
+    """Map direct slide parts to their presentation order.
+
+    Layout/master visibility depends on inheritance, suppression flags, and
+    background overrides.  Those parts are deliberately not expanded across
+    slides until a display resolver exists.
+    """
+    presentation_part = "ppt/presentation.xml"
+    if presentation_part not in archive.namelist():
+        return {}
+    try:
+        root = ElementTree.fromstring(archive.read(presentation_part))
+    except ElementTree.ParseError as exc:
+        raise ValueError("ooxml_presentation_xml_invalid") from exc
+    root_namespace, root_name = _xml_name(root.tag)
+    if (
+        root_namespace not in OOXML_PRESENTATION_NAMESPACES
+        or root_name != "presentation"
+    ):
+        raise ValueError("ooxml_presentation_root_invalid")
+    presentation_targets = {
+        row["id"]: _resolve_ooxml_target(presentation_part, row["target"])
+        for row in relationships.get(presentation_part, [])
+        if row["target_mode"].casefold() != "external"
+        and _ooxml_relationship_kind(row["type"]) == "slide"
+    }
+    slide_parts: list[str] = []
+    slide_lists = _direct_xml_children(
+        root, OOXML_PRESENTATION_NAMESPACES, "sldIdLst"
+    )
+    if len(slide_lists) > 1:
+        raise ValueError("ooxml_slide_list_ambiguous")
+    seen_slide_ids: set[str] = set()
+    seen_relationship_ids: set[str] = set()
+    seen_targets: set[str] = set()
+    if slide_lists:
+        for item in _direct_xml_children(
+            slide_lists[0], OOXML_PRESENTATION_NAMESPACES, "sldId"
+        ):
+            slide_id = item.attrib.get("id")
+            relationship_id = _relationship_attribute(item, "id")
+            if (
+                not slide_id
+                or slide_id in seen_slide_ids
+                or not relationship_id
+                or relationship_id in seen_relationship_ids
+            ):
+                raise ValueError("ooxml_slide_binding_ambiguous")
+            target = presentation_targets.get(relationship_id)
+            if (
+                target is None
+                or not target.startswith("ppt/slides/")
+                or target in seen_targets
+            ):
+                raise ValueError("ooxml_slide_binding_invalid")
+            if not _ooxml_part_root_matches(
+                archive,
+                target,
+                OOXML_PRESENTATION_NAMESPACES,
+                {"sld"},
+            ):
+                raise ValueError("ooxml_slide_root_invalid")
+            seen_slide_ids.add(slide_id)
+            seen_relationship_ids.add(relationship_id)
+            seen_targets.add(target)
+            slide_parts.append(target)
+
+    return {
+        slide_part: (slide_number,)
+        for slide_number, slide_part in enumerate(slide_parts, 1)
+    }
+
+
+def _count_unresolved_pptx_inherited_media(
+    archive: zipfile.ZipFile,
+) -> int:
+    """Count used layout/master images without expanding them across slides."""
+    relationships = _ooxml_relationships(archive)
+    count = 0
+    for source_part, rows in relationships.items():
+        if not source_part.startswith(
+            ("ppt/slideLayouts/", "ppt/slideMasters/")
+        ):
+            continue
+        used = _ooxml_used_relationship_ids(archive, source_part)
+        for row in rows:
+            if (
+                row["target_mode"].casefold() != "external"
+                and _ooxml_relationship_kind(row["type"]) == "image"
+                and row["id"] in used
+            ):
+                target = _resolve_ooxml_target(source_part, row["target"])
+                if target is not None and target.startswith("ppt/media/"):
+                    count += used[row["id"]]
+    return count
+
+
+def _xlsx_sheet_context(
+    archive: zipfile.ZipFile,
+    relationships: dict[str, list[dict[str, str]]],
+) -> tuple[dict[str, str], dict[str, str]]:
+    """Return worksheet names and drawing-to-worksheet bindings."""
+    sheet_names: dict[str, str] = {}
+    drawing_sheets: dict[str, str] = {}
+    workbook_part = "xl/workbook.xml"
+    if workbook_part not in archive.namelist():
+        return sheet_names, drawing_sheets
+    rel_targets = {
+        row["id"]: _resolve_ooxml_target(workbook_part, row["target"])
+        for row in relationships.get(workbook_part, [])
+        if not row["target_mode"].casefold() == "external"
+        and _ooxml_relationship_kind(row["type"]) == "worksheet"
+    }
+    try:
+        workbook_root = ElementTree.fromstring(archive.read(workbook_part))
+    except ElementTree.ParseError as exc:
+        raise ValueError("ooxml_workbook_xml_invalid") from exc
+    workbook_namespace, workbook_name = _xml_name(workbook_root.tag)
+    if (
+        workbook_namespace not in OOXML_SPREADSHEET_NAMESPACES
+        or workbook_name != "workbook"
+    ):
+        raise ValueError("ooxml_workbook_root_invalid")
+    sheet_lists = _direct_xml_children(
+        workbook_root, OOXML_SPREADSHEET_NAMESPACES, "sheets"
+    )
+    if len(sheet_lists) > 1:
+        raise ValueError("ooxml_sheet_list_ambiguous")
+    seen_sheet_ids: set[str] = set()
+    seen_relationship_ids: set[str] = set()
+    seen_names: set[str] = set()
+    if sheet_lists:
+        for sheet in _direct_xml_children(
+            sheet_lists[0], OOXML_SPREADSHEET_NAMESPACES, "sheet"
+        ):
+            relationship_id = _relationship_attribute(sheet, "id")
+            name = sheet.attrib.get("name")
+            sheet_id = sheet.attrib.get("sheetId")
+            normalized_name = name.casefold() if name else ""
+            if (
+                not relationship_id
+                or relationship_id in seen_relationship_ids
+                or not name
+                or normalized_name in seen_names
+                or not sheet_id
+                or sheet_id in seen_sheet_ids
+            ):
+                raise ValueError("ooxml_sheet_binding_ambiguous")
+            target = rel_targets.get(relationship_id)
+            if target is None or target in sheet_names:
+                raise ValueError("ooxml_sheet_binding_invalid")
+            seen_relationship_ids.add(relationship_id)
+            seen_names.add(normalized_name)
+            seen_sheet_ids.add(sheet_id)
+            sheet_names[target] = name
+    for sheet_part, sheet_name in sheet_names.items():
+        if not _ooxml_part_root_matches(
+            archive,
+            sheet_part,
+            OOXML_SPREADSHEET_NAMESPACES,
+            {"worksheet"},
+        ):
+            raise ValueError("ooxml_worksheet_root_invalid")
+        try:
+            sheet_root = ElementTree.fromstring(archive.read(sheet_part))
+        except ElementTree.ParseError as exc:
+            raise ValueError("ooxml_worksheet_xml_invalid") from exc
+        drawing_uses = _direct_xml_children(
+            sheet_root, OOXML_SPREADSHEET_NAMESPACES, "drawing"
+        )
+        if len(drawing_uses) > 1:
+            raise ValueError("ooxml_worksheet_drawing_ambiguous")
+        drawing_relationship_ids = {
+            relationship_id
+            for drawing in drawing_uses
+            if (relationship_id := _relationship_attribute(drawing, "id"))
+        }
+        if len(drawing_relationship_ids) != len(drawing_uses):
+            raise ValueError("ooxml_worksheet_drawing_invalid")
+        for row in relationships.get(sheet_part, []):
+            if (
+                row["id"] not in drawing_relationship_ids
+                or row["target_mode"].casefold() == "external"
+            ):
+                continue
+            target = _resolve_ooxml_target(sheet_part, row["target"])
+            if target and _ooxml_relationship_kind(row["type"]) == "drawing":
+                previous = drawing_sheets.get(target)
+                if previous is not None and previous != sheet_name:
+                    raise ValueError("ooxml_drawing_sheet_binding_ambiguous")
+                drawing_sheets[target] = sheet_name
+                drawing_relationship_ids.remove(row["id"])
+        if drawing_relationship_ids:
+            raise ValueError("ooxml_worksheet_drawing_invalid")
+    return sheet_names, drawing_sheets
+
+
+def _xlsx_column_name(index: int) -> str:
+    value = index + 1
+    result = ""
+    while value:
+        value, remainder = divmod(value - 1, 26)
+        result = chr(65 + remainder) + result
+    return result
+
+
+def _xlsx_drawing_cells(
+    archive: zipfile.ZipFile,
+    drawing_part: str,
+    relationship_id: str,
+) -> list[str | None]:
+    if drawing_part not in archive.namelist():
+        return []
+    try:
+        root = ElementTree.fromstring(archive.read(drawing_part))
+    except ElementTree.ParseError as exc:
+        raise ValueError("ooxml_drawing_xml_invalid") from exc
+    root_namespace, root_name = _xml_name(root.tag)
+    if (
+        root_namespace not in OOXML_SPREADSHEET_DRAWING_NAMESPACES
+        or root_name != "wsDr"
+    ):
+        raise ValueError("ooxml_drawing_root_invalid")
+    cells: list[str | None] = []
+    for anchor in root:
+        anchor_namespace, anchor_name = _xml_name(anchor.tag)
+        if (
+            anchor_namespace not in OOXML_SPREADSHEET_DRAWING_NAMESPACES
+            or anchor_name
+            not in {"oneCellAnchor", "twoCellAnchor", "absoluteAnchor"}
+        ):
+            continue
+        relationship_occurrences = 0
+        for item in anchor.iter():
+            for key, value in item.attrib.items():
+                namespace = (
+                    key[1:].split("}", 1)[0]
+                    if key.startswith("{") and "}" in key else None
+                )
+                if (
+                    namespace in OOXML_DOCUMENT_RELATIONSHIP_NAMESPACES
+                    and value == relationship_id
+                ):
+                    relationship_occurrences += 1
+        if relationship_occurrences == 0:
+            continue
+        origin = next(
+            (
+                item for item in anchor
+                if _xml_name(item.tag)[0]
+                in OOXML_SPREADSHEET_DRAWING_NAMESPACES
+                and _xml_name(item.tag)[1] == "from"
+            ),
+            None,
+        )
+        row_value: int | None = None
+        column_value: int | None = None
+        if origin is not None:
+            for item in origin:
+                item_namespace, local = _xml_name(item.tag)
+                if item_namespace not in OOXML_SPREADSHEET_DRAWING_NAMESPACES:
+                    continue
+                if local == "row" and item.text is not None:
+                    row_value = int(item.text)
+                elif local == "col" and item.text is not None:
+                    column_value = int(item.text)
+        if row_value is not None and column_value is not None and row_value >= 0 and column_value >= 0:
+            cell = f"{_xlsx_column_name(column_value)}{row_value + 1}"
+        else:
+            cell = None
+        cells.extend([cell] * relationship_occurrences)
+    return cells
+
+
+def _pptx_visible_graphic_frames(
+    root: ElementTree.Element,
+) -> list[ElementTree.Element]:
+    root_namespace, root_name = _xml_name(root.tag)
+    if (
+        root_namespace not in OOXML_PRESENTATION_NAMESPACES
+        or root_name != "sld"
+    ):
+        raise ValueError("ooxml_slide_root_invalid")
+    common_slides = _direct_xml_children(
+        root, OOXML_PRESENTATION_NAMESPACES, "cSld"
+    )
+    if len(common_slides) > 1:
+        raise ValueError("ooxml_slide_content_ambiguous")
+    if not common_slides:
+        return []
+    shape_trees = _direct_xml_children(
+        common_slides[0], OOXML_PRESENTATION_NAMESPACES, "spTree"
+    )
+    if len(shape_trees) > 1:
+        raise ValueError("ooxml_slide_shape_tree_ambiguous")
+    if not shape_trees:
+        return []
+
+    frames: list[ElementTree.Element] = []
+
+    def collect(container: ElementTree.Element) -> None:
+        for child in container:
+            namespace, local_name = _xml_name(child.tag)
+            if namespace not in OOXML_PRESENTATION_NAMESPACES:
+                continue
+            if local_name == "graphicFrame":
+                frames.append(child)
+            elif local_name == "grpSp":
+                collect(child)
+
+    collect(shape_trees[0])
+    return frames
+
+
+def _graphic_frame_relationship(
+    frame: ElementTree.Element,
+    *,
+    payload_namespaces: set[str],
+    payload_local_name: str,
+    relationship_attribute_name: str,
+) -> str | None:
+    graphics = _direct_xml_children(frame, OOXML_DRAWING_NAMESPACES, "graphic")
+    if len(graphics) > 1:
+        raise ValueError("ooxml_graphic_carrier_ambiguous")
+    if not graphics:
+        return None
+    graphic_data = _direct_xml_children(
+        graphics[0], OOXML_DRAWING_NAMESPACES, "graphicData"
+    )
+    if len(graphic_data) > 1:
+        raise ValueError("ooxml_graphic_data_ambiguous")
+    if not graphic_data or graphic_data[0].attrib.get("uri") not in payload_namespaces:
+        return None
+    payloads = _direct_xml_children(
+        graphic_data[0], payload_namespaces, payload_local_name
+    )
+    if len(payloads) > 1:
+        raise ValueError("ooxml_graphic_payload_ambiguous")
+    if not payloads:
+        return None
+    relationship_id = _relationship_attribute(
+        payloads[0], relationship_attribute_name
+    )
+    if not relationship_id:
+        raise ValueError("ooxml_graphic_relationship_missing")
+    return relationship_id
+
+
+def _pptx_graphic_relationship_ids(
+    archive: zipfile.ZipFile,
+    slide_part: str,
+    *,
+    payload_namespaces: set[str],
+    payload_local_name: str,
+    relationship_attribute_name: str,
+) -> list[str]:
+    if slide_part not in archive.namelist():
+        return []
+    raw = archive.read(slide_part)
+    validate_xml_bytes(raw)
+    try:
+        root = ElementTree.fromstring(raw)
+    except ElementTree.ParseError as exc:
+        raise ValueError("ooxml_slide_xml_invalid") from exc
+    relationship_ids: list[str] = []
+    for frame in _pptx_visible_graphic_frames(root):
+        relationship_id = _graphic_frame_relationship(
+            frame,
+            payload_namespaces=payload_namespaces,
+            payload_local_name=payload_local_name,
+            relationship_attribute_name=relationship_attribute_name,
+        )
+        if relationship_id:
+            relationship_ids.append(relationship_id)
+    return relationship_ids
+
+
+def _xlsx_anchor_cell(anchor: ElementTree.Element) -> str | None:
+    origins = _direct_xml_children(
+        anchor, OOXML_SPREADSHEET_DRAWING_NAMESPACES, "from"
+    )
+    if len(origins) > 1:
+        raise ValueError("ooxml_drawing_anchor_origin_ambiguous")
+    if not origins:
+        return None
+    row_nodes = _direct_xml_children(
+        origins[0], OOXML_SPREADSHEET_DRAWING_NAMESPACES, "row"
+    )
+    column_nodes = _direct_xml_children(
+        origins[0], OOXML_SPREADSHEET_DRAWING_NAMESPACES, "col"
+    )
+    if len(row_nodes) > 1 or len(column_nodes) > 1:
+        raise ValueError("ooxml_drawing_anchor_origin_ambiguous")
+    if not row_nodes or not column_nodes:
+        return None
+    try:
+        row_value = int(row_nodes[0].text or "")
+        column_value = int(column_nodes[0].text or "")
+    except ValueError as exc:
+        raise ValueError("ooxml_drawing_anchor_origin_invalid") from exc
+    if row_value < 0 or column_value < 0:
+        raise ValueError("ooxml_drawing_anchor_origin_invalid")
+    return f"{_xlsx_column_name(column_value)}{row_value + 1}"
+
+
+def _xlsx_verified_chart_placements(
+    archive: zipfile.ZipFile,
+    drawing_part: str,
+) -> list[dict[str, str | None]]:
+    if drawing_part not in archive.namelist():
+        return []
+    raw = archive.read(drawing_part)
+    validate_xml_bytes(raw)
+    try:
+        root = ElementTree.fromstring(raw)
+    except ElementTree.ParseError as exc:
+        raise ValueError("ooxml_drawing_xml_invalid") from exc
+    root_namespace, root_name = _xml_name(root.tag)
+    if (
+        root_namespace not in OOXML_SPREADSHEET_DRAWING_NAMESPACES
+        or root_name != "wsDr"
+    ):
+        raise ValueError("ooxml_drawing_root_invalid")
+    placements: list[dict[str, str | None]] = []
+    for anchor in root:
+        anchor_namespace, anchor_name = _xml_name(anchor.tag)
+        if (
+            anchor_namespace not in OOXML_SPREADSHEET_DRAWING_NAMESPACES
+            or anchor_name
+            not in {"oneCellAnchor", "twoCellAnchor", "absoluteAnchor"}
+        ):
+            continue
+        frames = _direct_xml_children(
+            anchor, OOXML_SPREADSHEET_DRAWING_NAMESPACES, "graphicFrame"
+        )
+        if len(frames) > 1:
+            raise ValueError("ooxml_drawing_chart_carrier_ambiguous")
+        if not frames:
+            continue
+        relationship_id = _graphic_frame_relationship(
+            frames[0],
+            payload_namespaces=OOXML_CHART_NAMESPACES,
+            payload_local_name="chart",
+            relationship_attribute_name="id",
+        )
+        if relationship_id:
+            placements.append({
+                "relationship_id": relationship_id,
+                "cell": _xlsx_anchor_cell(anchor),
+            })
+    return placements
+
+
+def referenced_ooxml_media(
+    archive: zipfile.ZipFile,
+    *,
+    media_prefixes: tuple[str, ...],
+    include_unresolved_pptx_inheritance: bool = False,
+) -> list[dict[str, Any]]:
+    """Find only media reachable through actually-used OOXML relationships.
+
+    Presence under ``word/media`` or ``xl/media`` alone is not evidence that an
+    image appears in the document.  This walker starts at package relationships,
+    follows only relationship IDs present in each reachable source part, and
+    records each concrete use separately.
+    """
+    relationships = _ooxml_relationships(archive)
+    _, drawing_sheets = _xlsx_sheet_context(archive, relationships)
+    slide_context = _pptx_slide_context(archive, relationships)
+    queue = [""]
+    reached = {""}
+    results: list[dict[str, Any]] = []
+    while queue:
+        source_part = queue.pop(0)
+        used = (
+            {
+                row["id"]: 1
+                for row in relationships.get("", [])
+                if _ooxml_relationship_kind(row["type"]) == "officeDocument"
+            }
+            if source_part == ""
+            else _ooxml_used_relationship_ids(archive, source_part)
+        )
+        relationship_uses = (
+            [] if source_part == ""
+            else _ooxml_relationship_uses(archive, source_part)
+        )
+        for row in relationships.get(source_part, []):
+            relationship_kind = _ooxml_relationship_kind(row["type"])
+            implicit_presentation_part = relationship_kind in {
+                "slideLayout",
+                "slideMaster",
+            }
+            if (
+                (row["id"] not in used and not implicit_presentation_part)
+                or row["target_mode"].casefold() == "external"
+            ):
+                continue
+            target = _resolve_ooxml_target(source_part, row["target"])
+            if target is None:
+                raise ValueError("ooxml_relationship_target_invalid")
+            if (
+                target.startswith(media_prefixes)
+                and target in archive.namelist()
+                and relationship_kind == "image"
+                and row["id"] in used
+            ):
+                if (
+                    target.startswith("word/media/")
+                    and not _word_visual_source_part_allowed(
+                        archive, source_part
+                    )
+                ):
+                    continue
+                if (
+                    target.startswith("xl/media/")
+                    and source_part not in drawing_sheets
+                ):
+                    continue
+                if (
+                    target.startswith("ppt/media/")
+                    and source_part not in slide_context
+                ):
+                    continue
+                pptx_display_scope: str | None = None
+                if target.startswith("ppt/media/"):
+                    if source_part.startswith("ppt/slides/"):
+                        pptx_display_scope = "direct_slide"
+                    elif source_part.startswith(
+                        ("ppt/slideLayouts/", "ppt/slideMasters/")
+                    ):
+                        pptx_display_scope = "inherited_visibility_unresolved"
+                    else:
+                        pptx_display_scope = "non_slide_visibility_unresolved"
+                    if (
+                        pptx_display_scope != "direct_slide"
+                        and not include_unresolved_pptx_inheritance
+                    ):
+                        continue
+                uses = [
+                    item for item in relationship_uses
+                    if item["relationship_id"] == row["id"]
+                ]
+                cells = (
+                    _xlsx_drawing_cells(archive, source_part, row["id"])
+                    if source_part in drawing_sheets else []
+                )
+                if len(uses) != used[row["id"]]:
+                    raise ValueError("ooxml_relationship_occurrence_count_invalid")
+                if source_part in drawing_sheets and len(cells) != used[row["id"]]:
+                    raise ValueError("ooxml_drawing_cell_occurrence_count_invalid")
+                occurrences = list(zip(uses, cells or [None] * len(uses)))
+                slide_numbers: tuple[int | None, ...] = (
+                    slide_context.get(source_part) or (None,)
+                )
+                for occurrence, (relationship_use, cell) in enumerate(occurrences, 1):
+                    usage_kind = relationship_use["usage_kind"]
+                    for slide_number in slide_numbers:
+                        locator_parts = [
+                            f"part={source_part}",
+                            f"relationship={row['id']}",
+                            f"occurrence={occurrence}",
+                            f"usage={usage_kind}",
+                        ]
+                        if slide_number is not None:
+                            locator_parts.append(f"slide={slide_number}")
+                        result: dict[str, Any] = {
+                            "member": target,
+                            "source_part": source_part,
+                            "relationship_id": row["id"],
+                            "relationship_occurrence": occurrence,
+                            "usage_kind": usage_kind,
+                            "locator_text": ";".join(locator_parts),
+                        }
+                        if slide_number is not None:
+                            result["slide_number"] = slide_number
+                        if pptx_display_scope is not None:
+                            result["pptx_display_scope"] = pptx_display_scope
+                        if source_part in drawing_sheets:
+                            result["sheet_name"] = drawing_sheets[source_part]
+                        if cell is not None:
+                            result["cell"] = cell
+                        results.append(result)
+                continue
+            if target in relationships and target not in reached:
+                reached.add(target)
+                queue.append(target)
+    return results
+
+
+def _ooxml_chart_payload(raw: bytes, source_member: str) -> dict[str, Any]:
+    """Extract explicit chart labels, cached values, and series from chart XML."""
+    validate_xml_bytes(raw)
+    try:
+        root = ElementTree.fromstring(raw)
+    except ElementTree.ParseError as exc:
+        raise ValueError("ooxml_chart_xml_invalid") from exc
+
+    root_namespace, root_name = _xml_name(root.tag)
+    if (
+        root_namespace not in OOXML_CHART_NAMESPACES
+        or root_name != "chartSpace"
+    ):
+        raise ValueError("ooxml_chart_root_invalid")
+
+    def local(item: ElementTree.Element) -> str:
+        return _xml_name(item.tag)[1]
+
+    def chart_item(item: ElementTree.Element, name: str) -> bool:
+        namespace, local_name = _xml_name(item.tag)
+        return namespace in OOXML_CHART_NAMESPACES and local_name == name
+
+    def chart_text_value(item: ElementTree.Element) -> bool:
+        namespace, local_name = _xml_name(item.tag)
+        return (
+            namespace in OOXML_CHART_NAMESPACES and local_name == "v"
+        ) or (
+            namespace in OOXML_DRAWING_NAMESPACES and local_name == "t"
+        )
+
+    def point_values(container: ElementTree.Element) -> dict[str, Any]:
+        indexed: list[tuple[int, Any]] = []
+        values_in_document_order: list[Any] = []
+        invalid_index = False
+        duplicate_index = False
+        seen_indexes: set[int] = set()
+        multi_level_count = sum(
+            1 for item in container.iter() if chart_item(item, "lvl")
+        )
+        for point in container.iter():
+            if not chart_item(point, "pt"):
+                continue
+            value_node = next(
+                (
+                    child_item for child_item in point.iter()
+                    if chart_text_value(child_item)
+                    and child_item.text is not None
+                ),
+                None,
+            )
+            if value_node is None:
+                continue
+            value: Any = value_node.text.strip()
+            values_in_document_order.append(value)
+            try:
+                index = int(point.attrib["idx"])
+            except (KeyError, TypeError, ValueError):
+                invalid_index = True
+                continue
+            if index < 0:
+                invalid_index = True
+                continue
+            if index in seen_indexes:
+                duplicate_index = True
+            seen_indexes.add(index)
+            indexed.append((index, value))
+        index_valid = (
+            bool(indexed)
+            and not invalid_index
+            and not duplicate_index
+            and multi_level_count <= 1
+            and len(indexed) == len(values_in_document_order)
+        )
+        ordered = sorted(indexed, key=lambda item: item[0])
+        return {
+            "values": (
+                [value for _, value in ordered]
+                if index_valid else values_in_document_order
+            ),
+            "indexed": ordered if index_valid else [],
+            "index_valid": index_valid,
+            "multi_level_count": multi_level_count,
+        }
+
+    formulas = [
+        item.text.strip()
+        for item in root.iter()
+        if chart_item(item, "f") and item.text and item.text.strip()
+    ]
+    cached_labels = [
+        item.text.strip()
+        for item in root.iter()
+        if chart_text_value(item) and item.text and item.text.strip()
+    ]
+    chart_types = list(dict.fromkeys(
+        local(item)
+        for item in root.iter()
+        if _xml_name(item.tag)[0] in OOXML_CHART_NAMESPACES
+        and local(item).casefold().endswith("chart")
+        and local(item).casefold() not in {"chart", "chartspace"}
+    ))
+    title_values: list[str] = []
+    for title in (
+        item for item in root.iter() if chart_item(item, "title")
+    ):
+        title_values.extend(
+            item.text.strip()
+            for item in title.iter()
+            if chart_text_value(item) and item.text and item.text.strip()
+        )
+    series: list[dict[str, Any]] = []
+    for series_index, series_node in enumerate(
+        (item for item in root.iter() if chart_item(item, "ser")),
+        1,
+    ):
+        names: list[str] = []
+        category_points: list[dict[str, Any]] = []
+        value_points: list[dict[str, Any]] = []
+        series_formulas: list[str] = []
+        for child_item in series_node:
+            if _xml_name(child_item.tag)[0] not in OOXML_CHART_NAMESPACES:
+                continue
+            child_kind = local(child_item)
+            if child_kind == "tx":
+                names.extend(
+                    value.text.strip()
+                    for value in child_item.iter()
+                    if chart_text_value(value)
+                    and value.text and value.text.strip()
+                )
+            elif child_kind in {"cat", "xVal"}:
+                category_points.append(point_values(child_item))
+            elif child_kind in {"val", "yVal", "bubbleSize"}:
+                value_points.append(point_values(child_item))
+            series_formulas.extend(
+                value.text.strip()
+                for value in child_item.iter()
+                if chart_item(value, "f")
+                and value.text and value.text.strip()
+            )
+        categories = [
+            value
+            for point_set in category_points
+            for value in point_set["values"]
+        ]
+        values = [
+            value
+            for point_set in value_points
+            for value in point_set["values"]
+        ]
+        category_indexes = [
+            index
+            for point_set in category_points
+            for index, _ in point_set["indexed"]
+        ]
+        value_indexes = [
+            index
+            for point_set in value_points
+            for index, _ in point_set["indexed"]
+        ]
+        cache_structure_valid = (
+            len(category_points) <= 1
+            and len(value_points) <= 1
+            and all(
+                point_set["index_valid"]
+                for point_set in category_points + value_points
+            )
+        )
+        if (
+            values
+            and categories
+            and cache_structure_valid
+            and category_indexes == value_indexes
+        ):
+            cache_status = "paired_cached_values"
+            points = [
+                {"category": category, "value": value}
+                for category, value in zip(categories, values)
+            ]
+        elif values and categories and cache_structure_valid:
+            cache_status = "unresolved_cache_index_mismatch"
+            points = []
+        elif values and categories:
+            cache_status = "unresolved_cache_structure"
+            points = []
+        elif (
+            values
+            and not categories
+            and len(value_points) == 1
+            and all(point_set["index_valid"] for point_set in value_points)
+        ):
+            cache_status = "values_without_categories"
+            points = []
+        elif values:
+            cache_status = "unresolved_cache_structure"
+            points = []
+        elif values or categories:
+            cache_status = "unresolved_cache_length_mismatch"
+            points = []
+        else:
+            cache_status = "cached_values_missing"
+            points = []
+        series.append({
+            "series_index": series_index,
+            "name": " / ".join(dict.fromkeys(names)) if names else None,
+            "categories": categories,
+            "values": values,
+            "points": points,
+            "cache_status": cache_status,
+            "category_indexes": category_indexes,
+            "value_indexes": value_indexes,
+            "formulas": list(dict.fromkeys(series_formulas)),
+        })
+    return {
+        "source_member": source_member,
+        "xml_sha256": digest_bytes(raw),
+        "title": " / ".join(dict.fromkeys(title_values)) if title_values else None,
+        "chart_types": chart_types,
+        "formulas": formulas,
+        "cached_labels": cached_labels,
+        "series": series,
+    }
+
+
+def _chart_summary_text(payload: dict[str, Any]) -> str:
+    lines = ["図表（ファイル内の保存済み構造）"]
+    title = payload.get("title")
+    if title:
+        lines.append(f"タイトル: {title}")
+    source_member = payload.get("source_member")
+    if source_member:
+        lines.append(f"参照元: {source_member}")
+    series = payload.get("series", [])
+    lines.append(f"系列数: {len(series)}")
+    for item in series:
+        name = item.get("name") or f"系列{item.get('series_index')}"
+        lines.append(f"系列: {name}; 保存値状態: {item.get('cache_status')}")
+    return "\n".join(lines)
+
+
+def _chart_series_text(payload: dict[str, Any], series: dict[str, Any]) -> str:
+    name = series.get("name") or f"系列{series.get('series_index')}"
+    lines = [
+        f"図表系列: {name}",
+        f"保存値状態: {series.get('cache_status')}",
+    ]
+    points = series.get("points", [])
+    if points:
+        lines.extend(
+            f"{point['category']}: {point['value']}"
+            for point in points
+        )
+    elif series.get("cache_status") == "values_without_categories":
+        lines.append(
+            "カテゴリなし保存値: "
+            + ", ".join(str(value) for value in series.get("values", []))
+        )
+    formulas = series.get("formulas", [])
+    if formulas:
+        lines.append("参照式（未実行）: " + " | ".join(str(value) for value in formulas))
+    return "\n".join(lines)
+
+
+def referenced_ooxml_charts(
+    archive: zipfile.ZipFile,
+) -> list[dict[str, Any]]:
+    """Return only chart parts reached through concrete document placements."""
+    relationships = _ooxml_relationships(archive)
+    _, drawing_sheets = _xlsx_sheet_context(archive, relationships)
+    slide_context = _pptx_slide_context(archive, relationships)
+    queue = [""]
+    reached = {""}
+    results: list[dict[str, Any]] = []
+    while queue:
+        source_part = queue.pop(0)
+        used = (
+            {
+                row["id"]: 1
+                for row in relationships.get("", [])
+                if _ooxml_relationship_kind(row["type"]) == "officeDocument"
+            }
+            if source_part == ""
+            else _ooxml_used_relationship_ids(archive, source_part)
+        )
+        if source_part in drawing_sheets:
+            verified_chart_placements = _xlsx_verified_chart_placements(
+                archive, source_part
+            )
+        elif source_part in slide_context:
+            verified_chart_placements = [
+                {"relationship_id": relationship_id, "cell": None}
+                for relationship_id in _pptx_graphic_relationship_ids(
+                    archive,
+                    source_part,
+                    payload_namespaces=OOXML_CHART_NAMESPACES,
+                    payload_local_name="chart",
+                    relationship_attribute_name="id",
+                )
+            ]
+        else:
+            verified_chart_placements = []
+        for row in relationships.get(source_part, []):
+            relationship_kind = _ooxml_relationship_kind(row["type"])
+            implicit_presentation_part = relationship_kind in {
+                "slideLayout",
+                "slideMaster",
+            }
+            if (
+                (row["id"] not in used and not implicit_presentation_part)
+                or row["target_mode"].casefold() == "external"
+            ):
+                continue
+            target = _resolve_ooxml_target(source_part, row["target"])
+            if target is None:
+                raise ValueError("ooxml_relationship_target_invalid")
+            if (
+                relationship_kind == "chart"
+                and target in archive.namelist()
+            ):
+                placements = [
+                    item for item in verified_chart_placements
+                    if item["relationship_id"] == row["id"]
+                ]
+                if not placements:
+                    continue
+                if source_part in drawing_sheets:
+                    if not target.startswith("xl/charts/"):
+                        raise ValueError("ooxml_chart_target_invalid")
+                elif source_part in slide_context:
+                    if not target.startswith("ppt/charts/"):
+                        raise ValueError("ooxml_chart_target_invalid")
+                else:
+                    continue
+                slide_numbers: tuple[int | None, ...] = (
+                    slide_context.get(source_part) or (None,)
+                )
+                for occurrence, placement in enumerate(placements, 1):
+                    cell = placement["cell"]
+                    for slide_number in slide_numbers:
+                        locator_parts = [
+                            f"part={source_part}",
+                            f"relationship={row['id']}",
+                            f"occurrence={occurrence}",
+                        ]
+                        result: dict[str, Any] = {
+                            "member": target,
+                            "source_part": source_part,
+                            "relationship_id": row["id"],
+                            "relationship_occurrence": occurrence,
+                        }
+                        if source_part in drawing_sheets:
+                            result["sheet_name"] = drawing_sheets[source_part]
+                            locator_parts.append(
+                                "sheet=" + urllib.parse.quote(
+                                    drawing_sheets[source_part], safe="-._~"
+                                )
+                            )
+                        if cell is not None:
+                            result["cell"] = cell
+                            locator_parts.append(f"cell={cell}")
+                        if slide_number is not None:
+                            result["slide_number"] = slide_number
+                            locator_parts.append(f"slide={slide_number}")
+                        result["locator_text"] = ";".join(locator_parts)
+                        results.append(result)
+                continue
+            if target in relationships and target not in reached:
+                reached.add(target)
+                queue.append(target)
+    return results
+
+
+def referenced_pptx_diagrams(
+    archive: zipfile.ZipFile,
+) -> list[dict[str, Any]]:
+    """Return slide-bound, explicitly referenced SmartArt data records."""
+    relationships = _ooxml_relationships(archive)
+    slide_context = _pptx_slide_context(archive, relationships)
+    records: list[dict[str, Any]] = []
+    queue = [""]
+    reached = {""}
+    while queue:
+        source_part = queue.pop(0)
+        used = (
+            {
+                row["id"]: 1
+                for row in relationships.get("", [])
+                if _ooxml_relationship_kind(row["type"]) == "officeDocument"
+            }
+            if source_part == ""
+            else _ooxml_used_relationship_ids(archive, source_part)
+        )
+        verified_diagram_ids = (
+            _pptx_graphic_relationship_ids(
+                archive,
+                source_part,
+                payload_namespaces=OOXML_DIAGRAM_NAMESPACES,
+                payload_local_name="relIds",
+                relationship_attribute_name="dm",
+            )
+            if source_part in slide_context else []
+        )
+        for row in relationships.get(source_part, []):
+            relationship_kind = _ooxml_relationship_kind(row["type"])
+            implicit_presentation_part = relationship_kind in {
+                "slideLayout",
+                "slideMaster",
+            }
+            if (
+                (row["id"] not in used and not implicit_presentation_part)
+                or row["target_mode"].casefold() == "external"
+            ):
+                continue
+            target = _resolve_ooxml_target(source_part, row["target"])
+            if target is None:
+                raise ValueError("ooxml_relationship_target_invalid")
+            if (
+                relationship_kind == "diagramData"
+                and target.startswith("ppt/diagrams/")
+                and target.casefold().endswith(".xml")
+                and target in archive.namelist()
+            ):
+                if source_part not in slide_context:
+                    continue
+                relationship_occurrences = sum(
+                    relationship_id == row["id"]
+                    for relationship_id in verified_diagram_ids
+                )
+                if not relationship_occurrences:
+                    continue
+                raw = archive.read(target)
+                validate_xml_bytes(raw)
+                try:
+                    root = ElementTree.fromstring(raw)
+                except ElementTree.ParseError as exc:
+                    raise ValueError("ooxml_diagram_xml_invalid") from exc
+                root_namespace, root_name = _xml_name(root.tag)
+                if (
+                    root_namespace not in OOXML_DIAGRAM_NAMESPACES
+                    or root_name != "dataModel"
+                ):
+                    raise ValueError("ooxml_diagram_data_root_invalid")
+                points: list[dict[str, Any]] = []
+                connections: list[dict[str, str]] = []
+                for item in root.iter():
+                    item_namespace, kind = _xml_name(item.tag)
+                    if item_namespace not in OOXML_DIAGRAM_NAMESPACES:
+                        continue
+                    if kind == "pt":
+                        text_values = [
+                            value.text.strip()
+                            for value in item.iter()
+                            if _xml_name(value.tag)[0] in OOXML_DRAWING_NAMESPACES
+                            and _xml_name(value.tag)[1] == "t"
+                            and value.text and value.text.strip()
+                        ]
+                        points.append({
+                            "model_id": item.attrib.get("modelId"),
+                            "type": item.attrib.get("type"),
+                            "text": "\n".join(text_values),
+                        })
+                    elif kind == "cxn":
+                        connections.append({
+                            key: item.attrib[key]
+                            for key in ("modelId", "srcId", "destId", "type")
+                            if key in item.attrib
+                        })
+                if not any(point.get("text") for point in points):
+                    continue
+                for occurrence in range(1, relationship_occurrences + 1):
+                    for slide_number in slide_context.get(source_part, ()):
+                        records.append({
+                            "slide_number": slide_number,
+                            "source_member": target,
+                            "source_part": source_part,
+                            "relationship_id": row["id"],
+                            "relationship_occurrence": occurrence,
+                            "xml_sha256": digest_bytes(raw),
+                            "points": points,
+                            "connections": connections,
+                        })
+                continue
+            if target in relationships and target not in reached:
+                reached.add(target)
+                queue.append(target)
+    return records
+
+
 def discover_password_candidates(root: Path) -> tuple[str, ...]:
     """Derive generic Office password candidates from path-visible aliases and dates."""
     aliases: set[str] = set()
@@ -587,6 +2480,10 @@ def nfc_path(path: Path) -> str:
     return unicodedata.normalize("NFC", path.as_posix())
 
 
+class DeferredVisualStoreError(RuntimeError):
+    """The private per-document visual spool violated its integrity contract."""
+
+
 class Probe:
     def __init__(
         self,
@@ -600,7 +2497,13 @@ class Probe:
         record_sink: Callable[[str, dict[str, Any]], None] | None = None,
         retain_records: bool = True,
         password_candidates: tuple[str, ...] = (),
+        visual_observation_mode: str = "immediate",
     ) -> None:
+        if visual_observation_mode not in VISUAL_OBSERVATION_MODES:
+            raise ValueError(
+                "visual_observation_mode must be immediate, "
+                "deferred_per_document, or suppressed"
+            )
         self.root = root.resolve()
         self.run_at = run_at
         self.max_items = max_items
@@ -610,11 +2513,19 @@ class Probe:
         self.record_sink = record_sink
         self.retain_records = retain_records
         self.password_candidates = password_candidates
+        self.visual_observation_mode = visual_observation_mode
         self.documents: list[dict[str, Any]] = []
         self.evidence: list[dict[str, Any]] = []
         self.relations: list[dict[str, Any]] = []
         self._leaf_counts: dict[str, int] = {}
+        self._embedded_visual_usage: dict[str, dict[str, Any]] = {}
         self._current_document: dict[str, Any] | None = None
+        self._deferred_visual_tasks: list[dict[str, Any]] = []
+        self._suppressed_visual_tasks: list[dict[str, Any]] = []
+        self._visual_spool_root: Path | None = None
+        self._visual_spool_root_identity: tuple[int, int] | None = None
+        self._visual_spool_by_sha256: dict[str, Path] = {}
+        self._visual_spool_bytes = 0
 
     def emit(self, kind: str, record: dict[str, Any]) -> None:
         if self.retain_records:
@@ -767,8 +2678,19 @@ class Probe:
             )
         return record
 
-    def add_relation(self, relation_class: str, relation_type: str,
-                     from_ref: dict[str, str], to_ref: dict[str, str]) -> None:
+    def add_relation(
+        self,
+        relation_class: str,
+        relation_type: str,
+        from_ref: dict[str, str],
+        to_ref: dict[str, str],
+        *,
+        properties: dict[str, Any] | None = None,
+        supporting_evidence_ids: list[str] | None = None,
+        rule_or_model: str = "native containment",
+    ) -> None:
+        relation_properties = properties or {}
+        supporting_ids = supporting_evidence_ids or []
         identity = {
             "class": relation_class,
             "type": relation_type,
@@ -785,15 +2707,15 @@ class Probe:
             "relation_type": relation_type,
             "from_ref": from_ref,
             "to_ref": to_ref,
-            "properties": {},
-            "supporting_evidence_ids": [],
+            "properties": relation_properties,
+            "supporting_evidence_ids": supporting_ids,
             "provenance": {
                 "generated_by": self.extractor,
                 "generator_version": self.extractor_version,
                 "generated_at": self.run_at,
                 "deterministic": True,
                 "confidence": 1.0,
-                "rule_or_model": "native containment",
+                "rule_or_model": rule_or_model,
                 "warnings": [],
             },
             "status": "verified",
@@ -806,33 +2728,493 @@ class Probe:
             {"record_type": "evidence", "record_id": evidence_id},
         )
 
+    @staticmethod
+    def _visual_materialization_contract(
+        visual_origin: dict[str, Any],
+    ) -> tuple[str, int]:
+        materialization = visual_origin.get("materialization")
+        if not isinstance(materialization, dict):
+            raise DeferredVisualStoreError(
+                "visual origin has no materialization contract"
+            )
+        expected_sha256 = materialization.get("rendered_sha256")
+        expected_size = materialization.get("rendered_size_bytes")
+        if (
+            not isinstance(expected_sha256, str)
+            or not re.fullmatch(r"[0-9a-f]{64}", expected_sha256)
+            or isinstance(expected_size, bool)
+            or not isinstance(expected_size, int)
+            or expected_size <= 0
+        ):
+            raise DeferredVisualStoreError(
+                "visual materialization digest or size is invalid"
+            )
+        return expected_sha256, expected_size
+
+    @staticmethod
+    def _visual_observation_location(
+        location_prefix: dict[str, Any],
+    ) -> dict[str, Any]:
+        return {
+            **location_prefix,
+            "locator_text": "visual_observation=whole_image",
+        }
+
+    @staticmethod
+    def _release_active_paddle_worker() -> None:
+        from local_image_ocr import active_paddle_session
+
+        paddle_session = active_paddle_session()
+        if paddle_session is not None:
+            # The memo and build-scoped session remain live. Only Paddle's
+            # native process is retired before Gemma is allowed to allocate.
+            paddle_session.release_idle_worker()
+
+    def _ensure_visual_spool_root(self) -> Path:
+        if self._visual_spool_root is None:
+            root = Path(tempfile.mkdtemp(prefix="aiec-visual-spool-"))
+            os.chmod(root, 0o700)
+            root_stat = root.lstat()
+            if not stat.S_ISDIR(root_stat.st_mode) or stat.S_ISLNK(root_stat.st_mode):
+                raise DeferredVisualStoreError(
+                    "private visual spool root is not a real directory"
+                )
+            self._visual_spool_root = root
+            self._visual_spool_root_identity = (
+                root_stat.st_dev,
+                root_stat.st_ino,
+            )
+        return self._visual_spool_root
+
+    @staticmethod
+    def _write_all_descriptor(descriptor: int, raw: bytes) -> None:
+        view = memoryview(raw)
+        written = 0
+        while written < len(view):
+            count = os.write(descriptor, view[written:])
+            if count <= 0:
+                raise OSError("short write to private visual spool")
+            written += count
+
+    def _spool_visual_bytes(self, raw: bytes, sha256: str) -> Path:
+        existing = self._visual_spool_by_sha256.get(sha256)
+        if existing is not None:
+            return existing
+        root = self._ensure_visual_spool_root()
+        identity = self._visual_spool_root_identity
+        if identity is None:
+            raise DeferredVisualStoreError(
+                "private visual spool root identity is missing"
+            )
+        name = f"{sha256}.image"
+        destination = root / name
+        root_flags = (
+            os.O_RDONLY
+            | getattr(os, "O_DIRECTORY", 0)
+            | getattr(os, "O_CLOEXEC", 0)
+            | getattr(os, "O_NOFOLLOW", 0)
+        )
+        file_flags = (
+            os.O_WRONLY
+            | os.O_CREAT
+            | os.O_EXCL
+            | getattr(os, "O_CLOEXEC", 0)
+            | getattr(os, "O_NOFOLLOW", 0)
+        )
+        try:
+            root_descriptor = os.open(root, root_flags)
+        except OSError as exc:
+            raise DeferredVisualStoreError(
+                "private visual spool root cannot be opened safely for writing"
+            ) from exc
+        try:
+            opened_root = os.fstat(root_descriptor)
+            if (
+                not stat.S_ISDIR(opened_root.st_mode)
+                or (opened_root.st_dev, opened_root.st_ino) != identity
+            ):
+                raise DeferredVisualStoreError(
+                    "private visual spool root identity changed before writing"
+                )
+            try:
+                descriptor = os.open(
+                    name, file_flags, 0o600, dir_fd=root_descriptor
+                )
+            except OSError as exc:
+                raise DeferredVisualStoreError(
+                    "private visual spool file cannot be created exclusively"
+                ) from exc
+            try:
+                os.fchmod(descriptor, 0o600)
+                self._write_all_descriptor(descriptor, raw)
+                os.fsync(descriptor)
+                written = os.fstat(descriptor)
+                if not stat.S_ISREG(written.st_mode) or written.st_size != len(raw):
+                    raise DeferredVisualStoreError(
+                        "private visual spool file size changed while writing"
+                    )
+            except BaseException:
+                try:
+                    os.close(descriptor)
+                finally:
+                    try:
+                        os.unlink(name, dir_fd=root_descriptor)
+                    except FileNotFoundError:
+                        pass
+                raise
+            else:
+                os.close(descriptor)
+        except DeferredVisualStoreError:
+            raise
+        except OSError as exc:
+            raise DeferredVisualStoreError(
+                "private visual spool write could not be completed safely"
+            ) from exc
+        finally:
+            os.close(root_descriptor)
+        self._visual_spool_by_sha256[sha256] = destination
+        self._visual_spool_bytes += len(raw)
+        return destination
+
+    def _cleanup_visual_spool(self) -> None:
+        root = self._visual_spool_root
+        if root is None:
+            if (
+                self._visual_spool_root_identity is not None
+                or self._visual_spool_by_sha256
+                or self._visual_spool_bytes
+            ):
+                raise DeferredVisualStoreError(
+                    "private visual spool cleanup state is inconsistent"
+                )
+            self._deferred_visual_tasks.clear()
+            return
+
+        identity = self._visual_spool_root_identity
+        if identity is None:
+            raise DeferredVisualStoreError(
+                "private visual spool root identity is missing"
+            )
+        expected_names: set[str] = set()
+        for expected_sha256, path in self._visual_spool_by_sha256.items():
+            expected_name = f"{expected_sha256}.image"
+            if path.parent != root or path.name != expected_name:
+                raise DeferredVisualStoreError(
+                    "private visual spool file map is inconsistent"
+                )
+            expected_names.add(expected_name)
+
+        flags = (
+            os.O_RDONLY
+            | getattr(os, "O_DIRECTORY", 0)
+            | getattr(os, "O_CLOEXEC", 0)
+            | getattr(os, "O_NOFOLLOW", 0)
+        )
+        try:
+            descriptor = os.open(root, flags)
+        except OSError as exc:
+            raise DeferredVisualStoreError(
+                "private visual spool root cannot be opened safely for cleanup"
+            ) from exc
+        try:
+            opened = os.fstat(descriptor)
+            if (
+                not stat.S_ISDIR(opened.st_mode)
+                or (opened.st_dev, opened.st_ino) != identity
+            ):
+                raise DeferredVisualStoreError(
+                    "private visual spool root identity changed before cleanup"
+                )
+            actual_names = set(os.listdir(descriptor))
+            if actual_names != expected_names:
+                raise DeferredVisualStoreError(
+                    "private visual spool contents changed before cleanup"
+                )
+            for name in sorted(expected_names):
+                entry = os.stat(name, dir_fd=descriptor, follow_symlinks=False)
+                if stat.S_ISDIR(entry.st_mode):
+                    raise DeferredVisualStoreError(
+                        "private visual spool entry became a directory"
+                    )
+            for name in sorted(expected_names):
+                os.unlink(name, dir_fd=descriptor)
+            if os.listdir(descriptor):
+                raise DeferredVisualStoreError(
+                    "private visual spool is not empty after cleanup"
+                )
+        except DeferredVisualStoreError:
+            raise
+        except OSError as exc:
+            raise DeferredVisualStoreError(
+                "private visual spool cannot be cleaned safely"
+            ) from exc
+        finally:
+            os.close(descriptor)
+
+        try:
+            current = root.lstat()
+        except OSError as exc:
+            raise DeferredVisualStoreError(
+                "private visual spool root disappeared before removal"
+            ) from exc
+        if (
+            not stat.S_ISDIR(current.st_mode)
+            or stat.S_ISLNK(current.st_mode)
+            or (current.st_dev, current.st_ino) != identity
+        ):
+            raise DeferredVisualStoreError(
+                "private visual spool root identity changed before removal"
+            )
+        try:
+            root.rmdir()
+        except OSError as exc:
+            raise DeferredVisualStoreError(
+                "private visual spool root cannot be removed safely"
+            ) from exc
+
+        self._deferred_visual_tasks.clear()
+        self._visual_spool_by_sha256.clear()
+        self._visual_spool_bytes = 0
+        self._visual_spool_root = None
+        self._visual_spool_root_identity = None
+
+    def _read_verified_spooled_visual(
+        self,
+        task: dict[str, Any],
+    ) -> bytes:
+        from local_visual_observation import read_checked_image_bytes
+
+        path = task.get("spool_path")
+        expected_sha256 = task.get("expected_sha256")
+        expected_size = task.get("expected_size")
+        if not isinstance(path, Path):
+            raise DeferredVisualStoreError("visual task has no private spool path")
+        try:
+            raw = read_checked_image_bytes(path)
+        except Exception as exc:
+            raise DeferredVisualStoreError(
+                "private visual spool file cannot be read safely"
+            ) from exc
+        actual_sha256 = digest_bytes(raw)
+        if len(raw) != expected_size or actual_sha256 != expected_sha256:
+            raise DeferredVisualStoreError(
+                "private visual spool file differs from the queued materialization"
+            )
+        return raw
+
+    def _schedule_local_visual_observation(
+        self,
+        image_path: Path,
+        document: dict[str, Any],
+        *,
+        parent_id: str,
+        location_prefix: dict[str, Any],
+        visual_origin: dict[str, Any],
+        ordinal: int,
+        exact_location: dict[str, Any] | None = None,
+        deadline_at: float | None = None,
+        excluded_normalized_texts: set[str] | None = None,
+    ) -> bool:
+        """Run now, suppress for a child projection, or queue for root flush."""
+        location = (
+            dict(exact_location)
+            if exact_location is not None
+            else self._visual_observation_location(location_prefix)
+        )
+        remaining_timeout: float | None = None
+        if deadline_at is not None:
+            remaining_timeout = float(deadline_at) - time.monotonic()
+            if remaining_timeout <= 0:
+                self.mark_partial(
+                    document,
+                    "visual meaning skipped because its document time limit was reached",
+                )
+                return False
+        if self.visual_observation_mode == "immediate":
+            immediate_timeout = remaining_timeout
+            if immediate_timeout is not None:
+                from local_visual_observation import MAX_TIMEOUT_SECONDS
+
+                if immediate_timeout >= MAX_TIMEOUT_SECONDS:
+                    # Preserve the historical observe_path call contract when
+                    # its own fixed 180-second cap is already stricter.
+                    immediate_timeout = None
+            return self._add_local_visual_observation(
+                image_path,
+                document,
+                parent_id=parent_id,
+                location_prefix=location_prefix,
+                visual_origin=visual_origin,
+                ordinal=ordinal,
+                exact_location=location,
+                excluded_normalized_texts=excluded_normalized_texts,
+                timeout=immediate_timeout,
+                deadline_at=deadline_at,
+            )
+        descriptor = {
+            "image_path": Path(image_path),
+            "parent_id": parent_id,
+            "location": location,
+            "ordinal": ordinal,
+        }
+        if self.visual_observation_mode == "suppressed":
+            self._suppressed_visual_tasks.append(descriptor)
+            return False
+
+        expected_sha256, expected_size = self._visual_materialization_contract(
+            visual_origin
+        )
+        from local_image_ocr import read_checked_image_bytes
+        from local_visual_observation import MAX_IMAGE_BYTES
+
+        try:
+            raw = read_checked_image_bytes(Path(image_path))
+        except Exception as exc:
+            raise DeferredVisualStoreError(
+                "visual source cannot be read safely"
+            ) from exc
+        actual_sha256 = digest_bytes(raw)
+        if len(raw) != expected_size or actual_sha256 != expected_sha256:
+            raise DeferredVisualStoreError(
+                "visual source differs from its materialization contract"
+            )
+        if len(raw) > MAX_IMAGE_BYTES:
+            kind = str(visual_origin.get("kind", "visual_image"))
+            self.mark_partial(
+                document,
+                f"{kind} visual meaning unavailable: image exceeds the "
+                "local visual observation safety limit",
+            )
+            return False
+        is_new = expected_sha256 not in self._visual_spool_by_sha256
+        would_exceed = (
+            len(self._deferred_visual_tasks) >= MAX_DEFERRED_VISUAL_TASKS
+            or (
+                is_new
+                and self._visual_spool_bytes + len(raw)
+                > MAX_DEFERRED_VISUAL_SPOOL_BYTES
+            )
+        )
+        if would_exceed and self._deferred_visual_tasks:
+            self._release_active_paddle_worker()
+            self._flush_deferred_visual_observations()
+            self._cleanup_visual_spool()
+        if len(raw) > MAX_DEFERRED_VISUAL_SPOOL_BYTES:
+            self.mark_partial(
+                document,
+                "visual meaning skipped because one image exceeds the private spool limit",
+            )
+            return False
+        spool_path = self._spool_visual_bytes(raw, expected_sha256)
+        self._deferred_visual_tasks.append({
+            **descriptor,
+            "spool_path": spool_path,
+            "expected_sha256": expected_sha256,
+            "expected_size": expected_size,
+            "visual_origin": visual_origin,
+            "deadline_at": deadline_at,
+            "excluded_normalized_texts": set(excluded_normalized_texts or ()),
+        })
+        return True
+
+    def _flush_deferred_visual_observations(self) -> None:
+        if self.visual_observation_mode != "deferred_per_document":
+            raise RuntimeError("only a deferred root Probe may flush visual tasks")
+        from local_visual_observation import MAX_TIMEOUT_SECONDS
+
+        tasks = list(self._deferred_visual_tasks)
+        self._deferred_visual_tasks.clear()
+        for task in tasks:
+            document = self._current_document
+            if document is None:
+                raise DeferredVisualStoreError(
+                    "visual tasks cannot outlive their source document"
+                )
+            deadline_at = task.get("deadline_at")
+            if deadline_at is not None:
+                remaining = float(deadline_at) - time.monotonic()
+                if remaining <= 0:
+                    self.mark_partial(
+                        document,
+                        "visual meaning skipped because its document time limit was reached",
+                    )
+                    continue
+            else:
+                remaining = None
+            raw = self._read_verified_spooled_visual(task)
+            if deadline_at is not None:
+                remaining = float(deadline_at) - time.monotonic()
+                if remaining <= 0:
+                    self.mark_partial(
+                        document,
+                        "visual meaning skipped because its document time limit was reached",
+                    )
+                    continue
+            self._add_local_visual_observation(
+                task["image_path"],
+                document,
+                parent_id=task["parent_id"],
+                location_prefix={},
+                visual_origin=task["visual_origin"],
+                ordinal=task["ordinal"],
+                exact_location=task["location"],
+                image_bytes=raw,
+                timeout=(
+                    min(float(remaining), MAX_TIMEOUT_SECONDS)
+                    if remaining is not None
+                    else MAX_TIMEOUT_SECONDS
+                ),
+                deadline_at=deadline_at,
+                release_paddle=False,
+                excluded_normalized_texts=task["excluded_normalized_texts"],
+            )
+
     def extract(self, path: Path) -> None:
-        suffix = path.suffix.lower()
-        if suffix in DIRECT_TEXT_SUFFIXES and path.stat().st_size > MAX_DIRECT_TEXT_BYTES:
-            self.extract_large_text(path)
-        elif suffix == ".docx":
-            self.extract_docx(path)
-        elif suffix == ".xlsx":
-            self.extract_xlsx(path)
-        elif suffix == ".pptx":
-            self.extract_pptx(path)
-        elif suffix == ".pdf":
-            self.extract_pdf(path)
-        elif suffix in IMAGE_SUFFIXES:
-            self.extract_image(path)
-        elif suffix in {".csv", ".tsv"}:
-            self.extract_delimited(path)
-        elif suffix == ".json":
-            self.extract_json(path)
-        elif suffix == ".xml":
-            self.extract_xml(path)
-        elif suffix == ".ipynb":
-            self.extract_notebook(path)
-        elif suffix in PLAIN_TEXT_SUFFIXES:
-            self.extract_plain_text(path)
-        else:
-            self.extract_other(path)
-        self.finalize_document()
+        if (
+            self.visual_observation_mode == "deferred_per_document"
+            and (
+                self._deferred_visual_tasks
+                or self._visual_spool_root is not None
+                or self._current_document is not None
+            )
+        ):
+            raise RuntimeError("deferred visual document scope is already active")
+        try:
+            suffix = path.suffix.lower()
+            if suffix in DIRECT_TEXT_SUFFIXES and path.stat().st_size > MAX_DIRECT_TEXT_BYTES:
+                self.extract_large_text(path)
+            elif suffix == ".docx":
+                self.extract_docx(path)
+            elif suffix == ".xlsx":
+                self.extract_xlsx(path)
+            elif suffix == ".pptx":
+                self.extract_pptx(path)
+            elif suffix == ".pdf":
+                self.extract_pdf(path)
+            elif suffix in IMAGE_SUFFIXES:
+                self.extract_image(path)
+            elif suffix in {".csv", ".tsv"}:
+                self.extract_delimited(path)
+            elif suffix == ".json":
+                self.extract_json(path)
+            elif suffix == ".xml":
+                self.extract_xml(path)
+            elif suffix == ".ipynb":
+                self.extract_notebook(path)
+            elif suffix in PLAIN_TEXT_SUFFIXES:
+                self.extract_plain_text(path)
+            else:
+                self.extract_other(path)
+            if (
+                self.visual_observation_mode == "deferred_per_document"
+                and self._deferred_visual_tasks
+            ):
+                self._release_active_paddle_worker()
+                self._flush_deferred_visual_observations()
+            self.finalize_document()
+        finally:
+            if self.visual_observation_mode == "deferred_per_document":
+                self._cleanup_visual_spool()
 
     def extract_large_text(self, path: Path) -> None:
         """Retain searchable text from a large file with bounded memory.
@@ -941,11 +3323,15 @@ class Probe:
         raise ValueError("password-protected Office file could not be decrypted with derived candidates")
 
     def extract_docx(self, path: Path) -> None:
-        from docx import Document
-        from docx.oxml.table import CT_Tbl
-        from docx.oxml.text.paragraph import CT_P
-        from docx.table import Table
-        from docx.text.paragraph import Paragraph
+        try:
+            from docx import Document
+            from docx.oxml.table import CT_Tbl
+            from docx.oxml.text.paragraph import CT_P
+            from docx.table import Table
+            from docx.text.paragraph import Paragraph
+        except ImportError:
+            self.extract_docx_ooxml(path)
+            return
 
         source, decrypted = self.office_source(path)
         validate_ooxml_archive(
@@ -1091,18 +3477,320 @@ class Probe:
         if isinstance(source, io.BytesIO):
             source.seek(0)
         with zipfile.ZipFile(source) as archive:
-            media_members = sorted(name for name in archive.namelist() if name.startswith("word/media/") and not name.endswith("/"))
-            for image_index, member in enumerate(media_members, 1):
-                raw = archive.read(member)
-                ev = self.add_evidence(
-                    doc_id,
-                    "image",
-                    {"source_member": member, "object_index": image_index},
-                    content(content_ref=f"{doc['source']['relative_path']}::{member}", mime_type=mimetypes.guess_type(member)[0]),
-                    ordinal=image_index,
-                    native_properties={"embedded_sha256": digest_bytes(raw), "size_bytes": len(raw)},
+            self._project_ooxml_referenced_media(
+                archive,
+                doc,
+                media_prefixes=("word/media/",),
+            )
+
+    def extract_docx_ooxml(self, path: Path) -> None:
+        """Read core DOCX structures without optional Python packages."""
+        source, decrypted = self.office_source(path)
+        validate_ooxml_archive(
+            source,
+            required_members=DOCX_REQUIRED_OOXML_MEMBERS,
+        )
+        doc = self.add_document(path, "ooxml-stdlib-docx-fallback")
+        doc_id = doc["document_id"]
+        self.mark_partial(
+            doc,
+            "DOCX standard-library fallback preserves body text/table order but rich run formatting, fields, revisions, footnotes, and section layout remain unresolved",
+        )
+        if decrypted:
+            doc["extraction"]["warnings"].append(
+                "password-protected Office source decrypted in memory"
+            )
+        if isinstance(source, io.BytesIO):
+            source.seek(0)
+        with zipfile.ZipFile(source) as archive:
+            relationships = _ooxml_relationships(archive)
+            _require_ooxml_office_document_binding(
+                archive, relationships, "word/document.xml"
+            )
+            root = _ooxml_xml_root(
+                archive,
+                "word/document.xml",
+                namespaces=OOXML_WORDPROCESSING_NAMESPACES,
+                local_names={"document"},
+            )
+            bodies = _direct_xml_children(
+                root, OOXML_WORDPROCESSING_NAMESPACES, "body"
+            )
+            if len(bodies) != 1:
+                raise ValueError("ooxml_word_body_invalid")
+            styles = _word_style_catalog(archive, relationships)
+            paragraph_index = 0
+            table_index = 0
+            body_order = 0
+            preceding_heading: dict[str, str] | None = None
+
+            for block in _word_block_children(bodies[0]):
+                _, block_name = _xml_name(block.tag)
+                body_order += 1
+                if block_name == "p":
+                    paragraph_index += 1
+                    text_value = _word_paragraph_text(block)
+                    if not text_value or not self.may_add_leaf(doc_id):
+                        continue
+                    style_id = _word_paragraph_style_id(block)
+                    style_row = styles.get(style_id or "", {})
+                    style_name = style_row.get("name")
+                    evidence_type = (
+                        "heading"
+                        if _word_style_is_heading(style_id, styles)
+                        or _word_paragraph_has_outline_level(block)
+                        else "paragraph"
+                    )
+                    ev = self.add_evidence(
+                        doc_id,
+                        evidence_type,
+                        {"paragraph_index": paragraph_index},
+                        content(raw_text=text_value),
+                        ordinal=paragraph_index,
+                        style=(
+                            {"source_style_id": style_id}
+                            if style_id else None
+                        ),
+                        native_properties={
+                            "paragraph_style_name": style_name,
+                            "body_order": body_order,
+                            "fallback_detail_status": "core_text_and_style_reference_only",
+                        },
+                        method="ooxml_stdlib_docx_fallback",
+                    )
+                    self.contain_document(doc_id, ev["evidence_id"])
+                    if evidence_type == "heading":
+                        preceding_heading = {
+                            "text": text_value,
+                            "evidence_id": ev["evidence_id"],
+                        }
+                    continue
+
+                if block_name != "tbl":
+                    continue
+                table_index += 1
+                rows = _direct_xml_children(
+                    block, OOXML_WORDPROCESSING_NAMESPACES, "tr"
                 )
-                self.contain_document(doc_id, ev["evidence_id"])
+                parsed_rows: list[list[str]] = []
+                for row in rows:
+                    parsed_cells: list[str] = []
+                    for cell in _direct_xml_children(
+                        row, OOXML_WORDPROCESSING_NAMESPACES, "tc"
+                    ):
+                        values = [
+                            _word_paragraph_text(item)
+                            for item in _word_block_children(cell)
+                            if _xml_name(item.tag)[1] == "p"
+                        ]
+                        parsed_cells.append("\n".join(values))
+                    parsed_rows.append(parsed_cells)
+                native_properties: dict[str, Any] = {
+                    "body_order": body_order,
+                    "fallback_detail_status": "merged_cell_and_nested_table_semantics_unresolved",
+                }
+                if preceding_heading is not None:
+                    native_properties.update({
+                        "preceding_heading_text": preceding_heading["text"],
+                        "preceding_heading_evidence_id": preceding_heading[
+                            "evidence_id"
+                        ],
+                    })
+                table_ev = self.add_evidence(
+                    doc_id,
+                    "table",
+                    {"table_index": table_index},
+                    content(raw_value={
+                        "rows": len(parsed_rows),
+                        "columns": max(
+                            (len(row) for row in parsed_rows), default=0
+                        ),
+                    }),
+                    ordinal=table_index,
+                    native_properties=native_properties,
+                    method="ooxml_stdlib_docx_fallback",
+                )
+                self.contain_document(doc_id, table_ev["evidence_id"])
+                if preceding_heading is not None:
+                    self.add_relation(
+                        "structural",
+                        "section_contains",
+                        {
+                            "record_type": "evidence",
+                            "record_id": preceding_heading["evidence_id"],
+                        },
+                        {
+                            "record_type": "evidence",
+                            "record_id": table_ev["evidence_id"],
+                        },
+                    )
+                for row_index, row in enumerate(parsed_rows, 1):
+                    for column_index, cell_text in enumerate(row, 1):
+                        if not self.may_add_leaf(doc_id):
+                            break
+                        self.add_evidence(
+                            doc_id,
+                            "table_cell",
+                            {
+                                "table_index": table_index,
+                                "row_index": row_index,
+                                "column_index": column_index,
+                            },
+                            content(raw_text=cell_text),
+                            parent_id=table_ev["evidence_id"],
+                            ordinal=column_index,
+                            native_properties={
+                                "fallback_detail_status": "plain_cell_text_only"
+                            },
+                            method="ooxml_stdlib_docx_fallback",
+                        )
+                    if self.limit_reached(doc_id):
+                        break
+
+            used_relationships = _ooxml_used_relationship_ids(
+                archive, "word/document.xml"
+            )
+            seen_parts: set[str] = set()
+            section_index = 0
+            for row in relationships.get("word/document.xml", []):
+                kind = _ooxml_relationship_kind(row["type"])
+                if (
+                    kind not in {"header", "footer"}
+                    or row["target_mode"].casefold() == "external"
+                    or row["id"] not in used_relationships
+                ):
+                    continue
+                member = _resolve_ooxml_target(
+                    "word/document.xml", row["target"]
+                )
+                if (
+                    member is None
+                    or member in seen_parts
+                    or not _word_visual_source_part_allowed(archive, member)
+                ):
+                    if member is None:
+                        raise ValueError("ooxml_word_section_binding_invalid")
+                    continue
+                seen_parts.add(member)
+                section_index += 1
+                part_root = _ooxml_xml_root(
+                    archive,
+                    member,
+                    namespaces=OOXML_WORDPROCESSING_NAMESPACES,
+                    local_names={"hdr" if kind == "header" else "ftr"},
+                )
+                values: list[str] = []
+                for part_block in _word_block_children(part_root):
+                    _, part_block_name = _xml_name(part_block.tag)
+                    if part_block_name == "p":
+                        value = _word_paragraph_text(part_block)
+                        if value:
+                            values.append(value)
+                    elif part_block_name == "tbl":
+                        for table_row in _direct_xml_children(
+                            part_block,
+                            OOXML_WORDPROCESSING_NAMESPACES,
+                            "tr",
+                        ):
+                            row_values: list[str] = []
+                            for cell in _direct_xml_children(
+                                table_row,
+                                OOXML_WORDPROCESSING_NAMESPACES,
+                                "tc",
+                            ):
+                                row_values.append("\n".join(
+                                    _word_paragraph_text(item)
+                                    for item in _word_block_children(cell)
+                                    if _xml_name(item.tag)[1] == "p"
+                                ))
+                            if any(row_values):
+                                values.append(" | ".join(row_values))
+                text_value = "\n".join(values).strip()
+                if text_value and self.may_add_leaf(doc_id):
+                    ev = self.add_evidence(
+                        doc_id,
+                        kind,
+                        {
+                            "section": f"relationship-{section_index}",
+                            "source_member": member,
+                        },
+                        content(raw_text=text_value),
+                        ordinal=section_index,
+                        native_properties={
+                            "relationship_id": row["id"],
+                            "reference_occurrences": used_relationships[
+                                row["id"]
+                            ],
+                        },
+                        method="ooxml_stdlib_docx_fallback",
+                    )
+                    self.contain_document(doc_id, ev["evidence_id"])
+
+            comment_rows = [
+                row for row in relationships.get("word/document.xml", [])
+                if _ooxml_relationship_kind(row["type"]) == "comments"
+                and row["target_mode"].casefold() != "external"
+            ]
+            if len(comment_rows) > 1:
+                raise ValueError("ooxml_word_comments_binding_ambiguous")
+            if comment_rows:
+                comments_member = _resolve_ooxml_target(
+                    "word/document.xml", comment_rows[0]["target"]
+                )
+                if comments_member is None:
+                    raise ValueError("ooxml_word_comments_binding_invalid")
+                comments_root = _ooxml_xml_root(
+                    archive,
+                    comments_member,
+                    namespaces=OOXML_WORDPROCESSING_NAMESPACES,
+                    local_names={"comments"},
+                )
+                for comment_index, comment in enumerate(
+                    _direct_xml_children(
+                        comments_root,
+                        OOXML_WORDPROCESSING_NAMESPACES,
+                        "comment",
+                    ),
+                    1,
+                ):
+                    text_value = "\n".join(
+                        _word_paragraph_text(item)
+                        for item in _word_block_children(comment)
+                        if _xml_name(item.tag)[1] == "p"
+                    ).strip()
+                    if not text_value or not self.may_add_leaf(doc_id):
+                        continue
+                    ev = self.add_evidence(
+                        doc_id,
+                        "comment",
+                        {
+                            "object_index": comment_index,
+                            "source_member": comments_member,
+                            "locator_text": f"comment={comment_index}",
+                        },
+                        content(raw_text=text_value),
+                        ordinal=comment_index,
+                        native_properties={
+                            "author": _xml_attribute(
+                                comment,
+                                OOXML_WORDPROCESSING_NAMESPACES,
+                                "author",
+                            ),
+                            "initials": _xml_attribute(
+                                comment,
+                                OOXML_WORDPROCESSING_NAMESPACES,
+                                "initials",
+                            ),
+                        },
+                        method="ooxml_stdlib_docx_fallback",
+                    )
+                    self.contain_document(doc_id, ev["evidence_id"])
+
+            self._project_ooxml_referenced_media(
+                archive,
+                doc,
+                media_prefixes=("word/media/",),
+            )
 
     def extract_xlsx(self, path: Path) -> None:
         try:
@@ -1275,48 +3963,12 @@ class Probe:
         if isinstance(source, io.BytesIO):
             source.seek(0)
         with zipfile.ZipFile(source) as archive:
-            chart_members = sorted(name for name in archive.namelist() if name.startswith("xl/charts/") and name.endswith(".xml"))
-            for chart_index, member in enumerate(chart_members, 1):
-                raw = archive.read(member)
-                try:
-                    root = ElementTree.fromstring(raw)
-                    formulas = [node.text.strip() for node in root.iter() if node.tag.endswith("}f") and node.text]
-                    labels = [node.text.strip() for node in root.iter() if node.tag.endswith("}v") and node.text]
-                except ElementTree.ParseError:
-                    formulas, labels = [], []
-                chart_ev = self.add_evidence(
-                    doc_id, "chart", {"source_member": member, "object_index": chart_index},
-                    content(raw_value={
-                        "source_member": member,
-                        "xml_sha256": digest_bytes(raw),
-                        "formulas": formulas,
-                        "cached_labels": labels,
-                    }),
-                    ordinal=chart_index,
-                    native_properties={"ooxml_part": member, "extended_chart": "/chartEx" in member},
-                )
-                self.contain_document(doc_id, chart_ev["evidence_id"])
-                for series_index, formula in enumerate(formulas, 1):
-                    self.add_evidence(
-                        doc_id,
-                        "chart_series",
-                        {"source_member": member, "object_index": chart_index, "series_index": series_index},
-                        content(raw_text=formula),
-                        parent_id=chart_ev["evidence_id"],
-                        ordinal=series_index,
-                    )
-            media_members = sorted(name for name in archive.namelist() if name.startswith("xl/media/") and not name.endswith("/"))
-            for image_index, member in enumerate(media_members, 1):
-                raw = archive.read(member)
-                ev = self.add_evidence(
-                    doc_id,
-                    "image",
-                    {"source_member": member, "object_index": image_index},
-                    content(content_ref=f"{doc['source']['relative_path']}::{member}", mime_type=mimetypes.guess_type(member)[0]),
-                    ordinal=image_index,
-                    native_properties={"embedded_sha256": digest_bytes(raw), "size_bytes": len(raw)},
-                )
-                self.contain_document(doc_id, ev["evidence_id"])
+            self._project_ooxml_charts(archive, doc)
+            self._project_ooxml_referenced_media(
+                archive,
+                doc,
+                media_prefixes=("xl/media/",),
+            )
         cached_workbook.close()
         workbook.close()
 
@@ -1585,43 +4237,19 @@ class Probe:
                 )
                 self.contain_document(doc_id, ev["evidence_id"])
 
-            chart_members = sorted(name for name in names if name.startswith("xl/charts/") and name.endswith(".xml"))
-            for chart_index, member in enumerate(chart_members, 1):
-                raw = archive.read(member)
-                try:
-                    chart_root = ElementTree.fromstring(raw)
-                    formulas = [node.text.strip() for node in chart_root.iter() if node.tag.endswith("}f") and node.text]
-                    labels = [node.text.strip() for node in chart_root.iter() if node.tag.endswith("}v") and node.text]
-                except ElementTree.ParseError:
-                    formulas, labels = [], []
-                chart_ev = self.add_evidence(
-                    doc_id, "chart", {"source_member": member, "object_index": chart_index},
-                    content(raw_value={
-                        "source_member": member, "xml_sha256": digest_bytes(raw),
-                        "formulas": formulas, "cached_labels": labels,
-                    }), ordinal=chart_index,
-                    native_properties={"ooxml_part": member, "extended_chart": "/chartEx" in member},
-                )
-                self.contain_document(doc_id, chart_ev["evidence_id"])
-                for series_index, formula in enumerate(formulas, 1):
-                    self.add_evidence(
-                        doc_id, "chart_series",
-                        {"source_member": member, "object_index": chart_index, "series_index": series_index},
-                        content(raw_text=formula), parent_id=chart_ev["evidence_id"], ordinal=series_index,
-                    )
-            media_members = sorted(name for name in names if name.startswith("xl/media/") and not name.endswith("/"))
-            for image_index, member in enumerate(media_members, 1):
-                raw = archive.read(member)
-                ev = self.add_evidence(
-                    doc_id, "image", {"source_member": member, "object_index": image_index},
-                    content(content_ref=f"{doc['source']['relative_path']}::{member}", mime_type=mimetypes.guess_type(member)[0]),
-                    ordinal=image_index,
-                    native_properties={"embedded_sha256": digest_bytes(raw), "size_bytes": len(raw)},
-                )
-                self.contain_document(doc_id, ev["evidence_id"])
+            self._project_ooxml_charts(archive, doc)
+            self._project_ooxml_referenced_media(
+                archive,
+                doc,
+                media_prefixes=("xl/media/",),
+            )
 
     def extract_pptx(self, path: Path) -> None:
-        from pptx import Presentation
+        try:
+            from pptx import Presentation
+        except ImportError:
+            self.extract_pptx_ooxml(path)
+            return
 
         source, decrypted = self.office_source(path)
         validate_ooxml_archive(
@@ -1689,28 +4317,117 @@ class Probe:
                         if self.limit_reached(doc_id):
                             break
                 if getattr(shape, "has_chart", False):
-                    chart_ev = self.add_evidence(
-                        doc_id, "chart",
-                        {"slide_number": slide_number, "shape_id": shape_locator_id},
-                        content(raw_value={"series_count": len(shape.chart.series)}),
-                        parent_id=shape_ev["evidence_id"],
-                    )
-                    for series_index, series in enumerate(shape.chart.series, 1):
-                        self.add_evidence(
-                            doc_id, "chart_series",
-                            {"slide_number": slide_number, "shape_id": shape_locator_id, "series_index": series_index},
-                            content(raw_value={"name": getattr(series, "name", None)}),
-                            parent_id=chart_ev["evidence_id"], ordinal=series_index,
+                    chart = shape.chart
+                    chart_part = getattr(chart, "part", None)
+                    chart_blob = getattr(chart_part, "blob", None)
+                    chart_member = str(
+                        getattr(chart_part, "partname", "")
+                    ).lstrip("/")
+                    if not isinstance(chart_blob, bytes) or not chart_member:
+                        self.mark_partial(
+                            doc,
+                            f"slide {slide_number} chart {shape_locator_id} lacks a source-bound OOXML part",
                         )
+                    else:
+                        try:
+                            chart_payload = _ooxml_chart_payload(
+                                chart_blob, chart_member
+                            )
+                        except ValueError as exc:
+                            self.mark_partial(
+                                doc,
+                                f"slide {slide_number} chart {shape_locator_id} could not be parsed: {exc}",
+                            )
+                        else:
+                            chart_location = {
+                                "slide_number": slide_number,
+                                "shape_id": shape_locator_id,
+                                "source_member": chart_member,
+                                "locator_text": (
+                                    f"slide={slide_number};shape={shape_locator_id};"
+                                    f"chart={chart_member}"
+                                ),
+                            }
+                            chart_ev = self.add_evidence(
+                                doc_id,
+                                "chart",
+                                chart_location,
+                                content(
+                                    raw_text=_chart_summary_text(chart_payload)
+                                ),
+                                parent_id=shape_ev["evidence_id"],
+                                native_properties={
+                                    "ooxml_part": chart_member,
+                                    "xml_sha256": chart_payload["xml_sha256"],
+                                    "chart_payload": chart_payload,
+                                    "cached_value_status": FORMULA_CACHED_VALUE_STATUS,
+                                },
+                                method="verified_ooxml_chart_cache",
+                            )
+                            for series_index, series in enumerate(
+                                chart_payload["series"], 1
+                            ):
+                                if (
+                                    series["cache_status"].startswith("unresolved_")
+                                    or series["cache_status"] == "cached_values_missing"
+                                ):
+                                    self.mark_partial(
+                                        doc,
+                                        f"slide {slide_number} chart {shape_locator_id} series {series_index} has {series['cache_status']}",
+                                    )
+                                self.add_evidence(
+                                    doc_id,
+                                    "chart_series",
+                                    {
+                                        **chart_location,
+                                        "series_index": series_index,
+                                        "locator_text": (
+                                            f"{chart_location['locator_text']};"
+                                            f"series={series_index}"
+                                        ),
+                                    },
+                                    content(
+                                        raw_text=_chart_series_text(
+                                            chart_payload, series
+                                        )
+                                    ),
+                                    parent_id=chart_ev["evidence_id"],
+                                    ordinal=series_index,
+                                    native_properties={
+                                        "ooxml_part": chart_member,
+                                        "xml_sha256": chart_payload["xml_sha256"],
+                                        "series": series,
+                                        "cached_value_status": FORMULA_CACHED_VALUE_STATUS,
+                                    },
+                                    method="verified_ooxml_chart_cache",
+                                )
                 image = getattr(shape, "image", None)
                 if image is not None:
                     blob = image.blob
-                    self.add_evidence(
+                    image_location = {
+                        "slide_number": slide_number, "shape_id": shape_locator_id,
+                    }
+                    image_ref = (
+                        f"{doc['source']['relative_path']}#slide={slide_number};"
+                        f"shape={shape.shape_id}"
+                    )
+                    image_source_name = (
+                        getattr(image, "filename", None)
+                        or f"image.{getattr(image, 'ext', 'png')}"
+                    )
+                    visual_origin = self._embedded_visual_origin(
+                        blob,
+                        doc,
+                        location_prefix=image_location,
+                        source_name=image_source_name,
+                        visual_origin_kind="office_embedded_image",
+                    )
+                    image_ev = self.add_evidence(
                         doc_id,
                         "image",
-                        {"slide_number": slide_number, "shape_id": shape_locator_id},
+                        image_location,
                         content(
-                            content_ref=f"{doc['source']['relative_path']}#slide={slide_number};shape={shape.shape_id}",
+                            content_ref=image_ref,
                             mime_type=getattr(image, "content_type", None),
                         ),
                         parent_id=shape_ev["evidence_id"],
@@ -1718,7 +4435,16 @@ class Probe:
                             "embedded_sha256": digest_bytes(blob),
                             "size_bytes": len(blob),
                             "file_name": getattr(image, "filename", None),
+                            "visual_origin": {
+                                **visual_origin,
+                            },
                         },
+                    )
+                    self._project_embedded_image_bytes(
+                        blob, doc, parent_id=image_ev["evidence_id"],
+                        location_prefix=image_location, content_ref=image_ref,
+                        source_name=image_source_name,
+                        visual_origin=visual_origin,
                     )
             if getattr(slide, "has_notes_slide", False):
                 notes_frame = getattr(slide.notes_slide, "notes_text_frame", None)
@@ -1731,93 +4457,1547 @@ class Probe:
                         content(raw_text=notes_text),
                         parent_id=slide_ev["evidence_id"],
                     )
+        if isinstance(source, io.BytesIO):
+            source.seek(0)
+        with zipfile.ZipFile(source) as archive:
+            # ``python-pptx`` exposes ordinary picture shapes through
+            # ``shape.image`` above, but not slide backgrounds, image-backed
+            # shape fills, or inherited layout/master artwork.  Walk the
+            # package relationships for those displayed visual sources while
+            # excluding only direct-slide pictures already projected above.
+            self._project_ooxml_referenced_media(
+                archive,
+                doc,
+                media_prefixes=("ppt/media/",),
+                skip_direct_pptx_pictures=True,
+            )
+            for diagram_index, diagram in enumerate(
+                referenced_pptx_diagrams(archive),
+                1,
+            ):
+                diagram_location = {
+                    "slide_number": diagram["slide_number"],
+                    "source_member": diagram["source_member"],
+                    "object_index": diagram_index,
+                    "locator_text": (
+                        f"slide={diagram['slide_number']};"
+                        f"smartart={diagram['source_member']};"
+                        f"relationship={diagram['relationship_id']};"
+                        f"occurrence={diagram['relationship_occurrence']}"
+                    ),
+                }
+                diagram_ev = self.add_evidence(
+                    doc_id,
+                    "shape",
+                    diagram_location,
+                    content(raw_text="SmartArt（ファイル内の明示構造）"),
+                    ordinal=diagram_index,
+                    native_properties={
+                        "ooxml_part": diagram["source_member"],
+                        "xml_sha256": diagram["xml_sha256"],
+                        "point_count": len(diagram["points"]),
+                        "connection_count": len(diagram["connections"]),
+                        "ooxml_relationship": {
+                            "source_part": diagram["source_part"],
+                            "relationship_id": diagram["relationship_id"],
+                            "relationship_occurrence": diagram[
+                                "relationship_occurrence"
+                            ],
+                        },
+                    },
+                )
+                self.contain_document(doc_id, diagram_ev["evidence_id"])
+                model_ids = [point.get("model_id") for point in diagram["points"]]
+                model_id_contract_valid = (
+                    all(isinstance(value, str) and value for value in model_ids)
+                    and len(model_ids) == len(set(model_ids))
+                )
+                if not model_id_contract_valid:
+                    self.mark_partial(
+                        doc,
+                        f"SmartArt {diagram['source_member']} has missing or duplicate model ids",
+                    )
+                point_evidence: dict[str, dict[str, Any]] = {}
+                for point_index, point in enumerate(diagram["points"], 1):
+                    point_text = str(point.get("text") or "").strip()
+                    if not point_text:
+                        continue
+                    model_id = point.get("model_id")
+                    point_ev = self.add_evidence(
+                        doc_id,
+                        "text_block",
+                        {
+                            "slide_number": diagram["slide_number"],
+                            "source_member": diagram["source_member"],
+                            "object_index": point_index,
+                            "object_id": (
+                                str(model_id) if model_id else f"point-{point_index}"
+                            ),
+                            "locator_text": (
+                                f"{diagram_location['locator_text']};"
+                                f"point={urllib.parse.quote(str(model_id or point_index), safe='-._~')}"
+                            ),
+                        },
+                        content(raw_text=point_text),
+                        parent_id=diagram_ev["evidence_id"],
+                        ordinal=point_index,
+                        native_properties={
+                            "smartart_model_id": model_id,
+                            "smartart_point_type": point.get("type"),
+                            "ooxml_part": diagram["source_member"],
+                            "xml_sha256": diagram["xml_sha256"],
+                        },
+                    )
+                    if (
+                        model_id_contract_valid
+                        and isinstance(model_id, str)
+                    ):
+                        point_evidence[model_id] = point_ev
+                connection_groups: dict[
+                    tuple[str, str],
+                    list[tuple[dict[str, Any], dict[str, Any]]],
+                ] = {}
+                for connection_index, connection in enumerate(
+                    diagram["connections"], 1
+                ):
+                    source_id = connection.get("srcId")
+                    target_id = connection.get("destId")
+                    source_ev = point_evidence.get(str(source_id))
+                    target_ev = point_evidence.get(str(target_id))
+                    if source_ev is None or target_ev is None:
+                        self.mark_partial(
+                            doc,
+                            f"SmartArt {diagram['source_member']} connection {connection_index} has an unresolved endpoint",
+                        )
+                        continue
+                    connection_type = str(connection.get("type") or "unspecified")
+                    connection_ev = self.add_evidence(
+                        doc_id,
+                        "text_block",
+                        {
+                            "slide_number": diagram["slide_number"],
+                            "source_member": diagram["source_member"],
+                            "object_index": connection_index,
+                            "locator_text": (
+                                f"{diagram_location['locator_text']};"
+                                f"connection={connection_index}"
+                            ),
+                        },
+                        content(raw_text=(
+                            "SmartArtの明示接続: "
+                            f"{source_ev['content']['raw_text']} -> "
+                            f"{target_ev['content']['raw_text']} "
+                            f"(原形式type={connection_type})"
+                        )),
+                        parent_id=diagram_ev["evidence_id"],
+                        ordinal=connection_index,
+                        native_properties={
+                            "smartart_connection": connection,
+                            "ooxml_part": diagram["source_member"],
+                            "xml_sha256": diagram["xml_sha256"],
+                            "semantic_interpretation_performed": False,
+                        },
+                    )
+                    connection_groups.setdefault(
+                        (str(source_id), str(target_id)), []
+                    ).append((connection, connection_ev))
+                for (source_id, target_id), grouped_connections in sorted(
+                    connection_groups.items()
+                ):
+                    source_ev = point_evidence[source_id]
+                    target_ev = point_evidence[target_id]
+                    self.add_relation(
+                        "structural",
+                        "diagram_connection",
+                        {
+                            "record_type": "evidence",
+                            "record_id": source_ev["evidence_id"],
+                        },
+                        {
+                            "record_type": "evidence",
+                            "record_id": target_ev["evidence_id"],
+                        },
+                        properties={
+                            "raw_connections": [
+                                connection
+                                for connection, _ in grouped_connections
+                            ],
+                            "source_member": diagram["source_member"],
+                            "slide_number": diagram["slide_number"],
+                            "semantic_interpretation_performed": False,
+                        },
+                        supporting_evidence_ids=[
+                            diagram_ev["evidence_id"],
+                            *[
+                                connection_ev["evidence_id"]
+                                for _, connection_ev in grouped_connections
+                            ],
+                        ],
+                        rule_or_model="native SmartArt srcId/destId connection",
+                    )
+
+    def extract_pptx_ooxml(self, path: Path) -> None:
+        """Read slide text, tables and package visuals without python-pptx."""
+        source, decrypted = self.office_source(path)
+        validate_ooxml_archive(
+            source,
+            required_members=PPTX_REQUIRED_OOXML_MEMBERS,
+        )
+        doc = self.add_document(path, "ooxml-stdlib-pptx-fallback")
+        doc_id = doc["document_id"]
+        self.mark_partial(
+            doc,
+            "PPTX standard-library fallback preserves presentation-order slide text, tables, local geometry, charts, referenced media, and explicit SmartArt; themes, animations, inherited layout text, and group transforms remain unresolved",
+        )
+        if decrypted:
+            doc["extraction"]["warnings"].append(
+                "password-protected Office source decrypted in memory"
+            )
+        if isinstance(source, io.BytesIO):
+            source.seek(0)
+        with zipfile.ZipFile(source) as archive:
+            relationships = _ooxml_relationships(archive)
+            _require_ooxml_office_document_binding(
+                archive, relationships, "ppt/presentation.xml"
+            )
+            slide_context = _pptx_slide_context(archive, relationships)
+            ordered_slides = sorted(
+                slide_context.items(), key=lambda item: item[1]
+            )
+            for slide_part, slide_numbers in ordered_slides:
+                if len(slide_numbers) != 1:
+                    raise ValueError("ooxml_slide_binding_ambiguous")
+                slide_number = slide_numbers[0]
+                root = _ooxml_xml_root(
+                    archive,
+                    slide_part,
+                    namespaces=OOXML_PRESENTATION_NAMESPACES,
+                    local_names={"sld"},
+                )
+                tree = _pptx_shape_tree(root)
+                walked: list[
+                    tuple[str, ElementTree.Element, bool]
+                ] = []
+
+                def walk_shapes(
+                    container: ElementTree.Element,
+                    prefix: str = "",
+                    nested_in_group: bool = False,
+                ) -> None:
+                    local_index = 0
+                    for candidate in container:
+                        namespace, local_name = _xml_name(candidate.tag)
+                        if (
+                            namespace not in OOXML_PRESENTATION_NAMESPACES
+                            or local_name not in {
+                                "sp", "pic", "graphicFrame", "cxnSp", "grpSp",
+                            }
+                        ):
+                            continue
+                        local_index += 1
+                        shape_path = (
+                            f"{prefix}.{local_index}"
+                            if prefix else str(local_index)
+                        )
+                        walked.append(
+                            (shape_path, candidate, nested_in_group)
+                        )
+                        if local_name == "grpSp":
+                            walk_shapes(candidate, shape_path, True)
+
+                if tree is not None:
+                    walk_shapes(tree)
+                slide_ev = self.add_evidence(
+                    doc_id,
+                    "slide",
+                    {"slide_number": slide_number},
+                    content(raw_value={
+                        "slide_number": slide_number,
+                        "shape_count": len(walked),
+                    }),
+                    ordinal=slide_number,
+                    native_properties={
+                        "source_member": slide_part,
+                        "shape_count_includes_group_descendants": True,
+                        "fallback_detail_status": "direct_slide_content_only",
+                    },
+                    method="ooxml_stdlib_pptx_fallback",
+                )
+                self.contain_document(doc_id, slide_ev["evidence_id"])
+                seen_shape_ids: set[str] = set()
+                group_geometry_warning_added = False
+                for shape_index, (
+                    shape_path, shape, nested_in_group
+                ) in enumerate(walked, 1):
+                    if not self.may_add_leaf(doc_id):
+                        break
+                    _, shape_type = _xml_name(shape.tag)
+                    shape_id, shape_name = _pptx_shape_identity(shape)
+                    if shape_id:
+                        if shape_id in seen_shape_ids:
+                            raise ValueError("ooxml_slide_shape_id_ambiguous")
+                        seen_shape_ids.add(shape_id)
+                        shape_locator_id = (
+                            shape_id if "." not in shape_path
+                            else f"{shape_id}:{shape_path}"
+                        )
+                    else:
+                        shape_locator_id = f"unresolved:{shape_path}"
+                        self.mark_partial(
+                            doc,
+                            f"slide {slide_number} shape {shape_path} has no canonical non-visual id",
+                        )
+                    geometry, local_geometry_only = _pptx_shape_geometry(
+                        shape, nested_in_group=nested_in_group
+                    )
+                    if local_geometry_only and not group_geometry_warning_added:
+                        self.mark_partial(
+                            doc,
+                            f"slide {slide_number} contains grouped shapes whose slide-space transform is unresolved",
+                        )
+                        group_geometry_warning_added = True
+                    table = (
+                        _pptx_table(shape)
+                        if shape_type == "graphicFrame" else None
+                    )
+                    text_value = (
+                        "" if table is not None else _pptx_shape_text(shape)
+                    )
+                    shape_content = (
+                        content(raw_text=text_value)
+                        if text_value else content(raw_value={
+                            "shape_type": shape_type,
+                            "name": shape_name,
+                        })
+                    )
+                    shape_ev = self.add_evidence(
+                        doc_id,
+                        "shape",
+                        {
+                            "slide_number": slide_number,
+                            "shape_id": shape_locator_id,
+                            "object_index": shape_index,
+                        },
+                        shape_content,
+                        parent_id=slide_ev["evidence_id"],
+                        ordinal=shape_index,
+                        geometry=geometry,
+                        native_properties={
+                            "name": shape_name,
+                            "shape_type": shape_type,
+                            "shape_path": shape_path,
+                            "source_member": slide_part,
+                            "geometry_status": (
+                                "group_local_transform_unresolved"
+                                if local_geometry_only else
+                                "direct_slide_geometry_or_absent"
+                            ),
+                            "fallback_detail_status": "core_shape_content_only",
+                        },
+                        method="ooxml_stdlib_pptx_fallback",
+                    )
+                    if table is None:
+                        continue
+                    table_rows = _pptx_table_rows(table)
+                    table_ev = self.add_evidence(
+                        doc_id,
+                        "table",
+                        {
+                            "slide_number": slide_number,
+                            "shape_id": shape_locator_id,
+                        },
+                        content(raw_value={
+                            "rows": len(table_rows),
+                            "columns": max(
+                                (len(row) for row in table_rows), default=0
+                            ),
+                        }),
+                        parent_id=shape_ev["evidence_id"],
+                        native_properties={
+                            "source_member": slide_part,
+                            "fallback_detail_status": "plain_cell_text_only",
+                        },
+                        method="ooxml_stdlib_pptx_fallback",
+                    )
+                    for row_index, row in enumerate(table_rows, 1):
+                        for column_index, cell_text in enumerate(row, 1):
+                            if not self.may_add_leaf(doc_id):
+                                break
+                            self.add_evidence(
+                                doc_id,
+                                "table_cell",
+                                {
+                                    "slide_number": slide_number,
+                                    "shape_id": shape_locator_id,
+                                    "row_index": row_index,
+                                    "column_index": column_index,
+                                },
+                                content(raw_text=cell_text),
+                                parent_id=table_ev["evidence_id"],
+                                ordinal=column_index,
+                                native_properties={
+                                    "fallback_detail_status": "plain_cell_text_only"
+                                },
+                                method="ooxml_stdlib_pptx_fallback",
+                            )
+                        if self.limit_reached(doc_id):
+                            break
+
+                notes_rows = [
+                    row for row in relationships.get(slide_part, [])
+                    if _ooxml_relationship_kind(row["type"]) == "notesSlide"
+                    and row["target_mode"].casefold() != "external"
+                ]
+                if len(notes_rows) > 1:
+                    raise ValueError("ooxml_notes_slide_binding_ambiguous")
+                if notes_rows:
+                    notes_member = _resolve_ooxml_target(
+                        slide_part, notes_rows[0]["target"]
+                    )
+                    if notes_member is None:
+                        raise ValueError("ooxml_notes_slide_binding_invalid")
+                    notes_root = _ooxml_xml_root(
+                        archive,
+                        notes_member,
+                        namespaces=OOXML_PRESENTATION_NAMESPACES,
+                        local_names={"notes"},
+                    )
+                    common = _direct_xml_children(
+                        notes_root, OOXML_PRESENTATION_NAMESPACES, "cSld"
+                    )
+                    if len(common) > 1:
+                        raise ValueError("ooxml_notes_slide_content_ambiguous")
+                    notes_values: list[str] = []
+                    if common:
+                        trees = _direct_xml_children(
+                            common[0], OOXML_PRESENTATION_NAMESPACES, "spTree"
+                        )
+                        if len(trees) > 1:
+                            raise ValueError("ooxml_notes_slide_content_ambiguous")
+                        if trees:
+                            for note_shape in _direct_xml_children(
+                                trees[0], OOXML_PRESENTATION_NAMESPACES, "sp"
+                            ):
+                                value = _pptx_shape_text(note_shape)
+                                if value.strip():
+                                    notes_values.append(value)
+                    notes_text = "\n".join(notes_values).strip()
+                    if notes_text and self.may_add_leaf(doc_id):
+                        self.add_evidence(
+                            doc_id,
+                            "speaker_note",
+                            {
+                                "slide_number": slide_number,
+                                "source_member": notes_member,
+                                "locator_text": "speaker-notes",
+                            },
+                            content(raw_text=notes_text),
+                            parent_id=slide_ev["evidence_id"],
+                            native_properties={
+                                "fallback_detail_status": "plain_notes_text_only"
+                            },
+                            method="ooxml_stdlib_pptx_fallback",
+                        )
+
+            self._project_ooxml_charts(archive, doc)
+            self._project_ooxml_referenced_media(
+                archive,
+                doc,
+                media_prefixes=("ppt/media/",),
+                skip_direct_pptx_pictures=False,
+            )
+            self._project_pptx_diagrams(archive, doc)
+
+    def _project_pptx_diagrams(
+        self,
+        archive: zipfile.ZipFile,
+        doc: dict[str, Any],
+    ) -> None:
+        """Project literal SmartArt points and raw source connections."""
+        doc_id = doc["document_id"]
+        for diagram_index, diagram in enumerate(
+            referenced_pptx_diagrams(archive),
+            1,
+        ):
+            diagram_location = {
+                "slide_number": diagram["slide_number"],
+                "source_member": diagram["source_member"],
+                "object_index": diagram_index,
+                "locator_text": (
+                    f"slide={diagram['slide_number']};"
+                    f"smartart={diagram['source_member']};"
+                    f"relationship={diagram['relationship_id']};"
+                    f"occurrence={diagram['relationship_occurrence']}"
+                ),
+            }
+            diagram_ev = self.add_evidence(
+                doc_id,
+                "shape",
+                diagram_location,
+                content(raw_text="SmartArt（ファイル内の明示構造）"),
+                ordinal=diagram_index,
+                native_properties={
+                    "ooxml_part": diagram["source_member"],
+                    "xml_sha256": diagram["xml_sha256"],
+                    "point_count": len(diagram["points"]),
+                    "connection_count": len(diagram["connections"]),
+                    "ooxml_relationship": {
+                        "source_part": diagram["source_part"],
+                        "relationship_id": diagram["relationship_id"],
+                        "relationship_occurrence": diagram[
+                            "relationship_occurrence"
+                        ],
+                    },
+                },
+            )
+            self.contain_document(doc_id, diagram_ev["evidence_id"])
+            model_ids = [point.get("model_id") for point in diagram["points"]]
+            model_id_contract_valid = (
+                all(isinstance(value, str) and value for value in model_ids)
+                and len(model_ids) == len(set(model_ids))
+            )
+            if not model_id_contract_valid:
+                self.mark_partial(
+                    doc,
+                    f"SmartArt {diagram['source_member']} has missing or duplicate model ids",
+                )
+            point_evidence: dict[str, dict[str, Any]] = {}
+            for point_index, point in enumerate(diagram["points"], 1):
+                point_text = str(point.get("text") or "").strip()
+                if not point_text:
+                    continue
+                model_id = point.get("model_id")
+                point_ev = self.add_evidence(
+                    doc_id,
+                    "text_block",
+                    {
+                        "slide_number": diagram["slide_number"],
+                        "source_member": diagram["source_member"],
+                        "object_index": point_index,
+                        "object_id": (
+                            str(model_id) if model_id else f"point-{point_index}"
+                        ),
+                        "locator_text": (
+                            f"{diagram_location['locator_text']};"
+                            f"point={urllib.parse.quote(str(model_id or point_index), safe='-._~')}"
+                        ),
+                    },
+                    content(raw_text=point_text),
+                    parent_id=diagram_ev["evidence_id"],
+                    ordinal=point_index,
+                    native_properties={
+                        "smartart_model_id": model_id,
+                        "smartart_point_type": point.get("type"),
+                        "ooxml_part": diagram["source_member"],
+                        "xml_sha256": diagram["xml_sha256"],
+                    },
+                )
+                if model_id_contract_valid and isinstance(model_id, str):
+                    point_evidence[model_id] = point_ev
+            connection_groups: dict[
+                tuple[str, str],
+                list[tuple[dict[str, Any], dict[str, Any]]],
+            ] = {}
+            for connection_index, connection in enumerate(
+                diagram["connections"], 1
+            ):
+                source_id = connection.get("srcId")
+                target_id = connection.get("destId")
+                source_ev = point_evidence.get(str(source_id))
+                target_ev = point_evidence.get(str(target_id))
+                if source_ev is None or target_ev is None:
+                    self.mark_partial(
+                        doc,
+                        f"SmartArt {diagram['source_member']} connection {connection_index} has an unresolved endpoint",
+                    )
+                    continue
+                connection_type = str(
+                    connection.get("type") or "unspecified"
+                )
+                connection_ev = self.add_evidence(
+                    doc_id,
+                    "text_block",
+                    {
+                        "slide_number": diagram["slide_number"],
+                        "source_member": diagram["source_member"],
+                        "object_index": connection_index,
+                        "locator_text": (
+                            f"{diagram_location['locator_text']};"
+                            f"connection={connection_index}"
+                        ),
+                    },
+                    content(raw_text=(
+                        "SmartArtの明示接続: "
+                        f"{source_ev['content']['raw_text']} -> "
+                        f"{target_ev['content']['raw_text']} "
+                        f"(原形式type={connection_type})"
+                    )),
+                    parent_id=diagram_ev["evidence_id"],
+                    ordinal=connection_index,
+                    native_properties={
+                        "smartart_connection": connection,
+                        "ooxml_part": diagram["source_member"],
+                        "xml_sha256": diagram["xml_sha256"],
+                        "semantic_interpretation_performed": False,
+                    },
+                )
+                connection_groups.setdefault(
+                    (str(source_id), str(target_id)), []
+                ).append((connection, connection_ev))
+            for (source_id, target_id), grouped_connections in sorted(
+                connection_groups.items()
+            ):
+                source_ev = point_evidence[source_id]
+                target_ev = point_evidence[target_id]
+                self.add_relation(
+                    "structural",
+                    "diagram_connection",
+                    {
+                        "record_type": "evidence",
+                        "record_id": source_ev["evidence_id"],
+                    },
+                    {
+                        "record_type": "evidence",
+                        "record_id": target_ev["evidence_id"],
+                    },
+                    properties={
+                        "raw_connections": [
+                            connection for connection, _ in grouped_connections
+                        ],
+                        "source_member": diagram["source_member"],
+                        "slide_number": diagram["slide_number"],
+                        "semantic_interpretation_performed": False,
+                    },
+                    supporting_evidence_ids=[
+                        diagram_ev["evidence_id"],
+                        *[
+                            connection_ev["evidence_id"]
+                            for _, connection_ev in grouped_connections
+                        ],
+                    ],
+                    rule_or_model="native SmartArt srcId/destId connection",
+                )
 
     def extract_pdf(self, path: Path) -> None:
-        from pypdf import PdfReader
+        from local_pdf_page_renderer import (
+            DEFAULT_DPI,
+            MAX_PDF_DOCUMENT_NATIVE_TEXT_CHARS,
+            MAX_PDF_DOCUMENT_NATIVE_SECONDS,
+            MAX_PDF_DOCUMENT_RENDERED_BYTES,
+            MAX_PDF_DOCUMENT_RENDERED_PIXELS,
+            MAX_PDF_DOCUMENT_SECONDS,
+            inspect_pdf_snapshot,
+            read_pdf_snapshot_page,
+            render_pdf_snapshot_page,
+            snapshot_pdf,
+        )
 
-        reader = PdfReader(path)
-        doc = self.add_document(path, "pypdf")
+        parser = "pdfkit-jxa+local-page-render+adaptive-local-image-reader"
+        doc = self.add_document(path, parser)
         doc_id = doc["document_id"]
         if not self.diagnostic:
             doc["extraction"]["warnings"].append(
-                "PDF native text is preserved per page in reader order; image regions are routed to later layers"
+                "PDF native text is preserved per page; locally rendered pages are also read as visual sources"
             )
         pages_without_text = 0
-        for page_number, page in enumerate(reader.pages, 1):
-            media_box = page.mediabox
-            page_width = float(media_box.width)
-            page_height = float(media_box.height)
-            blocks: list[dict[str, Any]] = []
-
-            def observe_text(
-                text: str,
-                _cm: list[float],
-                tm: list[float],
-                _font: dict[str, Any] | None,
-                font_size: float,
-            ) -> None:
-                value = " ".join(text.split())
-                if not value:
-                    return
-                size = max(float(font_size or 0), 1.0)
-                x = max(0.0, min(float(tm[4]), page_width))
-                baseline = max(0.0, min(float(tm[5]), page_height))
-                height = min(size * 1.25, page_height)
-                top = max(0.0, min(page_height - baseline - height, page_height))
-                width = min(max(size * 0.48 * len(value), 1.0), max(page_width - x, 1.0))
-                blocks.append({
-                    "text": value,
-                    "geometry": {
-                        "coordinate_space": "page",
-                        "coordinate_origin": "top_left",
-                        "unit": "pt",
-                        "x": x,
-                        "y": top,
-                        "width": width,
-                        "height": height,
-                    },
-                    "font_size_pt": size,
-                })
-
-            text_value = page.extract_text(visitor_text=observe_text) or ""
-            geometry = {
-                "coordinate_space": "page", "unit": "pt",
-                "coordinate_origin": "top_left",
-                "x": 0, "y": 0, "width": page_width, "height": page_height,
-            }
-            if text_value.strip():
-                item_content = content(raw_text=text_value)
-                warning = None
-            else:
-                pages_without_text += 1
-                item_content = content(content_ref=f"{doc['source']['relative_path']}#page={page_number}", mime_type="application/pdf")
-                warning = "no text layer; OCR deferred"
-            page_ev = self.add_evidence(
-                doc_id, "page", {"page_number": page_number}, item_content,
-                ordinal=page_number, geometry=geometry,
-                native_properties={"text_layer_present": bool(text_value.strip())},
-                warning=warning,
-            )
-            self.contain_document(doc_id, page_ev["evidence_id"])
-            for block_index, block in enumerate(blocks, 1):
-                if not self.may_add_leaf(doc_id):
+        visually_read_pages = 0
+        total_rendered_bytes = 0
+        total_rendered_pixels = 0
+        total_native_text_chars = 0
+        native_seconds = 0.0
+        visual_seconds = 0.0
+        visual_deadline_at = time.monotonic() + MAX_PDF_DOCUMENT_SECONDS
+        processed_pages = 0
+        visual_budget_exhausted = False
+        with snapshot_pdf(path) as snapshot, tempfile.TemporaryDirectory(
+            prefix="aiec-pdf-pages-"
+        ) as temporary:
+            if (
+                snapshot.source_sha256 != doc["source"]["sha256"]
+                or snapshot.source_size_bytes != doc["source"]["size_bytes"]
+            ):
+                raise RuntimeError("PDF source changed before its private snapshot")
+            inspection = inspect_pdf_snapshot(snapshot)
+            page_count = inspection["page_count"]
+            pages = inspection["pages"]
+            visual_root = Path(temporary)
+            for page_number in range(1, page_count + 1):
+                if native_seconds >= MAX_PDF_DOCUMENT_NATIVE_SECONDS:
+                    self.mark_partial(
+                        doc,
+                        f"PDF native text stopped before page {page_number} because its independent time limit was reached",
+                    )
                     break
-                self.add_evidence(
-                    doc_id,
-                    "text_block",
-                    {"page_number": page_number, "object_index": block_index},
-                    content(raw_text=block["text"]),
-                    parent_id=page_ev["evidence_id"],
-                    ordinal=block_index,
-                    geometry=block["geometry"],
-                    native_properties={"font_size_pt": block["font_size_pt"], "source": "pdf_text_operator"},
+                rendered_path = visual_root / f"page-{page_number:06d}.png"
+                planned = pages[page_number - 1]
+                native_started = time.monotonic()
+                try:
+                    page_info = read_pdf_snapshot_page(
+                        snapshot,
+                        page_number,
+                        dpi=DEFAULT_DPI,
+                    )
+                except Exception as exc:
+                    pages_without_text += 1
+                    page_ev = self.add_evidence(
+                        doc_id,
+                        "page",
+                        {"page_number": page_number},
+                        content(
+                            content_ref=(
+                                f"{doc['source']['relative_path']}#page={page_number}"
+                            ),
+                            mime_type="application/pdf",
+                        ),
+                        ordinal=page_number,
+                        geometry={
+                            "coordinate_space": "page",
+                            "unit": "pt",
+                            "coordinate_origin": "top_left",
+                            "x": 0,
+                            "y": 0,
+                            "width": planned["page_width_pt"],
+                            "height": planned["page_height_pt"],
+                        },
+                        native_properties={"text_layer_present": False},
+                        warning="PDFKit page text read failed; no native or visual text was asserted",
+                    )
+                    self.contain_document(doc_id, page_ev["evidence_id"])
+                    self.mark_partial(
+                        doc,
+                        f"page {page_number} local text and visual reading unavailable: "
+                        f"{type(exc).__name__}: {str(exc)[:300]}",
+                    )
+                    processed_pages = page_number
+                    continue
+                finally:
+                    native_seconds += time.monotonic() - native_started
+                if page_info["source_sha256"] != doc["source"]["sha256"]:
+                    raise RuntimeError("PDF page text is not bound to the source document")
+                page_width = float(page_info["page_width_pt"])
+                page_height = float(page_info["page_height_pt"])
+                if (
+                    abs(page_width - float(planned["page_width_pt"])) > 1e-6
+                    or abs(page_height - float(planned["page_height_pt"])) > 1e-6
+                ):
+                    raise RuntimeError("PDF page geometry changed after inspection")
+                text_value = str(page_info["native_text"])
+                if (
+                    total_native_text_chars + len(text_value)
+                    > MAX_PDF_DOCUMENT_NATIVE_TEXT_CHARS
+                ):
+                    self.mark_partial(
+                        doc,
+                        f"PDF native text stopped at page {page_number} because the document character limit was reached",
+                    )
+                    break
+                total_native_text_chars += len(text_value)
+                geometry = {
+                    "coordinate_space": "page", "unit": "pt",
+                    "coordinate_origin": "top_left",
+                    "x": 0, "y": 0, "width": page_width, "height": page_height,
+                }
+                if text_value.strip():
+                    item_content = content(raw_text=text_value)
+                    warning = None
+                else:
+                    pages_without_text += 1
+                    item_content = content(
+                        content_ref=f"{doc['source']['relative_path']}#page={page_number}",
+                        mime_type="application/pdf",
+                    )
+                    warning = "no native text layer; local visual reading requested"
+                page_ev = self.add_evidence(
+                    doc_id, "page", {"page_number": page_number}, item_content,
+                    ordinal=page_number, geometry=geometry,
+                    native_properties={"text_layer_present": bool(text_value.strip())},
+                    warning=warning,
                 )
-        if pages_without_text:
-            self.mark_partial(doc, f"OCR deferred for {pages_without_text} page(s) without a text layer")
+                self.contain_document(doc_id, page_ev["evidence_id"])
+                processed_pages = page_number
+
+                planned_pixels = (
+                    int(planned["render_width_px"])
+                    * int(planned["render_height_px"])
+                )
+                if (
+                    visual_budget_exhausted
+                    or visual_seconds >= MAX_PDF_DOCUMENT_SECONDS
+                    or total_rendered_pixels + planned_pixels
+                    > MAX_PDF_DOCUMENT_RENDERED_PIXELS
+                ):
+                    if not visual_budget_exhausted:
+                        self.mark_partial(
+                            doc,
+                            f"PDF visual reading stopped before page {page_number} because its time or pixel limit was reached; native text remains available",
+                        )
+                    visual_budget_exhausted = True
+                    continue
+                visual_started = time.monotonic()
+                try:
+                    materialization = render_pdf_snapshot_page(
+                        snapshot,
+                        page_number,
+                        rendered_path,
+                        dpi=DEFAULT_DPI,
+                        require_native_text=True,
+                    )
+                    if not isinstance(materialization, dict):
+                        raise DeferredVisualStoreError(
+                            "PDF page materialization contract is invalid"
+                        )
+                    try:
+                        materialized_source_sha256 = materialization["source_sha256"]
+                        materialized_page_width = float(materialization["page_width_pt"])
+                        materialized_page_height = float(materialization["page_height_pt"])
+                        materialized_native_text = str(materialization["native_text"])
+                        _, materialized_size = self._visual_materialization_contract({
+                            "materialization": materialization,
+                        })
+                    except DeferredVisualStoreError:
+                        raise
+                    except (KeyError, TypeError, ValueError) as exc:
+                        raise DeferredVisualStoreError(
+                            "PDF page materialization contract is invalid"
+                        ) from exc
+                    if materialized_source_sha256 != doc["source"]["sha256"]:
+                        raise DeferredVisualStoreError(
+                            "rendered PDF page is not bound to the source document"
+                        )
+                    if (
+                        abs(materialized_page_width - page_width) > 1e-6
+                        or abs(materialized_page_height - page_height) > 1e-6
+                        or materialized_native_text != text_value
+                    ):
+                        raise DeferredVisualStoreError(
+                            "PDF page changed between text read and visual render"
+                        )
+                    try:
+                        from local_image_ocr import read_checked_image_bytes
+
+                        rendered_raw = read_checked_image_bytes(rendered_path)
+                    except Exception as exc:
+                        raise DeferredVisualStoreError(
+                            "rendered PDF page cannot be read safely"
+                        ) from exc
+                    if (
+                        len(rendered_raw) != materialized_size
+                        or digest_bytes(rendered_raw)
+                        != materialization["rendered_sha256"]
+                    ):
+                        raise DeferredVisualStoreError(
+                            "rendered PDF page differs from its materialization contract"
+                        )
+                    del rendered_raw
+                    total_rendered_bytes += materialized_size
+                    if total_rendered_bytes > MAX_PDF_DOCUMENT_RENDERED_BYTES:
+                        rendered_path.unlink(missing_ok=True)
+                        self.mark_partial(
+                            doc,
+                            f"PDF visual reading stopped at page {page_number} because the document byte limit was reached",
+                        )
+                        visual_budget_exhausted = True
+                        continue
+                    total_rendered_pixels += planned_pixels
+                    projected = self._project_local_image_evidence(
+                        rendered_path,
+                        doc,
+                        parent_id=page_ev["evidence_id"],
+                        location_prefix={"page_number": page_number},
+                        content_ref=(
+                            f"{doc['source']['relative_path']}#page={page_number};"
+                            f"render=full_page;dpi={DEFAULT_DPI}"
+                        ),
+                        visual_origin_kind="pdf_page_image",
+                        materialization=materialization,
+                        native_text=text_value,
+                        visual_deadline_at=visual_deadline_at,
+                    )
+                    if projected:
+                        visually_read_pages += 1
+                except DeferredVisualStoreError:
+                    raise
+                except Exception as exc:
+                    self.mark_partial(
+                        doc,
+                        f"page {page_number} local visual reading unavailable: "
+                        f"{type(exc).__name__}: {str(exc)[:300]}",
+                    )
+                finally:
+                    visual_seconds += time.monotonic() - visual_started
+            if processed_pages < page_count:
+                self.mark_partial(
+                    doc,
+                    f"{page_count - processed_pages} PDF page(s) were not processed because a native-text safety limit was reached",
+                )
+        if pages_without_text and visually_read_pages < pages_without_text:
+            self.mark_partial(
+                doc,
+                f"{pages_without_text - visually_read_pages} page(s) without native text "
+                "did not yield local visual text Evidence",
+            )
+
+    @staticmethod
+    def _normalized_visible_text(value: object) -> str:
+        if not isinstance(value, str):
+            return ""
+        return re.sub(r"\s+", "", unicodedata.normalize("NFKC", value)).casefold()
+
+    @classmethod
+    def _normalized_visible_lines(cls, value: object) -> set[str]:
+        if not isinstance(value, str):
+            return set()
+        return {
+            normalized
+            for line in value.splitlines()
+            if (normalized := cls._normalized_visible_text(line))
+        }
+
+    @staticmethod
+    def _merge_visual_location(
+        source_location: dict[str, Any], child_location: dict[str, Any]
+    ) -> dict[str, Any]:
+        """Keep both the containing image identity and its child locator."""
+        merged = dict(source_location)
+        child = dict(child_location)
+        if "object_index" in merged and "object_index" in child:
+            merged["image_object_index"] = merged.pop("object_index")
+        source_locator = merged.pop("locator_text", None)
+        child_locator = child.pop("locator_text", None)
+        for key, value in child.items():
+            if key in merged and merged[key] != value:
+                merged[f"visual_{key}"] = value
+            else:
+                merged[key] = value
+        locators = [
+            str(value).strip()
+            for value in (source_locator, child_locator)
+            if isinstance(value, str) and value.strip()
+        ]
+        if locators:
+            merged["locator_text"] = ";".join(locators)
+        return merged
+
+    def _project_local_image_evidence(
+        self,
+        image_path: Path,
+        document: dict[str, Any],
+        *,
+        parent_id: str,
+        location_prefix: dict[str, Any],
+        content_ref: str,
+        visual_origin_kind: str,
+        materialization: dict[str, Any],
+        native_text: str = "",
+        reuse_parent_image: bool = False,
+        visual_deadline_at: float | None = None,
+    ) -> int:
+        """Project the existing audited image reader into one container document.
+
+        The temporary raster never becomes an independent source document. Every
+        projected record remains bound to the original PDF/Office source and to
+        the materialized-image digest recorded in ``visual_origin``.
+        """
+        child = Probe(
+            image_path.parent,
+            self.run_at,
+            None,
+            diagnostic=False,
+            extractor=self.extractor,
+            extractor_version=self.extractor_version,
+            visual_observation_mode="suppressed",
+        )
+        child.extract(image_path)
+        if len(child.documents) != 1:
+            raise DeferredVisualStoreError(
+                "local image reader did not produce one source document"
+            )
+        child_document = child.documents[0]
+        expected_sha256, expected_size = self._visual_materialization_contract({
+            "materialization": materialization,
+        })
+        child_source = child_document.get("source")
+        child_images = [
+            item for item in child.evidence
+            if item.get("evidence_type") == "image"
+        ]
+        if not isinstance(child_source, dict) or len(child_images) != 1:
+            raise DeferredVisualStoreError(
+                "local image reader output cannot be bound to the materialization"
+            )
+        child_image_source_sha256 = (
+            child_images[0].get("native_properties", {}).get("source_sha256")
+            if isinstance(child_images[0].get("native_properties"), dict)
+            else None
+        )
+        if (
+            child_source.get("sha256") != expected_sha256
+            or child_source.get("size_bytes") != expected_size
+            or child_image_source_sha256 != expected_sha256
+        ):
+            raise DeferredVisualStoreError(
+                "local image reader output differs from the materialization contract"
+            )
+        id_map: dict[str, str] = {}
+        projected_text = 0
+        native_lines = self._normalized_visible_lines(native_text)
+        visual_origin = {
+            "kind": visual_origin_kind,
+            "source_relative_path": document["source"]["relative_path"],
+            "source_sha256": document["source"]["sha256"],
+            "source_location": dict(location_prefix),
+            "materialization": materialization,
+        }
+        if visual_origin_kind in {
+            "office_embedded_image",
+            "notebook_embedded_image",
+        }:
+            self.mark_partial(
+                document,
+                "embedded-image OCR is provisional because display selection, "
+                "crop, transparency, or transforms are unresolved",
+            )
+        container_location_locked = reuse_parent_image
+        for item in child.evidence:
+            evidence_type = item["evidence_type"]
+            if evidence_type == "image" and reuse_parent_image:
+                id_map[item["evidence_id"]] = parent_id
+                continue
+            raw_text = item.get("content", {}).get("raw_text")
+            if evidence_type == "text_block" and native_lines:
+                candidate_key = self._normalized_visible_text(raw_text)
+                if candidate_key and candidate_key in native_lines:
+                    continue
+            location = self._merge_visual_location(
+                location_prefix, item.get("location", {})
+            )
+            if evidence_type == "image":
+                if container_location_locked:
+                    raise RuntimeError("local image reader produced multiple image containers")
+                visual_origin["source_location"] = dict(location)
+                container_location_locked = True
+            elif not container_location_locked:
+                raise RuntimeError("local image reader emitted child Evidence before its image container")
+            item_parent = item.get("parent_evidence_id")
+            mapped_parent = id_map.get(item_parent, parent_id)
+            item_content = (
+                content(content_ref=content_ref, mime_type="image/png")
+                if evidence_type == "image"
+                else dict(item["content"])
+            )
+            native_properties = dict(item.get("native_properties", {}))
+            native_properties["visual_origin"] = visual_origin
+            provenance = item.get("provenance", {})
+            method = (
+                "verified_local_visual_materialization"
+                if evidence_type == "image"
+                else provenance.get("extraction_method", "unknown")
+            )
+            display_transform_unresolved = (
+                evidence_type == "ocr_line"
+                and visual_origin_kind in {
+                    "office_embedded_image",
+                    "notebook_embedded_image",
+                }
+            )
+            if display_transform_unresolved:
+                native_properties["display_transform_resolved"] = False
+            downgrade_office_high = (
+                display_transform_unresolved
+                and native_properties.get("agreement_type")
+                == "independent_agreement"
+                and native_properties.get("quality_tier") == "high"
+            )
+            if downgrade_office_high:
+                native_properties["embedded_source_agreement_type"] = (
+                    native_properties.get("agreement_type")
+                )
+                native_properties["agreement_type"] = (
+                    "display_transform_unresolved"
+                )
+                native_properties["quality_tier"] = "provisional"
+                native_properties["provisional_marker"] = (
+                    PROVISIONAL_OCR_MARKER
+                )
+                method = "adaptive_local_ocr_provisional"
+            warnings = list(provenance.get("warnings", []))
+            if display_transform_unresolved:
+                warnings.append(
+                    "container display selection/crop/transparency/transform is unresolved; "
+                    "raw embedded-image OCR is provisional only"
+                )
+            projected = self.add_evidence(
+                document["document_id"],
+                evidence_type,
+                location,
+                item_content,
+                parent_id=mapped_parent,
+                ordinal=item.get("ordinal"),
+                style=item.get("style"),
+                geometry=item.get("geometry"),
+                native_properties=native_properties,
+                method=method,
+                confidence=(
+                    0.0
+                    if downgrade_office_high
+                    else float(provenance.get("confidence", 0.0))
+                ),
+                deterministic=bool(provenance.get("deterministic", False)),
+                warning=("; ".join(str(value) for value in warnings[:4]) or None),
+            )
+            id_map[item["evidence_id"]] = projected["evidence_id"]
+            if evidence_type in {"ocr_line", "text_block"} and raw_text:
+                projected_text += 1
+        for visual_task in child._suppressed_visual_tasks:
+            child_parent = visual_task.get("parent_id")
+            mapped_visual_parent = id_map.get(child_parent)
+            if mapped_visual_parent is None:
+                raise RuntimeError(
+                    "suppressed child visual task has no projected parent Evidence"
+                )
+            child_location = visual_task.get("location")
+            if not isinstance(child_location, dict):
+                raise RuntimeError("suppressed child visual task has no location")
+            child_ordinal = visual_task.get("ordinal")
+            if isinstance(child_ordinal, bool) or not isinstance(child_ordinal, int):
+                raise RuntimeError("suppressed child visual task has no ordinal")
+            visual_retained_or_queued = self._schedule_local_visual_observation(
+                image_path,
+                document,
+                parent_id=mapped_visual_parent,
+                location_prefix={},
+                exact_location=self._merge_visual_location(
+                    location_prefix, child_location
+                ),
+                visual_origin=visual_origin,
+                ordinal=child_ordinal,
+                deadline_at=visual_deadline_at,
+                excluded_normalized_texts=native_lines,
+            )
+            if visual_retained_or_queued:
+                projected_text += 1
+        child_status = child_document.get("extraction", {}).get("status")
+        if child_status != "success":
+            for child_warning in child_document.get("extraction", {}).get("warnings", []):
+                self.mark_partial(
+                    document,
+                    f"{visual_origin_kind} {location_prefix}: {str(child_warning)[:300]}",
+                )
+        return projected_text
+
+    def _add_local_visual_observation(
+        self,
+        image_path: Path,
+        document: dict[str, Any],
+        *,
+        parent_id: str,
+        location_prefix: dict[str, Any],
+        visual_origin: dict[str, Any],
+        ordinal: int,
+        exact_location: dict[str, Any] | None = None,
+        image_bytes: bytes | None = None,
+        timeout: float | None = None,
+        release_paddle: bool = True,
+        excluded_normalized_texts: set[str] | None = None,
+        deadline_at: float | None = None,
+    ) -> bool:
+        """Retain local VLM meaning as visibly provisional discovery Evidence."""
+        kind = str(visual_origin.get("kind", "visual_image"))
+        try:
+            if release_paddle:
+                # This build is deliberately sequential on memory-constrained
+                # Macs. Keep memoized OCR results, but retire Paddle's native
+                # process before loading Gemma for visual interpretation.
+                Probe._release_active_paddle_worker()
+            materialization = visual_origin.get("materialization", {})
+            expected_sha256 = (
+                materialization.get("rendered_sha256")
+                if isinstance(materialization, dict) else None
+            )
+            observe_kwargs: dict[str, Any] = {
+                "expected_input_sha256": expected_sha256,
+            }
+            if timeout is not None:
+                observe_kwargs["timeout"] = timeout
+            if image_bytes is None:
+                from local_visual_observation import observe_path
+
+                visual = observe_path(image_path, **observe_kwargs)
+            else:
+                from local_visual_observation import observe_image
+
+                visual = observe_image(image_bytes, **observe_kwargs)
+            if deadline_at is not None and time.monotonic() > float(deadline_at):
+                self.mark_partial(
+                    document,
+                    "visual meaning skipped because its document time limit was reached",
+                )
+                return False
+            if (
+                excluded_normalized_texts
+                and self._normalized_visible_text(visual.get("text"))
+                in excluded_normalized_texts
+            ):
+                return False
+            self.add_evidence(
+                document["document_id"],
+                "text_block",
+                (
+                    dict(exact_location)
+                    if exact_location is not None
+                    else self._visual_observation_location(location_prefix)
+                ),
+                content(raw_text=visual["text"]),
+                parent_id=parent_id,
+                ordinal=ordinal,
+                native_properties={
+                    "quality_tier": "provisional",
+                    "provisional_marker": PROVISIONAL_OCR_MARKER,
+                    "question_independent": True,
+                    "observation_type": visual["observation_type"],
+                    "structured_observation": visual["observation"],
+                    "model": visual["model"],
+                    "model_digest": visual["model_digest"],
+                    "prompt_sha256": visual["prompt_sha256"],
+                    "input_image_sha256": visual["input_image_sha256"],
+                    "model_output_sha256": visual["model_output_sha256"],
+                    "runner": visual["runner"],
+                    "runner_version": visual["runner_version"],
+                    "host": visual["host"],
+                    "temperature": visual["temperature"],
+                    "strict_json": visual["strict_json"],
+                    "external_network_used": False,
+                    "downloads_performed": False,
+                    "visual_origin": visual_origin,
+                },
+                method="local_vlm_visual_observation_provisional",
+                confidence=0.0,
+                deterministic=False,
+                warning="visual meaning is provisional discovery Evidence only",
+            )
+            self.mark_partial(
+                document,
+                f"{kind} provisional visual observation retained for discovery only",
+            )
+            return True
+        except Exception as exc:
+            self.mark_partial(
+                document,
+                f"{kind} visual meaning unavailable: "
+                f"{type(exc).__name__}: {str(exc)[:300]}",
+            )
+            return False
+
+    def _project_ooxml_charts(
+        self,
+        archive: zipfile.ZipFile,
+        document: dict[str, Any],
+    ) -> int:
+        """Project relationship-bound native chart caches as searchable text."""
+        projected = 0
+        for chart_index, placement in enumerate(
+            referenced_ooxml_charts(archive),
+            1,
+        ):
+            member = str(placement["member"])
+            raw = archive.read(member)
+            try:
+                payload = _ooxml_chart_payload(raw, member)
+            except ValueError as exc:
+                self.mark_partial(
+                    document,
+                    f"referenced chart {member} could not be parsed: {exc}",
+                )
+                continue
+            location: dict[str, Any] = {
+                "source_member": member,
+                "object_index": chart_index,
+                "locator_text": str(placement["locator_text"]),
+            }
+            for key in ("sheet_name", "cell", "slide_number"):
+                if key in placement:
+                    location[key] = placement[key]
+            relationship_binding = {
+                "source_part": placement["source_part"],
+                "relationship_id": placement["relationship_id"],
+                "relationship_occurrence": placement["relationship_occurrence"],
+            }
+            chart_ev = self.add_evidence(
+                document["document_id"],
+                "chart",
+                location,
+                content(raw_text=_chart_summary_text(payload)),
+                ordinal=chart_index,
+                native_properties={
+                    "ooxml_part": member,
+                    "xml_sha256": payload["xml_sha256"],
+                    "chart_payload": payload,
+                    "ooxml_relationship": relationship_binding,
+                    "cached_value_status": FORMULA_CACHED_VALUE_STATUS,
+                },
+                method="verified_ooxml_chart_cache",
+            )
+            self.contain_document(
+                document["document_id"], chart_ev["evidence_id"]
+            )
+            projected += 1
+            for series_index, series in enumerate(payload["series"], 1):
+                cache_status = series["cache_status"]
+                if (
+                    cache_status.startswith("unresolved_")
+                    or cache_status == "cached_values_missing"
+                ):
+                    self.mark_partial(
+                        document,
+                        f"chart {member} series {series_index} has {cache_status}",
+                    )
+                self.add_evidence(
+                    document["document_id"],
+                    "chart_series",
+                    {
+                        **location,
+                        "series_index": series_index,
+                        "locator_text": (
+                            f"{location['locator_text']};series={series_index}"
+                        ),
+                    },
+                    content(raw_text=_chart_series_text(payload, series)),
+                    parent_id=chart_ev["evidence_id"],
+                    ordinal=series_index,
+                    native_properties={
+                        "ooxml_part": member,
+                        "xml_sha256": payload["xml_sha256"],
+                        "series": series,
+                        "ooxml_relationship": relationship_binding,
+                        "cached_value_status": FORMULA_CACHED_VALUE_STATUS,
+                    },
+                    method="verified_ooxml_chart_cache",
+                )
+        return projected
+
+    def _project_ooxml_referenced_media(
+        self,
+        archive: zipfile.ZipFile,
+        document: dict[str, Any],
+        *,
+        media_prefixes: tuple[str, ...],
+        skip_direct_pptx_pictures: bool = False,
+    ) -> int:
+        """Project only image placements reachable from the OOXML part graph."""
+        projected = 0
+        placements = referenced_ooxml_media(
+            archive,
+            media_prefixes=media_prefixes,
+        )
+        if any(prefix.startswith("ppt/media/") for prefix in media_prefixes):
+            unresolved_inherited_count = (
+                _count_unresolved_pptx_inherited_media(archive)
+            )
+            if unresolved_inherited_count:
+                self.mark_partial(
+                    document,
+                    "PowerPoint layout/master images were not projected because "
+                    "their effective slide visibility is unresolved "
+                    f"(candidate occurrences={unresolved_inherited_count})",
+                )
+        if skip_direct_pptx_pictures:
+            placements = [
+                placement for placement in placements
+                if not (
+                    placement.get("usage_kind") == "picture"
+                    and str(placement.get("source_part", "")).startswith(
+                        "ppt/slides/"
+                    )
+                )
+            ]
+        for image_index, placement in enumerate(placements, 1):
+            member = str(placement["member"])
+            raw = archive.read(member)
+            image_location: dict[str, Any] = {
+                "source_member": member,
+                "object_index": image_index,
+                "locator_text": str(placement["locator_text"]),
+            }
+            for key in ("sheet_name", "cell", "slide_number"):
+                if key in placement:
+                    image_location[key] = placement[key]
+            image_ref = (
+                f"{document['source']['relative_path']}::{member};"
+                f"part={placement['source_part']};"
+                f"relationship={placement['relationship_id']};"
+                f"occurrence={placement['relationship_occurrence']}"
+            )
+            relationship_binding = {
+                "source_part": placement["source_part"],
+                "relationship_id": placement["relationship_id"],
+                "relationship_occurrence": placement["relationship_occurrence"],
+                "usage_kind": placement.get("usage_kind", "other"),
+            }
+            if "slide_number" in placement:
+                relationship_binding["slide_number"] = placement["slide_number"]
+            visual_origin = self._embedded_visual_origin(
+                raw,
+                document,
+                location_prefix=image_location,
+                source_name=member,
+                visual_origin_kind="office_embedded_image",
+            )
+            image_ev = self.add_evidence(
+                document["document_id"],
+                "image",
+                image_location,
+                content(
+                    content_ref=image_ref,
+                    mime_type=mimetypes.guess_type(member)[0],
+                ),
+                ordinal=image_index,
+                native_properties={
+                    "embedded_sha256": digest_bytes(raw),
+                    "size_bytes": len(raw),
+                    "ooxml_relationship": relationship_binding,
+                    "visual_origin": visual_origin,
+                },
+            )
+            self.contain_document(document["document_id"], image_ev["evidence_id"])
+            projected += self._project_embedded_image_bytes(
+                raw,
+                document,
+                parent_id=image_ev["evidence_id"],
+                location_prefix=image_location,
+                content_ref=image_ref,
+                source_name=member,
+                visual_origin=visual_origin,
+            )
+        return projected
+
+    def _embedded_visual_origin(
+        self,
+        raw: bytes,
+        document: dict[str, Any],
+        *,
+        location_prefix: dict[str, Any],
+        source_name: str,
+        visual_origin_kind: str,
+    ) -> dict[str, Any]:
+        image_sha256 = digest_bytes(raw)
+        return {
+            "kind": visual_origin_kind,
+            "source_relative_path": document["source"]["relative_path"],
+            "source_sha256": document["source"]["sha256"],
+            "source_location": dict(location_prefix),
+            "materialization": {
+                "runner": "verified_embedded_image_copy",
+                "runner_version": self.extractor_version,
+                "external_network_used": False,
+                "source_sha256": document["source"]["sha256"],
+                "embedded_sha256": image_sha256,
+                "rendered_sha256": image_sha256,
+                "rendered_size_bytes": len(raw),
+                "source_name": source_name,
+                "display_transform_resolved": visual_origin_kind not in {
+                    "office_embedded_image",
+                    "notebook_embedded_image",
+                },
+                "display_transform_status": (
+                    "unresolved"
+                    if visual_origin_kind in {
+                        "office_embedded_image",
+                        "notebook_embedded_image",
+                    }
+                    else "identity"
+                ),
+            },
+        }
+
+    def _project_embedded_image_bytes(
+        self,
+        raw: bytes,
+        document: dict[str, Any],
+        *,
+        parent_id: str,
+        location_prefix: dict[str, Any],
+        content_ref: str,
+        source_name: str,
+        visual_origin_kind: str = "office_embedded_image",
+        visual_origin: dict[str, Any] | None = None,
+    ) -> int:
+        suffix = Path(source_name).suffix.casefold()
+        if suffix not in IMAGE_SUFFIXES:
+            self.mark_partial(
+                document,
+                f"embedded visual {source_name} uses an unsupported local OCR format",
+            )
+            return 0
+        document_id = str(document["document_id"])
+        usage = self._embedded_visual_usage.setdefault(
+            document_id,
+            {
+                "count": 0,
+                "bytes": 0,
+                "started_at": time.monotonic(),
+                "exhausted": False,
+            },
+        )
+        if usage["exhausted"]:
+            return 0
+        elapsed = time.monotonic() - float(usage["started_at"])
+        limit_reason: str | None = None
+        if int(usage["count"]) + 1 > MAX_EMBEDDED_VISUALS_PER_DOCUMENT:
+            limit_reason = "image count"
+        elif int(usage["bytes"]) + len(raw) > MAX_EMBEDDED_VISUAL_BYTES_PER_DOCUMENT:
+            limit_reason = "total image bytes"
+        elif elapsed > MAX_EMBEDDED_VISUAL_SECONDS_PER_DOCUMENT:
+            limit_reason = "processing time"
+        if limit_reason is not None:
+            usage["exhausted"] = True
+            self.mark_partial(
+                document,
+                f"embedded visual reading stopped before {source_name} because the document {limit_reason} limit was reached",
+            )
+            return 0
+        usage["count"] = int(usage["count"]) + 1
+        usage["bytes"] = int(usage["bytes"]) + len(raw)
+        with tempfile.TemporaryDirectory(prefix="aiec-embedded-image-") as temporary:
+            image_path = Path(temporary) / f"source{suffix}"
+            image_path.write_bytes(raw)
+            expected_origin = self._embedded_visual_origin(
+                raw,
+                document,
+                location_prefix=location_prefix,
+                source_name=source_name,
+                visual_origin_kind=visual_origin_kind,
+            )
+            if visual_origin is not None and visual_origin != expected_origin:
+                raise ValueError("embedded visual origin differs from its source bytes")
+            bound_origin = expected_origin if visual_origin is None else visual_origin
+            try:
+                return self._project_local_image_evidence(
+                    image_path,
+                    document,
+                    parent_id=parent_id,
+                    location_prefix=location_prefix,
+                    content_ref=content_ref,
+                    visual_origin_kind=visual_origin_kind,
+                    materialization=bound_origin["materialization"],
+                    reuse_parent_image=True,
+                    visual_deadline_at=(
+                        float(usage["started_at"])
+                        + MAX_EMBEDDED_VISUAL_SECONDS_PER_DOCUMENT
+                    ),
+                )
+            except DeferredVisualStoreError:
+                raise
+            except Exception as exc:
+                self.mark_partial(
+                    document,
+                    f"embedded visual {source_name} local reading unavailable: "
+                    f"{type(exc).__name__}: {str(exc)[:300]}",
+                )
+                return 0
 
     def extract_image(self, path: Path) -> None:
         """Preserve every located reading and distinguish its support tier."""
-        doc = self.add_document(path, "adaptive-local-image-reader-v0.5")
+        doc = self.add_document(path, "adaptive-local-image-reader-v0.7.0")
         doc_id = doc["document_id"]
         try:
             from local_image_ocr import (
@@ -1829,20 +6009,56 @@ class Probe:
             observation = extract(path)
         except Exception as exc:
             self.mark_partial(doc, f"local image OCR unavailable: {type(exc).__name__}: {exc}")
+            visual_origin = {
+                "kind": "standalone_image",
+                "source_relative_path": doc["source"]["relative_path"],
+                "source_sha256": doc["source"]["sha256"],
+                "source_location": {"object_index": 1},
+                "materialization": {
+                    "runner": "verified_source_image_bytes",
+                    "runner_version": self.extractor_version,
+                    "external_network_used": False,
+                    "source_sha256": doc["source"]["sha256"],
+                    "rendered_sha256": doc["source"]["sha256"],
+                    "rendered_size_bytes": doc["source"]["size_bytes"],
+                },
+            }
             image_ev = self.add_evidence(
                 doc_id,
                 "image",
                 {"object_index": 1},
                 content(content_ref=doc["source"]["relative_path"], mime_type=doc["source"]["media_type"]),
                 ordinal=1,
-                native_properties={"source_sha256": doc["source"]["sha256"]},
+                native_properties={
+                    "source_sha256": doc["source"]["sha256"],
+                    "visual_origin": visual_origin,
+                },
                 method="verified_image_bytes",
             )
             self.contain_document(doc_id, image_ev["evidence_id"])
+            self._schedule_local_visual_observation(
+                path, doc, parent_id=image_ev["evidence_id"],
+                location_prefix={"object_index": 1},
+                visual_origin=visual_origin, ordinal=2,
+            )
             return
 
         width = observation["dimensions"]["width_px"]
         height = observation["dimensions"]["height_px"]
+        visual_origin = {
+            "kind": "standalone_image",
+            "source_relative_path": doc["source"]["relative_path"],
+            "source_sha256": doc["source"]["sha256"],
+            "source_location": {"object_index": 1},
+            "materialization": {
+                "runner": "verified_source_image_bytes",
+                "runner_version": self.extractor_version,
+                "external_network_used": False,
+                "source_sha256": doc["source"]["sha256"],
+                "rendered_sha256": observation["input_sha256"],
+                "rendered_size_bytes": path.stat().st_size,
+            },
+        }
         image_ev = self.add_evidence(
             doc_id,
             "image",
@@ -1872,6 +6088,7 @@ class Probe:
                 "ocr_engines": observation["engines"],
                 "independent_ocr_engines": observation["independent_engines"],
                 "unresolved_ocr_line_count": observation["unresolved_count"],
+                "visual_origin": visual_origin,
             },
             method="verified_image_bytes",
         )
@@ -1987,6 +6204,7 @@ class Probe:
                     "audit_confidence": line["audit_confidence"],
                     "independent_engines": observation["independent_engines"],
                     "observation_provenance": provenance,
+                    "visual_origin": visual_origin,
                 },
                 method=(
                     "dual_local_ocr_consensus"
@@ -2069,6 +6287,7 @@ class Probe:
                         "character_start": question_chunk.start,
                         "character_end": question_chunk.end,
                         "character_offset_basis": "zero_based_half_open",
+                        "visual_origin": visual_origin,
                     },
                     method="local_vlm_unlocated_transcript_provisional",
                     confidence=0.0,
@@ -2088,6 +6307,12 @@ class Probe:
                 doc,
                 f"{observation['unresolved_count']} OCR reading(s) remain provisional but are retained",
             )
+        self._schedule_local_visual_observation(
+            path, doc, parent_id=image_ev["evidence_id"],
+            location_prefix={"object_index": 1},
+            visual_origin=visual_origin,
+            ordinal=len(read_lines) + 1,
+        )
 
     def extract_delimited(self, path: Path) -> None:
         text_value, encoding = read_text(path)
@@ -2277,37 +6502,161 @@ class Probe:
         doc_id = doc["document_id"]
         image_count = 0
 
-        def strip_data_uri(source_text: str, cell_index: int) -> str:
-            nonlocal image_count
+        suffix_by_mime = {
+            "image/png": ".png",
+            "image/jpeg": ".jpg",
+            "image/tiff": ".tiff",
+            "image/bmp": ".bmp",
+        }
 
-            def replace(match: re.Match[str]) -> str:
-                nonlocal image_count
-                image_count += 1
-                try:
-                    blob = base64.b64decode(re.sub(r"\s", "", match.group(2)), validate=False)
-                    blob_sha = digest_bytes(blob)
-                    size_bytes = len(blob)
-                except Exception:
-                    blob_sha = digest_bytes(match.group(2).encode("ascii", errors="ignore"))
-                    size_bytes = 0
-                ev = self.add_evidence(
-                    doc_id,
-                    "image",
-                    {"notebook_cell_index": cell_index, "object_index": image_count,
-                     "locator_text": f"cell={cell_index};embedded-image={image_count}"},
-                    content(content_ref=f"{doc['source']['relative_path']}#cell={cell_index};image={image_count}",
-                            mime_type=match.group(1)),
-                    ordinal=image_count,
-                    native_properties={"embedded_sha256": blob_sha, "size_bytes": size_bytes},
+        def add_notebook_image(
+            payload: Any,
+            *,
+            cell_index: int,
+            mime_type: str,
+            locator_kind: str,
+            attachment_name: str | None = None,
+        ) -> str:
+            nonlocal image_count
+            image_count += 1
+            encoded = payload if isinstance(payload, str) else (
+                "".join(payload) if isinstance(payload, list) else ""
+            )
+            blob: bytes | None = None
+            try:
+                compact = re.sub(r"\s", "", encoded)
+                blob = base64.b64decode(compact, validate=True)
+                if not blob:
+                    raise ValueError("empty notebook image")
+                blob_sha = digest_bytes(blob)
+                size_bytes = len(blob)
+            except Exception:
+                blob_sha = digest_bytes(encoded.encode("ascii", errors="ignore"))
+                size_bytes = 0
+                self.mark_partial(
+                    doc,
+                    f"notebook cell {cell_index} contains malformed {mime_type} image data",
                 )
-                self.contain_document(doc_id, ev["evidence_id"])
-                return f"[embedded image sha256={blob_sha}]"
+            locator = f"cell={cell_index};{locator_kind}={image_count}"
+            if attachment_name is not None:
+                locator += ";attachment=" + urllib.parse.quote(
+                    attachment_name,
+                    safe="-._~",
+                )
+            image_location = {
+                "notebook_cell_index": cell_index,
+                "object_index": image_count,
+                "locator_text": locator,
+            }
+            image_ref = f"{doc['source']['relative_path']}#{locator}"
+            suffix = suffix_by_mime.get(mime_type.casefold())
+            image_source_name = f"notebook-image-{image_count}{suffix or '.bin'}"
+            visual_origin = (
+                self._embedded_visual_origin(
+                    blob,
+                    doc,
+                    location_prefix=image_location,
+                    source_name=image_source_name,
+                    visual_origin_kind="notebook_embedded_image",
+                )
+                if blob is not None else {"kind": "notebook_embedded_image"}
+            )
+            native_properties: dict[str, Any] = {
+                "embedded_sha256": blob_sha,
+                "size_bytes": size_bytes,
+                "visual_origin": visual_origin,
+            }
+            if attachment_name is not None:
+                native_properties["attachment_name"] = attachment_name
+            image_ev = self.add_evidence(
+                doc_id,
+                "image",
+                image_location,
+                content(content_ref=image_ref, mime_type=mime_type),
+                ordinal=image_count,
+                native_properties=native_properties,
+            )
+            self.contain_document(doc_id, image_ev["evidence_id"])
+            if blob is not None and suffix is not None:
+                self._project_embedded_image_bytes(
+                    blob,
+                    doc,
+                    parent_id=image_ev["evidence_id"],
+                    location_prefix=image_location,
+                    content_ref=image_ref,
+                    source_name=image_source_name,
+                    visual_origin_kind="notebook_embedded_image",
+                    visual_origin=visual_origin,
+                )
+            elif blob is not None:
+                self.mark_partial(
+                    doc,
+                    f"notebook cell {cell_index} image type {mime_type} is not supported by the local reader",
+                )
+            return f"[embedded image sha256={blob_sha}]"
+
+        def strip_data_uri(source_text: str, cell_index: int) -> str:
+            def replace(match: re.Match[str]) -> str:
+                return add_notebook_image(
+                    match.group(2),
+                    cell_index=cell_index,
+                    mime_type=match.group(1),
+                    locator_kind="source-image",
+                )
 
             return DATA_URI_PATTERN.sub(replace, source_text)
 
         for cell_index, cell in enumerate(notebook.get("cells", []), 1):
-            source_text = "".join(cell.get("source", []))
-            source_text = strip_data_uri(source_text, cell_index)
+            source_value = cell.get("source", [])
+            source_text = (
+                "".join(source_value)
+                if isinstance(source_value, list)
+                else str(source_value)
+            )
+            cell_type = cell.get("cell_type")
+            attachment_references = (
+                {
+                    unicodedata.normalize("NFC", urllib.parse.unquote(match.group(1)))
+                    for match in NOTEBOOK_ATTACHMENT_PATTERN.finditer(source_text)
+                }
+                if cell_type == "markdown" else set()
+            )
+            attachments = cell.get("attachments", {})
+            if isinstance(attachments, dict) and attachment_references:
+                normalized_attachments: dict[str, list[tuple[str, Any]]] = {}
+                for raw_name, payloads in attachments.items():
+                    if not isinstance(raw_name, str):
+                        continue
+                    normalized_attachments.setdefault(
+                        unicodedata.normalize("NFC", raw_name),
+                        [],
+                    ).append((raw_name, payloads))
+                for attachment_name in sorted(attachment_references):
+                    matches = normalized_attachments.get(attachment_name, [])
+                    if len(matches) != 1:
+                        self.mark_partial(
+                            doc,
+                            f"notebook cell {cell_index} attachment {attachment_name!r} is missing or Unicode-ambiguous",
+                        )
+                        continue
+                    raw_name, payloads = matches[0]
+                    if not isinstance(payloads, dict):
+                        self.mark_partial(
+                            doc,
+                            f"notebook cell {cell_index} attachment {attachment_name!r} has invalid payloads",
+                        )
+                        continue
+                    for mime_type in sorted(payloads):
+                        if isinstance(mime_type, str) and mime_type.startswith("image/"):
+                            add_notebook_image(
+                                payloads[mime_type],
+                                cell_index=cell_index,
+                                mime_type=mime_type,
+                                locator_kind="attachment-image",
+                                attachment_name=raw_name,
+                            )
+            if cell_type == "markdown":
+                source_text = strip_data_uri(source_text, cell_index)
             if source_text and self.may_add_leaf(doc_id):
                 ev = self.add_evidence(
                     doc_id,
@@ -2342,29 +6691,15 @@ class Probe:
                 for mime_type, payload in data.items():
                     if not mime_type.startswith("image/"):
                         continue
-                    image_count += 1
-                    encoded = payload if isinstance(payload, str) else "".join(payload)
-                    try:
-                        blob = base64.b64decode(encoded, validate=False)
-                        blob_sha = digest_bytes(blob)
-                        size_bytes = len(blob)
-                    except Exception:
-                        blob_sha = digest_bytes(encoded.encode("ascii", errors="ignore"))
-                        size_bytes = 0
-                    ev = self.add_evidence(
-                        doc_id,
-                        "image",
-                        {"notebook_cell_index": cell_index, "object_index": image_count,
-                         "locator_text": f"cell={cell_index};output-image={image_count}"},
-                        content(content_ref=f"{doc['source']['relative_path']}#cell={cell_index};image={image_count}",
-                                mime_type=mime_type),
-                        ordinal=image_count,
-                        native_properties={"embedded_sha256": blob_sha, "size_bytes": size_bytes},
+                    add_notebook_image(
+                        payload,
+                        cell_index=cell_index,
+                        mime_type=mime_type,
+                        locator_kind=f"output={output_index};output-image",
                     )
-                    self.contain_document(doc_id, ev["evidence_id"])
         if image_count:
             doc["extraction"]["warnings"].append(
-                f"{image_count} embedded image(s) recorded for graph/OCR processing without image interpretation"
+                f"{image_count} embedded image(s) routed through local visual reading"
             )
 
     def extract_other(self, path: Path) -> None:

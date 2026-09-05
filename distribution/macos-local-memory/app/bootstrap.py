@@ -38,8 +38,38 @@ LOCAL_HTTP_OPENER = urllib.request.build_opener(
 )
 IMAGE_FALLBACK_MODEL = "gemma4:12b"
 IMAGE_SUFFIXES = {".png", ".jpg", ".jpeg", ".tif", ".tiff", ".bmp"}
+VISUAL_READER_SUFFIXES = IMAGE_SUFFIXES | {
+    ".pdf", ".docx", ".xlsx", ".pptx", ".ipynb",
+}
 GENERATION_NAME = re.compile(r"generation-[0-9a-f]{32}")
 GENERATION_MARKER = "build-generation.json"
+READER_GENERATION_CONTRACT_CONFIG_KEY = "reader_generation_contract"
+READER_GENERATION_CONTRACT_FILENAME = "reader-generation-contract.json"
+READER_GENERATION_CONTRACT_SCHEMA_VERSION = "0.1"
+READER_PROCESSING_CODE_FILES = (
+    "build_intermediate_records.py",
+    "probe_intermediate_records.py",
+    "evidence_text_chunking.py",
+    "extract_ocr_observations.py",
+    "classify_visual_assets.py",
+    "validate_ocr_observations.py",
+    "validate_visual_classifications.py",
+    "local_image_ocr.py",
+    "local_paddle_ocr.py",
+    "local_pdf_page_renderer.py",
+    "local_visual_observation.py",
+    "apple_vision_ocr.swift",
+    "image_canonicalizer.swift",
+    "pdf_page_renderer.js",
+)
+READER_SCHEMA_FILES = (
+    "document.schema.json",
+    "evidence.schema.json",
+    "relation.schema.json",
+    "search-unit.schema.json",
+    "ocr-observation.schema.json",
+    "visual-classification.schema.json",
+)
 CROSS_DOCUMENT_SHADOW_FLAG = "cross_document_semantic_graph_shadow_enabled"
 CROSS_DOCUMENT_STORAGE_FLAG = "cross_document_semantic_graph_storage_enabled"
 CROSS_DOCUMENT_QUERY_CANDIDATE_FLAG = (
@@ -255,6 +285,349 @@ def load_json(path: Path, default: dict | None = None) -> dict:
     return json.loads(path.read_text(encoding="utf-8"))
 
 
+def _canonical_json_sha256(value: object) -> str:
+    payload = json.dumps(
+        value,
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode("utf-8")
+    return hashlib.sha256(payload).hexdigest()
+
+
+def _reader_file_identity(path: Path) -> dict[str, object]:
+    if path.is_symlink() or not path.is_file():
+        raise ValueError(f"reader_contract_resource_invalid:{path.name}")
+    return {
+        "status": "available",
+        "sha256": sha256_file(path),
+        "size_bytes": path.stat().st_size,
+    }
+
+
+def _reader_tools_dir() -> Path:
+    candidates = (
+        ENGINE / "layer1" / "scripts",
+        Path(__file__).resolve().parents[3] / "scripts",
+    )
+    required = {*READER_PROCESSING_CODE_FILES, "adapt_layer1_to_local_memory.py"}
+    for candidate in candidates:
+        if (
+            candidate.is_dir()
+            and not candidate.is_symlink()
+            and all(
+                (candidate / name).is_file()
+                and not (candidate / name).is_symlink()
+                for name in required
+            )
+        ):
+            return candidate.resolve(strict=True)
+    raise RuntimeError("reader_generation_contract_tools_missing")
+
+
+def _reader_schema_dir() -> Path:
+    candidates = (
+        ENGINE / "layer1" / "schemas",
+        Path(__file__).resolve().parents[3] / "schemas",
+    )
+    for candidate in candidates:
+        if (
+            candidate.is_dir()
+            and not candidate.is_symlink()
+            and all(
+                (candidate / name).is_file()
+                and not (candidate / name).is_symlink()
+                for name in READER_SCHEMA_FILES
+            )
+        ):
+            return candidate.resolve(strict=True)
+    raise RuntimeError("reader_generation_contract_schemas_missing")
+
+
+def _current_reader_resource_contract() -> dict[str, object]:
+    """Fingerprint executable Reader bytes, not producer version assertions."""
+    tools = _reader_tools_dir()
+    schemas = _reader_schema_dir()
+    return {
+        "adaptive_builder": _reader_file_identity(
+            ENGINE / "build_adaptive_semantic_graph.py"
+        ),
+        "adaptive_validator": _reader_file_identity(
+            ENGINE / "validate_adaptive_semantic_graph.py"
+        ),
+        "adapter": _reader_file_identity(
+            tools / "adapt_layer1_to_local_memory.py"
+        ),
+        "processing_code": {
+            name: _reader_file_identity(tools / name)
+            for name in READER_PROCESSING_CODE_FILES
+        },
+        "schemas": {
+            name: _reader_file_identity(schemas / name)
+            for name in READER_SCHEMA_FILES
+        },
+    }
+
+
+def _required_reader_json(path: Path) -> dict:
+    if path.is_symlink() or not path.is_file() or path.stat().st_size > 16 * 1024 * 1024:
+        raise ValueError(f"reader_contract_artifact_invalid:{path.name}")
+    value = json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(value, dict):
+        raise ValueError(f"reader_contract_artifact_not_object:{path.name}")
+    return value
+
+
+def _reader_stage_identity(
+    semantic: Path,
+    adaptive_state: dict,
+    stage_name: str,
+    relative_path: str,
+) -> dict[str, object]:
+    stages = adaptive_state.get("stages")
+    stage = stages.get(stage_name) if isinstance(stages, dict) else None
+    if (
+        not isinstance(stage, dict)
+        or stage.get("path") != relative_path
+        or not isinstance(stage.get("sha256"), str)
+    ):
+        raise ValueError(f"reader_contract_stage_invalid:{stage_name}")
+    identity = _reader_file_identity(semantic / relative_path)
+    if stage["sha256"] != identity["sha256"]:
+        raise ValueError(f"reader_contract_stage_hash_mismatch:{stage_name}")
+    return identity
+
+
+def _reader_output_identity(
+    semantic: Path,
+    adaptive_state: dict,
+    output_name: str,
+) -> dict[str, object]:
+    outputs = adaptive_state.get("outputs")
+    output = outputs.get(output_name) if isinstance(outputs, dict) else None
+    file_name = f"semantic-{output_name}.jsonl"
+    if (
+        not isinstance(output, dict)
+        or output.get("path") != file_name
+        or not isinstance(output.get("sha256"), str)
+        or not isinstance(output.get("count"), int)
+        or isinstance(output.get("count"), bool)
+        or output.get("count", -1) < 0
+    ):
+        raise ValueError(f"reader_contract_output_invalid:{output_name}")
+    identity = _reader_file_identity(semantic / file_name)
+    if output["sha256"] != identity["sha256"]:
+        raise ValueError(f"reader_contract_output_hash_mismatch:{output_name}")
+    return {**identity, "count": output["count"]}
+
+
+def _reader_generation_contract_body(semantic: Path) -> dict[str, object]:
+    if semantic.is_symlink() or not semantic.is_dir():
+        raise ValueError("reader_contract_semantic_directory_invalid")
+    semantic = semantic.resolve(strict=True)
+    adaptive_path = semantic / "adaptive-reader-state.json"
+    adaptive_state = _required_reader_json(adaptive_path)
+    if adaptive_state.get("status") not in {"complete", "complete_with_limits"}:
+        raise ValueError("reader_contract_adaptive_state_incomplete")
+
+    artifacts = {
+        "adaptive_state": _reader_file_identity(adaptive_path),
+        "intermediate_state": _reader_stage_identity(
+            semantic,
+            adaptive_state,
+            "intermediate",
+            "layer1-intermediate/build-state.json",
+        ),
+        "intermediate_validation": _reader_stage_identity(
+            semantic,
+            adaptive_state,
+            "intermediate_validation",
+            "layer1-validation-state.json",
+        ),
+        "search_state": _reader_stage_identity(
+            semantic,
+            adaptive_state,
+            "search",
+            "layer1-search/search-build-state.json",
+        ),
+        "adapter_state": _reader_stage_identity(
+            semantic,
+            adaptive_state,
+            "adapter",
+            "layer1-adapter/layer1-adapter-state.json",
+        ),
+        "semantic_documents": _reader_output_identity(
+            semantic, adaptive_state, "documents"
+        ),
+        "semantic_evidence": _reader_output_identity(
+            semantic, adaptive_state, "evidence"
+        ),
+    }
+
+    intermediate = _required_reader_json(
+        semantic / "layer1-intermediate/build-state.json"
+    )
+    validation = _required_reader_json(semantic / "layer1-validation-state.json")
+    adapter = _required_reader_json(
+        semantic / "layer1-adapter/layer1-adapter-state.json"
+    )
+    fingerprint = intermediate.get("processing_fingerprint")
+    if not isinstance(fingerprint, dict) or not isinstance(
+        fingerprint.get("payload"), dict
+    ):
+        raise ValueError("reader_contract_processing_fingerprint_missing")
+    if fingerprint.get("sha256") != _canonical_json_sha256(fingerprint["payload"]):
+        raise ValueError("reader_contract_processing_fingerprint_hash_mismatch")
+
+    resources = _current_reader_resource_contract()
+    stored_processing_code = fingerprint["payload"].get("code")
+    if stored_processing_code != resources["processing_code"]:
+        raise ValueError("reader_contract_processing_code_mismatch")
+    if (
+        intermediate.get("extractor") != fingerprint["payload"].get("extractor")
+        or intermediate.get("extractor_version")
+        != fingerprint["payload"].get("extractor_version")
+    ):
+        raise ValueError("reader_contract_extractor_binding_mismatch")
+    if (
+        validation.get("status") != "pass"
+        or validation.get("intermediate_state_sha256")
+        != artifacts["intermediate_state"]["sha256"]
+        or validation.get("schema_validation")
+        not in {"draft202012", "structural_contract_only"}
+    ):
+        raise ValueError("reader_contract_validation_binding_mismatch")
+    adapter_source_state = adapter.get("source_state")
+    adapter_outputs = adapter.get("outputs")
+    adapter_documents = (
+        adapter_outputs.get("documents") if isinstance(adapter_outputs, dict) else None
+    )
+    adapter_evidence = (
+        adapter_outputs.get("evidence") if isinstance(adapter_outputs, dict) else None
+    )
+    if (
+        not isinstance(adapter_source_state, dict)
+        or adapter_source_state.get("sha256")
+        != artifacts["intermediate_state"]["sha256"]
+        or not isinstance(adapter_documents, dict)
+        or adapter_documents.get("sha256")
+        != artifacts["semantic_documents"]["sha256"]
+        or not isinstance(adapter_evidence, dict)
+        or adapter_evidence.get("sha256")
+        != artifacts["semantic_evidence"]["sha256"]
+    ):
+        raise ValueError("reader_contract_adapter_binding_mismatch")
+
+    body: dict[str, object] = {
+        "schema_version": READER_GENERATION_CONTRACT_SCHEMA_VERSION,
+        "record_type": "reader_generation_contract",
+        "semantic_directory_name": semantic.name,
+        "resources": resources,
+        "generation_artifacts": artifacts,
+        "producer_records": {
+            "builder": {
+                "name": adaptive_state.get("builder"),
+                "version": adaptive_state.get("builder_version"),
+            },
+            "extractor": {
+                "name": intermediate.get("extractor"),
+                "version": intermediate.get("extractor_version"),
+                "processing_fingerprint_sha256": fingerprint.get("sha256"),
+            },
+            "adapter": {
+                "name": adapter.get("adapter"),
+                "version": adapter.get("adapter_version"),
+            },
+            "schema_validation": validation.get("schema_validation"),
+        },
+    }
+    return {
+        **body,
+        "logical_sha256": _canonical_json_sha256(body),
+    }
+
+
+def write_reader_generation_contract(
+    semantic: Path,
+    generation_name: str,
+) -> dict[str, object]:
+    if GENERATION_NAME.fullmatch(generation_name) is None:
+        raise ValueError("reader_contract_generation_name_invalid")
+    if semantic.parent.name != generation_name or semantic.parent.is_symlink():
+        raise ValueError("reader_contract_generation_binding_invalid")
+    contract = _reader_generation_contract_body(semantic)
+    contract_path = semantic / READER_GENERATION_CONTRACT_FILENAME
+    if contract_path.exists() or contract_path.is_symlink():
+        raise FileExistsError("reader_generation_contract_already_exists")
+    atomic_json(contract_path, contract)
+    return {
+        "schema_version": READER_GENERATION_CONTRACT_SCHEMA_VERSION,
+        "status": "current",
+        "generation": generation_name,
+        "path": str(contract_path),
+        "sha256": sha256_file(contract_path),
+        "logical_sha256": contract["logical_sha256"],
+    }
+
+
+def reader_generation_contract_status(config: dict) -> dict[str, object]:
+    """Report migration need without changing or invalidating the active index."""
+    index_value = config.get("index_path")
+    if not isinstance(index_value, str) or not index_value or not Path(index_value).is_file():
+        return {"state": "not_built", "migration_required": False}
+    try:
+        generation_name = config.get("active_generation")
+        if not isinstance(generation_name, str) or GENERATION_NAME.fullmatch(
+            generation_name
+        ) is None:
+            raise ValueError("active_generation_invalid")
+        semantic_value = config.get("semantic_path")
+        if not isinstance(semantic_value, str) or not semantic_value:
+            raise ValueError("semantic_path_missing")
+        semantic = Path(semantic_value)
+        generation = semantic.parent
+        if generation.name != generation_name or semantic.is_symlink():
+            raise ValueError("semantic_generation_binding_invalid")
+        registration = config.get(READER_GENERATION_CONTRACT_CONFIG_KEY)
+        if not isinstance(registration, dict):
+            raise ValueError("reader_generation_contract_registration_missing")
+        contract_path = semantic / READER_GENERATION_CONTRACT_FILENAME
+        expected_registration = {
+            "schema_version": READER_GENERATION_CONTRACT_SCHEMA_VERSION,
+            "status": "current",
+            "generation": generation_name,
+            "path": str(contract_path),
+        }
+        if any(
+            registration.get(key) != value
+            for key, value in expected_registration.items()
+        ):
+            raise ValueError("reader_generation_contract_registration_invalid")
+        if contract_path.is_symlink() or not contract_path.is_file():
+            raise ValueError("reader_generation_contract_missing")
+        if registration.get("sha256") != sha256_file(contract_path):
+            raise ValueError("reader_generation_contract_hash_mismatch")
+        contract = _required_reader_json(contract_path)
+        expected_contract = _reader_generation_contract_body(semantic)
+        if contract != expected_contract:
+            raise ValueError("reader_generation_contract_content_mismatch")
+        if registration.get("logical_sha256") != contract.get("logical_sha256"):
+            raise ValueError("reader_generation_contract_logical_hash_mismatch")
+        return {
+            "state": "current",
+            "migration_required": False,
+            "generation": generation_name,
+            "logical_sha256": contract["logical_sha256"],
+        }
+    except (OSError, ValueError, TypeError, RuntimeError, json.JSONDecodeError) as exc:
+        reason = str(exc).split(":", 1)[0] or type(exc).__name__
+        return {
+            "state": "reader_migration_required",
+            "migration_required": True,
+            "reason_code": reason,
+        }
+
+
 def free_gb(path: Path) -> float:
     return shutil.disk_usage(path).free / 1024**3
 
@@ -314,6 +687,7 @@ def diagnose() -> dict:
         config = {}
     source = Path(config["source_root"]) if config.get("source_root") else None
     index = Path(config["index_path"]) if config.get("index_path") else None
+    reader_contract = reader_generation_contract_status(config)
     return {
         "macos": system_version,
         "architecture": platform.machine(),
@@ -328,6 +702,10 @@ def diagnose() -> dict:
         "source_exists": bool(source and source.is_dir()),
         "index_path": str(index) if index else "",
         "index_ready": bool(index and index.is_file()),
+        "reader_generation_contract": reader_contract,
+        "reader_migration_required": (
+            reader_contract.get("migration_required") is True
+        ),
         "cross_document_semantic_graph_shadow_enabled": (
             config.get(CROSS_DOCUMENT_SHADOW_FLAG, True) is True
         ),
@@ -578,6 +956,7 @@ def configure_source(source: Path) -> dict:
         "semantic_path",
         "security_path",
         "semantic_graph_shadow_path",
+        READER_GENERATION_CONTRACT_CONFIG_KEY,
         CROSS_DOCUMENT_STORAGE_CONFIG_KEY,
         CROSS_DOCUMENT_TRUST_CONFIG_KEY,
         BASE_ANSWER_INDEX_SHA256_KEY,
@@ -1788,7 +2167,8 @@ def semantic_contains_images(semantic: Path) -> bool:
     manifest = load_json(semantic / "layer1-input-manifest.json")
     paths = manifest.get("paths", [])
     return isinstance(paths, list) and any(
-        isinstance(value, str) and Path(value).suffix.casefold() in IMAGE_SUFFIXES
+        isinstance(value, str)
+        and Path(value).suffix.casefold() in VISUAL_READER_SUFFIXES
         for value in paths
     )
 
@@ -3221,6 +3601,7 @@ def build_index() -> None:
     atomic_json(STATE, state)
     generation_published = False
     reader_state: dict = {}
+    reader_contract_registration: dict[str, object] = {}
     shadow_state = _shadow_run_base(
         generation,
         build_id,
@@ -3278,6 +3659,10 @@ def build_index() -> None:
                 )
                 semantic = semantic_after_pull
                 security = security_after_pull
+            reader_contract_registration = write_reader_generation_contract(
+                semantic,
+                generation.name,
+            )
             run([
                 sys.executable, str(ENGINE / "build_local_semantic_index.py"),
                 "--evidence", str(security / "safe-answer-evidence.jsonl"),
@@ -3326,6 +3711,9 @@ def build_index() -> None:
                 "semantic_path": str(semantic),
                 "security_path": str(security),
                 "index_path": str(index),
+                READER_GENERATION_CONTRACT_CONFIG_KEY: (
+                    reader_contract_registration
+                ),
                 BASE_ANSWER_INDEX_SHA256_KEY: base_index_sha256,
             })
             atomic_config_compare_and_swap(
@@ -3373,6 +3761,9 @@ def build_index() -> None:
                 "semantic_path": str(semantic),
                 "security_path": str(security),
                 "index_path": str(index),
+                READER_GENERATION_CONTRACT_CONFIG_KEY: (
+                    reader_contract_registration
+                ),
                 BASE_ANSWER_INDEX_SHA256_KEY: base_index_sha256,
                 "cross_document_semantic_graph_query_candidate_enabled": (
                     published_config.get(

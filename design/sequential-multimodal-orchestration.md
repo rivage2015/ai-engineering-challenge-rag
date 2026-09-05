@@ -1,5 +1,23 @@
 # 逐次マルチモーダル画像理解 v0.1
 
+## Step 7 source実装との関係
+
+この文書は完成済み仕様ではなく、逐次マルチモーダル経路の最終設計である。
+Step 7のsource実装で完了したのは次の範囲に限る。
+
+- macOS PDFKit/JXAによるPDFのページ単位ローカル描画、native text取得、既存OCR接続
+- 単体画像と、DOCX・XLSX・PPTX・Notebookの参照付き埋め込みラスター画像のOCR接続。Office・Notebookのraw埋め込み画像は表示representation・crop・透過・transformが未解決なので、複数OCR一致時も暫定扱いとし確定グラフから除外する
+- XLSX・PPTXのOOXML表示関係とhashに結合したネイティブグラフの保存済みラベル/値cacheの検索化。`verified_ooxml_chart_cache`は出典結合と構造検証の表示であり、Officeでの最新再計算や内容の正しさの保証ではない。DOCXのネイティブグラフ構造は未対応
+- PPTX SmartArtの参照付きテキスト要素と生の`srcId`/`destId`接続。接続typeや配置の意味は推定しない
+- `gemma4:12b`による質問非依存の文字通りの視覚観測。常に`[暫定読取]`とし、確定回答と確定意味グラフの単独根拠に使わない
+
+一方、Agent 1/2の独立実行とAgent 3による融合、Office全ページ/全スライド/
+全シートのレンダリング、タイル分割、高解像度再試行、色・配置からの
+意味融合は未実装である。非対応、cache欠落、SmartArt端点不解決、
+OCR/VLMの不足、または安全上限到達は`partial`または`unresolved`とし、
+完了に昇格しない。実行時の読取りはMac内とloopback Ollamaだけで完結し、
+原本と画像を外部APIへ送信しない。
+
 ## 目的
 
 テキスト抽出だけでは失われる画像、グラフ、表計算の表示状態、

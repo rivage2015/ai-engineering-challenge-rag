@@ -101,7 +101,7 @@ class GeneralMemoryShadowEvaluationTest(unittest.TestCase):
             self.assertTrue(report["relationship_context_audit"]["all_pass"])
             self.assertEqual(
                 report["coverage"]["layer1_adapter"]["search_unit_projection"]["included_unit_types"],
-                ["image_text_packet", "table_row"],
+                ["chart_series", "chart_summary", "image_text_packet", "table_row"],
             )
             self.assertGreater(
                 report["coverage"]["layer1_adapter"]["search_unit_projection"]["count"], 0,
@@ -128,12 +128,13 @@ class GeneralMemoryShadowEvaluationTest(unittest.TestCase):
                 if case["eval_case_id"] == "gm_docx_final_lecture_plan"
             )
             self.assertEqual(adapter_docx["first_relevant_rank"], 1)
-            self.assertEqual(
-                [item["relative_path"] for item in adapter_docx["retrieved"][:2]],
-                [
-                    "office/regional-ai-lecture-final.docx",
-                    "office/regional-ai-lecture-old.docx",
-                ],
+            # Native chart SearchUnits add legitimate document-level support
+            # for other Office/PDF records.  The final DOCX must stay first,
+            # while its competing old version remains in the bounded top-3;
+            # their exact second/third order is not a safety contract.
+            self.assertIn(
+                "office/regional-ai-lecture-old.docx",
+                [item["relative_path"] for item in adapter_docx["retrieved"][:3]],
             )
             xlsx_relationship = next(
                 case for case in report["relationship_context_audit"]["cases"]
@@ -283,9 +284,17 @@ class GeneralMemoryShadowEvaluationTest(unittest.TestCase):
                 if item.get("adapter", {}).get("source_record_type") == "search_unit"
             ]
             self.assertTrue(row_records)
-            self.assertEqual(
-                {item["adapter"]["unit_type"] for item in row_records},
-                {"image_text_packet", "table_row"},
+            projected_types = {
+                item["adapter"]["unit_type"] for item in row_records
+            }
+            self.assertTrue(
+                {"image_text_packet", "table_row"}.issubset(projected_types)
+            )
+            self.assertTrue(
+                projected_types.issubset({
+                    "chart_series", "chart_summary",
+                    "image_text_packet", "table_row",
+                })
             )
             for item in row_records:
                 self.assertTrue(item["adapter"]["source_evidence_ids"])

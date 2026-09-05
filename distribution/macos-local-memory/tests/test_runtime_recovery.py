@@ -27,6 +27,129 @@ def load_module(name: str, path: Path):
     return module
 
 
+def prepare_reader_contract_semantic_fixture(
+    bootstrap,
+    semantic: Path,
+    security: Path,
+    *,
+    manifest_paths: list[str] | None = None,
+    status: str = "complete",
+    limitations: dict | None = None,
+    **reader_state_fields,
+) -> dict:
+    """Write the minimum real, hash-bound Reader generation artifacts."""
+    # The checked-in bootstrap is copied beside ``engine`` in the packaged app;
+    # tests execute it from ``app/`` and therefore provide the source-layout
+    # engine explicitly.  Hash the real shipped inputs instead of weakening or
+    # mocking the production contract.
+    bootstrap.ENGINE = ENGINE
+    semantic.mkdir(parents=True)
+    security.mkdir(parents=True)
+    bootstrap.atomic_json(
+        semantic / "layer1-input-manifest.json",
+        {"paths": list(manifest_paths or [])},
+    )
+
+    resources = bootstrap._current_reader_resource_contract()
+    extractor = "test_intermediate_extractor"
+    extractor_version = "0.1-test"
+    fingerprint_payload = {
+        "code": resources["processing_code"],
+        "extractor": extractor,
+        "extractor_version": extractor_version,
+    }
+    intermediate_dir = semantic / "layer1-intermediate"
+    intermediate_dir.mkdir()
+    intermediate_state_path = intermediate_dir / "build-state.json"
+    bootstrap.atomic_json(intermediate_state_path, {
+        "status": "complete",
+        "extractor": extractor,
+        "extractor_version": extractor_version,
+        "processing_fingerprint": {
+            "payload": fingerprint_payload,
+            "sha256": bootstrap._canonical_json_sha256(
+                fingerprint_payload
+            ),
+        },
+    })
+    intermediate_sha256 = bootstrap.sha256_file(intermediate_state_path)
+
+    validation_path = semantic / "layer1-validation-state.json"
+    bootstrap.atomic_json(validation_path, {
+        "status": "pass",
+        "schema_validation": "structural_contract_only",
+        "intermediate_state_sha256": intermediate_sha256,
+    })
+    search_dir = semantic / "layer1-search"
+    search_dir.mkdir()
+    search_state_path = search_dir / "search-build-state.json"
+    bootstrap.atomic_json(search_state_path, {"status": "complete"})
+
+    documents_path = semantic / "semantic-documents.jsonl"
+    evidence_path = semantic / "semantic-evidence.jsonl"
+    documents_path.write_text("", encoding="utf-8")
+    evidence_path.write_text("", encoding="utf-8")
+    documents_sha256 = bootstrap.sha256_file(documents_path)
+    evidence_sha256 = bootstrap.sha256_file(evidence_path)
+
+    adapter_dir = semantic / "layer1-adapter"
+    adapter_dir.mkdir()
+    adapter_state_path = adapter_dir / "layer1-adapter-state.json"
+    bootstrap.atomic_json(adapter_state_path, {
+        "status": "complete",
+        "adapter": "test_layer1_adapter",
+        "adapter_version": "0.1-test",
+        "source_state": {"sha256": intermediate_sha256},
+        "outputs": {
+            "documents": {"sha256": documents_sha256},
+            "evidence": {"sha256": evidence_sha256},
+        },
+    })
+
+    stages = {
+        "intermediate": {
+            "path": "layer1-intermediate/build-state.json",
+            "sha256": intermediate_sha256,
+        },
+        "intermediate_validation": {
+            "path": "layer1-validation-state.json",
+            "sha256": bootstrap.sha256_file(validation_path),
+        },
+        "search": {
+            "path": "layer1-search/search-build-state.json",
+            "sha256": bootstrap.sha256_file(search_state_path),
+        },
+        "adapter": {
+            "path": "layer1-adapter/layer1-adapter-state.json",
+            "sha256": bootstrap.sha256_file(adapter_state_path),
+        },
+    }
+    reader_state = {
+        "status": status,
+        "builder": "test_adaptive_reader",
+        "builder_version": "0.1-test",
+        "limitations": dict(limitations or {}),
+        "stages": stages,
+        "outputs": {
+            "documents": {
+                "path": documents_path.name,
+                "sha256": documents_sha256,
+                "count": 0,
+            },
+            "evidence": {
+                "path": evidence_path.name,
+                "sha256": evidence_sha256,
+                "count": 0,
+            },
+        },
+        **reader_state_fields,
+    }
+    bootstrap.atomic_json(
+        semantic / "adaptive-reader-state.json", reader_state
+    )
+    return reader_state
+
+
 def prepare_shadow_inputs(bootstrap, generation: Path) -> tuple[Path, Path]:
     semantic = generation / "02-semantic-model-ready"
     security = generation / "03-security-model-ready"
@@ -1044,16 +1167,11 @@ class RuntimeRecoveryTests(unittest.TestCase):
             })
 
             def fake_semantic(_source, _paths, semantic, security, _log):
-                semantic.mkdir(parents=True)
-                security.mkdir(parents=True)
-                bootstrap.atomic_json(
-                    semantic / "layer1-input-manifest.json", {"paths": []}
+                return prepare_reader_contract_semantic_fixture(
+                    bootstrap,
+                    semantic,
+                    security,
                 )
-                reader_state = {"status": "complete", "limitations": {}}
-                bootstrap.atomic_json(
-                    semantic / "adaptive-reader-state.json", reader_state
-                )
-                return reader_state
 
             def fake_run(command, _log):
                 if any(
@@ -1281,16 +1399,11 @@ class RuntimeRecoveryTests(unittest.TestCase):
             })
 
             def fake_semantic(_source, _paths, semantic, security, _log):
-                semantic.mkdir(parents=True)
-                security.mkdir(parents=True)
-                bootstrap.atomic_json(
-                    semantic / "layer1-input-manifest.json", {"paths": []}
+                return prepare_reader_contract_semantic_fixture(
+                    bootstrap,
+                    semantic,
+                    security,
                 )
-                reader_state = {"status": "complete", "limitations": {}}
-                bootstrap.atomic_json(
-                    semantic / "adaptive-reader-state.json", reader_state
-                )
-                return reader_state
 
             def fake_run(command, _log):
                 if any(
@@ -2380,18 +2493,15 @@ class RuntimeRecoveryTests(unittest.TestCase):
 
             def fake_semantic(_source, _paths, semantic, security, _log):
                 semantic_calls.append(semantic)
-                semantic.mkdir(parents=True)
-                security.mkdir(parents=True)
-                bootstrap.atomic_json(
-                    semantic / "layer1-input-manifest.json", {"paths": ["scan.png"]}
+                return prepare_reader_contract_semantic_fixture(
+                    bootstrap,
+                    semantic,
+                    security,
+                    manifest_paths=["scan.png"],
+                    status="complete_with_limits",
+                    limitations={"partial_documents": 1},
+                    llm_used_for_extraction=len(semantic_calls) == 2,
                 )
-                state = {
-                    "status": "complete_with_limits",
-                    "limitations": {"partial_documents": 1},
-                    "llm_used_for_extraction": len(semantic_calls) == 2,
-                }
-                bootstrap.atomic_json(semantic / "adaptive-reader-state.json", state)
-                return state
 
             def fake_run(command, _log):
                 if any(str(value).endswith("build_path_graph.py") for value in command):
@@ -3561,16 +3671,11 @@ class RuntimeRecoveryTests(unittest.TestCase):
             })
 
             def fake_semantic(_source, _paths, semantic, security, _log):
-                semantic.mkdir(parents=True)
-                security.mkdir(parents=True)
-                bootstrap.atomic_json(
-                    semantic / "layer1-input-manifest.json", {"paths": []}
+                return prepare_reader_contract_semantic_fixture(
+                    bootstrap,
+                    semantic,
+                    security,
                 )
-                reader_state = {"status": "complete", "limitations": {}}
-                bootstrap.atomic_json(
-                    semantic / "adaptive-reader-state.json", reader_state
-                )
-                return reader_state
 
             def fake_run(command, _log):
                 if any(str(value).endswith("build_path_graph.py") for value in command):

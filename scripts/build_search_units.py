@@ -14,7 +14,7 @@ from typing import Any, Callable
 
 
 BUILDER = "search-unit-builder"
-BUILDER_VERSION = "0.5.0"
+BUILDER_VERSION = "0.6.0"
 SCHEMA_VERSION = "0.1"
 STATE_FILE = "search-build-state.json"
 CELL_PATTERN = re.compile(r"^([A-Z]{1,3})([1-9][0-9]*)$")
@@ -22,14 +22,23 @@ SEARCH_LOCATOR_KEYS = {
     "page_number", "slide_number", "sheet_name", "cell", "table_index", "shape_id",
     "row_index", "paragraph_start", "paragraph_end", "notebook_cell_index",
     "code_line_start", "code_line_end", "locator_text", "source_member",
-    "object_index", "series_index",
+    "object_index", "image_object_index", "series_index",
 }
 FORMULA_CACHED_VALUE_STATUS = "stored_in_file_not_recalculated"
 PROVISIONAL_OCR_MARKER = "[暫定読取]"
+PROVISIONAL_VISUAL_METHODS = {
+    "local_vlm_unlocated_transcript_provisional",
+    "local_vlm_visual_observation_provisional",
+}
+VERIFIED_CHART_METHODS = {
+    "verified_chart_table_adaptation",
+    "verified_ooxml_chart_cache",
+}
 OCR_QUALITY_BY_AGREEMENT = {
     "independent_agreement": "high",
     "same_engine_agreement": "provisional",
     "provisional_single_pass": "provisional",
+    "display_transform_unresolved": "provisional",
 }
 IMAGE_READING_ORDER_METHOD = "geometry_row_bands_v1"
 ROW_BAND_CENTER_TOLERANCE = 0.55
@@ -281,6 +290,8 @@ class DocumentDeriver:
         self.image_lines: list[dict[str, Any]] = []
         self.image_evidence_id: str | None = None
         self.image_source_label: str | None = None
+        self.image_container_kind = "standalone_image"
+        self.image_locator: dict[str, Any] = {"object_index": 1}
         self.counts: dict[str, int] = {}
 
     def write(self, record: dict[str, Any]) -> None:
@@ -610,7 +621,7 @@ class DocumentDeriver:
                     evidence_ids.insert(0, self.image_evidence_id)
                 agreement_types = sorted({line["agreement_type"] for line in lines})
                 context: dict[str, Any] = {
-                    "container_kind": "standalone_image",
+                    "container_kind": self.image_container_kind,
                     "quality_tier": quality_tier,
                     "agreement_types": agreement_types,
                     "bbox_coordinate_system": bbox_coordinate_system,
@@ -624,8 +635,9 @@ class DocumentDeriver:
                     "image_text_packet",
                     evidence_ids,
                     {
-                        "object_index": 1,
+                        **self.image_locator,
                         "locator_text": (
+                            f"container_kind={self.image_container_kind};"
                             f"quality_tier={quality_tier};"
                             f"bbox_coordinate_system={bbox_coordinate_system}"
                         ),
@@ -637,12 +649,30 @@ class DocumentDeriver:
         self.image_lines = []
         self.image_evidence_id = None
         self.image_source_label = None
+        self.image_container_kind = "standalone_image"
+        self.image_locator = {"object_index": 1}
 
     def start_image(self, evidence: dict[str, Any]) -> None:
         content_ref = evidence.get("content", {}).get("content_ref")
-        if isinstance(content_ref, str) and "::" not in content_ref and "#" not in content_ref:
-            self.image_evidence_id = evidence["evidence_id"]
-            self.image_source_label = Path(content_ref).name
+        if not isinstance(content_ref, str) or not content_ref:
+            return
+        native = evidence.get("native_properties", {})
+        visual_origin = native.get("visual_origin") if isinstance(native, dict) else None
+        origin_kind = visual_origin.get("kind") if isinstance(visual_origin, dict) else None
+        allowed = {
+            "standalone_image", "pdf_page_image", "office_embedded_image",
+            "notebook_embedded_image",
+        }
+        self.image_container_kind = origin_kind if origin_kind in allowed else "standalone_image"
+        location = evidence.get("location", {})
+        self.image_locator = {
+            key: location[key] for key in SEARCH_LOCATOR_KEYS if key in location
+        }
+        if not self.image_locator:
+            self.image_locator = {"object_index": 1}
+        self.image_evidence_id = evidence["evidence_id"]
+        source_name = content_ref.split("::", 1)[0].split("#", 1)[0]
+        self.image_source_label = Path(source_name).name
 
     def add_ocr_line(self, evidence: dict[str, Any]) -> None:
         value = display_value(evidence)
@@ -734,6 +764,42 @@ class DocumentDeriver:
         if evidence_type == "style_span":
             style = canonical_json(evidence.get("style", {}))
             value = f"書式対象: {value}\n書式: {style}"
+        method = evidence.get("provenance", {}).get("extraction_method")
+        if method in PROVISIONAL_VISUAL_METHODS:
+            native = evidence.get("native_properties", {})
+            if (
+                native.get("quality_tier") != "provisional"
+                or native.get("provisional_marker") != PROVISIONAL_OCR_MARKER
+            ):
+                raise ValueError("provisional local visual Evidence lacks its quality contract")
+            visible_lines: list[str] = []
+            for line in value.splitlines():
+                item = line.strip()
+                if not item or item == PROVISIONAL_OCR_MARKER:
+                    continue
+                if not item.startswith(PROVISIONAL_OCR_MARKER + " "):
+                    item = f"{PROVISIONAL_OCR_MARKER} {item}"
+                visible_lines.append(item)
+            if not visible_lines:
+                raise ValueError("provisional local visual Evidence has no searchable text")
+            value = "\n".join(visible_lines)
+            visual_origin = native.get("visual_origin", {})
+            origin_kind = (
+                visual_origin.get("kind")
+                if isinstance(visual_origin, dict) else None
+            )
+            allowed_kinds = {
+                "standalone_image", "pdf_page_image", "office_embedded_image",
+                "notebook_embedded_image",
+            }
+            provisional_context = {
+                "container_kind": (
+                    origin_kind if origin_kind in allowed_kinds else "standalone_image"
+                ),
+                "quality_tier": "provisional",
+                "provisional_marker": PROVISIONAL_OCR_MARKER,
+            }
+            context = {**(context or {}), **provisional_context}
         self.write(make_unit(
             self.document_id,
             unit_type,
@@ -791,7 +857,8 @@ class DocumentDeriver:
             self.start_image(evidence)
         elif (
             evidence_type == "chart"
-            and evidence.get("provenance", {}).get("extraction_method") == "verified_chart_table_adaptation"
+            and evidence.get("provenance", {}).get("extraction_method")
+            in VERIFIED_CHART_METHODS
         ):
             self.flush_paragraphs()
             self.flush_row()
@@ -799,7 +866,8 @@ class DocumentDeriver:
             self.add_direct_text(evidence, "chart_summary", {"container_kind": "chart"})
         elif (
             evidence_type == "chart_series"
-            and evidence.get("provenance", {}).get("extraction_method") == "verified_chart_table_adaptation"
+            and evidence.get("provenance", {}).get("extraction_method")
+            in VERIFIED_CHART_METHODS
         ):
             self.flush_paragraphs()
             self.flush_row()

@@ -435,7 +435,11 @@ class GraphSnapshot:
             if metadata_logical != logical_sha:
                 raise EvaluationError("logical_snapshot_sha256 does not match graph records")
             expected_counts = {
-                "document_count": len({item.document_id for item in evidence.values()}),
+                "document_count": len({
+                    evidence[evidence_id].document_id
+                    for edge in edges.values()
+                    for evidence_id in edge.supporting_evidence_ids
+                }),
                 "source_evidence_count": len(evidence),
                 "node_count": len(nodes),
                 "edge_count": len(edges),
@@ -483,6 +487,10 @@ import socket
 
 _attempt_path = os.environ.get("CROSS_FORMAT_NETWORK_ATTEMPT_LOG")
 _marker_path = os.environ.get("CROSS_FORMAT_NETWORK_GUARD_MARKER")
+_original_socket = socket.socket
+_original_create_connection = socket.create_connection
+_original_getaddrinfo = socket.getaddrinfo
+_allowed_loopback = ("127.0.0.1", 11434)
 
 def _append(path, value):
     if path:
@@ -495,18 +503,33 @@ def _blocked(operation, value):
     _append(_attempt_path, operation + ":" + repr(value))
     raise RuntimeError("outbound network is disabled by Phase 2 evaluator")
 
-class _GuardedSocket(socket.socket):
+def _is_allowed_loopback(address):
+    return (
+        isinstance(address, tuple) and len(address) >= 2 and
+        address[0] == _allowed_loopback[0] and
+        address[1] == _allowed_loopback[1]
+    )
+
+class _GuardedSocket(_original_socket):
     def connect(self, address):
+        if _is_allowed_loopback(address):
+            return super().connect(address)
         return _blocked("socket.connect", address)
     def connect_ex(self, address):
+        if _is_allowed_loopback(address):
+            return super().connect_ex(address)
         return _blocked("socket.connect_ex", address)
     def sendto(self, *args, **kwargs):
         return _blocked("socket.sendto", args)
 
 def _guarded_create_connection(address, *args, **kwargs):
+    if _is_allowed_loopback(address):
+        return _original_create_connection(address, *args, **kwargs)
     return _blocked("socket.create_connection", address)
 
 def _guarded_getaddrinfo(host, port, *args, **kwargs):
+    if (host, port) == _allowed_loopback:
+        return _original_getaddrinfo(host, port, *args, **kwargs)
     return _blocked("socket.getaddrinfo", (host, port))
 
 socket.socket = _GuardedSocket
@@ -550,8 +573,11 @@ socket.getaddrinfo = _guarded_getaddrinfo
             if attempts.exists()
             else []
         )
-        if loaded != ["loaded"]:
-            raise EvaluationError(f"network guard did not load exactly once: {argv[0]}")
+        # Reader dependency probes may start additional Python workers.  Every
+        # process inherits this guard and records another marker, so one or
+        # more loads are expected; an absent or malformed marker still fails.
+        if not loaded or any(value != "loaded" for value in loaded):
+            raise EvaluationError(f"network guard did not load: {argv[0]}")
         if attempt_lines:
             raise EvaluationError(
                 f"outbound network attempt blocked ({len(attempt_lines)}): "
@@ -677,7 +703,11 @@ def build_and_freeze(
     if state.get("sqlite_sha256") != graph_file_sha256:
         raise EvaluationError("builder state SQLite file hash mismatch")
     expected_counts = {
-        "documents": len({item.document_id for item in snapshot.evidence.values()}),
+        "documents": len({
+            snapshot.evidence[evidence_id].document_id
+            for edge in snapshot.edges.values()
+            for evidence_id in edge.supporting_evidence_ids
+        }),
         "source_evidence": len(snapshot.evidence),
         "nodes": len(snapshot.nodes),
         "edges": len(snapshot.edges),

@@ -7,11 +7,11 @@ STAGE="$ROOT/.tmp/local-memory-macos-package"
 APP="$STAGE/Local Memory Search.app"
 RESOURCES="$APP/Contents/Resources"
 DELIVERABLES="$ROOT/deliverables"
-PACKAGE_VERSION="0.5"
-PACKAGE_BUILD="5"
-DMG_NAME="Local-Memory-Search-macOS-unsigned.dmg"
-ZIP_NAME="Local-Memory-Search-macOS-unsigned.zip"
-CHECKSUM_NAME="Local-Memory-Search-macOS-unsigned.sha256.txt"
+PACKAGE_VERSION="0.6"
+PACKAGE_BUILD="6"
+DMG_NAME="Local-Memory-Search-v${PACKAGE_VERSION}-macOS-unsigned.dmg"
+ZIP_NAME="Local-Memory-Search-v${PACKAGE_VERSION}-macOS-unsigned.zip"
+CHECKSUM_NAME="Local-Memory-Search-v${PACKAGE_VERSION}-macOS-unsigned.sha256.txt"
 DMG="$DELIVERABLES/$DMG_NAME"
 ZIP="$DELIVERABLES/$ZIP_NAME"
 CHECKSUM="$DELIVERABLES/$CHECKSUM_NAME"
@@ -39,6 +39,7 @@ cp "$SOURCE/engine/"*.py "$RESOURCES/engine/"
 mkdir -p "$RESOURCES/engine/layer1/scripts" "$RESOURCES/engine/layer1/schemas"
 cp \
   "$ROOT/scripts/build_intermediate_records.py" \
+  "$ROOT/scripts/intermediate_build_integrity.py" \
   "$ROOT/scripts/probe_intermediate_records.py" \
   "$ROOT/scripts/evidence_text_chunking.py" \
   "$ROOT/scripts/build_search_units.py" \
@@ -52,6 +53,8 @@ cp \
   "$ROOT/scripts/validate_cross_document_semantic_graph.py" \
   "$ROOT/scripts/project_cross_document_graph_to_answer_index.py" \
   "$ROOT/scripts/local_image_ocr.py" \
+  "$ROOT/scripts/local_pdf_page_renderer.py" \
+  "$ROOT/scripts/local_visual_observation.py" \
   "$ROOT/scripts/local_paddle_ocr.py" \
   "$ROOT/scripts/extract_ocr_observations.py" \
   "$ROOT/scripts/classify_visual_assets.py" \
@@ -59,6 +62,7 @@ cp \
   "$ROOT/scripts/validate_visual_classifications.py" \
   "$ROOT/scripts/ollama_embedding_common.py" \
   "$ROOT/scripts/image_canonicalizer.swift" \
+  "$ROOT/scripts/pdf_page_renderer.js" \
   "$ROOT/scripts/apple_vision_ocr.swift" \
   "$RESOURCES/engine/layer1/scripts/"
 cp \

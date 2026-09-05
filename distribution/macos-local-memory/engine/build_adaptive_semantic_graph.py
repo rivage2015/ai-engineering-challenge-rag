@@ -27,7 +27,7 @@ from typing import Any, Callable
 
 
 BUILDER = "adaptive-layer1-semantic-bridge"
-BUILDER_VERSION = "0.2.0"
+BUILDER_VERSION = "0.3.0"
 SCHEMA_VERSION = "0.1"
 LOCAL_LLM_RUNNERS = {"ollama_loopback_chat"}
 
@@ -54,12 +54,13 @@ REQUIRED_TOOLS = (
     "validate_intermediate_records_streaming.py",
     "lexical_search_common.py",
     "adapt_layer1_to_local_memory.py",
+    "local_pdf_page_renderer.py",
+    "local_visual_observation.py",
+    "pdf_page_renderer.js",
 )
-HARD_DEPENDENCIES = {
-    ".docx": ("docx", "python-docx"),
-    ".pptx": ("pptx", "python-pptx"),
-    ".pdf": ("pypdf", "pypdf"),
-}
+# Core OOXML readers are standard-library implementations.  Optional packages
+# improve formatting fidelity, but are never required by the offline package.
+HARD_DEPENDENCIES: dict[str, tuple[str, str]] = {}
 
 
 def sha256_file(path: Path) -> str:

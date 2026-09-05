@@ -11,9 +11,10 @@ import json
 import os
 import re
 import sqlite3
+import urllib.parse
 import urllib.request
 from datetime import datetime
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 
 
 OLLAMA_EMBED_URL = "http://127.0.0.1:11434/api/embed"
@@ -35,11 +36,29 @@ RELATION_CLASSES = {
     "comparison", "other",
 }
 RELATION_STATUSES = {"proposed", "verified", "rejected"}
-EXPLICIT_STRUCTURAL_PRODUCERS = {
+NATIVE_CONTAINMENT_PRODUCERS = {
     ("intermediate-record-extractor", "0.7.0", "native containment"),
     ("intermediate-record-extractor", "0.8.0", "native containment"),
-    ("intermediate-record-extractor", "0.9.0", "native containment"),
+    ("intermediate-record-extractor", "0.10.1", "native containment"),
+    ("intermediate-record-extractor", "0.11.0", "native containment"),
 }
+SMARTART_CONNECTION_PRODUCERS = {
+    (
+        "intermediate-record-extractor",
+        "0.10.1",
+        "native SmartArt srcId/destId connection",
+    ),
+    (
+        "intermediate-record-extractor",
+        "0.11.0",
+        "native SmartArt srcId/destId connection",
+    ),
+}
+EXPLICIT_STRUCTURAL_PRODUCERS = (
+    NATIVE_CONTAINMENT_PRODUCERS | SMARTART_CONNECTION_PRODUCERS
+)
+SMARTART_CONNECTION_RULE = "native SmartArt srcId/destId connection"
+SMARTART_MARKER = "SmartArt（ファイル内の明示構造）"
 # ChartTable containment remains fail-closed until it has its own source-bound
 # reconstruction contract; a producer-name allowlist alone is not attestation.
 LINEAGE_VALIDATOR = "adaptive-semantic-lineage-validator"
@@ -175,7 +194,7 @@ SEMANTIC_EVIDENCE_ADAPTER_FIELDS = {
 SEMANTIC_LOCATOR_FIELDS = {
     "page_number", "slide_number", "sheet_name", "cell", "range", "section",
     "paragraph_index", "table_index", "row_index", "column_index", "shape_id",
-    "object_id", "object_index", "series_index", "notebook_cell_index",
+    "object_id", "object_index", "image_object_index", "series_index", "notebook_cell_index",
     "code_line_start", "code_line_end", "source_member", "locator_text",
     "paragraph_start", "paragraph_end", "page", "slide", "chunk",
 }
@@ -576,10 +595,13 @@ def _is_explicit_verified_structural(relation: dict) -> bool:
         provenance.get("generator_version"),
         provenance.get("rule_or_model"),
     )
-    return (
-        provenance.get("deterministic") is True
-        and producer in EXPLICIT_STRUCTURAL_PRODUCERS
-    )
+    if provenance.get("deterministic") is not True:
+        return False
+    if producer in NATIVE_CONTAINMENT_PRODUCERS:
+        return relation.get("relation_type") in {"contains", "section_contains"}
+    if producer in SMARTART_CONNECTION_PRODUCERS:
+        return relation.get("relation_type") == "diagram_connection"
+    return False
 
 
 def _is_document_containment_bound_by_evidence(
@@ -619,6 +641,193 @@ def _document_containment_metadata_is_safe(relation: dict) -> bool:
         and provenance.get("confidence") == 1.0
         and provenance.get("warnings", []) == []
     )
+
+
+def _validate_attested_smartart_connection(
+    relation_id: str,
+    relation: dict,
+    evidence_by_id: dict[str, dict],
+) -> None:
+    """Bind one validator-attested SmartArt edge to semantic Evidence.
+
+    This is a second, graph-side projection check.  Source authentication is
+    supplied by ``_attest_lineage_context``; here we ensure that no producer
+    allowlist entry alone can turn unrelated Evidence into a SmartArt edge.
+    """
+    properties = relation.get("properties")
+    supporting_ids = relation.get("supporting_evidence_ids")
+    provenance = relation.get("provenance", {})
+    if (
+        relation.get("relation_class") != "structural"
+        or relation.get("relation_type") != "diagram_connection"
+        or relation.get("status") != "verified"
+        or not isinstance(properties, dict)
+        or set(properties) != {
+            "raw_connections", "source_member", "slide_number",
+            "semantic_interpretation_performed",
+        }
+        or properties.get("semantic_interpretation_performed") is not False
+        or not isinstance(supporting_ids, list)
+        or len(supporting_ids) < 2
+        or provenance != {
+            "generated_by": "intermediate-record-extractor",
+            "generator_version": provenance.get("generator_version"),
+            "generated_at": provenance.get("generated_at"),
+            "deterministic": True,
+            "confidence": 1.0,
+            "rule_or_model": SMARTART_CONNECTION_RULE,
+            "warnings": [],
+        }
+        or provenance.get("generator_version") not in {"0.10.1", "0.11.0"}
+    ):
+        raise ValueError(f"graph_smartart_relation_contract_invalid:{relation_id}")
+
+    source_member = properties.get("source_member")
+    slide_number = properties.get("slide_number")
+    raw_connections = properties.get("raw_connections")
+    source_member_path = (
+        PurePosixPath(source_member)
+        if isinstance(source_member, str) else None
+    )
+    if (
+        not isinstance(source_member, str)
+        or source_member_path is None
+        or source_member_path.is_absolute()
+        or any(
+            part in {"", ".", ".."} for part in source_member_path.parts
+        )
+        or not source_member.startswith("ppt/diagrams/")
+        or not source_member.casefold().endswith(".xml")
+        or isinstance(slide_number, bool)
+        or not isinstance(slide_number, int)
+        or slide_number < 1
+        or not isinstance(raw_connections, list)
+        or not raw_connections
+        or len(raw_connections) != len(supporting_ids) - 1
+    ):
+        raise ValueError(f"graph_smartart_properties_invalid:{relation_id}")
+
+    from_ref = relation["from_ref"]
+    to_ref = relation["to_ref"]
+    if (
+        from_ref.get("record_type") != "evidence"
+        or to_ref.get("record_type") != "evidence"
+    ):
+        raise ValueError(f"graph_smartart_endpoint_type_invalid:{relation_id}")
+    source = evidence_by_id.get(from_ref.get("record_id"))
+    target = evidence_by_id.get(to_ref.get("record_id"))
+    diagram = evidence_by_id.get(supporting_ids[0])
+    if source is None or target is None or diagram is None:
+        raise ValueError(f"graph_smartart_evidence_missing:{relation_id}")
+    document_id = source.get("document_id")
+    if (
+        target.get("document_id") != document_id
+        or diagram.get("document_id") != document_id
+        or source.get("adapter", {}).get("source_record_type") != "text_block"
+        or target.get("adapter", {}).get("source_record_type") != "text_block"
+        or diagram.get("adapter", {}).get("source_record_type") != "shape"
+        or source.get("extraction_method") != "native_parser"
+        or target.get("extraction_method") != "native_parser"
+        or diagram.get("extraction_method") != "native_parser"
+        or diagram.get("observed_text") != SMARTART_MARKER
+    ):
+        raise ValueError(f"graph_smartart_evidence_binding_invalid:{relation_id}")
+
+    diagram_locator = diagram.get("locator")
+    if not isinstance(diagram_locator, dict):
+        raise ValueError(f"graph_smartart_diagram_locator_invalid:{relation_id}")
+    diagram_index = diagram_locator.get("object_index")
+    locator_prefix = diagram_locator.get("locator_text")
+    if (
+        diagram_locator.get("slide_number") != slide_number
+        or diagram_locator.get("source_member") != source_member
+        or isinstance(diagram_index, bool)
+        or not isinstance(diagram_index, int)
+        or diagram_index < 1
+        or diagram.get("ordinal") != diagram_index
+        or not isinstance(locator_prefix, str)
+        or not locator_prefix
+        or diagram_locator != {
+            "slide_number": slide_number,
+            "source_member": source_member,
+            "object_index": diagram_index,
+            "locator_text": locator_prefix,
+        }
+    ):
+        raise ValueError(f"graph_smartart_diagram_locator_invalid:{relation_id}")
+
+    endpoint_ids: list[str] = []
+    for label, endpoint in (("source", source), ("target", target)):
+        locator = endpoint.get("locator")
+        model_id = locator.get("object_id") if isinstance(locator, dict) else None
+        object_index = locator.get("object_index") if isinstance(locator, dict) else None
+        if (
+            not isinstance(model_id, str)
+            or not model_id
+            or isinstance(object_index, bool)
+            or not isinstance(object_index, int)
+            or object_index < 1
+            or endpoint.get("ordinal") != object_index
+            or not isinstance(endpoint.get("observed_text"), str)
+            or not endpoint["observed_text"]
+            or locator != {
+                "slide_number": slide_number,
+                "source_member": source_member,
+                "object_index": object_index,
+                "object_id": model_id,
+                "locator_text": (
+                    f"{locator_prefix};point="
+                    f"{urllib.parse.quote(model_id, safe='-._~')}"
+                ),
+            }
+        ):
+            raise ValueError(
+                f"graph_smartart_{label}_binding_invalid:{relation_id}"
+            )
+        endpoint_ids.append(model_id)
+
+    connection_ordinals: list[int] = []
+    for raw_connection, support_id in zip(
+        raw_connections, supporting_ids[1:],
+    ):
+        support = evidence_by_id.get(support_id)
+        if (
+            not isinstance(raw_connection, dict)
+            or not set(raw_connection) <= {
+                "modelId", "srcId", "destId", "type",
+            }
+            or any(not isinstance(value, str) for value in raw_connection.values())
+            or raw_connection.get("srcId") != endpoint_ids[0]
+            or raw_connection.get("destId") != endpoint_ids[1]
+            or support is None
+            or support.get("document_id") != document_id
+            or support.get("adapter", {}).get("source_record_type") != "text_block"
+            or support.get("extraction_method") != "native_parser"
+        ):
+            raise ValueError(f"graph_smartart_support_binding_invalid:{relation_id}")
+        support_locator = support.get("locator")
+        ordinal = support.get("ordinal")
+        connection_type = str(raw_connection.get("type") or "unspecified")
+        if (
+            isinstance(ordinal, bool)
+            or not isinstance(ordinal, int)
+            or ordinal < 1
+            or support_locator != {
+                "slide_number": slide_number,
+                "source_member": source_member,
+                "object_index": ordinal,
+                "locator_text": f"{locator_prefix};connection={ordinal}",
+            }
+            or support.get("observed_text") != (
+                "SmartArtの明示接続: "
+                f"{source['observed_text']} -> {target['observed_text']} "
+                f"(原形式type={connection_type})"
+            )
+        ):
+            raise ValueError(f"graph_smartart_support_binding_invalid:{relation_id}")
+        connection_ordinals.append(ordinal)
+    if connection_ordinals != sorted(set(connection_ordinals)):
+        raise ValueError(f"graph_smartart_support_order_invalid:{relation_id}")
 
 
 def _attest_lineage_context(
@@ -2036,14 +2245,15 @@ def _project_verified_structural_graph_in_transaction(
         generator_version = provenance["generator_version"]
         basis_rule = provenance.get("rule_or_model")
         producer = (generated_by, generator_version, basis_rule)
-        allowed_producers = (
-            EXPLICIT_STRUCTURAL_PRODUCERS
-            if relation_class == "structural" else EXPLICIT_LINEAGE_PRODUCERS
+        explicit_producer = (
+            _is_explicit_verified_structural(relation)
+            if relation_class == "structural"
+            else producer in EXPLICIT_LINEAGE_PRODUCERS
         )
         if (
             provenance["deterministic"] is not True
             or not isinstance(basis_rule, str)
-            or producer not in allowed_producers
+            or not explicit_producer
         ):
             skipped_relations["not_explicit"].append(relation_id)
             continue
@@ -2072,6 +2282,17 @@ def _project_verified_structural_graph_in_transaction(
             raise ValueError(
                 f"graph_relation_support_outside_authorized_universe:"
                 f"{relation_id}:{missing_support[:8]}"
+            )
+        if (
+            relation_class == "structural"
+            and relation.get("relation_type") == "diagram_connection"
+        ):
+            if lineage_validation is None and security_partition is None:
+                raise ValueError(
+                    f"graph_smartart_attestation_required:{relation_id}"
+                )
+            _validate_attested_smartart_connection(
+                relation_id, relation, evidence_by_id,
             )
         if (
             relation_class == "structural"
@@ -2308,7 +2529,11 @@ def main() -> int:
         for offset in range(0, len(prepared), args.batch_size):
             batch = prepared[offset : offset + args.batch_size]
             vectors = embed(args.model, [item[1] for item in batch], args.timeout)
-            for (record, text, truncated, observed, relative_path), vector in zip(batch, vectors, strict=True):
+            if len(vectors) != len(batch):
+                raise ValueError("embedding_count_mismatch")
+            for (record, text, truncated, observed, relative_path), vector in zip(
+                batch, vectors,
+            ):
                 current_dimension = len(vector)
                 if dimension is None:
                     dimension = current_dimension

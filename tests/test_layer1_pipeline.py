@@ -368,6 +368,25 @@ class Layer1PipelineTest(unittest.TestCase):
             )
         self.assertEqual(result["records"], 2)
 
+    def test_search_validators_reject_unknown_builder_version(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="aiec-search-version-") as temporary:
+            copied = Path(temporary) / "search"
+            shutil.copytree(self.search, copied)
+            state_path = copied / "search-build-state.json"
+            state = json.loads(state_path.read_text(encoding="utf-8"))
+            state["builder_version"] = "99.0.0"
+            write_json(state_path, state)
+
+            for validator in (
+                validate_search_units.validate,
+                validate_search_units_streaming.validate,
+            ):
+                with self.subTest(validator=validator.__module__):
+                    with self.assertRaisesRegex(
+                        ValueError, "provenance|builder version|build state"
+                    ):
+                        validator(copied, [self.intermediate])
+
     def test_chart_units_append_without_changing_native_prefix(self) -> None:
         validate_intermediate_records_streaming.validate(
             self.chart_intermediate, self.chart_root

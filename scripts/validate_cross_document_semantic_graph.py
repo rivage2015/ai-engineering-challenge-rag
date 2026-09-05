@@ -468,7 +468,9 @@ def validate(
             documents_path, "semantic_documents"
         ),
         "documents": len({
-            item.document_id for item in snapshot.evidence.values()
+            snapshot.evidence[evidence_id].document_id
+            for edge in snapshot.edges.values()
+            for evidence_id in edge.supporting_evidence_ids
         }),
         "source_evidence": len(snapshot.evidence),
         "nodes": len(snapshot.nodes),

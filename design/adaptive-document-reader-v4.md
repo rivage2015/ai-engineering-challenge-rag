@@ -1,6 +1,6 @@
 # 適応型Document Reader v4
 
-最終更新: 2026-09-03
+最終更新: 2026-09-05
 
 ## 結論
 
@@ -195,8 +195,21 @@ XLSX原本
 
 - Paddle経路は、`PaddleOCR 3.7.0`、`PaddlePaddle 3.3.0`、`PP-OCRv6_medium_det / PP-OCRv6_medium_rec`をPython 3.12の隔離runtimeで実行する。72 package全件のlockと、各model directoryの全relative path・size・SHAから成るexact manifestを実行前に照合する。
 - 実行時はmacOS sandboxの`deny network*`とPythonのsocket guardを重ねる。Paddleをaccuracy passとして有効にした場合は、先行OCRの一致数にかかわらず必ず実行する。合意行には各Readerのraw supporterを残し、Probeがtext、bbox、overlap、independence groupを再計算する。`independent_engines`は独立group間の実一致がある場合だけ`true`とし、複数groupが別々に観測された状態は`multiple_engine_groups_observed`へ分離した。
-- 2026-09-03のCC0中野駅写真をアプリ相当経路で実行した結果は、事前定義した13 exact span中10 span、high 15行だった。Paddleは空認識候補1件をwarning付きで除外して24行を返し、end-to-endは約20〜24秒。同じ検証系列で先に測定したpeak child RSSは参考値約6.0 GiBだった。中間成果物はDocument 1件、Evidence 54件、Relation 54件で、validatorは`OK`だった。
-- 残る未回収exact spanは`T 01 / 나카노 / 損していませんか。`の3件。ただし最後の文は`損して`と`いませんか。`の2 high行に分かれており、文字自体は回収済みである。隣接行の結合とregion/crop処理、および約20〜24秒の処理時間と約6.0 GiBのpeak child RSSの削減は次段階であり、Phase 2では未解決である。
+- 2026-09-03のCC0中野駅写真をアプリ相当経路で実行した結果は、事前定義した13 exact span中10 span、high 15行だった。Paddleは空認識候補1件をwarning付きで除外して24行を返した。中間成果物はDocument 1件、Evidence 54件、Relation 54件で、validatorは`OK`だった。
+- 2026-09-04に同じ実画像を現行の精度設定で再測定したend-to-endは`23.556〜23.761秒`、peak child RSSは参考値約`7.6 GiB`だった。区間計測ではPaddle推論が主な所要時間であり、次段階の高速化対象とする。
+- 残る未回収exact spanは`T 01 / 나카노 / 損していませんか。`の3件。ただし最後の文は`損して`と`いませんか。`の2 high行に分かれており、文字自体は回収済みである。隣接行の結合とregion/crop処理、および処理時間とpeak child RSSの削減は次段階であり、Phase 2では未解決である。
+
+### Step 8 OCR高速化（実装・実機受入済み）
+
+- OCRの精度設定、canonical画像バイト列、実行するengine、raw observation、独立合意、品質区分は変更しない。1600 pxへの縮小は認識文字列が変化したため採用しない。
+- 全engineの無条件並行実行は`17.625秒`まで短縮した一方、peak child RSSが参考値約`11.54 GiB`へ増えた。24 GB Macで`gemma4:12b`と併用する余裕を損なうため採用しない。
+- 1 build中に同時に最大1つのPaddle workerだけを持ち、連続するOCR要求でmodel初期化を再利用する`build-scoped single-worker session`と、同一canonical画像バイト列に対する成功結果だけをbuild内で再利用するmemoを実装した。sessionとmemoはbuild内で維持するが、native workerは各文書のGemma phase前に解放する。memoは最大32件・16 MiBで、失敗、timeout、不正出力、別buildの結果は再利用しない。
+- 本番buildは1文書ごとに「全画像のOCR → Paddle worker解放 → queued Gemma観測 → Document確定」の二相処理にした。PDF・Office・Notebookの一時画像は0700 directoryと0600/O_EXCL fileから成るprivate spoolへ退避し、保存時と再読時にSHA-256とsizeを照合する。改ざん・symlink・materialization不一致は文書単位でfail-closed、Gemma単体の失敗や20 MiB入力上限はOCR Evidenceを残して`partial`とする。spoolは128 task・256 MiBで上限を持つ。
+- `local_visual_observation` runnerは`0.3.0`で、各観測をkill可能な隔離child processで実行する。画像変換、推論、通信、応答検証は1つのabsolute execution deadlineを共有し、timeout後のTERM→KILL・reapには最大1.25秒のcleanup猶予を別枠で持つ。timeout、割り込み、異常終了、またはreap未確認ではprocess-global latchを立て、同じprocess内の後続するローカル視覚観測とPaddle再起動を止める。Ollama応答はstrict JSON、完了状態、assistant role、tool call不在、推論前後で同一のmodel digestを確認し、worker応答は一時fileへ受けて2 MiB以下を確認してから読む。0.5秒timeoutの実機故障注入では`0.504891秒`で停止し、残留workerは0、後続Paddle再起動は拒否された。
+- 2026-09-05の同一実画像受入では、初回`20.465秒`、同一・同一build内の2回目`4.201秒`、`4.87倍`で、timingを除く意味signatureは一致した。Paddleのsetup/inferenceはcache hit時に0で、workerはbuild終端後に残留しなかった。
+- 最新の異なる1800×1200画像2枚の再受入では、OCR全体が`8.615324秒 / 6.005938秒`で、同じPaddle PIDを使用し、2枚目は`setup_ms=0`、`pipeline_reused=true`、`cache_hit=false`だった。Paddle解放後のGemma観測は`83.383064秒`で、対象プロセスのpeak RSS監視値はPaddle `4.212 GiB`、Gemma `7.964 GiB`。外部通信・downloadは0で、原画像hashは不変、Gemma開始前とbuild終端後にPaddle PIDが消滅した。
+- 同じ2画像を埋め込んだDOCXの本番builder受入は`178.971597秒`、Document 1件、Evidence 20件、Relation 20件、OCR 14行、Gemma視覚Evidence 2件だった。親Evidenceと入力hashは一致し、Draft 2020-12 streaming validatorは`ok`。対象プロセスのpeak RSS監視値はPaddle `4.14 GiB`、Ollama `8.543 GiB`で、同時点の合計最大も`8.543 GiB`、build後のPaddle残留は0だった。
+- したがって、重複画像とPaddle初期化の再利用は高速化できた一方、初出の大きな画像ではPaddle推論、画像意味理解ではGemma推論が引き続き主な所要時間である。解像度、engine、モデル、認識設定を変えないという精度境界は維持する。
 
 未完了事項:
 
@@ -205,6 +218,7 @@ XLSX原本
 - DOCX/PPTX/PDFのnative Reader依存を未導入Macへ同梱するか、形式ごとの標準ライブラリReaderを追加する。
 - Office埋込画像、PDFの領域混合、chart/diagram Readerを質問経路へ接続する。
 - Phase 2で未回収の3 exact spanに対し、隣接行結合、region/crop処理、前処理を比較する。全画像Gemma fallbackは座標付き読取が0行のときだけ起動する現行条件を維持し、読取精度と処理時間・peak child RSSを別々に評価する。
+- Step 8後も残る初出画像のPaddle推論時間とGemma観測時間を、認識文字列・provenance・品質区分を変えずに短縮できるか継続評価する。別文書へ移ると、24 GiB環境でGemmaと同居させないためPaddleのnative workerは再初期化される。
 - 未使用・held-out画像群で、読取coverage、CER、位置対応、確定回答の誤昇格率を評価する。
 - 上記1問に加え、値競合、欠落範囲、複数集計候補、`SUM`以外の数式、OCRのみの表を含むend-to-end質問評価を拡張する。
 

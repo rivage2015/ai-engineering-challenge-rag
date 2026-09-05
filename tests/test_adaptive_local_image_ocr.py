@@ -3,6 +3,8 @@ from __future__ import annotations
 import inspect
 import hashlib
 import json
+import os
+import stat
 import struct
 import sys
 import tempfile
@@ -16,6 +18,7 @@ SCRIPTS = ROOT / "scripts"
 sys.path.insert(0, str(SCRIPTS))
 
 import local_image_ocr as reader  # noqa: E402
+import local_visual_observation as visual  # noqa: E402
 import build_search_units as search_units  # noqa: E402
 import probe_intermediate_records as probe_records  # noqa: E402
 
@@ -89,7 +92,7 @@ def paddle_worker_payload(raw: bytes) -> dict[str, object]:
         },
         "models": reader.PADDLE_MODEL_CONTRACTS,
         "runtime": {
-            "settings": {"device": "cpu", "engine": "paddle_static"},
+            "settings": dict(reader.PADDLE_RUNTIME_SETTINGS),
             "offline_environment": {
                 "PADDLE_PDX_DISABLE_MODEL_SOURCE_CHECK": "1",
                 "HF_HUB_OFFLINE": "1",
@@ -167,6 +170,8 @@ def image_observation_metadata() -> dict[str, object]:
 
 class AdaptiveLocalImageOCRTests(unittest.TestCase):
     def setUp(self) -> None:
+        reader._LOCAL_MODEL_TIMEOUT_LATCH.clear()
+        reader._UNREAPED_PADDLE_PROCESSES.clear()
         self.temporary = tempfile.TemporaryDirectory()
         self.image_path = Path(self.temporary.name) / "sample.png"
         self.image_path.write_bytes(png_header())
@@ -179,6 +184,8 @@ class AdaptiveLocalImageOCRTests(unittest.TestCase):
 
     def tearDown(self) -> None:
         self.paddle_runtime_patch.stop()
+        reader._LOCAL_MODEL_TIMEOUT_LATCH.clear()
+        reader._UNREAPED_PADDLE_PROCESSES.clear()
         self.temporary.cleanup()
 
     def test_stdlib_header_inspection_and_no_pillow_import(self) -> None:
@@ -190,17 +197,44 @@ class AdaptiveLocalImageOCRTests(unittest.TestCase):
         self.assertEqual(metadata["image_format"], "PNG")
         self.assertNotIn("from PIL", inspect.getsource(reader))
 
-    def test_oversized_image_is_rejected_before_opening_the_file(self) -> None:
+    def test_oversized_image_is_rejected_before_reading_the_file(self) -> None:
+        descriptor = os.open(self.image_path, os.O_RDONLY)
+        oversized = mock.Mock(
+            st_mode=stat.S_IFREG | 0o600,
+            st_size=reader.MAX_IMAGE_BYTES + 1,
+        )
         with (
-            mock.patch.object(type(self.image_path), "is_symlink", return_value=False),
-            mock.patch.object(type(self.image_path), "stat") as path_stat,
+            mock.patch.object(reader.os, "open", return_value=descriptor),
+            mock.patch.object(reader.os, "fstat", return_value=oversized) as fstat,
             mock.patch.object(type(self.image_path), "open") as path_open,
         ):
-            path_stat.return_value.st_mode = 0o100600
-            path_stat.return_value.st_size = reader.MAX_IMAGE_BYTES + 1
             with self.assertRaisesRegex(ValueError, "safety limit"):
                 reader.read_checked_image_bytes(self.image_path)
+        fstat.assert_called_once()
         path_open.assert_not_called()
+
+    def test_checked_image_reader_rejects_a_final_symlink(self) -> None:
+        alias = self.image_path.with_name("alias.png")
+        alias.symlink_to(self.image_path)
+        with self.assertRaisesRegex(ValueError, "opened safely"):
+            reader.read_checked_image_bytes(alias)
+
+    def test_path_replacement_after_open_cannot_change_read_bytes(self) -> None:
+        original = self.image_path.read_bytes()
+        replacement = png_header(81, 41)
+        real_open = os.open
+
+        def open_then_replace(path: Path, flags: int) -> int:
+            descriptor = real_open(path, flags)
+            self.image_path.unlink()
+            self.image_path.write_bytes(replacement)
+            return descriptor
+
+        with mock.patch.object(reader.os, "open", side_effect=open_then_replace):
+            observed = reader.read_checked_image_bytes(self.image_path)
+
+        self.assertEqual(observed, original)
+        self.assertEqual(self.image_path.read_bytes(), replacement)
 
     def test_paddle_runtime_preserves_the_venv_launcher_path(self) -> None:
         runtime_root = Path(self.temporary.name) / "runtime"
@@ -234,7 +268,9 @@ class AdaptiveLocalImageOCRTests(unittest.TestCase):
             commands.append(command)
             output = Path(command[command.index("--output") + 1])
             output.write_text(json.dumps(payload), encoding="utf-8")
-            return mock.Mock(returncode=0)
+            process = mock.Mock(returncode=0)
+            process.wait.return_value = 0
+            return process
 
         runtime = {
             "python": Path("/runtime/venv/bin/python"),
@@ -245,7 +281,7 @@ class AdaptiveLocalImageOCRTests(unittest.TestCase):
             "network_profile": reader.PADDLE_NETWORK_PROFILE,
         }
         with mock.patch.object(
-            reader.subprocess, "run", side_effect=completed_process
+            reader.subprocess, "Popen", side_effect=completed_process
         ):
             status, lines, *_ = reader._run_paddle_ocr(
                 runtime,
@@ -282,7 +318,9 @@ class AdaptiveLocalImageOCRTests(unittest.TestCase):
         def completed_process(command, **_kwargs):
             output = Path(command[command.index("--output") + 1])
             output.write_text(json.dumps(payload), encoding="utf-8")
-            return mock.Mock(returncode=0)
+            process = mock.Mock(returncode=0)
+            process.wait.return_value = 0
+            return process
 
         runtime = {
             "python": Path("/runtime/venv/bin/python"),
@@ -293,7 +331,7 @@ class AdaptiveLocalImageOCRTests(unittest.TestCase):
             "network_profile": reader.PADDLE_NETWORK_PROFILE,
         }
         with mock.patch.object(
-            reader.subprocess, "run", side_effect=completed_process
+            reader.subprocess, "Popen", side_effect=completed_process
         ):
             with self.assertRaisesRegex(RuntimeError, "engine contract"):
                 reader._run_paddle_ocr(
@@ -302,6 +340,99 @@ class AdaptiveLocalImageOCRTests(unittest.TestCase):
                     {"width_px": 80, "height_px": 40},
                     timeout=10,
                 )
+
+    def test_paddle_one_shot_refuses_start_after_local_model_timeout(self) -> None:
+        runtime = {
+            "python": Path("/runtime/venv/bin/python"),
+            "worker": Path("/runtime/local_paddle_ocr.py"),
+            "model_root": Path("/runtime/models"),
+            "runtime_lock": Path("/runtime/paddle.lock"),
+            "network_sandbox": reader.PADDLE_NETWORK_SANDBOX,
+            "network_profile": reader.PADDLE_NETWORK_PROFILE,
+        }
+        reader.latch_local_model_timeout()
+        with (
+            mock.patch.object(reader.subprocess, "Popen") as popen,
+            self.assertRaisesRegex(RuntimeError, "restart is disabled"),
+        ):
+            reader._run_paddle_ocr(
+                runtime,
+                png_header(),
+                {"width_px": 80, "height_px": 40},
+                timeout=10,
+            )
+        popen.assert_not_called()
+
+    def test_paddle_one_shot_keyboard_interrupt_reaps_and_latches(self) -> None:
+        runtime = {
+            "python": Path("/runtime/venv/bin/python"),
+            "worker": Path("/runtime/local_paddle_ocr.py"),
+            "model_root": Path("/runtime/models"),
+            "runtime_lock": Path("/runtime/paddle.lock"),
+            "network_sandbox": reader.PADDLE_NETWORK_SANDBOX,
+            "network_profile": reader.PADDLE_NETWORK_PROFILE,
+        }
+        process = mock.Mock()
+        process.pid = 424248
+        process.poll.return_value = None
+        process.wait.side_effect = [KeyboardInterrupt(), 0]
+        with (
+            mock.patch.object(reader.subprocess, "Popen", return_value=process),
+            mock.patch.object(reader.os, "killpg") as killpg,
+            self.assertRaises(KeyboardInterrupt),
+        ):
+            reader._run_paddle_ocr(
+                runtime,
+                png_header(),
+                {"width_px": 80, "height_px": 40},
+                timeout=10,
+            )
+
+        self.assertTrue(reader.local_model_timeout_latched())
+        killpg.assert_called_once_with(process.pid, reader.signal.SIGTERM)
+
+    def test_paddle_one_shot_popen_interrupt_poison_without_a_handle(self) -> None:
+        runtime = {
+            "python": Path("/runtime/venv/bin/python"),
+            "worker": Path("/runtime/local_paddle_ocr.py"),
+            "model_root": Path("/runtime/models"),
+            "runtime_lock": Path("/runtime/paddle.lock"),
+            "network_sandbox": reader.PADDLE_NETWORK_SANDBOX,
+            "network_profile": reader.PADDLE_NETWORK_PROFILE,
+        }
+        with (
+            mock.patch.object(
+                reader.subprocess, "Popen", side_effect=KeyboardInterrupt
+            ),
+            self.assertRaises(KeyboardInterrupt),
+        ):
+            reader._run_paddle_ocr(
+                runtime,
+                png_header(),
+                {"width_px": 80, "height_px": 40},
+                timeout=10,
+            )
+
+        self.assertTrue(reader.local_model_timeout_latched())
+
+    def test_paddle_cleanup_interrupt_retains_unreaped_handle(self) -> None:
+        process = mock.Mock()
+        process.pid = 424250
+        process.poll.return_value = None
+        process.wait.side_effect = [
+            KeyboardInterrupt(),
+            reader.subprocess.TimeoutExpired("kill", 2),
+        ]
+        with (
+            mock.patch.object(reader.os, "killpg"),
+            self.assertRaises(KeyboardInterrupt),
+        ):
+            reader._terminate_paddle_process(process)
+
+        self.assertTrue(reader.local_model_timeout_latched())
+        self.assertTrue(
+            any(item is process for item in reader._UNREAPED_PADDLE_PROCESSES)
+        )
 
     def test_vision_primary_and_tesseract_are_independent_agreement(self) -> None:
         apple = located_line(confidence=0.96)
@@ -1060,9 +1191,11 @@ class AdaptiveLocalImageOCRTests(unittest.TestCase):
 
     def test_unlocated_transcript_uses_installed_digest_and_strict_json(self) -> None:
         calls: list[tuple[str, str]] = []
+        deadlines: list[float] = []
 
-        def local_response(method, path, *, payload, timeout):
+        def local_response(method, path, *, payload, deadline_at):
             calls.append((method, path))
+            deadlines.append(deadline_at)
             if path == "/api/tags":
                 self.assertIsNone(payload)
                 return {
@@ -1084,19 +1217,26 @@ class AdaptiveLocalImageOCRTests(unittest.TestCase):
             return {
                 "model": "gemma4:12b",
                 "message": {
+                    "role": "assistant",
                     "content": json.dumps(
                         {"transcript": "作業報告\n合計 24時間"},
                         ensure_ascii=False,
                     )
                 },
+                "done": True,
             }
 
         with mock.patch.object(reader, "_ollama_json", side_effect=local_response):
-            result = reader.run_unlocated_transcript_fallback(
+            result = reader._run_unlocated_transcript_inline(
                 png_header(), timeout=999
             )
 
-        self.assertEqual(calls, [("GET", "/api/tags"), ("POST", "/api/chat")])
+        self.assertEqual(calls, [
+            ("GET", "/api/tags"),
+            ("POST", "/api/chat"),
+            ("GET", "/api/tags"),
+        ])
+        self.assertEqual(len(set(deadlines)), 1)
         self.assertEqual(result["model_digest"], "a" * 64)
         self.assertEqual(
             result["prompt_sha256"], reader.UNLOCATED_TRANSCRIPT_PROMPT_SHA256
@@ -1104,16 +1244,281 @@ class AdaptiveLocalImageOCRTests(unittest.TestCase):
         self.assertEqual(result["location_status"], "unlocated")
         self.assertNotIn("bbox", result)
 
+    def test_unlocated_transport_integration_rejects_invalid_json_and_requests(self) -> None:
+        class FakeResponse:
+            status = 200
+
+            def __init__(self, raw: bytes) -> None:
+                self.raw = raw
+                self.finished = False
+
+            def read1(self, _limit: int) -> bytes:
+                if self.finished:
+                    return b""
+                self.finished = True
+                return self.raw
+
+        class FakeConnection:
+            raw = b""
+
+            def __init__(self, _host: str, _port: int, *, timeout: float) -> None:
+                self.timeout = timeout
+                self.sock = None
+
+            def request(self, *_args: object, **_kwargs: object) -> None:
+                return None
+
+            def getresponse(self) -> FakeResponse:
+                return FakeResponse(self.raw)
+
+            def close(self) -> None:
+                return None
+
+        invalid_responses = (
+            (b'{"models":[],"models":[]}', "duplicate key"),
+            (b'{"models":[],"unexpected":NaN}', "non-JSON constant"),
+        )
+        for raw_response, message in invalid_responses:
+            with self.subTest(response=raw_response):
+                FakeConnection.raw = raw_response
+                with (
+                    mock.patch.object(
+                        visual.http.client, "HTTPConnection", FakeConnection
+                    ),
+                    self.assertRaisesRegex(RuntimeError, message),
+                ):
+                    reader._ollama_json(
+                        "GET", "/api/tags", payload=None, timeout=5
+                    )
+
+        with mock.patch.object(
+            visual.http.client,
+            "HTTPConnection",
+            side_effect=AssertionError("invalid request must not connect"),
+        ) as constructor:
+            for method, path, payload in (
+                ("GET", "/api/chat", None),
+                ("POST", "/api/tags", {}),
+                ("GET", "/api/tags", {}),
+                ("POST", "/api/chat", None),
+            ):
+                with self.subTest(method=method, path=path, payload=payload):
+                    with self.assertRaises(ValueError):
+                        reader._ollama_json(
+                            method, path, payload=payload, timeout=5
+                        )
+            with self.assertRaises(ValueError):
+                reader._ollama_json(
+                    "POST",
+                    "/api/chat",
+                    payload={"value": float("nan")},
+                    timeout=5,
+                )
+        constructor.assert_not_called()
+
+    def test_unlocated_base64_and_call_sequence_share_the_absolute_deadline(self) -> None:
+        now = [100.0]
+        digest = "a" * 64
+        tags = {
+            "models": [{
+                "name": reader.UNLOCATED_TRANSCRIPT_MODEL,
+                "model": reader.UNLOCATED_TRANSCRIPT_MODEL,
+                "digest": digest,
+            }]
+        }
+        real_b64encode = reader.base64.b64encode
+        common_transport = mock.Mock(return_value=tags)
+
+        def expired_base64(raw: bytes) -> bytes:
+            encoded = real_b64encode(raw)
+            now[0] = 106.0
+            return encoded
+
+        with (
+            mock.patch.object(reader.time, "monotonic", side_effect=lambda: now[0]),
+            mock.patch.object(visual, "_ollama_json", common_transport),
+            mock.patch.object(
+                reader.base64, "b64encode", side_effect=expired_base64
+            ),
+            self.assertRaisesRegex(TimeoutError, "absolute deadline"),
+        ):
+            reader._run_unlocated_transcript_inline(png_header(), timeout=5)
+
+        common_transport.assert_called_once()
+        self.assertEqual(common_transport.call_args.args, ("GET", "/api/tags"))
+        self.assertEqual(common_transport.call_args.kwargs["deadline_at"], 105.0)
+
+        now[0] = 100.0
+        calls: list[tuple[str, str]] = []
+
+        def successful_transport(method, path, *, payload, deadline_at):
+            calls.append((method, path))
+            self.assertEqual(deadline_at, 105.0)
+            if path == "/api/tags":
+                return tags
+            return {
+                "model": reader.UNLOCATED_TRANSCRIPT_MODEL,
+                "message": {
+                    "role": "assistant",
+                    "content": '{"transcript":"ok"}',
+                },
+                "done": True,
+            }
+
+        def expired_content(_content: str) -> dict[str, str]:
+            now[0] = 106.0
+            return {"transcript": "ok"}
+
+        with (
+            mock.patch.object(reader.time, "monotonic", side_effect=lambda: now[0]),
+            mock.patch.object(
+                visual, "_ollama_json", side_effect=successful_transport
+            ),
+            mock.patch.object(
+                reader, "_strict_unlocated_content", side_effect=expired_content
+            ),
+            self.assertRaisesRegex(TimeoutError, "absolute deadline"),
+        ):
+            reader._run_unlocated_transcript_inline(png_header(), timeout=5)
+        self.assertEqual(calls, [("GET", "/api/tags"), ("POST", "/api/chat")])
+
+    def test_unlocated_transcript_rejects_unsafe_envelopes_and_model_changes(self) -> None:
+        def tags(*digests: str) -> dict[str, object]:
+            return {
+                "models": [
+                    {
+                        "name": reader.UNLOCATED_TRANSCRIPT_MODEL,
+                        "model": reader.UNLOCATED_TRANSCRIPT_MODEL,
+                        "digest": digest,
+                    }
+                    for digest in digests
+                ]
+            }
+
+        def chat(content: str = '{"transcript":"ok"}') -> dict[str, object]:
+            return {
+                "model": reader.UNLOCATED_TRANSCRIPT_MODEL,
+                "message": {"role": "assistant", "content": content},
+                "done": True,
+            }
+
+        unsafe_cases = []
+        duplicate = chat('{"transcript":"first","transcript":"second"}')
+        unsafe_cases.append(("duplicate", duplicate, "not strict JSON"))
+        non_json = chat('{"transcript":NaN}')
+        unsafe_cases.append(("non_json", non_json, "not strict JSON"))
+        incomplete = chat()
+        incomplete["done"] = False
+        unsafe_cases.append(("incomplete", incomplete, "message is invalid"))
+        wrong_role = chat()
+        wrong_role["message"]["role"] = "user"
+        unsafe_cases.append(("wrong_role", wrong_role, "message is invalid"))
+        tools = chat()
+        tools["message"]["tool_calls"] = [{"function": {"name": "unsafe"}}]
+        unsafe_cases.append(("tool_calls", tools, "message is invalid"))
+        truncated = chat()
+        truncated["done_reason"] = "length"
+        unsafe_cases.append(("truncated", truncated, "message is invalid"))
+        unknown = chat()
+        unknown["unexpected"] = True
+        unsafe_cases.append(("unknown", unknown, "error or unknown field"))
+
+        for name, response, message in unsafe_cases:
+            with self.subTest(name=name):
+                with (
+                    mock.patch.object(
+                        reader,
+                        "_ollama_json",
+                        side_effect=[tags("a" * 64), response],
+                    ),
+                    self.assertRaisesRegex(RuntimeError, message),
+                ):
+                    reader._run_unlocated_transcript_inline(
+                        png_header(), timeout=10
+                    )
+
+        with (
+            mock.patch.object(
+                reader,
+                "_ollama_json",
+                return_value=tags("a" * 64, "b" * 64),
+            ),
+            self.assertRaisesRegex(RuntimeError, "conflicting digests"),
+        ):
+            reader._run_unlocated_transcript_inline(png_header(), timeout=10)
+
+        non_string_digest = tags("a" * 64)
+        non_string_digest["models"][0]["digest"] = 123
+        with (
+            mock.patch.object(
+                reader, "_ollama_json", return_value=non_string_digest
+            ),
+            self.assertRaisesRegex(RuntimeError, "digest is invalid"),
+        ):
+            reader._run_unlocated_transcript_inline(png_header(), timeout=10)
+
+        with (
+            mock.patch.object(
+                reader,
+                "_ollama_json",
+                side_effect=[tags("a" * 64), chat(), tags("b" * 64)],
+            ),
+            self.assertRaisesRegex(RuntimeError, "changed during transcription"),
+        ):
+            reader._run_unlocated_transcript_inline(png_header(), timeout=10)
+
+        for invalid_timeout in (0, -1, float("nan"), True, "10"):
+            with self.subTest(timeout=invalid_timeout):
+                with (
+                    mock.patch.object(
+                        reader,
+                        "_ollama_json",
+                        side_effect=AssertionError("invalid timeout must stop first"),
+                    ) as request,
+                    self.assertRaisesRegex(ValueError, "positive finite"),
+                ):
+                    reader._run_unlocated_transcript_inline(
+                        png_header(), timeout=invalid_timeout
+                    )
+                request.assert_not_called()
+
+    def test_public_unlocated_transcript_revalidates_isolated_result(self) -> None:
+        expected = unlocated_transcript("作業報告\n合計 24時間")
+        with mock.patch(
+            "local_visual_observation.run_unlocated_transcript_isolated",
+            return_value=expected,
+        ) as isolated:
+            result = reader.run_unlocated_transcript_fallback(
+                png_header(), timeout=12
+            )
+        self.assertEqual(result, expected)
+        isolated.assert_called_once_with(
+            png_header(),
+            prompt_sha256=reader.UNLOCATED_TRANSCRIPT_PROMPT_SHA256,
+            timeout=12,
+        )
+
+        forged = dict(expected)
+        forged["model_digest"] = "invalid"
+        with (
+            mock.patch(
+                "local_visual_observation.run_unlocated_transcript_isolated",
+                return_value=forged,
+            ),
+            self.assertRaisesRegex(RuntimeError, "result contract is invalid"),
+        ):
+            reader.run_unlocated_transcript_fallback(png_header(), timeout=12)
+
     def test_uninstalled_model_skips_without_chat_or_download(self) -> None:
         calls: list[tuple[str, str]] = []
 
-        def no_model(method, path, *, payload, timeout):
+        def no_model(method, path, *, payload, deadline_at):
             calls.append((method, path))
             return {"models": []}
 
         with mock.patch.object(reader, "_ollama_json", side_effect=no_model):
             with self.assertRaisesRegex(RuntimeError, "download is forbidden"):
-                reader.run_unlocated_transcript_fallback(
+                reader._run_unlocated_transcript_inline(
                     png_header(), timeout=10
                 )
 

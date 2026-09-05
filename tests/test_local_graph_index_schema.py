@@ -512,6 +512,27 @@ class LocalGraphIndexSchemaTests(unittest.TestCase):
         self.assertEqual(reconstructed_relation, verified)
         self.assertEqual(digest(reconstructed_relation), basis["source_relation_sha256"])
 
+    def test_current_intermediate_extractor_version_projects_containment(self) -> None:
+        document = semantic_document()
+        evidence = semantic_evidence()
+        insert_indexed_evidence(self.connection, evidence)
+        current = relation(generator_version="0.11.0")
+
+        report = index_builder.project_verified_structural_graph(
+            self.connection,
+            [document],
+            [evidence],
+            [current],
+        )
+
+        self.assertEqual(report["edge_count"], 1)
+        self.assertEqual(
+            self.connection.execute(
+                "SELECT relation_id FROM graph_edges"
+            ).fetchall(),
+            [(current["relation_id"],)],
+        )
+
     def test_relation_basis_preserves_omitted_optional_fields(self) -> None:
         evidence = semantic_evidence()
         insert_indexed_evidence(self.connection, evidence)

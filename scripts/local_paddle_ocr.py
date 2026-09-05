@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import io
 import importlib.metadata as metadata
 import json
 import math
@@ -29,7 +30,7 @@ from typing import Any, Iterator
 
 SCHEMA_VERSION = "0.1"
 RUNNER = "aiec-local-paddle-ocr"
-RUNNER_VERSION = "0.1"
+RUNNER_VERSION = "0.2"
 ENGINE_NAME = "paddleocr_ppocrv6_medium_japan"
 ENGINE_VERSION = "PP-OCRv6 medium / PaddleOCR 3.7.0"
 ENGINE_PASS = "paddleocr_primary"
@@ -88,6 +89,11 @@ MAX_OUTPUT_BYTES = 8 * 1024 * 1024
 MAX_RESULT_LINES = 100_000
 MAX_LINE_TEXT_CHARS = 32_000
 MAX_ERROR_CHARS = 1_000
+SESSION_PROTOCOL_VERSION = "0.1"
+MAX_SESSION_REQUEST_BYTES = 16 * 1024
+MAX_SESSION_RESPONSE_BYTES = MAX_OUTPUT_BYTES + 64 * 1024
+MAX_SESSION_PATH_CHARS = 4096
+SESSION_REQUEST_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$")
 
 
 class OfflineNetworkError(RuntimeError):
@@ -100,6 +106,7 @@ def canonical_json(value: Any) -> str:
         ensure_ascii=False,
         sort_keys=True,
         separators=(",", ":"),
+        allow_nan=False,
     )
 
 
@@ -109,6 +116,48 @@ def sha256_file(path: Path) -> str:
         for block in iter(lambda: handle.read(1024 * 1024), b""):
             digest.update(block)
     return digest.hexdigest()
+
+
+def _read_regular_file_once(path: Path, label: str, maximum_bytes: int) -> bytes:
+    """Read one immutable request buffer through a no-follow descriptor."""
+    if not hasattr(os, "O_NOFOLLOW"):
+        raise RuntimeError(f"{label} cannot be opened with symlink protection")
+    flags = os.O_RDONLY | os.O_NOFOLLOW
+    if hasattr(os, "O_CLOEXEC"):
+        flags |= os.O_CLOEXEC
+    try:
+        descriptor = os.open(path, flags)
+    except OSError as exc:
+        raise ValueError(f"{label} must be a regular non-symlink file") from exc
+    try:
+        metadata_value = os.fstat(descriptor)
+        if not stat.S_ISREG(metadata_value.st_mode):
+            raise ValueError(f"{label} must be a regular non-symlink file")
+        if metadata_value.st_size <= 0 or metadata_value.st_size > maximum_bytes:
+            raise ValueError(f"{label} size is outside the supported range")
+        chunks: list[bytes] = []
+        total = 0
+        while True:
+            chunk = os.read(
+                descriptor,
+                min(1024 * 1024, maximum_bytes + 1 - total),
+            )
+            if not chunk:
+                break
+            chunks.append(chunk)
+            total += len(chunk)
+            if total > maximum_bytes:
+                raise ValueError(f"{label} size is outside the supported range")
+        final_metadata = os.fstat(descriptor)
+        if (
+            final_metadata.st_dev != metadata_value.st_dev
+            or final_metadata.st_ino != metadata_value.st_ino
+            or final_metadata.st_size != total
+        ):
+            raise RuntimeError(f"{label} changed while reading")
+        return b"".join(chunks)
+    finally:
+        os.close(descriptor)
 
 
 def _require_python_312() -> None:
@@ -461,11 +510,8 @@ def _verify_pipeline(pipeline: Any, model_paths: Mapping[str, Path]) -> Any:
     return inner
 
 
-def run_worker(
-    input_path: Path,
-    model_root: Path,
-    runtime_lock: Path,
-) -> dict[str, Any]:
+def _prepare_worker(model_root: Path, runtime_lock: Path) -> dict[str, Any]:
+    """Initialize the reviewed runtime once while the socket guard is active."""
     _require_python_312()
     model_paths, model_metadata = verify_models(model_root)
     package_metadata = verify_packages()
@@ -473,47 +519,15 @@ def run_worker(
     offline_values = configure_offline_environment(model_root)
 
     setup_started = time.monotonic_ns()
-    with offline_socket_guard():
-        # These imports must stay after both the environment and socket guards.
-        from paddleocr import PaddleOCR
-        from PIL import Image
-        import numpy as np
+    # These imports must stay after both the environment and socket guards.
+    from paddleocr import PaddleOCR
 
-        pipeline = PaddleOCR(**_pipeline_kwargs(model_paths))
-        inner = _verify_pipeline(pipeline, model_paths)
-        setup_ms = (time.monotonic_ns() - setup_started) / 1_000_000
+    pipeline = PaddleOCR(**_pipeline_kwargs(model_paths))
+    inner = _verify_pipeline(pipeline, model_paths)
+    from PIL import Image
+    import numpy as np
 
-        with Image.open(input_path) as image:
-            image.load()
-            width_px, height_px = image.size
-            if (
-                not isinstance(width_px, int)
-                or not isinstance(height_px, int)
-                or isinstance(width_px, bool)
-                or isinstance(height_px, bool)
-                or width_px <= 0
-                or height_px <= 0
-                or width_px * height_px > MAX_IMAGE_PIXELS
-            ):
-                raise ValueError("input image dimensions are outside the supported range")
-            array = np.asarray(image.convert("RGB"))
-
-        inference_started = time.monotonic_ns()
-        results = list(pipeline.predict(array))
-        inference_ms = (time.monotonic_ns() - inference_started) / 1_000_000
-        if len(results) != 1 or not isinstance(results[0], Mapping):
-            raise ValueError("PaddleOCR must return exactly one mapping result")
-        lines = paddle_result_to_lines(
-            results[0],
-            width_px=width_px,
-            height_px=height_px,
-        )
-        empty_recognition_count = sum(
-            isinstance(value, str) and not value.strip()
-            for value in _numeric_sequence(
-                results[0].get("rec_texts"), "rec_texts"
-            )
-        )
+    setup_ms = (time.monotonic_ns() - setup_started) / 1_000_000
 
     runtime = {
         "python": platform.python_version(),
@@ -542,16 +556,84 @@ def run_worker(
         canonical_json(engine).encode("utf-8")
     ).hexdigest()
     return {
+        "pipeline": pipeline,
+        "image_module": Image,
+        "numpy_module": np,
+        "engine": engine,
+        "setup_ms": setup_ms,
+        "request_count": 0,
+    }
+
+
+def _run_prepared_worker(
+    input_path: Path,
+    prepared: dict[str, Any],
+    *,
+    expected_input: Mapping[str, Any] | None = None,
+    input_bytes: bytes | None = None,
+) -> dict[str, Any]:
+    """Run one request without changing any reviewed Paddle inference setting."""
+    raw = (
+        _read_regular_file_once(input_path, "input", MAX_INPUT_BYTES)
+        if input_bytes is None else input_bytes
+    )
+    if not isinstance(raw, bytes) or not 0 < len(raw) <= MAX_INPUT_BYTES:
+        raise ValueError("input size is outside the supported range")
+    source_sha256 = hashlib.sha256(raw).hexdigest()
+
+    image_module = prepared["image_module"]
+    numpy_module = prepared["numpy_module"]
+    with image_module.open(io.BytesIO(raw)) as image:
+        width_px, height_px = image.size
+        if (
+            not isinstance(width_px, int)
+            or not isinstance(height_px, int)
+            or isinstance(width_px, bool)
+            or isinstance(height_px, bool)
+            or width_px <= 0
+            or height_px <= 0
+            or width_px * height_px > MAX_IMAGE_PIXELS
+        ):
+            raise ValueError("input image dimensions are outside the supported range")
+        # Reject dimensions before decoding potentially compressed image data.
+        image.load()
+        array = numpy_module.asarray(image.convert("RGB"))
+
+    input_metadata = {
+        "sha256": source_sha256,
+        "width_px": width_px,
+        "height_px": height_px,
+    }
+    if expected_input is not None and dict(expected_input) != input_metadata:
+        raise ValueError("session input identity or dimensions changed")
+
+    inference_started = time.monotonic_ns()
+    results = list(prepared["pipeline"].predict(array))
+    inference_ms = (time.monotonic_ns() - inference_started) / 1_000_000
+    if len(results) != 1 or not isinstance(results[0], Mapping):
+        raise ValueError("PaddleOCR must return exactly one mapping result")
+    lines = paddle_result_to_lines(
+        results[0],
+        width_px=width_px,
+        height_px=height_px,
+    )
+    empty_recognition_count = sum(
+        isinstance(value, str) and not value.strip()
+        for value in _numeric_sequence(results[0].get("rec_texts"), "rec_texts")
+    )
+
+    request_count = prepared.get("request_count")
+    if isinstance(request_count, bool) or not isinstance(request_count, int):
+        raise RuntimeError("prepared worker request count is invalid")
+    pipeline_reused = request_count > 0
+    prepared["request_count"] = request_count + 1
+    return {
         "schema_version": SCHEMA_VERSION,
         "runner": RUNNER,
         "runner_version": RUNNER_VERSION,
         "status": "completed" if lines else "needs_review",
-        "input": {
-            "sha256": sha256_file(input_path),
-            "width_px": width_px,
-            "height_px": height_px,
-        },
-        "engine": engine,
+        "input": input_metadata,
+        "engine": prepared["engine"],
         "lines": lines,
         "warnings": [
             *(
@@ -562,12 +644,27 @@ def run_worker(
         ],
         "error": None,
         "timing": {
-            "setup_ms": round(setup_ms, 6),
+            "setup_ms": (
+                0.0 if pipeline_reused
+                else round(float(prepared["setup_ms"]), 6)
+            ),
             "inference_ms": round(inference_ms, 6),
+            "pipeline_reused": pipeline_reused,
         },
         "external_network_used": False,
         "downloads_performed": False,
     }
+
+
+def run_worker(
+    input_path: Path,
+    model_root: Path,
+    runtime_lock: Path,
+) -> dict[str, Any]:
+    """Run the compatible one-shot API with the same guarded implementation."""
+    with offline_socket_guard():
+        prepared = _prepare_worker(model_root, runtime_lock)
+        return _run_prepared_worker(input_path, prepared)
 
 
 def failed_result(exc: Exception) -> dict[str, Any]:
@@ -609,10 +706,232 @@ def write_bounded_json(path: Path, value: Mapping[str, Any]) -> None:
         temporary.unlink(missing_ok=True)
 
 
+def _reject_duplicate_json_keys(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
+    value: dict[str, Any] = {}
+    for key, item in pairs:
+        if key in value:
+            raise ValueError(f"duplicate session JSON key: {key!r}")
+        value[key] = item
+    return value
+
+
+def _reject_non_json_constant(value: str) -> None:
+    raise ValueError(f"non-JSON session constant: {value}")
+
+
+def session_request(
+    request_id: str,
+    input_path: Path,
+    input_sha256: str,
+    dimensions: Mapping[str, int],
+) -> dict[str, Any]:
+    """Create the closed request shape shared by tests and the parent process."""
+    return {
+        "protocol_version": SESSION_PROTOCOL_VERSION,
+        "type": "ocr_request",
+        "request_id": request_id,
+        "input": {
+            "path": str(input_path),
+            "sha256": input_sha256,
+            "width_px": dimensions["width_px"],
+            "height_px": dimensions["height_px"],
+        },
+    }
+
+
+def validate_session_request(
+    value: Any,
+) -> tuple[str, Path, dict[str, Any], bytes]:
+    if not isinstance(value, dict) or set(value) != {
+        "protocol_version", "type", "request_id", "input",
+    }:
+        raise ValueError("session request violates the closed contract")
+    if (
+        value.get("protocol_version") != SESSION_PROTOCOL_VERSION
+        or value.get("type") != "ocr_request"
+    ):
+        raise ValueError("session request protocol identity is invalid")
+    request_id = value.get("request_id")
+    if not isinstance(request_id, str) or not SESSION_REQUEST_ID_RE.fullmatch(
+        request_id
+    ):
+        raise ValueError("session request id is invalid")
+    input_value = value.get("input")
+    if not isinstance(input_value, dict) or set(input_value) != {
+        "path", "sha256", "width_px", "height_px",
+    }:
+        raise ValueError("session request input violates the closed contract")
+    raw_path = input_value.get("path")
+    input_sha256 = input_value.get("sha256")
+    width_px = input_value.get("width_px")
+    height_px = input_value.get("height_px")
+    if (
+        not isinstance(raw_path, str)
+        or not raw_path
+        or len(raw_path) > MAX_SESSION_PATH_CHARS
+        or "\0" in raw_path
+    ):
+        raise ValueError("session input path is invalid")
+    if (
+        not isinstance(input_sha256, str)
+        or not re.fullmatch(r"[0-9a-f]{64}", input_sha256)
+    ):
+        raise ValueError("session input SHA-256 is invalid")
+    if (
+        isinstance(width_px, bool)
+        or not isinstance(width_px, int)
+        or isinstance(height_px, bool)
+        or not isinstance(height_px, int)
+        or width_px <= 0
+        or height_px <= 0
+        or width_px * height_px > MAX_IMAGE_PIXELS
+    ):
+        raise ValueError("session input dimensions are outside the supported range")
+    source = Path(raw_path)
+    raw = _read_regular_file_once(source, "session input", MAX_INPUT_BYTES)
+    if hashlib.sha256(raw).hexdigest() != input_sha256:
+        raise ValueError("session input SHA-256 mismatch")
+    metadata = {
+        "sha256": input_sha256,
+        "width_px": width_px,
+        "height_px": height_px,
+    }
+    return request_id, source, metadata, raw
+
+
+def session_response(
+    request_id: str,
+    input_metadata: Mapping[str, Any],
+    result: Mapping[str, Any],
+) -> dict[str, Any]:
+    """Bind every result to its request, input identity, and content hash."""
+    result_value = dict(result)
+    serialized_result = canonical_json(result_value).encode("utf-8")
+    if len(serialized_result) > MAX_OUTPUT_BYTES:
+        raise ValueError("session result exceeds the worker output limit")
+    return {
+        "protocol_version": SESSION_PROTOCOL_VERSION,
+        "type": "ocr_result",
+        "request_id": request_id,
+        "input": dict(input_metadata),
+        "result_sha256": hashlib.sha256(
+            serialized_result
+        ).hexdigest(),
+        "result": result_value,
+    }
+
+
+def _read_bounded_session_request(stream: Any) -> dict[str, Any] | None:
+    raw = stream.readline(MAX_SESSION_REQUEST_BYTES + 1)
+    if not raw:
+        return None
+    if len(raw) > MAX_SESSION_REQUEST_BYTES or not raw.endswith(b"\n"):
+        raise ValueError("session request exceeds the byte limit")
+    try:
+        value = json.loads(
+            raw.decode("utf-8"),
+            object_pairs_hook=_reject_duplicate_json_keys,
+            parse_constant=_reject_non_json_constant,
+        )
+    except (UnicodeDecodeError, json.JSONDecodeError, ValueError) as exc:
+        raise ValueError("session request is invalid JSON") from exc
+    if not isinstance(value, dict):
+        raise ValueError("session request must be a JSON object")
+    return value
+
+
+def _write_bounded_session_response(stream: Any, value: Mapping[str, Any]) -> None:
+    payload = (canonical_json(value) + "\n").encode("utf-8")
+    if len(payload) > MAX_SESSION_RESPONSE_BYTES:
+        raise ValueError("session response exceeds the byte limit")
+    _write_all(stream, payload, "session response")
+    stream.flush()
+
+
+def _write_all(stream: Any, payload: bytes, label: str) -> None:
+    remaining = memoryview(payload)
+    while remaining:
+        written = stream.write(remaining)
+        if (
+            isinstance(written, bool)
+            or not isinstance(written, int)
+            or written <= 0
+            or written > len(remaining)
+        ):
+            raise RuntimeError(f"{label} could not be written completely")
+        remaining = remaining[written:]
+
+
+@contextmanager
+def _session_protocol_output(output_stream: Any | None) -> Iterator[Any]:
+    """Keep native/Paddle logs off the protocol file descriptor."""
+    if output_stream is not None:
+        yield output_stream
+        return
+    sys.stdout.flush()
+    sys.stderr.flush()
+    protocol_fd = os.dup(sys.stdout.fileno())
+    saved_stdout = os.dup(sys.stdout.fileno())
+    saved_stderr = os.dup(sys.stderr.fileno())
+    try:
+        with (
+            os.fdopen(protocol_fd, "wb", buffering=0) as protocol,
+            open(os.devnull, "wb", buffering=0) as log_sink,
+        ):
+            os.dup2(log_sink.fileno(), sys.stdout.fileno())
+            os.dup2(log_sink.fileno(), sys.stderr.fileno())
+            yield protocol
+    finally:
+        os.dup2(saved_stdout, sys.stdout.fileno())
+        os.dup2(saved_stderr, sys.stderr.fileno())
+        os.close(saved_stdout)
+        os.close(saved_stderr)
+
+
+def run_session(
+    model_root: Path,
+    runtime_lock: Path,
+    *,
+    input_stream: Any | None = None,
+    output_stream: Any | None = None,
+) -> int:
+    """Serve sequential requests with one pipeline and one lifelong guard."""
+    source_stream = sys.stdin.buffer if input_stream is None else input_stream
+    with _session_protocol_output(output_stream) as destination_stream:
+        with offline_socket_guard():
+            prepared = _prepare_worker(model_root, runtime_lock)
+            while True:
+                request = _read_bounded_session_request(source_stream)
+                if request is None:
+                    return 0
+                (
+                    request_id,
+                    input_path,
+                    input_metadata,
+                    input_bytes,
+                ) = validate_session_request(request)
+                try:
+                    result = _run_prepared_worker(
+                        input_path,
+                        prepared,
+                        expected_input=input_metadata,
+                        input_bytes=input_bytes,
+                    )
+                except Exception as exc:
+                    result = failed_result(exc)
+                response = session_response(request_id, input_metadata, result)
+                _write_bounded_session_response(destination_stream, response)
+                if result["status"] == "failed":
+                    # A failed inference may leave native state uncertain. Retire
+                    # the worker after returning the auditable failure envelope.
+                    return 1
+
+
 def parser() -> argparse.ArgumentParser:
     value = argparse.ArgumentParser(description=__doc__)
-    value.add_argument("--input", required=True, type=Path)
-    value.add_argument("--output", required=True, type=Path)
+    value.add_argument("--session", action="store_true")
+    value.add_argument("--input", type=Path)
+    value.add_argument("--output", type=Path)
     value.add_argument("--model-root", required=True, type=Path)
     value.add_argument("--runtime-lock", required=True, type=Path)
     return value
@@ -620,6 +939,20 @@ def parser() -> argparse.ArgumentParser:
 
 def main(argv: list[str] | None = None) -> int:
     args = parser().parse_args(argv)
+    if args.session:
+        if args.input is not None or args.output is not None:
+            print("error: session mode does not accept --input or --output", file=sys.stderr)
+            return 2
+        try:
+            model_root = _require_real_directory(args.model_root, "model root")
+            runtime_lock = _require_regular_file(args.runtime_lock, "runtime lock")
+            return run_session(model_root, runtime_lock)
+        except Exception as exc:
+            print(f"error: {type(exc).__name__}: {exc}", file=sys.stderr)
+            return 2
+    if args.input is None or args.output is None:
+        print("error: one-shot mode requires --input and --output", file=sys.stderr)
+        return 2
     try:
         input_path, output_path, model_root = validate_paths(
             args.input,

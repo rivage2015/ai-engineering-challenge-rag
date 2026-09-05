@@ -27,7 +27,16 @@ from typing import Any, Iterable, Mapping, Sequence
 
 SCHEMA_VERSION = "0.1"
 BUILDER_NAME = "cross-document-semantic-graph-builder"
-BUILDER_VERSION = "0.1.1"
+BUILDER_VERSION = "0.3.0"
+PROVISIONAL_MARKER = "[暫定読取]"
+VISUAL_QUALITY_SOURCE_TYPES = frozenset({"ocr_line", "visual_observation"})
+VISUAL_QUALITY_UNIT_TYPES = frozenset({"image_text_packet"})
+VISUAL_QUALITY_METHODS = frozenset({
+    "adaptive_local_ocr_provisional",
+    "dual_local_ocr_consensus",
+    "local_vlm_unlocated_transcript_provisional",
+    "local_vlm_visual_observation_provisional",
+})
 NODE_TYPES = {
     "Project", "ProjectAlias", "Work", "WorkName", "Employee", "Person",
     "Claim", "Reason",
@@ -71,6 +80,11 @@ def _clean_text(value: object) -> str:
 def _compact(value: object) -> str:
     text = unicodedata.normalize("NFKC", str(value)).casefold()
     return re.sub(r"[\s_\-:/\uff0f・.]+", "", text)
+
+
+def _identity_key(value: object) -> str:
+    """Normalize identity comparisons without deleting meaningful punctuation."""
+    return unicodedata.normalize("NFKC", str(value)).casefold().strip()
 
 
 def _read_jsonl(path: Path, input_kind: str) -> list[dict[str, Any]]:
@@ -169,9 +183,64 @@ def _is_draft_status(value: object) -> bool:
 
 def _is_active_row_status(value: object) -> bool:
     text = unicodedata.normalize("NFKC", str(value)).casefold().strip()
-    if any(marker in text for marker in ("invalid", "inactive", "rejected", "draft", "無効", "失効", "却下", "未承認")):
+    if any(marker in text for marker in (
+        "invalid", "inactive", "rejected", "draft", "not approved",
+        "unapproved", "無効", "失効", "却下", "未承認",
+    )):
         return False
     return any(marker in text for marker in ("valid", "active", "approved", "final", "有効", "承認済", "確定"))
+
+
+IDENTITY_ROW_STATUS_PHRASES = frozenset({
+    "approved", "not approved", "unapproved", "active", "inactive",
+    "valid", "invalid", "final", "finalized", "rejected", "draft",
+    "承認済", "未承認", "有効", "無効", "失効", "却下", "確定", "最終",
+    "署名済", "下書き",
+})
+
+
+def _normalized_identity_status(value: object) -> str:
+    return " ".join(
+        unicodedata.normalize("NFKC", str(value)).casefold().split()
+    )
+
+
+def _identity_status_state(value: object) -> str | None:
+    normalized = _normalized_identity_status(value)
+    if normalized not in IDENTITY_ROW_STATUS_PHRASES:
+        return None
+    return "active" if _is_active_row_status(value) else "inactive"
+
+
+def _whitespace_identity_values(
+    fields: Sequence[str], data_line: str
+) -> list[str] | None:
+    """Recover a text row only when its column boundaries remain provable.
+
+    A single space cannot distinguish a multi-word name/status from adjacent
+    columns.  Surplus tokens therefore require preserved delimiters (a tab or
+    two-or-more spaces); an allowlisted suffix alone is not enough evidence.
+    """
+    tokens = data_line.split()
+    if len(tokens) < len(fields):
+        return None
+    if len(tokens) == len(fields):
+        values = list(tokens)
+    else:
+        values = [
+            value.strip()
+            for value in re.split(r"(?: {2,}|\t+)", data_line.strip())
+            if value.strip()
+        ]
+        if len(values) != len(fields):
+            return None
+    if "status" in fields:
+        status = values[list(fields).index("status")]
+        if _normalized_identity_status(status) not in IDENTITY_ROW_STATUS_PHRASES:
+            return None
+    if any(not value for value in values):
+        return None
+    return values
 
 
 def _role_key(value: object) -> str:
@@ -218,6 +287,7 @@ class EvidenceView:
     text: str
     ordinal: int
     geometry: dict[str, Any] | None
+    quality_disposition: str = "eligible_native"
 
 
 @dataclass(frozen=True)
@@ -378,6 +448,73 @@ def _evidence_text(record: Mapping[str, Any]) -> str:
     return ""
 
 
+def _has_visible_provisional_marker(text: str) -> bool:
+    # Fail closed even if a malformed upstream record embeds the marker in the
+    # middle of a line instead of using the canonical line prefix.
+    return PROVISIONAL_MARKER in text
+
+
+def _quality_disposition(record: Mapping[str, Any], text: str) -> str:
+    """Classify whether one safe Evidence record may support verified facts.
+
+    Content-security eligibility and evidence quality are distinct gates.  A
+    native record has no visual-quality declaration.  Visual-derived records
+    must declare a valid tier; only ``high`` can support a verified graph.
+    """
+    adapter = record.get("adapter")
+    adapter = adapter if isinstance(adapter, Mapping) else {}
+    source_record_type = adapter.get("source_record_type")
+    unit_type = adapter.get("unit_type")
+    extraction_method = record.get("extraction_method")
+    quality_present = "quality_tier" in record
+    quality_tier = record.get("quality_tier")
+    marker_present = "provisional_marker" in record
+    marker = record.get("provisional_marker")
+    visible_marker = _has_visible_provisional_marker(text)
+    visual_method_like = (
+        isinstance(extraction_method, str)
+        and extraction_method.startswith("local_vlm_")
+    )
+    provisional_method_like = (
+        isinstance(extraction_method, str)
+        and extraction_method.endswith("_provisional")
+    )
+    quality_required = (
+        source_record_type in VISUAL_QUALITY_SOURCE_TYPES
+        or unit_type in VISUAL_QUALITY_UNIT_TYPES
+        or extraction_method in VISUAL_QUALITY_METHODS
+        or visual_method_like
+        or provisional_method_like
+    )
+
+    if quality_present and (
+        not isinstance(quality_tier, str)
+        or quality_tier not in {"high", "provisional"}
+    ):
+        return "excluded_invalid_quality"
+    if quality_tier == "provisional":
+        if marker != PROVISIONAL_MARKER or not visible_marker:
+            return "excluded_invalid_quality"
+        return "excluded_provisional"
+    if quality_tier == "high":
+        if not quality_required or provisional_method_like:
+            return "excluded_invalid_quality"
+        if marker_present or visible_marker:
+            return "excluded_marker"
+        return "eligible_high"
+    if quality_required or quality_present:
+        return "excluded_invalid_quality"
+    if marker_present:
+        return (
+            "excluded_marker"
+            if marker == PROVISIONAL_MARKER
+            else "excluded_invalid_quality"
+        )
+    if visible_marker:
+        return "excluded_marker"
+    return "eligible_native"
+
+
 def _prepare_inputs(
     document_records: Sequence[dict[str, Any]], evidence_records: Sequence[dict[str, Any]],
 ) -> tuple[dict[str, dict[str, Any]], list[EvidenceView]]:
@@ -426,6 +563,7 @@ def _prepare_inputs(
         if not isinstance(observed_text, str):
             raise ValueError(f"evidence_observed_text_invalid:{evidence_id}")
         text = _evidence_text(record)
+        quality_disposition = _quality_disposition(record, text)
         document = documents[document_id]
         source = document["source"]
         source_record = record.get("source")
@@ -452,6 +590,7 @@ def _prepare_inputs(
             text=text,
             ordinal=int(record.get("ordinal", 0) or 0),
             geometry=dict(geometry) if isinstance(geometry, Mapping) else None,
+            quality_disposition=quality_disposition,
         ))
     evidence.sort(key=lambda item: (item.relative_path, item.ordinal, item.evidence_id))
     return documents, evidence
@@ -757,73 +896,182 @@ def _add_assignments(graph: GraphAccumulator, rows: Sequence[StructuredRow]) -> 
         )
 
 
-def _page_groups(items: Sequence[EvidenceView]) -> list[list[EvidenceView]]:
-    positioned = [
-        item for item in items
-        if item.geometry is not None
-        and isinstance(item.geometry.get("x"), (int, float))
-        and isinstance(item.geometry.get("y"), (int, float))
-    ]
-    positioned.sort(key=lambda item: (float(item.geometry["y"]), float(item.geometry["x"]), item.ordinal))
-    groups: list[list[EvidenceView]] = []
-    for item in positioned:
-        y = float(item.geometry["y"])
-        if not groups:
-            groups.append([item])
+def _pdf_page_number(item: EvidenceView) -> int | None:
+    page_number = item.location.get("page_number")
+    if (
+        isinstance(page_number, int)
+        and not isinstance(page_number, bool)
+        and page_number >= 1
+    ):
+        return page_number
+    return None
+
+
+def _page_groups(
+    items: Sequence[EvidenceView],
+) -> list[list[list[EvidenceView]]]:
+    """Build visual rows inside one page and one coordinate frame only."""
+    partitions: dict[tuple[int, str, str, str], list[EvidenceView]] = defaultdict(list)
+    for item in items:
+        geometry = item.geometry
+        page_number = _pdf_page_number(item)
+        if (
+            geometry is None
+            or page_number is None
+            or not isinstance(geometry.get("x"), (int, float))
+            or isinstance(geometry.get("x"), bool)
+            or not isinstance(geometry.get("y"), (int, float))
+            or isinstance(geometry.get("y"), bool)
+            or not isinstance(geometry.get("coordinate_space"), str)
+            or not geometry.get("coordinate_space")
+            or not isinstance(geometry.get("unit"), str)
+            or not geometry.get("unit")
+        ):
             continue
-        prior_y = sum(float(value.geometry["y"]) for value in groups[-1]) / len(groups[-1])
-        heights = [float(value.geometry.get("height", 10.0)) for value in groups[-1]]
-        tolerance = max(2.0, min(8.0, sum(heights) / len(heights) * 0.35))
-        if abs(y - prior_y) <= tolerance:
-            groups[-1].append(item)
-        else:
-            groups.append([item])
-    for group in groups:
-        group.sort(key=lambda item: float(item.geometry["x"]))
-    return groups
+        coordinate_origin = geometry.get("coordinate_origin", "")
+        if not isinstance(coordinate_origin, str):
+            continue
+        key = (
+            page_number,
+            geometry["coordinate_space"],
+            geometry["unit"],
+            coordinate_origin,
+        )
+        partitions[key].append(item)
+
+    grouped_partitions: list[list[list[EvidenceView]]] = []
+    for key in sorted(partitions):
+        positioned = partitions[key]
+        positioned.sort(
+            key=lambda item: (
+                float(item.geometry["y"]),
+                float(item.geometry["x"]),
+                item.ordinal,
+            )
+        )
+        groups: list[list[EvidenceView]] = []
+        for item in positioned:
+            y = float(item.geometry["y"])
+            if not groups:
+                groups.append([item])
+                continue
+            prior_y = sum(
+                float(value.geometry["y"]) for value in groups[-1]
+            ) / len(groups[-1])
+            heights = [
+                float(value.geometry.get("height", 10.0))
+                for value in groups[-1]
+            ]
+            tolerance = max(
+                2.0,
+                min(8.0, sum(heights) / len(heights) * 0.35),
+            )
+            if abs(y - prior_y) <= tolerance:
+                groups[-1].append(item)
+            else:
+                groups.append([item])
+        for group in groups:
+            group.sort(key=lambda item: float(item.geometry["x"]))
+        grouped_partitions.append(groups)
+    return grouped_partitions
 
 
 def _coordinate_identity_rows(items: Sequence[EvidenceView]) -> list[dict[str, FieldValue]]:
-    groups = _page_groups(items)
-    for header_index, group in enumerate(groups):
-        headers = {
-            _header_key(item.text): (float(item.geometry["x"]), item)
-            for item in group
-            if _header_key(item.text) is not None
-        }
-        if not {"employee_id", "person_name"} <= set(headers):
-            continue
-        column_fields = {
-            field_name: x_item[0]
-            for field_name, x_item in headers.items()
-            if field_name in {"employee_id", "person_name", "status"}
-        }
-        x_values = sorted(column_fields.values())
-        minimum_gap = min((right - left for left, right in zip(x_values, x_values[1:])), default=100.0)
-        maximum_distance = max(18.0, minimum_gap * 0.45)
-        result: list[dict[str, FieldValue]] = []
-        for data_group in groups[header_index + 1:]:
-            row: dict[str, FieldValue] = {}
-            for item in data_group:
-                x = float(item.geometry["x"])
-                field_name, distance = min(
-                    ((name, abs(x - header_x)) for name, header_x in column_fields.items()),
-                    key=lambda pair: pair[1],
-                )
-                if distance <= maximum_distance and field_name not in row:
-                    row[field_name] = FieldValue(item.text, (item.evidence_id,))
-            employee = row.get("employee_id")
-            person = row.get("person_name")
-            if employee and person and _looks_identifier(employee.value) and _looks_person_name(person.value):
-                result.append(row)
-            elif result:
+    result: list[dict[str, FieldValue]] = []
+    for groups in _page_groups(items):
+        for header_index, group in enumerate(groups):
+            headers = {
+                _header_key(item.text): (float(item.geometry["x"]), item)
+                for item in group
+                if _header_key(item.text) is not None
+            }
+            if not {"employee_id", "person_name"} <= set(headers):
+                continue
+            column_fields = {
+                field_name: x_item[0]
+                for field_name, x_item in headers.items()
+                if field_name in {"employee_id", "person_name", "status"}
+            }
+            x_values = sorted(column_fields.values())
+            minimum_gap = min(
+                (right - left for left, right in zip(x_values, x_values[1:])),
+                default=100.0,
+            )
+            maximum_distance = max(18.0, minimum_gap * 0.45)
+            partition_result: list[dict[str, FieldValue]] = []
+            for data_group in groups[header_index + 1:]:
+                row: dict[str, FieldValue] = {}
+                for item in data_group:
+                    x = float(item.geometry["x"])
+                    field_name, distance = min(
+                        (
+                            (name, abs(x - header_x))
+                            for name, header_x in column_fields.items()
+                        ),
+                        key=lambda pair: pair[1],
+                    )
+                    if distance <= maximum_distance and field_name not in row:
+                        row[field_name] = FieldValue(item.text, (item.evidence_id,))
+                employee = row.get("employee_id")
+                person = row.get("person_name")
+                if (
+                    employee
+                    and person
+                    and _looks_identifier(employee.value)
+                    and _looks_person_name(person.value)
+                ):
+                    partition_result.append(row)
+                elif partition_result:
+                    break
+            if partition_result:
+                result.extend(partition_result)
                 break
-        if result:
-            return result
-    return []
+    return result
 
 
-def _ordered_identity_rows(items: Sequence[EvidenceView]) -> list[dict[str, FieldValue]]:
+def _ordered_identity_rows_for_page(
+    items: Sequence[EvidenceView],
+) -> list[dict[str, FieldValue]]:
+    # PDFKit commonly returns one native string per page.  Preserve its line
+    # boundaries and recognize an explicit whitespace-delimited table before
+    # trying the older one-cell-per-Evidence ordering fallback.
+    for item in items:
+        if item.evidence_type not in {"page", "paragraph", "text_block"}:
+            continue
+        lines = [line.strip() for line in item.text.splitlines() if line.strip()]
+        for header_index, line in enumerate(lines):
+            header_fields = [_header_key(token) for token in line.split()]
+            if (
+                any(field is None for field in header_fields)
+                or not {"employee_id", "person_name"} <= set(header_fields)
+                or len(header_fields) > 8
+            ):
+                continue
+            fields = [str(field) for field in header_fields]
+            result: list[dict[str, FieldValue]] = []
+            for data_line in lines[header_index + 1:]:
+                values = _whitespace_identity_values(fields, data_line)
+                if values is None:
+                    if result:
+                        break
+                    continue
+                row = {
+                    field_name: FieldValue(values[index], (item.evidence_id,))
+                    for index, field_name in enumerate(fields)
+                }
+                employee = row.get("employee_id")
+                person = row.get("person_name")
+                if (
+                    employee
+                    and person
+                    and _looks_identifier(employee.value)
+                    and _looks_person_name(person.value)
+                ):
+                    result.append(row)
+                elif result:
+                    break
+            if result:
+                return result
     individual = [
         item for item in items
         if item.evidence_type not in {"page", "table", "slide", "worksheet", "style_span"}
@@ -866,6 +1114,19 @@ def _ordered_identity_rows(items: Sequence[EvidenceView]) -> list[dict[str, Fiel
     return []
 
 
+def _ordered_identity_rows(items: Sequence[EvidenceView]) -> list[dict[str, FieldValue]]:
+    """Apply the text-order fallback independently to each PDF page."""
+    by_page: dict[int, list[EvidenceView]] = defaultdict(list)
+    for item in items:
+        page_number = _pdf_page_number(item)
+        if page_number is not None:
+            by_page[page_number].append(item)
+    rows: list[dict[str, FieldValue]] = []
+    for page_number in sorted(by_page):
+        rows.extend(_ordered_identity_rows_for_page(by_page[page_number]))
+    return rows
+
+
 def _add_employee_identities(
     graph: GraphAccumulator,
     facts: Mapping[str, DocumentFacts],
@@ -882,17 +1143,67 @@ def _add_employee_identities(
         register_version = document.unique("register_version")
         if status is None or not _is_current_status(status.value):
             continue
-        rows = _coordinate_identity_rows(by_document[document_id])
-        route = "pdf_coordinate_rows"
-        if not rows:
-            rows = _ordered_identity_rows(by_document[document_id])
-            route = "pdf_order_fallback"
+        eligible_items = by_document[document_id]
+        rows: list[tuple[str, dict[str, FieldValue]]] = []
+        for disposition in ("eligible_native", "eligible_high"):
+            source_items = [
+                item for item in eligible_items
+                if item.quality_disposition == disposition
+            ]
+            source_rows = _coordinate_identity_rows(source_items)
+            route = "pdf_coordinate_rows"
+            if not source_rows:
+                source_rows = _ordered_identity_rows(source_items)
+                route = "pdf_order_fallback"
+            if source_rows:
+                diagnostics[route] = diagnostics.get(route, 0) + len(source_rows)
+                rows.extend((disposition, row) for row in source_rows)
         if not rows:
             continue
-        diagnostics[route] = diagnostics.get(route, 0) + len(rows)
-        for row in rows:
+        person_values_by_employee: dict[str, set[str]] = defaultdict(set)
+        dispositions_by_employee: dict[str, set[str]] = defaultdict(set)
+        status_states_by_employee: dict[str, list[str | None]] = defaultdict(list)
+        for disposition, row in rows:
             employee = row["employee_id"]
             person = row["person_name"]
+            employee_key = _identity_key(employee.value)
+            person_values_by_employee[employee_key].add(
+                _identity_key(person.value)
+            )
+            dispositions_by_employee[employee_key].add(disposition)
+            row_status = row.get("status")
+            status_states_by_employee[employee_key].append(
+                _identity_status_state(row_status.value)
+                if row_status is not None else None
+            )
+        status_conflicts = {
+            employee_key
+            for employee_key, dispositions in dispositions_by_employee.items()
+            if len(dispositions) > 1
+            and (
+                any(
+                    state is None
+                    for state in status_states_by_employee[employee_key]
+                )
+                or len(set(status_states_by_employee[employee_key])) != 1
+            )
+        }
+        for _, row in rows:
+            employee = row["employee_id"]
+            person = row["person_name"]
+            employee_key = _identity_key(employee.value)
+            if len(person_values_by_employee[employee_key]) != 1:
+                diagnostics["pdf_identity_conflicts_excluded"] = (
+                    diagnostics.get("pdf_identity_conflicts_excluded", 0) + 1
+                )
+                continue
+            if employee_key in status_conflicts:
+                diagnostics["pdf_identity_status_conflicts_excluded"] = (
+                    diagnostics.get(
+                        "pdf_identity_status_conflicts_excluded", 0
+                    ) + 1
+                )
+                continue
             row_status = row.get("status")
             if row_status is not None and not _is_active_row_status(row_status.value):
                 continue
@@ -1305,19 +1616,46 @@ def build(
     document_records = _read_jsonl(documents_path, "document")
     evidence_records = _read_jsonl(evidence_path, "evidence")
     documents, evidence = _prepare_inputs(document_records, evidence_records)
+    quality_counts = {
+        disposition: sum(
+            item.quality_disposition == disposition for item in evidence
+        )
+        for disposition in (
+            "eligible_native",
+            "eligible_high",
+            "excluded_provisional",
+            "excluded_marker",
+            "excluded_invalid_quality",
+        )
+    }
+    graph_evidence = [
+        item for item in evidence
+        if item.quality_disposition in {"eligible_native", "eligible_high"}
+    ]
+    excluded_evidence_count = len(evidence) - len(graph_evidence)
     # The document manifest can include a document whose Evidence was entirely
     # quarantined.  Keep input coverage separate from safe graph membership.
-    graph_document_count = len({item.document_id for item in evidence})
-    tables = _structured_tables(evidence)
+    tables = _structured_tables(graph_evidence)
     rows = _parse_structured_rows(tables)
-    facts = _document_facts(documents, evidence, tables)
+    facts = _document_facts(documents, graph_evidence, tables)
 
     graph = GraphAccumulator()
-    diagnostics: dict[str, int] = {}
-    _add_identity_definitions(graph, facts, evidence)
+    diagnostics: dict[str, int] = {
+        "quality_gate_eligible_native": quality_counts["eligible_native"],
+        "quality_gate_eligible_high": quality_counts["eligible_high"],
+        "quality_gate_excluded_provisional": quality_counts[
+            "excluded_provisional"
+        ],
+        "quality_gate_excluded_marker": quality_counts["excluded_marker"],
+        "quality_gate_excluded_invalid_quality": quality_counts[
+            "excluded_invalid_quality"
+        ],
+        "quality_gate_excluded_total": excluded_evidence_count,
+    }
+    _add_identity_definitions(graph, facts, graph_evidence)
     _add_assignments(graph, rows)
-    _add_employee_identities(graph, facts, evidence, diagnostics)
-    claims = _add_claims(graph, facts, evidence, rows)
+    _add_employee_identities(graph, facts, graph_evidence, diagnostics)
+    claims = _add_claims(graph, facts, graph_evidence, rows)
     _add_version_relations(graph, facts, claims)
     _add_change_reasons(graph, facts, claims)
     nodes, edges, graph_snapshot_id, logical_sha256 = _materialize_graph(
@@ -1325,6 +1663,14 @@ def build(
     )
     if not nodes or not edges:
         raise ValueError("no_verified_semantic_graph_records")
+    document_by_evidence_id = {
+        item.evidence_id: item.document_id for item in evidence
+    }
+    graph_document_count = len({
+        document_by_evidence_id[evidence_id]
+        for edge in edges
+        for evidence_id in edge["supporting_evidence_ids"]
+    })
 
     metadata = {
         "schema_version": SCHEMA_VERSION,

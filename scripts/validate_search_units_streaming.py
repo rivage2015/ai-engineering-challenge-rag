@@ -10,10 +10,16 @@ import re
 import sqlite3
 import tempfile
 from collections import Counter
+from datetime import datetime
 from pathlib import Path
 from typing import Any, Iterator
 
 from lexical_search_common import canonical_json, digest_file
+from validate_search_units import (
+    chart_search_unit_contract_errors,
+    provisional_visual_text_contract_errors,
+    reconstruct_image_packet,
+)
 
 
 ID_PATTERN = re.compile(r"^su_[0-9a-f]{16,64}$")
@@ -33,7 +39,7 @@ LOCATOR_KEYS = {
     "page_number", "slide_number", "sheet_name", "cell", "table_index", "shape_id",
     "row_index", "paragraph_start", "paragraph_end", "notebook_cell_index",
     "code_line_start", "code_line_end", "locator_text", "source_member",
-    "object_index", "series_index",
+    "object_index", "image_object_index", "series_index",
 }
 CONTEXT_KEYS = {
     "heading_text", "header_labels", "header_evidence_ids", "header_method",
@@ -43,20 +49,43 @@ CONTEXT_KEYS = {
     "row_band_count",
 }
 PROVISIONAL_OCR_MARKER = "[暫定読取]"
+PROVISIONAL_VISUAL_METHODS = {
+    "local_vlm_unlocated_transcript_provisional",
+    "local_vlm_visual_observation_provisional",
+}
 OCR_QUALITY_BY_AGREEMENT = {
     "independent_agreement": "high",
     "same_engine_agreement": "provisional",
     "provisional_single_pass": "provisional",
+    "display_transform_unresolved": "provisional",
 }
 OCR_BBOX_COORDINATE_SYSTEMS = {
     "raw_raster_top_left_normalized_1000",
     "display_oriented_top_left_normalized_1000",
     "source_orientation_1_top_left_normalized_1000",
 }
+IMAGE_CONTAINER_KINDS = {
+    "standalone_image", "pdf_page_image", "office_embedded_image",
+    "notebook_embedded_image",
+}
+SEARCH_UNIT_BUILDER = "search-unit-builder"
+SEARCH_UNIT_BUILDER_VERSION = "0.6.0"
 
 
 def canonical_digest(value: Any) -> str:
     return hashlib.sha256(canonical_json(value).encode("utf-8")).hexdigest()
+
+
+def is_rfc3339_timestamp(value: object) -> bool:
+    if not isinstance(value, str):
+        return False
+    try:
+        datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError:
+        return False
+    return "T" in value and (
+        value.endswith("Z") or re.search(r"[+-][0-9]{2}:[0-9]{2}$", value) is not None
+    )
 
 
 def stable_id(prefix: str, value: Any) -> str:
@@ -81,13 +110,29 @@ def image_packet_contract_errors(item: dict[str, Any], label: str) -> list[str]:
         "bbox_coordinate_system", "reading_order_method", "row_band_count",
     }
     if item.get("unit_type") != "image_text_packet":
-        return (
-            [f"{label}: image quality metadata is only valid on image_text_packet"]
-            if quality_keys & context.keys() else []
-        )
+        present = quality_keys & context.keys()
+        if not present:
+            return []
+        if item.get("unit_type") != "text_chunk":
+            return [f"{label}: image quality metadata is invalid on this unit type"]
+        errors: list[str] = []
+        if present != {"quality_tier", "provisional_marker"}:
+            errors.append(f"{label}: provisional visual text quality metadata is invalid")
+        if (
+            context.get("quality_tier") != "provisional"
+            or context.get("provisional_marker") != PROVISIONAL_OCR_MARKER
+            or context.get("container_kind") not in IMAGE_CONTAINER_KINDS
+        ):
+            errors.append(f"{label}: provisional visual text contract is invalid")
+        lines = [line for line in item.get("text", {}).get("search_text", "").splitlines() if line]
+        if not lines or any(
+            not line.startswith(PROVISIONAL_OCR_MARKER + " ") for line in lines
+        ):
+            errors.append(f"{label}: provisional visual text must mark every line")
+        return errors
     errors: list[str] = []
-    if context.get("container_kind") != "standalone_image":
-        errors.append(f"{label}: image packet container_kind must be standalone_image")
+    if context.get("container_kind") not in IMAGE_CONTAINER_KINDS:
+        errors.append(f"{label}: image packet container_kind is invalid")
     if context.get("bbox_coordinate_system") not in OCR_BBOX_COORDINATE_SYSTEMS:
         errors.append(f"{label}: image packet bbox coordinate system is invalid")
     if (
@@ -112,10 +157,12 @@ def image_packet_contract_errors(item: dict[str, Any], label: str) -> list[str]:
     marker_present = "provisional_marker" in context
     marker = context.get("provisional_marker")
     search_text = item.get("text", {}).get("search_text", "")
-    content_lines = [
-        line for line in search_text.splitlines()
-        if line.strip() and not line.startswith("Image file: ")
-    ]
+    packet_lines = [line for line in search_text.splitlines() if line.strip()]
+    content_lines = (
+        packet_lines[1:]
+        if packet_lines and packet_lines[0].startswith("Image file: ")
+        else packet_lines
+    )
     if context.get("row_band_count") != len(content_lines):
         errors.append(f"{label}: image packet row-band count does not match its text")
     if quality_tier == "high":
@@ -134,12 +181,171 @@ def image_packet_contract_errors(item: dict[str, Any], label: str) -> list[str]:
     return errors
 
 
+def _provisional_visual_text(value: str) -> str:
+    lines: list[str] = []
+    for line in value.splitlines():
+        item = line.strip()
+        if not item or item == PROVISIONAL_OCR_MARKER:
+            continue
+        if not item.startswith(PROVISIONAL_OCR_MARKER + " "):
+            item = f"{PROVISIONAL_OCR_MARKER} {item}"
+        lines.append(item)
+    return "\n".join(lines)
+
+
+def _source_display_value(source: dict[str, Any]) -> str:
+    content = source.get("content", {})
+    for key in ("normalized_text", "raw_text"):
+        if key in content:
+            return str(content[key]).strip()
+    for key in ("normalized_value", "raw_value"):
+        if key not in content or content[key] is None:
+            continue
+        value = content[key]
+        return canonical_json(value) if isinstance(value, (dict, list)) else str(value).strip()
+    return ""
+
+
+def provisional_visual_reconstruction_errors(
+    item: dict[str, Any],
+    label: str,
+    connection: sqlite3.Connection,
+) -> list[str]:
+    context = item.get("context", {})
+    claimed = (
+        item.get("unit_type") == "text_chunk"
+        and (
+            context.get("quality_tier") == "provisional"
+            or "provisional_marker" in context
+        )
+    )
+    source_ids = item.get("source_evidence_ids", [])
+    source_records: dict[str, dict[str, Any]] = {}
+    if isinstance(source_ids, list):
+        for evidence_id in source_ids:
+            if not isinstance(evidence_id, str):
+                continue
+            row = connection.execute(
+                "SELECT record_json FROM evidence WHERE id=?", (evidence_id,)
+            ).fetchone()
+            if row is not None:
+                source_records[evidence_id] = json.loads(row[0])
+    source_methods = {
+        source.get("provenance", {}).get("extraction_method")
+        for source in source_records.values()
+    }
+    provisional_source = any(
+        method in PROVISIONAL_VISUAL_METHODS
+        or (isinstance(method, str) and method.startswith("local_vlm_"))
+        for method in source_methods
+    )
+    if not provisional_source and not claimed:
+        return []
+    if not isinstance(source_ids, list) or len(source_ids) != 1:
+        return [f"{label}: provisional visual text must have one source Evidence"]
+    source = source_records.get(source_ids[0])
+    if source is None:
+        return [f"{label}: provisional visual source Evidence is missing"]
+    parent_id = source.get("parent_evidence_id")
+    if isinstance(parent_id, str):
+        parent_row = connection.execute(
+            "SELECT record_json FROM evidence WHERE id=?", (parent_id,)
+        ).fetchone()
+        if parent_row is not None:
+            source_records[parent_id] = json.loads(parent_row[0])
+    document_row = connection.execute(
+        "SELECT record_json FROM documents WHERE id=?",
+        (item.get("document_id"),),
+    ).fetchone()
+    document = json.loads(document_row[0]) if document_row is not None else None
+    return provisional_visual_text_contract_errors(
+        item, label, source_records, document
+    )
+
+
+def chart_reconstruction_errors(
+    item: dict[str, Any], label: str, connection: sqlite3.Connection
+) -> list[str]:
+    if item.get("unit_type") not in {"chart_summary", "chart_series"}:
+        return []
+    source_records: dict[str, dict[str, Any]] = {}
+    for evidence_id in item.get("source_evidence_ids", []):
+        row = connection.execute(
+            "SELECT record_json FROM evidence WHERE id=?", (evidence_id,)
+        ).fetchone()
+        if row is not None:
+            source_records[evidence_id] = json.loads(row[0])
+    return chart_search_unit_contract_errors(
+        item, label, source_records
+    )
+
+
+def image_packet_reconstruction_errors(
+    item: dict[str, Any], label: str, connection: sqlite3.Connection
+) -> list[str]:
+    """Load one bounded image family and independently reconstruct its packet."""
+    if item.get("unit_type") != "image_text_packet":
+        return []
+    source_ids = item.get("source_evidence_ids", [])
+    source_records: dict[str, dict[str, Any]] = {}
+    parent_id: str | None = None
+    for evidence_id in source_ids:
+        row = connection.execute(
+            "SELECT evidence_type,record_json FROM evidence WHERE id=?",
+            (evidence_id,),
+        ).fetchone()
+        if row is None:
+            continue
+        record = json.loads(row[1])
+        source_records[evidence_id] = record
+        if row[0] == "image":
+            if parent_id is not None and parent_id != evidence_id:
+                parent_id = ""
+                break
+            parent_id = evidence_id
+    if parent_id:
+        for evidence_id, record_json in connection.execute(
+            "SELECT id,record_json FROM evidence "
+            "WHERE parent_id=? AND evidence_type='ocr_line'",
+            (parent_id,),
+        ):
+            source_records[evidence_id] = json.loads(record_json)
+    try:
+        document_row = connection.execute(
+            "SELECT record_json FROM documents WHERE id=?",
+            (item.get("document_id"),),
+        ).fetchone()
+        document = (
+            json.loads(document_row[0]) if document_row is not None else None
+        )
+        expected = reconstruct_image_packet(item, source_records, document)
+    except ValueError as exc:
+        return [
+            f"{label}: independent image packet reconstruction failed: {exc}"
+        ]
+    errors: list[str] = []
+    context = item.get("context", {})
+    if source_ids != expected["source_evidence_ids"]:
+        errors.append(f"{label}: image packet source IDs/order differ from OCR Evidence")
+    if item.get("locator") != expected["locator"]:
+        errors.append(f"{label}: image packet locator differs from parent image Evidence")
+    if item.get("text", {}).get("search_text") != expected["search_text"]:
+        errors.append(f"{label}: image packet text differs from OCR Evidence")
+    if context.get("container_kind") != expected["container_kind"]:
+        errors.append(f"{label}: image packet container differs from visual origin")
+    if context.get("agreement_types") != expected["agreement_types"]:
+        errors.append(f"{label}: image packet agreement order differs from OCR Evidence")
+    if context.get("row_band_count") != expected["row_band_count"]:
+        errors.append(f"{label}: image packet row order differs from OCR geometry")
+    return errors
+
+
 def initialize(connection: sqlite3.Connection) -> None:
     connection.executescript("""
         PRAGMA journal_mode=OFF;
         PRAGMA synchronous=OFF;
         PRAGMA temp_store=FILE;
-        CREATE TABLE documents(id TEXT PRIMARY KEY);
+        CREATE TABLE documents(id TEXT PRIMARY KEY, record_json TEXT NOT NULL);
         CREATE TABLE evidence(
             id TEXT PRIMARY KEY,
             document_id TEXT NOT NULL,
@@ -147,9 +353,12 @@ def initialize(connection: sqlite3.Connection) -> None:
             quality_tier TEXT,
             agreement_type TEXT,
             provisional_marker TEXT,
-            bbox_coordinate_system TEXT
+            bbox_coordinate_system TEXT,
+            parent_id TEXT,
+            record_json TEXT NOT NULL
         );
         CREATE INDEX evidence_document_idx ON evidence(document_id);
+        CREATE INDEX evidence_parent_idx ON evidence(parent_id);
         CREATE TABLE units(
             id TEXT PRIMARY KEY,
             document_id TEXT NOT NULL,
@@ -181,7 +390,10 @@ def validate(search_output: Path, intermediate: Path | list[Path]) -> dict[str, 
         for directory in intermediates:
             for _, item in records(directory / "documents.jsonl"):
                 try:
-                    connection.execute("INSERT INTO documents VALUES (?)", (item["document_id"],))
+                    connection.execute(
+                        "INSERT INTO documents VALUES (?, ?)",
+                        (item["document_id"], canonical_json(item)),
+                    )
                 except sqlite3.IntegrityError:
                     errors.append(f"duplicate intermediate document: {item['document_id']}")
         connection.commit()
@@ -191,12 +403,13 @@ def validate(search_output: Path, intermediate: Path | list[Path]) -> dict[str, 
                 native = item.get("native_properties", {})
                 try:
                     connection.execute(
-                        "INSERT INTO evidence VALUES (?, ?, ?, ?, ?, ?, ?)",
+                        "INSERT INTO evidence VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
                         (
                             item["evidence_id"], item["document_id"],
                             item.get("evidence_type"), native.get("quality_tier"),
                             native.get("agreement_type"), native.get("provisional_marker"),
                             native.get("bbox_coordinate_system"),
+                            item.get("parent_evidence_id"), canonical_json(item),
                         ),
                     )
                 except sqlite3.IntegrityError:
@@ -251,6 +464,14 @@ def validate(search_output: Path, intermediate: Path | list[Path]) -> dict[str, 
             provenance = item.get("provenance", {})
             if set(provenance) != {"builder", "builder_version", "generated_at", "deterministic"}:
                 errors.append(f"{label}: invalid provenance fields")
+            expected_provenance = {
+                "builder": SEARCH_UNIT_BUILDER,
+                "builder_version": SEARCH_UNIT_BUILDER_VERSION,
+                "generated_at": state.get("generated_at"),
+                "deterministic": True,
+            }
+            if provenance != expected_provenance:
+                errors.append(f"{label}: provenance differs from search build state")
             expected = stable_id("su", {
                 "document_id": document_id,
                 "unit_type": unit_type,
@@ -263,6 +484,15 @@ def validate(search_output: Path, intermediate: Path | list[Path]) -> dict[str, 
             if unit_id != expected:
                 errors.append(f"{label}: unstable search unit id")
             errors.extend(image_packet_contract_errors(item, label))
+            errors.extend(
+                image_packet_reconstruction_errors(item, label, connection)
+            )
+            errors.extend(
+                provisional_visual_reconstruction_errors(item, label, connection)
+            )
+            errors.extend(
+                chart_reconstruction_errors(item, label, connection)
+            )
             try:
                 connection.execute(
                     "INSERT INTO units VALUES (?, ?, ?, ?, ?, ?)",
@@ -335,6 +565,20 @@ def validate(search_output: Path, intermediate: Path | list[Path]) -> dict[str, 
     output = state.get("output", {})
     if state.get("build_status") != "complete":
         errors.append("search build state is not complete")
+    if (
+        state.get("builder") != SEARCH_UNIT_BUILDER
+        or state.get("builder_version") != SEARCH_UNIT_BUILDER_VERSION
+        or state.get("deterministic") is not True
+    ):
+        errors.append("search build state provenance is invalid")
+    generated_at = state.get("generated_at")
+    source_run_at_values = {source_state.get("run_at") for _, source_state in source_states}
+    if (
+        not is_rfc3339_timestamp(generated_at)
+        or len(source_run_at_values) != 1
+        or generated_at not in source_run_at_values
+    ):
+        errors.append("search build state generated_at does not match its inputs")
     if output.get("relative_path") != units_path.name:
         errors.append("search build output path mismatch")
     if output.get("record_count") != unit_count or output.get("size_bytes") != units_path.stat().st_size:

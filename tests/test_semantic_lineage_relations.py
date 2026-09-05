@@ -72,7 +72,7 @@ def search_unit(
         },
         "provenance": {
             "builder": "search-unit-builder",
-            "builder_version": "0.5.0",
+            "builder_version": "0.6.0",
             "generated_at": RUN_AT,
             "deterministic": True,
         },
@@ -312,6 +312,76 @@ class SemanticLineageRelationTests(unittest.TestCase):
             validator._assert_acyclic_lineage([
                 edge(SOURCE_A, SOURCE_B), edge(SOURCE_B, SOURCE_A),
             ])
+
+    def test_native_section_contains_requires_real_heading_evidence(self) -> None:
+        heading_id = "ev_" + "a" * 32
+        table_id = "ev_" + "b" * 32
+        provenance = {
+            "extraction_method": "ooxml_stdlib_docx_fallback",
+            "extractor": "intermediate-record-extractor",
+            "extractor_version": "0.10.1",
+            "extracted_at": RUN_AT,
+            "deterministic": True,
+            "confidence": 1.0,
+            "warnings": [],
+        }
+        document = {
+            "document_id": DOC_ID,
+            "extraction": {"extracted_at": RUN_AT},
+        }
+        heading = {
+            "evidence_id": heading_id,
+            "document_id": DOC_ID,
+            "evidence_type": "heading",
+            "content": {"raw_text": "稼働集計"},
+            "provenance": provenance,
+            "native_properties": {},
+        }
+        table = {
+            "evidence_id": table_id,
+            "document_id": DOC_ID,
+            "evidence_type": "table",
+            "content": {"raw_value": {"rows": 2, "columns": 2}},
+            "provenance": provenance,
+            "native_properties": {
+                "preceding_heading_evidence_id": heading_id,
+                "preceding_heading_text": "稼働集計",
+            },
+        }
+        state = {
+            "extractor": "intermediate-record-extractor",
+            "extractor_version": "0.10.1",
+            "run_at": RUN_AT,
+        }
+
+        relations = validator.derive_native_structural_relations(
+            [document], [heading, table], state,
+        )
+        section = [
+            item for item in relations
+            if item["relation_type"] == "section_contains"
+        ]
+        self.assertEqual(1, len(section))
+        self.assertEqual(
+            {
+                "record_type": "evidence",
+                "record_id": heading_id,
+            },
+            section[0]["from_ref"],
+        )
+        self.assertEqual(
+            {"record_type": "evidence", "record_id": table_id},
+            section[0]["to_ref"],
+        )
+
+        mislabeled = copy.deepcopy(heading)
+        mislabeled["evidence_type"] = "paragraph"
+        with self.assertRaisesRegex(
+            ValueError, "native_structural_heading_binding_mismatch",
+        ):
+            validator.derive_native_structural_relations(
+                [document], [mislabeled, table], state,
+            )
 
     def test_full_validator_publishes_only_after_pass(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:

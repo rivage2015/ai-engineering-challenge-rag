@@ -218,7 +218,22 @@ class CrossFormatKgPhase2Test(unittest.TestCase):
         state = json.loads(validation.read_text(encoding="utf-8"))
         self.assertEqual("complete", state["status"])
         self.assertEqual(5, state["counts"]["documents"])
-        self.assertEqual(144, state["counts"]["source_evidence"])
+        safe_evidence = jsonl(self.safe_phase1 / "safe-answer-evidence.jsonl")
+        semantic_documents = jsonl(
+            self.safe_phase1 / "semantic-documents.jsonl"
+        )
+        authorized_evidence_ids = {
+            evidence_id
+            for document in semantic_documents
+            for evidence_id in document["evidence_ids"]
+        }
+        self.assertEqual(
+            {item["evidence_id"] for item in safe_evidence},
+            authorized_evidence_ids,
+        )
+        self.assertEqual(
+            len(safe_evidence), state["counts"]["source_evidence"]
+        )
         self.assertEqual(13, state["counts"]["nodes"])
         self.assertEqual(16, state["counts"]["edges"])
 

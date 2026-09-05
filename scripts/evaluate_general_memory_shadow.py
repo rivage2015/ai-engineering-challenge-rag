@@ -347,7 +347,14 @@ def phrase_coverage(
 
 
 def relationship_context_audit(cases: list[dict[str, Any]], adapter_dir: Path) -> dict[str, Any]:
-    """Check verified row/block, page/slide, and simple spatial contexts."""
+    """Check extracted row/block, page/slide, and simple spatial contexts.
+
+    This is a capability audit, not the graph-promotion gate.  Provisional OCR
+    remains explicitly marked in the safe evidence stream and is checked here
+    so a single-engine fallback is not confused with "no text extracted".  The
+    semantic graph builder and final validators apply the stricter eligibility
+    rules before any observation can become a verified fact.
+    """
     documents = {item["document_id"]: item for item in jsonl(adapter_dir / "semantic-documents.jsonl")}
     rows_by_path: dict[str, list[dict[str, Any]]] = {}
     slide_records_by_path: dict[str, list[dict[str, Any]]] = {}
@@ -491,7 +498,10 @@ def relationship_context_audit(cases: list[dict[str, Any]], adapter_dir: Path) -
         candidate_blocks = [
             block
             for relative in case["relevant_sources"]
-            for block in blocks_by_path.get(relative, [])
+            for block in (
+                blocks_by_path.get(relative, [])
+                + image_lines_by_path.get(relative, [])
+            )
         ]
         block_group_results = []
         for phrases in block_groups:
@@ -546,6 +556,12 @@ def relationship_context_audit(cases: list[dict[str, Any]], adapter_dir: Path) -
                     if item.get("locator", {}).get("page_number") == relation["page_number"]
                     and isinstance(item.get("geometry"), dict)
                 ]
+                records.extend(
+                    item for item in image_lines_by_path.get(relative, [])
+                    if item.get("locator", {}).get("page_number")
+                    == relation["page_number"]
+                    and isinstance(item.get("geometry"), dict)
+                )
                 sources = [item for item in records if relation["from_phrase"] in str(item.get("observed_text", ""))]
                 targets = [item for item in records if relation["to_phrase"] in str(item.get("observed_text", ""))]
                 for source in sources:

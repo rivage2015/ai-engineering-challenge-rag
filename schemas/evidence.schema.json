@@ -74,6 +74,7 @@
         "shape_id": {"type": "string", "minLength": 1},
         "object_id": {"type": "string", "minLength": 1},
         "object_index": {"type": "integer", "minimum": 1},
+        "image_object_index": {"type": "integer", "minimum": 1},
         "series_index": {"type": "integer", "minimum": 1},
         "notebook_cell_index": {"type": "integer", "minimum": 1},
         "code_line_start": {"type": "integer", "minimum": 1},
@@ -305,6 +306,130 @@
           }
         }
       }
+    },
+    {
+      "if": {
+        "properties": {
+          "evidence_type": {"const": "ocr_line"},
+          "native_properties": {
+            "properties": {
+              "agreement_type": {"const": "display_transform_unresolved"}
+            },
+            "required": ["agreement_type"]
+          }
+        },
+        "required": ["evidence_type", "native_properties"]
+      },
+      "then": {
+        "properties": {
+          "native_properties": {
+            "required": [
+              "provisional_marker", "display_transform_resolved",
+              "embedded_source_agreement_type", "visual_origin"
+            ],
+            "properties": {
+              "quality_tier": {"const": "provisional"},
+              "provisional_marker": {"const": "[暫定読取]"},
+              "independent_engines": {"const": true},
+              "spatial_overlap": {"minimum": 0.5},
+              "display_transform_resolved": {"const": false},
+              "embedded_source_agreement_type": {
+                "const": "independent_agreement"
+              },
+              "visual_origin": {
+                "type": "object",
+                "required": ["kind", "materialization"],
+                "properties": {
+                  "kind": {
+                    "enum": [
+                      "office_embedded_image", "notebook_embedded_image"
+                    ]
+                  },
+                  "materialization": {
+                    "type": "object",
+                    "required": [
+                      "display_transform_resolved", "display_transform_status"
+                    ],
+                    "properties": {
+                      "display_transform_resolved": {"const": false},
+                      "display_transform_status": {"const": "unresolved"}
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "provenance": {
+            "properties": {
+              "extraction_method": {"const": "adaptive_local_ocr_provisional"}
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "evidence_type": {"const": "ocr_line"},
+          "native_properties": {
+            "properties": {
+              "visual_origin": {
+                "type": "object",
+                "properties": {
+                  "kind": {
+                    "enum": [
+                      "office_embedded_image", "notebook_embedded_image"
+                    ]
+                  }
+                },
+                "required": ["kind"]
+              }
+            },
+            "required": ["visual_origin"]
+          }
+        },
+        "required": ["evidence_type", "native_properties"]
+      },
+      "then": {
+        "properties": {
+          "native_properties": {
+            "required": [
+              "provisional_marker", "display_transform_resolved"
+            ],
+            "properties": {
+              "agreement_type": {
+                "enum": [
+                  "same_engine_agreement", "provisional_single_pass",
+                  "display_transform_unresolved"
+                ]
+              },
+              "quality_tier": {"const": "provisional"},
+              "provisional_marker": {"const": "[暫定読取]"},
+              "display_transform_resolved": {"const": false},
+              "visual_origin": {
+                "properties": {
+                  "materialization": {
+                    "type": "object",
+                    "required": [
+                      "display_transform_resolved", "display_transform_status"
+                    ],
+                    "properties": {
+                      "display_transform_resolved": {"const": false},
+                      "display_transform_status": {"const": "unresolved"}
+                    }
+                  }
+                },
+                "required": ["materialization"]
+              }
+            }
+          },
+          "provenance": {
+            "properties": {
+              "extraction_method": {"const": "adaptive_local_ocr_provisional"}
+            }
+          }
+        }
+      }
     }
   ],
   "$defs": {
@@ -330,7 +455,8 @@
           "enum": [
             "independent_agreement",
             "same_engine_agreement",
-            "provisional_single_pass"
+            "provisional_single_pass",
+            "display_transform_unresolved"
           ]
         },
         "quality_tier": {"enum": ["high", "provisional"]},

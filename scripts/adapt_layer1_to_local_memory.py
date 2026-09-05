@@ -20,23 +20,42 @@ from pathlib import Path
 from typing import Any
 
 from evidence_text_chunking import MAX_QUESTION_EVIDENCE_CHARS, exact_text_chunks
+from intermediate_build_integrity import validate_managed_build_integrity
 from validate_search_units import validate as validate_search_units
 
 
 ADAPTER = "layer1-to-local-memory-evidence-adapter"
-ADAPTER_VERSION = "0.6.0"
+ADAPTER_VERSION = "0.7.0"
 SCHEMA_VERSION = "0.1"
 QUESTION_SHARD_VERSION = "question-evidence-shard-v1"
 PROVISIONAL_OCR_MARKER = "[暫定読取]"
+PROVISIONAL_TEXT_METHOD_TYPES = {
+    "local_vlm_unlocated_transcript_provisional": frozenset({"text_block"}),
+    "local_vlm_visual_observation_provisional": frozenset({
+        "text_block", "visual_observation",
+    }),
+}
+PROVISIONAL_TEXT_EVIDENCE_TYPES = frozenset(
+    evidence_type
+    for evidence_types in PROVISIONAL_TEXT_METHOD_TYPES.values()
+    for evidence_type in evidence_types
+)
 OCR_QUALITY_BY_AGREEMENT = {
     "independent_agreement": "high",
     "same_engine_agreement": "provisional",
     "provisional_single_pass": "provisional",
+    "display_transform_unresolved": "provisional",
 }
 OCR_BBOX_COORDINATE_SYSTEMS = {
     "raw_raster_top_left_normalized_1000",
     "display_oriented_top_left_normalized_1000",
     "source_orientation_1_top_left_normalized_1000",
+}
+IMAGE_PACKET_CONTAINER_KINDS = {
+    "standalone_image",
+    "pdf_page_image",
+    "office_embedded_image",
+    "notebook_embedded_image",
 }
 
 
@@ -111,7 +130,7 @@ def _mark_provisional_text(text: str) -> str:
         line if line.lstrip().startswith(PROVISIONAL_OCR_MARKER + " ")
         else f"{PROVISIONAL_OCR_MARKER} {line}"
         for line in text.splitlines()
-        if line.strip()
+        if line.strip() and line.strip() != PROVISIONAL_OCR_MARKER
     )
 
 
@@ -319,19 +338,80 @@ def ocr_evidence_quality(record: dict[str, Any]) -> tuple[str, list[str], str | 
         raise ValueError("provisional OCR Evidence lacks the canonical marker")
     if extraction_method != "adaptive_local_ocr_provisional":
         raise ValueError("provisional OCR Evidence has invalid extraction provenance")
-    if agreement_type == "same_engine_agreement":
+    if agreement_type in {
+        "same_engine_agreement",
+        "display_transform_unresolved",
+    }:
         if not numeric_overlap or overlap < 0.5:
-            raise ValueError("same-engine OCR agreement requires spatial overlap")
+            raise ValueError("multi-pass provisional OCR requires spatial overlap")
     elif overlap != 0:
         raise ValueError("single-pass provisional OCR must have zero overlap")
     return quality_tier, [agreement_type], PROVISIONAL_OCR_MARKER
 
 
+def provisional_text_evidence_quality(
+    record: dict[str, Any],
+) -> tuple[str, str] | None:
+    """Validate allowlisted provisional VLM text before semantic projection.
+
+    The quality declaration lives in Layer 1 ``native_properties``.  Unknown
+    VLM text methods and quality-bearing visual text types fail closed
+    instead of silently losing their provisional status at this boundary.
+    """
+    evidence_type = record.get("evidence_type")
+    provenance = record.get("provenance", {})
+    method = provenance.get("extraction_method") if isinstance(provenance, dict) else None
+    native = record.get("native_properties", {})
+    if not isinstance(native, dict):
+        native = {}
+    declares_quality = any(
+        key in native for key in ("quality_tier", "provisional_marker")
+    )
+    local_vlm_method_like = (
+        isinstance(method, str)
+        and method.startswith("local_vlm_")
+    )
+    if not (
+        method in PROVISIONAL_TEXT_METHOD_TYPES
+        or local_vlm_method_like
+        or (
+            evidence_type in PROVISIONAL_TEXT_EVIDENCE_TYPES
+            and declares_quality
+        )
+    ):
+        return None
+
+    allowed_types = PROVISIONAL_TEXT_METHOD_TYPES.get(method)
+    if allowed_types is None:
+        raise ValueError(f"unsupported VLM text method: {method!r}")
+    if evidence_type not in allowed_types:
+        raise ValueError(
+            "provisional VLM text method is not allowed for Evidence type: "
+            f"{method!r}/{evidence_type!r}"
+        )
+    if native.get("quality_tier") != "provisional":
+        raise ValueError("provisional VLM text requires quality_tier='provisional'")
+    if native.get("provisional_marker") != PROVISIONAL_OCR_MARKER:
+        raise ValueError("provisional VLM text lacks the canonical marker")
+    if native.get("question_independent") is not True:
+        raise ValueError("provisional VLM text must be question-independent")
+    if method == "local_vlm_unlocated_transcript_provisional":
+        if (
+            native.get("location_status") != "unlocated"
+            or native.get("transcript_type")
+            != "whole_image_faithful_transcript"
+        ):
+            raise ValueError("unlocated VLM transcript provenance is invalid")
+        if "geometry" in record:
+            raise ValueError("unlocated VLM transcript must not carry geometry")
+    return "provisional", PROVISIONAL_OCR_MARKER
+
+
 def image_packet_quality(unit: dict[str, Any]) -> tuple[str, list[str], str | None]:
     """Return validated quality metadata for a homogeneous image packet."""
     context = unit.get("context", {})
-    if context.get("container_kind") != "standalone_image":
-        raise ValueError("image text packet must identify its standalone-image container")
+    if context.get("container_kind") not in IMAGE_PACKET_CONTAINER_KINDS:
+        raise ValueError("image text packet container kind is invalid")
     if context.get("bbox_coordinate_system") not in OCR_BBOX_COORDINATE_SYSTEMS:
         raise ValueError("image text packet bbox coordinate system is invalid")
     if (
@@ -357,10 +437,10 @@ def image_packet_quality(unit: dict[str, Any]) -> tuple[str, list[str], str | No
     marker_present = "provisional_marker" in context
     text = unit.get("text", {}).get("search_text", "")
     marked_lines = _marked_lines(text)
-    content_lines = [
-        line for line in text.splitlines()
-        if line.strip() and not line.startswith("Image file: ")
-    ]
+    packet_lines = text.splitlines()
+    if packet_lines and packet_lines[0].startswith("Image file: "):
+        packet_lines = packet_lines[1:]
+    content_lines = [line for line in packet_lines if line.strip()]
     if context.get("row_band_count") != len(content_lines):
         raise ValueError("image text packet row-band count does not match its text")
     if quality_tier == "high":
@@ -410,6 +490,7 @@ def adapt(
         raise ValueError("Layer 1 intermediate build must have reached a terminal state")
     if Path(state.get("source_root", "")).resolve() != source_root:
         raise ValueError("source root does not match Layer 1 build state")
+    validate_managed_build_integrity(intermediate, state)
 
     layer_documents = read_jsonl(intermediate / "documents.jsonl")
     layer_evidence = read_jsonl(intermediate / "evidence.jsonl")
@@ -454,6 +535,7 @@ def adapt(
             continue
         observed_text, projection_method = text_from_content(record_content)
         quality_metadata: tuple[str, list[str], str | None] | None = None
+        provisional_text_quality: tuple[str, str] | None = None
         if record.get("evidence_type") == "ocr_line":
             quality_metadata = ocr_evidence_quality(record)
             quality_tier, _agreement_types, marker = quality_metadata
@@ -464,6 +546,12 @@ def adapt(
                 for line in observed_text.splitlines()
             ):
                 raise ValueError("high OCR text collides with the provisional marker")
+        else:
+            provisional_text_quality = provisional_text_evidence_quality(record)
+            if provisional_text_quality is not None:
+                observed_text = _mark_provisional_text(observed_text)
+                if not observed_text:
+                    raise ValueError("provisional VLM text is empty after marker normalization")
         projection_methods[projection_method] += 1
         source = document_by_id[document_id]["source"]
         projected = {
@@ -496,6 +584,10 @@ def adapt(
             ]
             if marker is not None:
                 projected["provisional_marker"] = marker
+        elif provisional_text_quality is not None:
+            quality_tier, marker = provisional_text_quality
+            projected["quality_tier"] = quality_tier
+            projected["provisional_marker"] = marker
         geometry = record.get("geometry")
         if isinstance(geometry, dict) and geometry:
             projected["geometry"] = geometry
@@ -513,14 +605,17 @@ def adapt(
             projections.append(shard)
 
     # SearchUnits are derived, question-independent groupings of verified
-    # Evidence. Preserve table rows and audited image text packets at this
-    # boundary because isolated cells or OCR lines lose their relationships.
+    # Evidence. Preserve table rows, native chart groupings, and audited image
+    # text packets at this boundary because isolated cells/series/OCR lines
+    # lose their relationships.
     # Every referenced Evidence ID has already been validated against the same
     # intermediate build by validate_search_units().
     search_unit_projection_count = 0
     image_quality_counts: Counter[str] = Counter()
     for unit in search_units:
-        if unit.get("unit_type") not in {"table_row", "image_text_packet"}:
+        if unit.get("unit_type") not in {
+            "table_row", "chart_summary", "chart_series", "image_text_packet",
+        }:
             continue
         document_id = unit["document_id"]
         source_evidence_ids = unit["source_evidence_ids"]
@@ -675,7 +770,9 @@ def adapt(
         },
         "search_unit_projection": {
             "enabled": search_output is not None,
-            "included_unit_types": ["image_text_packet", "table_row"] if search_output is not None else [],
+            "included_unit_types": [
+                "chart_series", "chart_summary", "image_text_packet", "table_row",
+            ] if search_output is not None else [],
             "count": search_unit_projection_count,
             "search_state": ({
                 "path": str(search_output / "search-build-state.json"),

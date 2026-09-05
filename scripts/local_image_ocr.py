@@ -10,20 +10,30 @@ search them with an explicit marker instead of silently dropping them.
 from __future__ import annotations
 
 import base64
+import copy
+import concurrent.futures
+import contextvars
 import hashlib
 import http.client
 import json
 import math
 import os
 import platform
+import re
+import selectors
+import signal
 import shutil
 import stat
 import struct
 import subprocess
 import tempfile
+import threading
+import time
 import unicodedata
+from collections import OrderedDict
+from contextlib import contextmanager
 from pathlib import Path
-from typing import Any
+from typing import Any, Iterator
 
 import extract_ocr_observations as ocr
 
@@ -37,7 +47,7 @@ CANONICALIZER_RUNNER = "aiec-image-canonicalizer"
 CANONICALIZER_VERSION = "0.1"
 PADDLE_WORKER_SOURCE = Path(__file__).with_name("local_paddle_ocr.py")
 PADDLE_WORKER_RUNNER = "aiec-local-paddle-ocr"
-PADDLE_WORKER_VERSION = "0.1"
+PADDLE_WORKER_VERSION = "0.2"
 PADDLE_WORKER_SCHEMA_VERSION = "0.1"
 PADDLE_ENGINE_NAME = "paddleocr_ppocrv6_medium_japan"
 PADDLE_ENGINE_VERSION = "PP-OCRv6 medium / PaddleOCR 3.7.0"
@@ -52,6 +62,22 @@ PADDLE_PACKAGE_VERSIONS = {
     "paddlepaddle": "3.3.0",
     "paddleocr": "3.7.0",
     "paddlex": "3.7.0",
+}
+PADDLE_RUNTIME_SETTINGS: dict[str, Any] = {
+    "device": "cpu",
+    "engine": "paddle_static",
+    "use_doc_orientation_classify": False,
+    "use_doc_unwarping": False,
+    "use_textline_orientation": False,
+    "text_rec_score_thresh": 0.0,
+    "return_word_box": False,
+    "enable_hpi": False,
+    "use_tensorrt": False,
+    "precision": "fp32",
+    "enable_mkldnn": True,
+    "mkldnn_cache_capacity": 10,
+    "cpu_threads": 10,
+    "enable_cinn": False,
 }
 PADDLE_MODEL_CONTRACTS = {
     "text_detection": {
@@ -74,6 +100,13 @@ PADDLE_MODEL_CONTRACTS = {
     },
 }
 MAX_PADDLE_OUTPUT_BYTES = 8 * 1024 * 1024
+PADDLE_SESSION_PROTOCOL_VERSION = "0.1"
+MAX_PADDLE_SESSION_REQUEST_BYTES = 16 * 1024
+MAX_PADDLE_SESSION_RESPONSE_BYTES = MAX_PADDLE_OUTPUT_BYTES + 64 * 1024
+PADDLE_OVERLAP_MIN_PHYSICAL_MEMORY_BYTES = 48 * 1024**3
+PADDLE_OVERLAP_MIN_AVAILABLE_MEMORY_BYTES = 16 * 1024**3
+MAX_PADDLE_SESSION_CACHE_ENTRIES = 32
+MAX_PADDLE_SESSION_CACHE_BYTES = 16 * 1024 * 1024
 RAW_BBOX_COORDINATE_SYSTEM = "raw_raster_top_left_normalized_1000"
 VISION_BBOX_COORDINATE_SYSTEM = "display_oriented_top_left_normalized_1000"
 ORIENTATION_1_COORDINATE_SYSTEM = "source_orientation_1_top_left_normalized_1000"
@@ -118,76 +151,299 @@ UNLOCATED_TRANSCRIPT_SCHEMA = {
 }
 
 
+_ACTIVE_PADDLE_SESSION: contextvars.ContextVar["PaddleOCRSession | None"] = (
+    contextvars.ContextVar("aiec_active_paddle_session", default=None)
+)
+_ACTIVE_PADDLE_ASYNC_JOBS: contextvars.ContextVar[
+    "list[_PaddleAsyncJob] | None"
+] = contextvars.ContextVar("aiec_active_paddle_async_jobs", default=None)
+_LOCAL_MODEL_TIMEOUT_LATCH = threading.Event()
+_LOCAL_MODEL_TRANSITION_LOCK = threading.RLock()
+_UNREAPED_PADDLE_PROCESSES: list[Any] = []
+
+
+def latch_local_model_timeout() -> None:
+    """Prevent a heavyweight local model restart after an uncertain timeout."""
+    # Publish the poison state before waiting for an in-flight Popen guard.
+    # The guarded starter checks again after Popen and retires a child whose
+    # creation overlapped this request.
+    _LOCAL_MODEL_TIMEOUT_LATCH.set()
+    with _LOCAL_MODEL_TRANSITION_LOCK:
+        pass
+
+
+def local_model_timeout_latched() -> bool:
+    return _LOCAL_MODEL_TIMEOUT_LATCH.is_set()
+
+
+@contextmanager
+def guard_local_model_start() -> Iterator[None]:
+    """Serialize the final timeout check with heavyweight process creation."""
+    with _LOCAL_MODEL_TRANSITION_LOCK:
+        if _LOCAL_MODEL_TIMEOUT_LATCH.is_set():
+            raise RuntimeError(
+                "PaddleOCR restart is disabled after an uncertain local model timeout"
+            )
+        yield
+
+
+def _physical_memory_bytes() -> int | None:
+    """Return physical RAM without adding a host-specific package dependency."""
+    try:
+        page_size = os.sysconf("SC_PAGE_SIZE")
+        page_count = os.sysconf("SC_PHYS_PAGES")
+    except (AttributeError, OSError, TypeError, ValueError):
+        return None
+    if (
+        isinstance(page_size, bool)
+        or not isinstance(page_size, int)
+        or isinstance(page_count, bool)
+        or not isinstance(page_count, int)
+        or page_size <= 0
+        or page_count <= 0
+    ):
+        return None
+    return page_size * page_count
+
+
+def _available_memory_bytes(physical_memory: int) -> int | None:
+    """Return a conservative host-available estimate or fail closed."""
+    try:
+        page_size = os.sysconf("SC_PAGE_SIZE")
+        available_pages = os.sysconf("SC_AVPHYS_PAGES")
+    except (AttributeError, OSError, TypeError, ValueError):
+        pass
+    else:
+        if (
+            isinstance(page_size, int)
+            and not isinstance(page_size, bool)
+            and isinstance(available_pages, int)
+            and not isinstance(available_pages, bool)
+            and page_size > 0
+            and available_pages > 0
+        ):
+            return page_size * available_pages
+    if platform.system() != "Darwin":
+        return None
+    try:
+        completed = subprocess.run(
+            ["/usr/bin/memory_pressure", "-Q"],
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
+            env={**os.environ, "LC_ALL": "C"},
+            timeout=2,
+            check=False,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return None
+    if completed.returncode != 0 or len(completed.stdout) > 16 * 1024:
+        return None
+    match = re.search(
+        rb"System-wide memory free percentage:\s*([0-9]{1,3})%",
+        completed.stdout,
+    )
+    if match is None:
+        return None
+    percentage = int(match.group(1))
+    if not 0 <= percentage <= 100:
+        return None
+    return physical_memory * percentage // 100
+
+
+def _paddle_overlap_decision(policy: str) -> tuple[bool, str]:
+    if policy not in {"safe_auto", "serial"}:
+        raise ValueError("unsupported Paddle overlap policy")
+    if policy == "serial":
+        return False, "explicit_serial_policy"
+    physical_memory = _physical_memory_bytes()
+    if physical_memory is None:
+        return False, "physical_memory_unavailable"
+    if physical_memory < PADDLE_OVERLAP_MIN_PHYSICAL_MEMORY_BYTES:
+        return False, "physical_memory_below_48_gib"
+    available_memory = _available_memory_bytes(physical_memory)
+    if available_memory is None:
+        return False, "available_memory_unavailable"
+    if available_memory < PADDLE_OVERLAP_MIN_AVAILABLE_MEMORY_BYTES:
+        return False, "available_memory_below_16_gib"
+    return True, "physical_and_available_memory_sufficient"
+
+
+def active_paddle_session() -> "PaddleOCRSession | None":
+    return _ACTIVE_PADDLE_SESSION.get()
+
+
+@contextmanager
+def activate_paddle_session(
+    session: "PaddleOCRSession",
+) -> Iterator["PaddleOCRSession"]:
+    """Bind one explicit build-scoped worker without changing Probe APIs."""
+    token = _ACTIVE_PADDLE_SESSION.set(session)
+    try:
+        yield session
+    finally:
+        _ACTIVE_PADDLE_SESSION.reset(token)
+
+
+def _bounded_vlm_timeout(timeout: float) -> float:
+    if (
+        isinstance(timeout, bool)
+        or not isinstance(timeout, (int, float))
+        or not math.isfinite(float(timeout))
+        or float(timeout) <= 0
+    ):
+        raise ValueError("timeout must be a positive finite number")
+    return min(float(timeout), MAX_VLM_TIMEOUT_SECONDS)
+
+
+def _remaining_vlm_timeout(deadline_at: float) -> float:
+    if (
+        isinstance(deadline_at, bool)
+        or not isinstance(deadline_at, (int, float))
+        or not math.isfinite(float(deadline_at))
+    ):
+        raise ValueError("Ollama absolute deadline must be finite")
+    remaining = float(deadline_at) - time.monotonic()
+    if remaining <= 0:
+        raise TimeoutError("loopback Ollama absolute deadline was exceeded")
+    return min(remaining, MAX_VLM_TIMEOUT_SECONDS)
+
+
 def _ollama_json(
     method: str,
     path: str,
     *,
     payload: dict[str, Any] | None,
-    timeout: float,
+    timeout: float | None = None,
+    deadline_at: float | None = None,
 ) -> dict[str, Any]:
-    """Call only the fixed loopback Ollama API without following redirects."""
-    if method not in {"GET", "POST"} or path not in {"/api/tags", "/api/chat"}:
-        raise ValueError("unsupported loopback Ollama request")
-    bounded_timeout = max(1.0, min(float(timeout), MAX_VLM_TIMEOUT_SECONDS))
-    body = None if payload is None else json.dumps(
-        payload, ensure_ascii=False, separators=(",", ":")
-    ).encode("utf-8")
-    connection = http.client.HTTPConnection(
-        OLLAMA_HOST, OLLAMA_PORT, timeout=bounded_timeout
+    """Use the common strict loopback transport inside the killable worker."""
+    from local_visual_observation import _ollama_json as strict_ollama_json
+
+    if (timeout is None) == (deadline_at is None):
+        raise ValueError("provide exactly one Ollama timeout or absolute deadline")
+    if deadline_at is None:
+        deadline_at = time.monotonic() + _bounded_vlm_timeout(timeout)
+    else:
+        _remaining_vlm_timeout(deadline_at)
+    result = strict_ollama_json(
+        method,
+        path,
+        payload=payload,
+        deadline_at=deadline_at,
     )
-    try:
-        headers = {"Content-Type": "application/json"} if body is not None else {}
-        connection.request(method, path, body=body, headers=headers)
-        response = connection.getresponse()
-        raw_response = response.read(MAX_VLM_RESPONSE_BYTES + 1)
-        if len(raw_response) > MAX_VLM_RESPONSE_BYTES:
-            raise RuntimeError("loopback Ollama response exceeds the safety limit")
-        if response.status != 200:
-            raise RuntimeError(f"loopback Ollama returned HTTP {response.status}")
-    finally:
-        connection.close()
-    try:
-        decoded = json.loads(raw_response.decode("utf-8"))
-    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
-        raise RuntimeError("loopback Ollama returned invalid JSON") from exc
-    if not isinstance(decoded, dict):
-        raise RuntimeError("loopback Ollama response must be a JSON object")
-    return decoded
+    _remaining_vlm_timeout(deadline_at)
+    return result
 
 
-def _installed_model_digest(model: str, *, timeout: float) -> str:
-    tags = _ollama_json("GET", "/api/tags", payload=None, timeout=timeout)
+def _installed_model_digest(model: str, *, deadline_at: float) -> str:
+    tags = _ollama_json(
+        "GET", "/api/tags", payload=None, deadline_at=deadline_at
+    )
     models = tags.get("models")
     if not isinstance(models, list) or len(models) > 10_000:
         raise RuntimeError("installed Ollama model inventory is invalid")
+    matching_digests: set[str] = set()
     for item in models:
         if not isinstance(item, dict):
             continue
         if model not in {item.get("name"), item.get("model")}:
             continue
         digest = item.get("digest")
-        normalized = str(digest).lower().removeprefix("sha256:")
+        if not isinstance(digest, str):
+            raise RuntimeError("installed Ollama model digest is invalid")
+        normalized = digest.strip().lower().removeprefix("sha256:")
         if len(normalized) != 64 or any(
             character not in "0123456789abcdef" for character in normalized
         ):
             raise RuntimeError("installed Ollama model digest is invalid")
-        return normalized
+        matching_digests.add(normalized)
+    if len(matching_digests) == 1:
+        return next(iter(matching_digests))
+    if len(matching_digests) > 1:
+        raise RuntimeError("installed Ollama model has conflicting digests")
     raise RuntimeError(
         f"required local model {model!r} is not installed; model download is forbidden"
     )
 
 
-def run_unlocated_transcript_fallback(
+def _strict_unlocated_content(raw_content: str) -> dict[str, Any]:
+    def reject_duplicate_keys(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
+        value: dict[str, Any] = {}
+        for key, item in pairs:
+            if key in value:
+                raise ValueError(f"duplicate unlocated transcript JSON key: {key!r}")
+            value[key] = item
+        return value
+
+    def reject_constant(value: str) -> None:
+        raise ValueError(f"non-JSON constant in unlocated transcript: {value}")
+
+    try:
+        result = json.loads(
+            raw_content,
+            object_pairs_hook=reject_duplicate_keys,
+            parse_constant=reject_constant,
+        )
+    except (json.JSONDecodeError, ValueError) as exc:
+        raise RuntimeError("unlocated transcript is not strict JSON") from exc
+    if not isinstance(result, dict) or set(result) != {"transcript"}:
+        raise RuntimeError("unlocated transcript JSON violates the strict schema")
+    return result
+
+
+def _validate_unlocated_transcript_result(result: Any) -> dict[str, Any]:
+    expected_keys = {
+        "text", "location_status", "quality_tier", "provisional_marker",
+        "transcript_type", "question_independent", "model", "model_digest",
+        "prompt_sha256", "runner", "host", "temperature", "num_predict",
+    }
+    if not isinstance(result, dict) or set(result) != expected_keys:
+        raise RuntimeError("unlocated transcript worker result shape is invalid")
+    text = result.get("text")
+    if (
+        not isinstance(text, str)
+        or not text
+        or len(text) > MAX_UNLOCATED_TRANSCRIPT_CHARS
+        or result.get("location_status") != "unlocated"
+        or result.get("quality_tier") != "provisional"
+        or result.get("provisional_marker") != PROVISIONAL_MARKER
+        or result.get("transcript_type") != "whole_image_faithful_transcript"
+        or result.get("question_independent") is not True
+        or result.get("model") != UNLOCATED_TRANSCRIPT_MODEL
+        or not isinstance(result.get("model_digest"), str)
+        or not re.fullmatch(r"[0-9a-f]{64}", result["model_digest"])
+        or result.get("prompt_sha256") != UNLOCATED_TRANSCRIPT_PROMPT_SHA256
+        or result.get("runner") != "ollama_loopback_chat"
+        or result.get("host") != OLLAMA_HOST
+        or type(result.get("temperature")) is not int
+        or result.get("temperature") != 0
+        or type(result.get("num_predict")) is not int
+        or result.get("num_predict") != MAX_UNLOCATED_TRANSCRIPT_TOKENS
+    ):
+        raise RuntimeError("unlocated transcript worker result contract is invalid")
+    return result
+
+
+def _run_unlocated_transcript_inline(
     raw: bytes,
     *,
     timeout: float,
 ) -> dict[str, Any]:
-    """Read a whole image without coordinates using an already-installed VLM."""
+    """Worker-only coordinate-free transcript implementation."""
     if not raw or len(raw) > MAX_VLM_IMAGE_BYTES:
         raise RuntimeError("image exceeds the unlocated transcript safety limit")
+    deadline_at = time.monotonic() + _bounded_vlm_timeout(timeout)
+    if hashlib.sha256(UNLOCATED_TRANSCRIPT_PROMPT.encode("utf-8")).hexdigest() != (
+        UNLOCATED_TRANSCRIPT_PROMPT_SHA256
+    ):
+        raise RuntimeError("unlocated transcript prompt digest mismatch")
     model_digest = _installed_model_digest(
-        UNLOCATED_TRANSCRIPT_MODEL, timeout=timeout
+        UNLOCATED_TRANSCRIPT_MODEL, deadline_at=deadline_at
     )
+    _remaining_vlm_timeout(deadline_at)
+    encoded_image = base64.b64encode(raw).decode("ascii")
+    _remaining_vlm_timeout(deadline_at)
     payload = {
         "model": UNLOCATED_TRANSCRIPT_MODEL,
         "stream": False,
@@ -203,7 +459,7 @@ def run_unlocated_transcript_fallback(
             {
                 "role": "user",
                 "content": UNLOCATED_TRANSCRIPT_PROMPT,
-                "images": [base64.b64encode(raw).decode("ascii")],
+                "images": [encoded_image],
             },
         ],
         "think": False,
@@ -214,26 +470,47 @@ def run_unlocated_transcript_fallback(
         },
     }
     response = _ollama_json(
-        "POST", "/api/chat", payload=payload, timeout=timeout
+        "POST", "/api/chat", payload=payload, deadline_at=deadline_at
     )
+    allowed_response_keys = {
+        "model", "created_at", "message", "done", "done_reason",
+        "total_duration", "load_duration", "prompt_eval_count",
+        "prompt_eval_duration", "eval_count", "eval_duration",
+    }
+    if "error" in response or not set(response).issubset(allowed_response_keys):
+        raise RuntimeError(
+            "loopback Ollama chat response contains an error or unknown field"
+        )
     if response.get("model") != UNLOCATED_TRANSCRIPT_MODEL:
         raise RuntimeError("loopback Ollama response model does not match the request")
     message = response.get("message")
-    if not isinstance(message, dict) or not isinstance(message.get("content"), str):
+    if (
+        response.get("done") is not True
+        or response.get("done_reason") not in (None, "stop")
+        or not isinstance(message, dict)
+        or message.get("role") != "assistant"
+        or not set(message).issubset(
+            {"role", "content", "thinking", "tool_calls", "images"}
+        )
+        or message.get("tool_calls")
+        or message.get("images")
+        or message.get("thinking") not in (None, "")
+        or not isinstance(message.get("content"), str)
+    ):
         raise RuntimeError("loopback Ollama response message is invalid")
-    try:
-        result = json.loads(message["content"])
-    except json.JSONDecodeError as exc:
-        raise RuntimeError("unlocated transcript is not strict JSON") from exc
-    if not isinstance(result, dict) or set(result) != {"transcript"}:
-        raise RuntimeError("unlocated transcript JSON violates the strict schema")
+    result = _strict_unlocated_content(message["content"])
     transcript = result.get("transcript")
     if not isinstance(transcript, str):
         raise RuntimeError("unlocated transcript text is missing")
     transcript = unicodedata.normalize("NFC", transcript).strip()
     if not transcript or len(transcript) > MAX_UNLOCATED_TRANSCRIPT_CHARS:
         raise RuntimeError("unlocated transcript text exceeds the safety contract")
-    return {
+    model_digest_after = _installed_model_digest(
+        UNLOCATED_TRANSCRIPT_MODEL, deadline_at=deadline_at
+    )
+    if model_digest_after != model_digest:
+        raise RuntimeError("installed Ollama model changed during transcription")
+    return _validate_unlocated_transcript_result({
         "text": transcript,
         "location_status": "unlocated",
         "quality_tier": "provisional",
@@ -247,7 +524,30 @@ def run_unlocated_transcript_fallback(
         "host": OLLAMA_HOST,
         "temperature": 0,
         "num_predict": MAX_UNLOCATED_TRANSCRIPT_TOKENS,
-    }
+    })
+
+
+def run_unlocated_transcript_fallback(
+    raw: bytes,
+    *,
+    timeout: float,
+) -> dict[str, Any]:
+    """Read a whole image in a killable process with one wall-clock limit."""
+    if not isinstance(raw, bytes) or not 0 < len(raw) <= MAX_VLM_IMAGE_BYTES:
+        raise RuntimeError("image exceeds the unlocated transcript safety limit")
+    bounded_timeout = _bounded_vlm_timeout(timeout)
+    if hashlib.sha256(UNLOCATED_TRANSCRIPT_PROMPT.encode("utf-8")).hexdigest() != (
+        UNLOCATED_TRANSCRIPT_PROMPT_SHA256
+    ):
+        raise RuntimeError("unlocated transcript prompt digest mismatch")
+    from local_visual_observation import run_unlocated_transcript_isolated
+
+    result = run_unlocated_transcript_isolated(
+        raw,
+        prompt_sha256=UNLOCATED_TRANSCRIPT_PROMPT_SHA256,
+        timeout=bounded_timeout,
+    )
+    return _validate_unlocated_transcript_result(result)
 
 
 def _checked_metadata(width: int, height: int, image_format: str) -> dict[str, Any]:
@@ -339,18 +639,31 @@ def inspect_image_bytes(raw: bytes) -> dict[str, Any]:
 
 
 def read_checked_image_bytes(path: Path) -> bytes:
-    """Read at most the configured limit from one regular non-symlink image."""
-    if path.is_symlink():
-        raise ValueError("standalone image must not be a symlink")
-    metadata = path.stat()
-    if not stat.S_ISREG(metadata.st_mode):
-        raise ValueError("standalone image must be a regular file")
-    if not 0 < metadata.st_size <= MAX_IMAGE_BYTES:
-        raise ValueError("image bytes exceed the local OCR safety limit")
-    with path.open("rb") as handle:
+    """Read one stable regular image through a single non-following descriptor."""
+    no_follow = getattr(os, "O_NOFOLLOW", 0)
+    if not no_follow:
+        raise RuntimeError("this local OCR runtime cannot reject image symlinks safely")
+    flags = os.O_RDONLY | getattr(os, "O_CLOEXEC", 0) | no_follow
+    try:
+        descriptor = os.open(path, flags)
+    except OSError as exc:
+        raise ValueError("standalone image cannot be opened safely") from exc
+    with os.fdopen(descriptor, "rb", closefd=True) as handle:
+        before = os.fstat(handle.fileno())
+        if not stat.S_ISREG(before.st_mode):
+            raise ValueError("standalone image must be a regular file")
+        if not 0 < before.st_size <= MAX_IMAGE_BYTES:
+            raise ValueError("image bytes exceed the local OCR safety limit")
         raw = handle.read(MAX_IMAGE_BYTES + 1)
-    if len(raw) != metadata.st_size or len(raw) > MAX_IMAGE_BYTES:
+        after = os.fstat(handle.fileno())
+    if len(raw) != before.st_size or len(raw) > MAX_IMAGE_BYTES:
         raise ValueError("standalone image changed or exceeded the safety limit while reading")
+    stable_fields = (
+        "st_dev", "st_ino", "st_mode", "st_nlink", "st_size",
+        "st_mtime_ns", "st_ctime_ns",
+    )
+    if any(getattr(before, key) != getattr(after, key) for key in stable_fields):
+        raise ValueError("standalone image changed while reading")
     return raw
 
 
@@ -754,6 +1067,10 @@ def _reject_duplicate_json_keys(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
     return value
 
 
+def _reject_non_json_constant(value: str) -> None:
+    raise ValueError(f"non-JSON PaddleOCR constant: {value}")
+
+
 def _validated_paddle_lines(value: Any) -> list[dict[str, Any]]:
     if not isinstance(value, list) or len(value) > 100_000:
         raise RuntimeError("PaddleOCR worker lines are invalid")
@@ -799,12 +1116,38 @@ def _validated_paddle_lines(value: Any) -> list[dict[str, Any]]:
     return lines
 
 
-def _run_paddle_ocr(
-    runtime: dict[str, Any],
+def _paddle_worker_environment() -> dict[str, str]:
+    return {
+        "HOME": str(Path.home()),
+        "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
+        "TMPDIR": tempfile.gettempdir(),
+        "PYTHONNOUSERSITE": "1",
+        "PYTHONDONTWRITEBYTECODE": "1",
+        "PADDLE_PDX_DISABLE_MODEL_SOURCE_CHECK": "1",
+        "HF_HUB_OFFLINE": "1",
+        "TRANSFORMERS_OFFLINE": "1",
+        "HF_DATASETS_OFFLINE": "1",
+    }
+
+
+def _decode_paddle_worker_payload(raw_output: bytes) -> dict[str, Any]:
+    try:
+        payload = json.loads(
+            raw_output.decode("utf-8"),
+            object_pairs_hook=_reject_duplicate_json_keys,
+            parse_constant=_reject_non_json_constant,
+        )
+    except (UnicodeDecodeError, json.JSONDecodeError, ValueError) as exc:
+        raise RuntimeError("local PaddleOCR worker returned invalid JSON") from exc
+    if not isinstance(payload, dict):
+        raise RuntimeError("local PaddleOCR worker result must be a JSON object")
+    return payload
+
+
+def _validated_paddle_worker_result(
+    payload: dict[str, Any],
     raw: bytes,
     dimensions: dict[str, int],
-    *,
-    timeout: float,
 ) -> tuple[
     str,
     list[dict[str, Any]],
@@ -813,67 +1156,8 @@ def _run_paddle_ocr(
     dict[str, Any] | None,
     dict[str, Any] | None,
 ]:
-    """Run the network-denied Paddle worker in its isolated Python 3.12."""
-    with tempfile.TemporaryDirectory(prefix="aiec-local-paddle-ocr-") as temporary:
-        temporary_root = Path(temporary)
-        input_path = temporary_root / "input.png"
-        output_path = temporary_root / "result.json"
-        input_path.write_bytes(raw)
-        os.chmod(input_path, 0o600)
-        environment = {
-            "HOME": str(Path.home()),
-            "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
-            "TMPDIR": tempfile.gettempdir(),
-            "PYTHONNOUSERSITE": "1",
-            "PYTHONDONTWRITEBYTECODE": "1",
-            "PADDLE_PDX_DISABLE_MODEL_SOURCE_CHECK": "1",
-            "HF_HUB_OFFLINE": "1",
-            "TRANSFORMERS_OFFLINE": "1",
-            "HF_DATASETS_OFFLINE": "1",
-        }
-        process = subprocess.run(
-            [
-                str(runtime["network_sandbox"]),
-                "-p",
-                str(runtime["network_profile"]),
-                str(runtime["python"]),
-                str(runtime["worker"]),
-                "--input",
-                str(input_path),
-                "--output",
-                str(output_path),
-                "--model-root",
-                str(runtime["model_root"]),
-                "--runtime-lock",
-                str(runtime["runtime_lock"]),
-            ],
-            stdin=subprocess.DEVNULL,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-            env=environment,
-            timeout=timeout,
-            check=False,
-        )
-        if output_path.is_symlink() or not output_path.is_file():
-            raise RuntimeError(
-                f"local PaddleOCR worker produced no result (exit {process.returncode})"
-            )
-        output_size = output_path.stat().st_size
-        if not 0 < output_size <= MAX_PADDLE_OUTPUT_BYTES:
-            raise RuntimeError("local PaddleOCR worker result exceeds the safety limit")
-        raw_output = output_path.read_bytes()
-        if len(raw_output) != output_size:
-            raise RuntimeError("local PaddleOCR worker result changed while reading")
-    try:
-        payload = json.loads(
-            raw_output.decode("utf-8"),
-            object_pairs_hook=_reject_duplicate_json_keys,
-        )
-    except (UnicodeDecodeError, json.JSONDecodeError, ValueError) as exc:
-        raise RuntimeError("local PaddleOCR worker returned invalid JSON") from exc
     if (
-        not isinstance(payload, dict)
-        or payload.get("schema_version") != PADDLE_WORKER_SCHEMA_VERSION
+        payload.get("schema_version") != PADDLE_WORKER_SCHEMA_VERSION
         or payload.get("runner") != PADDLE_WORKER_RUNNER
         or payload.get("runner_version") != PADDLE_WORKER_VERSION
         or payload.get("external_network_used") is not False
@@ -881,11 +1165,8 @@ def _run_paddle_ocr(
     ):
         raise RuntimeError("local PaddleOCR worker identity or offline contract failed")
     status = payload.get("status")
-    expected_code = 1 if status == "failed" else 0
     if status not in {"completed", "needs_review", "failed"}:
         raise RuntimeError("local PaddleOCR worker status is invalid")
-    if process.returncode != expected_code:
-        raise RuntimeError("local PaddleOCR worker exit status disagrees with its result")
     if status == "failed":
         error = payload.get("error")
         detail = (
@@ -895,11 +1176,16 @@ def _run_paddle_ocr(
         )
         return status, [], [], detail[:1000], None, None
     input_metadata = payload.get("input")
-    if input_metadata != {
-        "sha256": hashlib.sha256(raw).hexdigest(),
-        "width_px": dimensions["width_px"],
-        "height_px": dimensions["height_px"],
-    }:
+    if (
+        not isinstance(input_metadata, dict)
+        or type(input_metadata.get("width_px")) is not int
+        or type(input_metadata.get("height_px")) is not int
+        or input_metadata != {
+            "sha256": hashlib.sha256(raw).hexdigest(),
+            "width_px": dimensions["width_px"],
+            "height_px": dimensions["height_px"],
+        }
+    ):
         raise RuntimeError("local PaddleOCR worker input identity mismatch")
     engine = payload.get("engine")
     if (
@@ -951,8 +1237,7 @@ def _run_paddle_ocr(
         or runtime_metadata.get("model_download_permitted") is not False
         or runtime_metadata.get("network_guard")
         != "python_af_inet_and_af_inet6_denied"
-        or runtime_settings.get("device") != "cpu"
-        or runtime_settings.get("engine") != "paddle_static"
+        or runtime_settings != PADDLE_RUNTIME_SETTINGS
         or offline_environment.get("PADDLE_PDX_DISABLE_MODEL_SOURCE_CHECK") != "1"
         or offline_environment.get("HF_HUB_OFFLINE") != "1"
     ):
@@ -978,6 +1263,842 @@ def _run_paddle_ocr(
     if status == "needs_review" and lines:
         raise RuntimeError("needs-review PaddleOCR worker result unexpectedly has lines")
     return status, lines, warnings, None, engine, timing
+
+
+def _with_paddle_request_metadata(
+    result: tuple[
+        str,
+        list[dict[str, Any]],
+        list[str],
+        str | None,
+        dict[str, Any] | None,
+        dict[str, Any] | None,
+    ],
+    *,
+    cache_hit: bool,
+    session_worker: bool,
+) -> tuple[
+    str,
+    list[dict[str, Any]],
+    list[str],
+    str | None,
+    dict[str, Any] | None,
+    dict[str, Any] | None,
+]:
+    copied = copy.deepcopy(result)
+    if copied[5] is None:
+        return copied
+    semantic_payload = {
+        "status": copied[0],
+        "lines": copied[1],
+        "warnings": copied[2],
+        "error": copied[3],
+        "engine": copied[4],
+    }
+    result_sha256 = hashlib.sha256(
+        json.dumps(
+            semantic_payload,
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+        ).encode("utf-8")
+    ).hexdigest()
+    if cache_hit:
+        timing = {
+            "setup_ms": 0.0,
+            "inference_ms": 0.0,
+            "pipeline_reused": True,
+            "cache_hit": True,
+            "cache_scope": "build",
+            "cached_result_sha256": result_sha256,
+        }
+    else:
+        timing = dict(copied[5])
+        timing.update({
+            "cache_hit": False,
+            "cache_scope": "build" if session_worker else "none",
+            "result_sha256": result_sha256,
+        })
+    timing["session_worker"] = session_worker
+    return (*copied[:5], timing)
+
+
+def _paddle_process_reaped(process: Any) -> bool:
+    try:
+        return process.poll() is not None
+    except BaseException:
+        return False
+
+
+def _signal_paddle_process(process: Any, signal_number: int) -> None:
+    try:
+        os.killpg(process.pid, signal_number)
+    except (OSError, ProcessLookupError):
+        try:
+            if signal_number == signal.SIGTERM:
+                process.terminate()
+            else:
+                process.kill()
+        except OSError:
+            pass
+
+
+def _terminate_paddle_process(process: Any) -> bool:
+    """TERM/KILL one process group; poison and retain on every uncertain exit."""
+    if _paddle_process_reaped(process):
+        return True
+    latch_local_model_timeout()
+    reaped = False
+    pending: BaseException | None = None
+    try:
+        _signal_paddle_process(process, signal.SIGTERM)
+        try:
+            process.wait(timeout=2)
+            reaped = True
+        except subprocess.TimeoutExpired:
+            _signal_paddle_process(process, signal.SIGKILL)
+            try:
+                process.wait(timeout=2)
+                reaped = True
+            except subprocess.TimeoutExpired:
+                reaped = _paddle_process_reaped(process)
+    except BaseException as exc:
+        pending = exc
+        try:
+            if not _paddle_process_reaped(process):
+                _signal_paddle_process(process, signal.SIGKILL)
+                try:
+                    process.wait(timeout=2)
+                    reaped = True
+                except BaseException:
+                    reaped = _paddle_process_reaped(process)
+        except BaseException:
+            reaped = _paddle_process_reaped(process)
+    finally:
+        if not reaped:
+            _retain_unreaped_paddle_process(process)
+    if pending is not None:
+        raise pending
+    return reaped
+
+
+def _retain_unreaped_paddle_process(process: Any) -> None:
+    """Poison future starts and retain a child that could not be reaped."""
+    latch_local_model_timeout()
+    with _LOCAL_MODEL_TRANSITION_LOCK:
+        if not any(item is process for item in _UNREAPED_PADDLE_PROCESSES):
+            _UNREAPED_PADDLE_PROCESSES.append(process)
+
+
+def _run_paddle_ocr(
+    runtime: dict[str, Any],
+    raw: bytes,
+    dimensions: dict[str, int],
+    *,
+    timeout: float,
+) -> tuple[
+    str,
+    list[dict[str, Any]],
+    list[str],
+    str | None,
+    dict[str, Any] | None,
+    dict[str, Any] | None,
+]:
+    """Run the network-denied Paddle worker in its isolated Python 3.12."""
+    with tempfile.TemporaryDirectory(prefix="aiec-local-paddle-ocr-") as temporary:
+        temporary_root = Path(temporary)
+        input_path = temporary_root / "input.png"
+        output_path = temporary_root / "result.json"
+        input_path.write_bytes(raw)
+        os.chmod(input_path, 0o600)
+        command = [
+            str(runtime["network_sandbox"]),
+            "-p",
+            str(runtime["network_profile"]),
+            str(runtime["python"]),
+            str(runtime["worker"]),
+            "--input",
+            str(input_path),
+            "--output",
+            str(output_path),
+            "--model-root",
+            str(runtime["model_root"]),
+            "--runtime-lock",
+            str(runtime["runtime_lock"]),
+        ]
+        process: Any | None = None
+        try:
+            with guard_local_model_start():
+                process = subprocess.Popen(
+                    command,
+                    stdin=subprocess.DEVNULL,
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                    env=_paddle_worker_environment(),
+                    start_new_session=True,
+                )
+                if local_model_timeout_latched():
+                    try:
+                        _terminate_paddle_process(process)
+                    finally:
+                        process = None
+                    raise RuntimeError(
+                        "PaddleOCR restart is disabled after an uncertain local model timeout"
+                    )
+            process.wait(timeout=timeout)
+            if output_path.is_symlink() or not output_path.is_file():
+                raise RuntimeError(
+                    f"local PaddleOCR worker produced no result (exit {process.returncode})"
+                )
+            output_size = output_path.stat().st_size
+            if not 0 < output_size <= MAX_PADDLE_OUTPUT_BYTES:
+                raise RuntimeError("local PaddleOCR worker result exceeds the safety limit")
+            raw_output = output_path.read_bytes()
+            if len(raw_output) != output_size:
+                raise RuntimeError("local PaddleOCR worker result changed while reading")
+        except BaseException as exc:
+            if not isinstance(exc, Exception):
+                latch_local_model_timeout()
+            if process is not None and not _paddle_process_reaped(process):
+                _terminate_paddle_process(process)
+            raise
+    payload = _decode_paddle_worker_payload(raw_output)
+    status = payload.get("status")
+    expected_code = 1 if status == "failed" else 0
+    if status not in {"completed", "needs_review", "failed"}:
+        raise RuntimeError("local PaddleOCR worker status is invalid")
+    if process.returncode != expected_code:
+        raise RuntimeError("local PaddleOCR worker exit status disagrees with its result")
+    return _with_paddle_request_metadata(
+        _validated_paddle_worker_result(payload, raw, dimensions),
+        cache_hit=False,
+        session_worker=False,
+    )
+
+
+def _paddle_cache_entry_size(result: Any) -> int | None:
+    try:
+        return len(json.dumps(
+            result,
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+        ).encode("utf-8"))
+    except (TypeError, ValueError, OverflowError):
+        return None
+
+
+def _write_all(stream: Any, payload: bytes, label: str) -> None:
+    remaining = memoryview(payload)
+    while remaining:
+        written = stream.write(remaining)
+        if (
+            isinstance(written, bool)
+            or not isinstance(written, int)
+            or written <= 0
+            or written > len(remaining)
+        ):
+            raise RuntimeError(f"{label} could not be written completely")
+        remaining = remaining[written:]
+
+
+class PaddleOCRSession:
+    """One build-scoped, sequential, network-denied PaddleOCR worker."""
+
+    def __init__(
+        self,
+        *,
+        runtime: dict[str, Any] | None = None,
+        overlap_policy: str = "safe_auto",
+    ) -> None:
+        self._runtime = runtime
+        self._process: Any | None = None
+        self._receive_buffer = bytearray()
+        self._lock = threading.RLock()
+        self._process_lock = threading.RLock()
+        self._cache: OrderedDict[
+            tuple[str, int, int, int], tuple[Any, int]
+        ] = OrderedDict()
+        self._cache_bytes = 0
+        self._request_sequence = 0
+        self._closed = False
+        self.overlap_allowed, self.overlap_gate_reason = (
+            _paddle_overlap_decision(overlap_policy)
+        )
+
+    @property
+    def runtime_source(self) -> str | None:
+        runtime = self._runtime
+        if not isinstance(runtime, dict):
+            return None
+        source = runtime.get("source")
+        return str(source) if isinstance(source, str) else None
+
+    def __enter__(self) -> "PaddleOCRSession":
+        if self._closed:
+            raise RuntimeError("PaddleOCR session is already closed")
+        return self
+
+    def __exit__(self, *_args: Any) -> None:
+        self.close()
+
+    def _resolved_runtime(self) -> dict[str, Any]:
+        if self._runtime is None:
+            self._runtime = resolve_paddle_runtime()
+        return self._runtime
+
+    def _start_worker(
+        self,
+        cancel_event: threading.Event | None = None,
+    ) -> Any:
+        with self._process_lock:
+            if local_model_timeout_latched():
+                raise RuntimeError(
+                    "PaddleOCR restart is disabled after an uncertain local model timeout"
+                )
+            if cancel_event is not None and cancel_event.is_set():
+                raise concurrent.futures.CancelledError(
+                    "PaddleOCR request was cancelled before worker startup"
+                )
+            if self._closed:
+                raise RuntimeError("PaddleOCR session is closed")
+            process = self._process
+            if process is not None and process.poll() is None:
+                return process
+            if process is not None:
+                self._abort_worker_locked()
+            runtime = self._resolved_runtime()
+            process = None
+            try:
+                with guard_local_model_start():
+                    process = subprocess.Popen(
+                        [
+                            str(runtime["network_sandbox"]),
+                            "-p",
+                            str(runtime["network_profile"]),
+                            str(runtime["python"]),
+                            str(runtime["worker"]),
+                            "--session",
+                            "--model-root",
+                            str(runtime["model_root"]),
+                            "--runtime-lock",
+                            str(runtime["runtime_lock"]),
+                        ],
+                        stdin=subprocess.PIPE,
+                        stdout=subprocess.PIPE,
+                        stderr=subprocess.DEVNULL,
+                        env=_paddle_worker_environment(),
+                        bufsize=0,
+                        start_new_session=True,
+                    )
+                    self._process = process
+                    if local_model_timeout_latched():
+                        try:
+                            self._abort_worker_locked()
+                        finally:
+                            process = None
+                        raise RuntimeError(
+                            "PaddleOCR restart is disabled after an uncertain local model timeout"
+                        )
+                if process.stdin is None or process.stdout is None:
+                    raise RuntimeError("local PaddleOCR session pipes are unavailable")
+                self._receive_buffer.clear()
+                if cancel_event is not None and cancel_event.is_set():
+                    raise concurrent.futures.CancelledError(
+                        "PaddleOCR request was cancelled during worker startup"
+                    )
+                return process
+            except BaseException as exc:
+                if not isinstance(exc, Exception):
+                    latch_local_model_timeout()
+                if process is not None:
+                    if self._process is None:
+                        self._process = process
+                    self._abort_worker_locked()
+                raise
+
+    def _abort_worker(self) -> None:
+        try:
+            with self._process_lock:
+                self._abort_worker_locked()
+        except BaseException:
+            process = self._process
+            if process is not None and not _paddle_process_reaped(process):
+                _retain_unreaped_paddle_process(process)
+            raise
+
+    def _abort_worker_locked(self) -> None:
+        try:
+            self._abort_worker_locked_impl()
+        except BaseException:
+            process = self._process
+            if process is not None and not _paddle_process_reaped(process):
+                _retain_unreaped_paddle_process(process)
+                try:
+                    self._abort_worker_locked_impl()
+                except BaseException:
+                    pass
+            raise
+
+    def _abort_worker_locked_impl(self) -> None:
+        process = self._process
+        self._receive_buffer.clear()
+        if process is None:
+            return
+        was_live = not _paddle_process_reaped(process)
+        if was_live:
+            latch_local_model_timeout()
+        pending: BaseException | None = None
+        try:
+            if process.stdin is not None and not process.stdin.closed:
+                process.stdin.close()
+        except OSError:
+            pass
+        except BaseException as exc:
+            pending = exc
+        try:
+            reaped = _terminate_paddle_process(process)
+        except BaseException as exc:
+            if pending is None:
+                pending = exc
+            reaped = _paddle_process_reaped(process)
+        if reaped:
+            self._process = None
+        else:
+            self._process = process
+            _retain_unreaped_paddle_process(process)
+        try:
+            if process.stdout is not None and not process.stdout.closed:
+                process.stdout.close()
+        except OSError:
+            pass
+        except BaseException as exc:
+            if pending is None:
+                pending = exc
+        if pending is not None:
+            raise pending
+
+    def cancel_active_request(self) -> None:
+        """Synchronously stop a running/startup-racing worker request."""
+        self._abort_worker()
+
+    def release_idle_worker(self) -> None:
+        try:
+            self._release_idle_worker_impl()
+        except BaseException:
+            process = self._process
+            if process is not None and not _paddle_process_reaped(process):
+                _retain_unreaped_paddle_process(process)
+                try:
+                    with self._process_lock:
+                        self._abort_worker_locked()
+                except BaseException:
+                    pass
+            raise
+
+    def _release_idle_worker_impl(self) -> None:
+        """Retire only the idle native process while keeping build memo state."""
+        with self._lock:
+            with self._process_lock:
+                if self._closed:
+                    return
+                process = self._process
+                if process is None:
+                    return
+                try:
+                    try:
+                        if process.stdin is not None and not process.stdin.closed:
+                            process.stdin.close()
+                    except OSError:
+                        pass
+                    if process.poll() is None:
+                        process.wait(timeout=5)
+                except subprocess.TimeoutExpired:
+                    self._abort_worker_locked()
+                    return
+                except BaseException as exc:
+                    if not isinstance(exc, Exception):
+                        latch_local_model_timeout()
+                    try:
+                        self._abort_worker_locked()
+                    except BaseException:
+                        pass
+                    raise
+                self._process = None
+                self._receive_buffer.clear()
+                try:
+                    if process.stdout is not None and not process.stdout.closed:
+                        process.stdout.close()
+                except OSError:
+                    pass
+
+    def _read_response_line(self, process: Any, *, timeout: float) -> bytes:
+        if process.stdout is None:
+            raise RuntimeError("local PaddleOCR session stdout is unavailable")
+        deadline = time.monotonic() + timeout
+        selector = selectors.DefaultSelector()
+        selector.register(process.stdout.fileno(), selectors.EVENT_READ)
+        try:
+            while True:
+                newline = self._receive_buffer.find(b"\n")
+                if newline >= 0:
+                    line = bytes(self._receive_buffer[:newline + 1])
+                    del self._receive_buffer[:newline + 1]
+                    if len(line) > MAX_PADDLE_SESSION_RESPONSE_BYTES:
+                        raise RuntimeError(
+                            "local PaddleOCR session response exceeds the safety limit"
+                        )
+                    return line
+                if len(self._receive_buffer) >= MAX_PADDLE_SESSION_RESPONSE_BYTES:
+                    raise RuntimeError(
+                        "local PaddleOCR session response exceeds the safety limit"
+                    )
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    raise subprocess.TimeoutExpired(
+                        "local PaddleOCR session response", timeout
+                    )
+                if not selector.select(remaining):
+                    raise subprocess.TimeoutExpired(
+                        "local PaddleOCR session response", timeout
+                    )
+                maximum = min(
+                    64 * 1024,
+                    MAX_PADDLE_SESSION_RESPONSE_BYTES
+                    - len(self._receive_buffer),
+                )
+                chunk = os.read(process.stdout.fileno(), maximum)
+                if not chunk:
+                    return_code = process.poll()
+                    raise RuntimeError(
+                        "local PaddleOCR session closed before a bounded response "
+                        f"(exit {return_code})"
+                    )
+                self._receive_buffer.extend(chunk)
+        finally:
+            selector.close()
+
+    @staticmethod
+    def _decode_session_response(
+        raw_response: bytes,
+        *,
+        request_id: str,
+        input_metadata: dict[str, Any],
+    ) -> dict[str, Any]:
+        try:
+            response = json.loads(
+                raw_response.decode("utf-8"),
+                object_pairs_hook=_reject_duplicate_json_keys,
+                parse_constant=_reject_non_json_constant,
+            )
+        except (UnicodeDecodeError, json.JSONDecodeError, ValueError) as exc:
+            raise RuntimeError(
+                "local PaddleOCR session returned invalid protocol JSON"
+            ) from exc
+        response_input = response.get("input") if isinstance(response, dict) else None
+        if (
+            not isinstance(response, dict)
+            or set(response) != {
+                "protocol_version", "type", "request_id", "input",
+                "result_sha256", "result",
+            }
+            or response.get("protocol_version") != PADDLE_SESSION_PROTOCOL_VERSION
+            or response.get("type") != "ocr_result"
+            or response.get("request_id") != request_id
+            or not isinstance(response_input, dict)
+            or type(response_input.get("width_px")) is not int
+            or type(response_input.get("height_px")) is not int
+            or response_input != input_metadata
+        ):
+            raise RuntimeError("local PaddleOCR session response identity mismatch")
+        result = response.get("result")
+        result_sha256 = response.get("result_sha256")
+        if (
+            not isinstance(result, dict)
+            or not isinstance(result_sha256, str)
+            or not re.fullmatch(r"[0-9a-f]{64}", result_sha256)
+            or hashlib.sha256(
+                json.dumps(
+                    result,
+                    ensure_ascii=False,
+                    sort_keys=True,
+                    separators=(",", ":"),
+                ).encode("utf-8")
+            ).hexdigest() != result_sha256
+        ):
+            raise RuntimeError("local PaddleOCR session result hash mismatch")
+        return result
+
+    def _run_uncached_with_process(
+        self,
+        process: Any,
+        raw: bytes,
+        dimensions: dict[str, int],
+        *,
+        timeout: float,
+    ) -> tuple[
+        str,
+        list[dict[str, Any]],
+        list[str],
+        str | None,
+        dict[str, Any] | None,
+        dict[str, Any] | None,
+    ]:
+        input_sha256 = hashlib.sha256(raw).hexdigest()
+        self._request_sequence += 1
+        request_id = f"request-{self._request_sequence:08d}-{input_sha256[:16]}"
+        input_metadata = {
+            "sha256": input_sha256,
+            "width_px": dimensions["width_px"],
+            "height_px": dimensions["height_px"],
+        }
+        with tempfile.TemporaryDirectory(
+            prefix="aiec-local-paddle-session-"
+        ) as temporary:
+            input_path = Path(temporary) / "input.png"
+            with input_path.open("xb") as handle:
+                handle.write(raw)
+                handle.flush()
+                os.fsync(handle.fileno())
+            os.chmod(input_path, 0o600)
+            request = {
+                "protocol_version": PADDLE_SESSION_PROTOCOL_VERSION,
+                "type": "ocr_request",
+                "request_id": request_id,
+                "input": {"path": str(input_path), **input_metadata},
+            }
+            payload = (
+                json.dumps(
+                    request,
+                    ensure_ascii=False,
+                    sort_keys=True,
+                    separators=(",", ":"),
+                ) + "\n"
+            ).encode("utf-8")
+            if len(payload) > MAX_PADDLE_SESSION_REQUEST_BYTES:
+                raise RuntimeError(
+                    "local PaddleOCR session request exceeds the safety limit"
+                )
+            if process.stdin is None:
+                raise RuntimeError("local PaddleOCR session stdin is unavailable")
+            _write_all(process.stdin, payload, "PaddleOCR session request")
+            process.stdin.flush()
+            raw_response = self._read_response_line(process, timeout=timeout)
+        worker_payload = self._decode_session_response(
+            raw_response,
+            request_id=request_id,
+            input_metadata=input_metadata,
+        )
+        result = _validated_paddle_worker_result(
+            worker_payload,
+            raw,
+            dimensions,
+        )
+        if result[0] == "failed":
+            self._abort_worker()
+        return result
+
+    def _run_uncached(
+        self,
+        raw: bytes,
+        dimensions: dict[str, int],
+        *,
+        timeout: float,
+        cancel_event: threading.Event | None = None,
+    ) -> tuple[
+        str,
+        list[dict[str, Any]],
+        list[str],
+        str | None,
+        dict[str, Any] | None,
+        dict[str, Any] | None,
+    ]:
+        try:
+            process = self._start_worker(cancel_event)
+            return self._run_uncached_with_process(
+                process,
+                raw,
+                dimensions,
+                timeout=timeout,
+            )
+        except BaseException as exc:
+            if not isinstance(exc, Exception):
+                latch_local_model_timeout()
+            self._abort_worker()
+            raise
+
+    def run(
+        self,
+        raw: bytes,
+        dimensions: dict[str, int],
+        *,
+        timeout: float,
+        cancel_event: threading.Event | None = None,
+    ) -> tuple[
+        str,
+        list[dict[str, Any]],
+        list[str],
+        str | None,
+        dict[str, Any] | None,
+        dict[str, Any] | None,
+    ]:
+        try:
+            return self._run_impl(
+                raw,
+                dimensions,
+                timeout=timeout,
+                cancel_event=cancel_event,
+            )
+        except BaseException:
+            process = self._process
+            if process is not None and not _paddle_process_reaped(process):
+                _retain_unreaped_paddle_process(process)
+                try:
+                    self._abort_worker()
+                except BaseException:
+                    pass
+            raise
+
+    def _run_impl(
+        self,
+        raw: bytes,
+        dimensions: dict[str, int],
+        *,
+        timeout: float,
+        cancel_event: threading.Event | None = None,
+    ) -> tuple[
+        str,
+        list[dict[str, Any]],
+        list[str],
+        str | None,
+        dict[str, Any] | None,
+        dict[str, Any] | None,
+    ]:
+        if (
+            not isinstance(raw, bytes)
+            or not raw
+            or len(raw) > MAX_IMAGE_BYTES
+            or isinstance(timeout, bool)
+            or not isinstance(timeout, (int, float))
+            or not math.isfinite(float(timeout))
+            or timeout <= 0
+        ):
+            raise ValueError("PaddleOCR session request is outside the safety limits")
+        width_px = dimensions.get("width_px") if isinstance(dimensions, dict) else None
+        height_px = dimensions.get("height_px") if isinstance(dimensions, dict) else None
+        if (
+            isinstance(width_px, bool)
+            or not isinstance(width_px, int)
+            or isinstance(height_px, bool)
+            or not isinstance(height_px, int)
+            or width_px <= 0
+            or height_px <= 0
+            or width_px * height_px > MAX_IMAGE_PIXELS
+        ):
+            raise ValueError("PaddleOCR session dimensions are outside the safety limits")
+        cache_key = (
+            hashlib.sha256(raw).hexdigest(), len(raw), width_px, height_px
+        )
+        with self._lock:
+            if cancel_event is not None and cancel_event.is_set():
+                raise concurrent.futures.CancelledError(
+                    "PaddleOCR request was cancelled before execution"
+                )
+            if self._closed:
+                raise RuntimeError("PaddleOCR session is closed")
+            cached_entry = self._cache.pop(cache_key, None)
+            if cached_entry is not None:
+                cached, cached_size = cached_entry
+                self._cache[cache_key] = (cached, cached_size)
+                return _with_paddle_request_metadata(
+                    cached,
+                    cache_hit=True,
+                    session_worker=True,
+                )
+            if local_model_timeout_latched():
+                raise RuntimeError(
+                    "PaddleOCR restart is disabled after an uncertain local model timeout"
+                )
+            result = self._run_uncached(
+                raw,
+                dimensions,
+                timeout=float(timeout),
+                cancel_event=cancel_event,
+            )
+            if result[0] in {"completed", "needs_review"}:
+                cached_result = copy.deepcopy(result)
+                cached_size = _paddle_cache_entry_size(cached_result)
+                if (
+                    cached_size is not None
+                    and cached_size <= MAX_PADDLE_SESSION_CACHE_BYTES
+                ):
+                    while self._cache and (
+                        len(self._cache) >= MAX_PADDLE_SESSION_CACHE_ENTRIES
+                        or self._cache_bytes + cached_size
+                        > MAX_PADDLE_SESSION_CACHE_BYTES
+                    ):
+                        _, (_, evicted_size) = self._cache.popitem(last=False)
+                        self._cache_bytes -= evicted_size
+                    self._cache[cache_key] = (cached_result, cached_size)
+                    self._cache_bytes += cached_size
+            return _with_paddle_request_metadata(
+                result,
+                cache_hit=False,
+                session_worker=True,
+            )
+
+    def close(self) -> None:
+        try:
+            self._close_impl()
+        except BaseException:
+            process = self._process
+            if process is not None and not _paddle_process_reaped(process):
+                _retain_unreaped_paddle_process(process)
+                try:
+                    with self._process_lock:
+                        self._abort_worker_locked()
+                except BaseException:
+                    pass
+            raise
+
+    def _close_impl(self) -> None:
+        # Set closed and cancel without waiting for the request lock. A request
+        # may hold that lock while blocked in native inference.
+        with self._process_lock:
+            if self._closed:
+                if (
+                    self._process is not None
+                    and not _paddle_process_reaped(self._process)
+                ):
+                    latch_local_model_timeout()
+                    self._abort_worker_locked()
+                return
+            self._closed = True
+            process = self._process
+            try:
+                if process is not None and process.stdin is not None:
+                    try:
+                        if not process.stdin.closed:
+                            process.stdin.close()
+                    except OSError:
+                        pass
+                if process is not None and process.poll() is None:
+                    process.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                self._abort_worker_locked()
+            except BaseException as exc:
+                if not isinstance(exc, Exception):
+                    latch_local_model_timeout()
+                try:
+                    self._abort_worker_locked()
+                except BaseException:
+                    pass
+                raise
+            if self._process is not None:
+                self._abort_worker_locked()
+        with self._lock:
+            self._cache.clear()
+            self._cache_bytes = 0
 
 
 def _overlap(first: list[int], second: list[int]) -> float:
@@ -1357,13 +2478,167 @@ def _is_represented(
     )
 
 
-def extract(
+def _run_paddle_request(
+    session: PaddleOCRSession | None,
+    raw: bytes,
+    dimensions: dict[str, int],
+    *,
+    timeout: float,
+    cancel_event: threading.Event | None = None,
+) -> tuple[
+    tuple[
+        str,
+        list[dict[str, Any]],
+        list[str],
+        str | None,
+        dict[str, Any] | None,
+        dict[str, Any] | None,
+    ],
+    str | None,
+]:
+    if session is not None:
+        result = session.run(
+            raw,
+            dimensions,
+            timeout=timeout,
+            cancel_event=cancel_event,
+        )
+        return result, session.runtime_source
+    runtime = resolve_paddle_runtime()
+    return (
+        _run_paddle_ocr(runtime, raw, dimensions, timeout=timeout),
+        str(runtime["source"]),
+    )
+
+
+class _PaddleAsyncJob:
+    def __init__(
+        self,
+        session: PaddleOCRSession | None,
+        raw: bytes,
+        dimensions: dict[str, int],
+        *,
+        timeout: float,
+    ) -> None:
+        self._session = session
+        self._timeout = float(timeout)
+        self._started = time.monotonic()
+        self._cancel_event = threading.Event()
+        self._close_lock = threading.RLock()
+        self._finished = False
+        self._executor: concurrent.futures.ThreadPoolExecutor | None = None
+        self._future: concurrent.futures.Future[Any] | None = None
+        try:
+            self._executor = concurrent.futures.ThreadPoolExecutor(
+                max_workers=1,
+                thread_name_prefix="aiec-paddle-ocr",
+            )
+            self._future = self._executor.submit(
+                _run_paddle_request,
+                session,
+                raw,
+                dimensions,
+                timeout=self._timeout,
+                cancel_event=self._cancel_event,
+            )
+            active_jobs = _ACTIVE_PADDLE_ASYNC_JOBS.get()
+            if active_jobs is not None:
+                active_jobs.append(self)
+        except BaseException as exc:
+            if not isinstance(exc, Exception):
+                latch_local_model_timeout()
+            try:
+                self.close()
+            except BaseException:
+                pass
+            raise
+
+    def result(self) -> tuple[Any, str | None]:
+        if self._future is None:
+            raise RuntimeError("PaddleOCR asynchronous job did not start safely")
+        grace_seconds = 5.0
+        remaining = max(
+            0.1,
+            self._timeout + grace_seconds - (time.monotonic() - self._started),
+        )
+        try:
+            return self._future.result(timeout=remaining)
+        except concurrent.futures.TimeoutError as exc:
+            self._cancel_event.set()
+            if self._session is not None:
+                self._session.cancel_active_request()
+            raise subprocess.TimeoutExpired(
+                "local PaddleOCR asynchronous request", self._timeout
+            ) from exc
+        finally:
+            self.close()
+
+    def close(self) -> None:
+        with self._close_lock:
+            if self._finished:
+                return
+            pending: BaseException | None = None
+            shutdown_complete = False
+            try:
+                self._cancel_event.set()
+            except BaseException as exc:
+                pending = exc
+            future = self._future
+            executor = self._executor
+            future_done = future is None
+            if future is not None:
+                try:
+                    future.cancel()
+                except BaseException as exc:
+                    if pending is None:
+                        pending = exc
+                try:
+                    future_done = future.done()
+                except BaseException as exc:
+                    future_done = False
+                    if pending is None:
+                        pending = exc
+            if (
+                executor is not None
+                and (future is None or not future_done)
+                and self._session is not None
+            ):
+                try:
+                    self._session.cancel_active_request()
+                except BaseException as exc:
+                    if pending is None:
+                        pending = exc
+            try:
+                if executor is not None:
+                    executor.shutdown(wait=True, cancel_futures=True)
+                shutdown_complete = True
+            except BaseException as exc:
+                if pending is None:
+                    pending = exc
+            if shutdown_complete:
+                self._finished = True
+            if pending is not None:
+                latch_local_model_timeout()
+                raise pending
+
+    def __del__(self) -> None:
+        # CPython stack unwinding reaches this path if another OCR adapter raises
+        # before the normal join point. Every worker call has its own hard
+        # timeout; a build-scoped session additionally terminates on context exit.
+        try:
+            self.close()
+        except BaseException:
+            pass
+
+
+def _extract_impl(
     path: Path,
     *,
     timeout: float = 180.0,
     canonicalize: bool = True,
     allow_paddle: bool = True,
     allow_vlm: bool = True,
+    paddle_session: PaddleOCRSession | None = None,
 ) -> dict[str, Any]:
     """Return located high-quality and provisional local OCR observations."""
     raw = read_checked_image_bytes(path)
@@ -1431,7 +2706,42 @@ def extract(
         if canonicalized else RAW_BBOX_COORDINATE_SYSTEM
     )
     build_dir = ocr.ensure_cache_subdirectory(cache, "_vision_build")
-
+    selected_paddle_session = (
+        paddle_session
+        if paddle_session is not None else active_paddle_session()
+    )
+    need_paddle = bool(allow_paddle)
+    paddle_trigger = (
+        "disabled" if not allow_paddle else "enabled_accuracy_pass"
+    )
+    if selected_paddle_session is not None:
+        paddle_overlap_allowed = bool(selected_paddle_session.overlap_allowed)
+        paddle_overlap_gate_reason = str(
+            selected_paddle_session.overlap_gate_reason
+        )
+    else:
+        # Direct extract retains its historical one-shot execution order. Only
+        # an explicit build-scoped session may overlap heavyweight adapters.
+        paddle_overlap_allowed = False
+        paddle_overlap_gate_reason = "no_build_scoped_session"
+    paddle_execution_mode = (
+        "disabled"
+        if not need_paddle else (
+            "overlapped_with_vision_tesseract"
+            if paddle_overlap_allowed else "serial_resource_gate"
+        )
+    )
+    paddle_async_job: _PaddleAsyncJob | None = None
+    if need_paddle and paddle_overlap_allowed:
+        # Canonical bytes are final at this point. Start the independent worker
+        # before resolving or running Vision/Tesseract so only execution time,
+        # never OCR settings or image bytes, can differ.
+        paddle_async_job = _PaddleAsyncJob(
+            selected_paddle_session,
+            ocr_raw,
+            dimensions,
+            timeout=timeout,
+        )
     vision: Path | None = None
     primary_status, primary_lines, primary_warnings = "unavailable", [], []
     try:
@@ -1737,12 +3047,6 @@ def extract(
     # Existing agreement proves correctness for detected lines, not that the
     # page was read completely. Run the independent accuracy pass whenever it
     # is enabled; a later performance phase may add a measured coverage gate.
-    need_paddle = bool(allow_paddle)
-    paddle_trigger = (
-        "disabled"
-        if not allow_paddle
-        else "enabled_accuracy_pass"
-    )
     paddle_status = "disabled" if not allow_paddle else "not_run"
     paddle_lines: list[dict[str, Any]] = []
     paddle_warnings: list[str] = []
@@ -1752,8 +3056,16 @@ def extract(
     paddle_runtime_source: str | None = None
     if need_paddle:
         try:
-            paddle_runtime = resolve_paddle_runtime()
-            paddle_runtime_source = str(paddle_runtime["source"])
+            paddle_result, paddle_runtime_source = (
+                paddle_async_job.result()
+                if paddle_async_job is not None
+                else _run_paddle_request(
+                    selected_paddle_session,
+                    ocr_raw,
+                    dimensions,
+                    timeout=timeout,
+                )
+            )
             (
                 paddle_status,
                 paddle_lines,
@@ -1761,12 +3073,7 @@ def extract(
                 paddle_error,
                 paddle_engine_metadata,
                 paddle_timing,
-            ) = _run_paddle_ocr(
-                paddle_runtime,
-                ocr_raw,
-                dimensions,
-                timeout=timeout,
-            )
+            ) = paddle_result
         except FileNotFoundError as exc:
             paddle_status = "unavailable"
             paddle_error = str(exc)[:1000]
@@ -1792,6 +3099,12 @@ def extract(
         "input_sha256": ocr_input_sha256,
         "worker_engine": paddle_engine_metadata,
         "timing": paddle_timing,
+        "cache_hit": bool(
+            isinstance(paddle_timing, dict)
+            and paddle_timing.get("cache_hit") is True
+        ),
+        "execution_mode": paddle_execution_mode,
+        "overlap_gate_reason": paddle_overlap_gate_reason,
         "network_enforcement": (
             "macos_sandbox_deny_network_plus_python_socket_guard"
             if paddle_runtime_source is not None else None
@@ -1993,6 +3306,10 @@ def extract(
     read_lines = [*consensus, *same_engine, *provisional]
     unlocated_transcript: dict[str, Any] | None = None
     if not read_lines and allow_vlm:
+        if selected_paddle_session is not None:
+            # Gemma can be the next heavyweight local model. Retire Paddle's
+            # idle native process first while preserving this build's memo.
+            selected_paddle_session.release_idle_worker()
         try:
             unlocated_transcript = run_unlocated_transcript_fallback(
                 ocr_raw, timeout=timeout
@@ -2087,3 +3404,30 @@ def extract(
         "external_network_used": False,
         "downloads_performed": False,
     }
+
+
+def extract(
+    path: Path,
+    *,
+    timeout: float = 180.0,
+    canonicalize: bool = True,
+    allow_paddle: bool = True,
+    allow_vlm: bool = True,
+    paddle_session: PaddleOCRSession | None = None,
+) -> dict[str, Any]:
+    """Return OCR observations and deterministically clean up async work."""
+    active_jobs: list[_PaddleAsyncJob] = []
+    token = _ACTIVE_PADDLE_ASYNC_JOBS.set(active_jobs)
+    try:
+        return _extract_impl(
+            path,
+            timeout=timeout,
+            canonicalize=canonicalize,
+            allow_paddle=allow_paddle,
+            allow_vlm=allow_vlm,
+            paddle_session=paddle_session,
+        )
+    finally:
+        for job in reversed(active_jobs):
+            job.close()
+        _ACTIVE_PADDLE_ASYNC_JOBS.reset(token)

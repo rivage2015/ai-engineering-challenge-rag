@@ -36,6 +36,7 @@ PARAGRAPH_ID = "ev_" + "1" * 32
 TABLE_CELL_ID = "ev_" + "2" * 32
 IMAGE_ID = "ev_" + "3" * 32
 OCR_ID = "ev_" + "4" * 32
+VLM_ID = "ev_" + "7" * 32
 MARKER = adapter.PROVISIONAL_OCR_MARKER
 
 
@@ -244,6 +245,8 @@ class SemanticQuestionShardTests(unittest.TestCase):
             )
             ocr_payload = "画像内の文字を暫定として後半まで保持" * 300
             image_text = f"Image file: sample.png\n{MARKER} {ocr_payload}"
+            vlm_payload = "座標を持たない画像全体の忠実な暫定読取" * 220
+            vlm_text = f"{MARKER} {vlm_payload}"
 
             document = {
                 "schema_version": "0.1",
@@ -259,6 +262,18 @@ class SemanticQuestionShardTests(unittest.TestCase):
                     "status": "complete",
                     "parser": "fixture",
                     "parser_version": "1",
+                },
+            }
+            image_origin = {
+                "kind": "standalone_image",
+                "source_relative_path": "sample.txt",
+                "source_sha256": source_hash,
+                "source_location": {"object_index": 1},
+                "materialization": {
+                    "runner": "fixture",
+                    "external_network_used": False,
+                    "source_sha256": source_hash,
+                    "rendered_sha256": source_hash,
                 },
             }
             paragraph = {
@@ -285,8 +300,12 @@ class SemanticQuestionShardTests(unittest.TestCase):
                 "evidence_type": "image",
                 "ordinal": 3,
                 "location": {"object_index": 1},
-                "content": {"content_ref": "sample.txt", "sha256": source_hash},
+                "content": {"content_ref": "sample.png", "sha256": source_hash},
                 "provenance": {"extraction_method": "fixture_image"},
+                "native_properties": {
+                    "source_sha256": source_hash,
+                    "visual_origin": copy.deepcopy(image_origin),
+                },
             }
             ocr = {
                 "evidence_id": OCR_ID,
@@ -295,18 +314,103 @@ class SemanticQuestionShardTests(unittest.TestCase):
                 "ordinal": 4,
                 "location": {"object_index": 1},
                 "content": {"raw_text": ocr_payload},
+                "parent_evidence_id": IMAGE_ID,
+                "geometry": {
+                    "coordinate_space": "image",
+                    "coordinate_origin": "top_left",
+                    "unit": "normalized_1000",
+                    "x": 100,
+                    "y": 100,
+                    "width": 400,
+                    "height": 80,
+                },
                 "provenance": {"extraction_method": "adaptive_local_ocr_provisional"},
                 "native_properties": {
                     "agreement_type": "same_engine_agreement",
                     "quality_tier": "provisional",
                     "provisional_marker": MARKER,
                     "independent_engines": False,
-                    "spatial_overlap": 0.8,
+                    "spatial_overlap": 1.0,
                     "bbox_coordinate_system": "display_oriented_top_left_normalized_1000",
+                    "primary_confidence": 0.95,
+                    "audit_confidence": 0.9,
+                    "observation_provenance": {
+                        "primary_pass": "apple_vision_primary",
+                        "primary_engine": "apple_vision",
+                        "primary_independence_group": "apple_vision",
+                        "primary_line_id": "primary-1",
+                        "primary_bbox_coordinate_system": (
+                            "display_oriented_top_left_normalized_1000"
+                        ),
+                        "audit_pass": "apple_vision_literal",
+                        "audit_engine": "apple_vision",
+                        "audit_independence_group": "apple_vision",
+                        "audit_line_id": "audit-1",
+                        "audit_bbox_coordinate_system": (
+                            "display_oriented_top_left_normalized_1000"
+                        ),
+                        "comparison_coordinate_system": (
+                            "display_oriented_top_left_normalized_1000"
+                        ),
+                        "supporters": [
+                            {
+                                "pass": "apple_vision_primary",
+                                "engine": "apple_vision",
+                                "independence_group": "apple_vision",
+                                "line_id": "primary-1",
+                                "raw_text": ocr_payload,
+                                "bbox": [100, 100, 400, 80],
+                                "bbox_coordinate_system": (
+                                    "display_oriented_top_left_normalized_1000"
+                                ),
+                                "confidence": 0.95,
+                            },
+                            {
+                                "pass": "apple_vision_literal",
+                                "engine": "apple_vision",
+                                "independence_group": "apple_vision",
+                                "line_id": "audit-1",
+                                "raw_text": ocr_payload,
+                                "bbox": [100, 100, 400, 80],
+                                "bbox_coordinate_system": (
+                                    "display_oriented_top_left_normalized_1000"
+                                ),
+                                "confidence": 0.9,
+                            },
+                        ],
+                    },
+                    "visual_origin": copy.deepcopy(image_origin),
+                },
+            }
+            vlm = {
+                "evidence_id": VLM_ID,
+                "document_id": DOCUMENT_ID,
+                "evidence_type": "text_block",
+                "ordinal": 5,
+                "location": {
+                    "object_index": 2,
+                    "locator_text": "location_status=unlocated;source=image",
+                },
+                "content": {"raw_text": f"{MARKER}\n{vlm_payload}"},
+                "parent_evidence_id": IMAGE_ID,
+                "provenance": {
+                    "extraction_method": (
+                        "local_vlm_unlocated_transcript_provisional"
+                    ),
+                    "deterministic": False,
+                },
+                "native_properties": {
+                    "location_status": "unlocated",
+                    "quality_tier": "provisional",
+                    "provisional_marker": MARKER,
+                    "transcript_type": "whole_image_faithful_transcript",
+                    "question_independent": True,
+                    "visual_origin": copy.deepcopy(image_origin),
                 },
             }
             jsonl(intermediate / "documents.jsonl", [document])
-            jsonl(intermediate / "evidence.jsonl", [paragraph, table_cell, image, ocr])
+            layer_evidence = [paragraph, table_cell, image, ocr, vlm]
+            jsonl(intermediate / "evidence.jsonl", layer_evidence)
             (intermediate / "build-state.json").write_text(
                 json.dumps(
                     {
@@ -333,7 +437,15 @@ class SemanticQuestionShardTests(unittest.TestCase):
                     "document_id": DOCUMENT_ID,
                     "unit_type": "image_text_packet",
                     "source_evidence_ids": [IMAGE_ID, OCR_ID],
-                    "locator": {"object_index": 1},
+                    "locator": {
+                        "object_index": 1,
+                        "locator_text": (
+                            "container_kind=standalone_image;"
+                            "quality_tier=provisional;"
+                            "bbox_coordinate_system="
+                            "display_oriented_top_left_normalized_1000"
+                        ),
+                    },
                     "text": {"search_text": image_text, "sha256": text_sha256(image_text)},
                     "context": {
                         "container_kind": "standalone_image",
@@ -384,11 +496,20 @@ class SemanticQuestionShardTests(unittest.TestCase):
                     for item in records
                     if item.get("adapter", {}).get("unit_type") == "image_text_packet"
                 ],
+                "provisional_vlm_text": [
+                    item
+                    for item in records
+                    if item.get("adapter", {}).get("source_record_type")
+                    == "text_block"
+                    and item.get("extraction_method")
+                    == "local_vlm_unlocated_transcript_provisional"
+                ],
             }
             for label, expected in {
                 "paragraph": paragraph_text,
                 "table_row": table_text,
                 "image_text_packet": image_text,
+                "provisional_vlm_text": vlm_text,
             }.items():
                 with self.subTest(label):
                     self.assertGreater(len(groups[label]), 1)
@@ -401,8 +522,18 @@ class SemanticQuestionShardTests(unittest.TestCase):
                 self.assertTrue(item["observed_text"].startswith(MARKER))
                 self.assertEqual(item["quality_tier"], "provisional")
                 self.assertEqual(item["provisional_marker"], MARKER)
+            for item in groups["provisional_vlm_text"]:
+                self.assertTrue(item["observed_text"].startswith(MARKER))
+                self.assertEqual(item["quality_tier"], "provisional")
+                self.assertEqual(item["provisional_marker"], MARKER)
+                self.assertNotIn("agreement_types", item)
 
-            self.assertEqual(state["adapter_version"], "0.6.0")
+            expected_records = semantic_validator.expected_semantic_evidence(
+                [document], layer_evidence, search_units
+            )
+            semantic_validator.validate_exact_projection(records, expected_records)
+
+            self.assertEqual(state["adapter_version"], "0.7.0")
             self.assertEqual(state["question_sharding"]["max_observed_text_chars"], 1600)
             self.assertEqual(
                 state["question_sharding"]["source_record_type_counts"]["paragraph"],
@@ -411,6 +542,12 @@ class SemanticQuestionShardTests(unittest.TestCase):
             self.assertEqual(
                 state["question_sharding"]["source_record_type_counts"][
                     "search_unit:table_row"
+                ],
+                1,
+            )
+            self.assertEqual(
+                state["question_sharding"]["source_record_type_counts"][
+                    "text_block"
                 ],
                 1,
             )

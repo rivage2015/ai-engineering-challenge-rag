@@ -9,7 +9,10 @@ import hashlib
 import json
 import os
 import re
+import statistics
 import tempfile
+import unicodedata
+import urllib.parse
 from collections import Counter, defaultdict
 from datetime import datetime
 from pathlib import Path, PurePosixPath
@@ -17,18 +20,83 @@ from typing import Any
 
 
 PROVISIONAL_OCR_MARKER = "[暫定読取]"
+PROVISIONAL_TEXT_METHOD_TYPES = {
+    "local_vlm_unlocated_transcript_provisional": frozenset({"text_block"}),
+    "local_vlm_visual_observation_provisional": frozenset({
+        "text_block", "visual_observation",
+    }),
+}
+PROVISIONAL_TEXT_EVIDENCE_TYPES = frozenset(
+    evidence_type
+    for evidence_types in PROVISIONAL_TEXT_METHOD_TYPES.values()
+    for evidence_type in evidence_types
+)
 OCR_QUALITY_BY_AGREEMENT = {
     "independent_agreement": "high",
     "same_engine_agreement": "provisional",
     "provisional_single_pass": "provisional",
+    "display_transform_unresolved": "provisional",
 }
 OCR_BBOX_COORDINATE_SYSTEMS = {
     "raw_raster_top_left_normalized_1000",
     "display_oriented_top_left_normalized_1000",
     "source_orientation_1_top_left_normalized_1000",
 }
+IMAGE_PACKET_CONTAINER_KINDS = {
+    "standalone_image",
+    "pdf_page_image",
+    "office_embedded_image",
+    "notebook_embedded_image",
+}
+IMAGE_PACKET_LOCATOR_KEYS = {
+    "page_number", "slide_number", "sheet_name", "cell", "table_index",
+    "shape_id", "row_index", "paragraph_start", "paragraph_end",
+    "notebook_cell_index", "code_line_start", "code_line_end", "locator_text",
+    "source_member", "object_index", "image_object_index", "series_index",
+}
+NATIVE_CHART_UNIT_TYPES = {
+    "chart_summary": "chart",
+    "chart_series": "chart_series",
+}
+VERIFIED_CHART_SEARCH_METHODS = {
+    "verified_chart_table_adaptation",
+    "verified_ooxml_chart_cache",
+}
+DOCUMENT_VISUAL_CONTAINER_BY_SUFFIX = {
+    ".pdf": "pdf_page_image",
+    ".docx": "office_embedded_image",
+    ".docm": "office_embedded_image",
+    ".xlsx": "office_embedded_image",
+    ".xlsm": "office_embedded_image",
+    ".pptx": "office_embedded_image",
+    ".pptm": "office_embedded_image",
+    ".ipynb": "notebook_embedded_image",
+    ".png": "standalone_image",
+    ".jpg": "standalone_image",
+    ".jpeg": "standalone_image",
+    ".gif": "standalone_image",
+    ".bmp": "standalone_image",
+    ".tif": "standalone_image",
+    ".tiff": "standalone_image",
+    ".webp": "standalone_image",
+}
+PROJECTED_SEARCH_UNIT_TYPES = frozenset({
+    "table_row", "image_text_packet", *NATIVE_CHART_UNIT_TYPES,
+})
+IMAGE_ROW_BAND_CENTER_TOLERANCE = 0.55
+OCR_ENGINE_BY_PASS = {
+    "apple_vision_primary": "apple_vision",
+    "apple_vision_literal": "apple_vision",
+    "apple_vision_fast_sparse": "apple_vision",
+    "paddleocr_primary": "paddleocr",
+    "tesseract_psm3": "tesseract",
+    "tesseract_psm6": "tesseract",
+    "tesseract_psm11": "tesseract",
+}
 ADAPTER_NAME = "layer1-to-local-memory-evidence-adapter"
-ADAPTER_VERSION = "0.6.0"
+ADAPTER_VERSION = "0.7.0"
+SEARCH_UNIT_BUILDER = "search-unit-builder"
+SEARCH_UNIT_BUILDER_VERSION = "0.6.0"
 SCHEMA_VERSION = "0.1"
 QUESTION_SHARD_VERSION = "question-evidence-shard-v1"
 MAX_QUESTION_EVIDENCE_CHARS = 1_600
@@ -41,9 +109,12 @@ LINEAGE_VALIDATION_FILE = "semantic-lineage-validation.json"
 NATIVE_STRUCTURAL_PRODUCERS = {
     ("intermediate-record-extractor", "0.7.0"),
     ("intermediate-record-extractor", "0.8.0"),
-    ("intermediate-record-extractor", "0.9.0"),
+    ("intermediate-record-extractor", "0.10.1"),
+    ("intermediate-record-extractor", "0.11.0"),
 }
 NATIVE_STRUCTURAL_RULE = "native containment"
+NATIVE_SMARTART_CONNECTION_RULE = "native SmartArt srcId/destId connection"
+NATIVE_SMARTART_MARKER = "SmartArt（ファイル内の明示構造）"
 QUESTION_SHARD_KEYS = {
     "version",
     "source_projection_id",
@@ -70,6 +141,7 @@ RFC3339_PATTERN = re.compile(
     r"[0-9]{2}:[0-9]{2}:[0-9]{2}(?:\.[0-9]+)?"
     r"(?:Z|[+-][0-9]{2}:[0-9]{2})$"
 )
+SHA256_PATTERN = re.compile(r"^[0-9a-f]{64}$")
 
 
 def is_rfc3339_timestamp(value: object) -> bool:
@@ -191,7 +263,7 @@ def mark_provisional_text(text: str) -> str:
         line if line.lstrip().startswith(PROVISIONAL_OCR_MARKER + " ")
         else f"{PROVISIONAL_OCR_MARKER} {line}"
         for line in text.splitlines()
-        if line.strip()
+        if line.strip() and line.strip() != PROVISIONAL_OCR_MARKER
     )
 
 
@@ -230,10 +302,25 @@ def expected_semantic_evidence(
         observed_text, projection_method = projected_text(record_content)
         source_record_type = record.get("evidence_type")
         quality: tuple[str, list[str], str | None] | None = None
+        provisional_text_quality: tuple[str, str] | None = None
         if source_record_type == "ocr_line":
             quality = layer_ocr_quality(record)
+            validate_layer_visual_source_binding(
+                record, layer_evidence_by_id, documents
+            )
             if quality[0] == "provisional" and observed_text:
                 observed_text = mark_provisional_text(observed_text)
+        else:
+            provisional_text_quality = layer_provisional_text_quality(record)
+            if provisional_text_quality is not None:
+                validate_layer_visual_source_binding(
+                    record, layer_evidence_by_id, documents
+                )
+                observed_text = mark_provisional_text(observed_text)
+                fail(
+                    not observed_text,
+                    "layer_provisional_vlm_text_empty_after_marker_normalization",
+                )
         source = documents[document_id]["source"]
         item: dict[str, Any] = {
             "schema_version": SCHEMA_VERSION,
@@ -267,6 +354,10 @@ def expected_semantic_evidence(
             ]
             if marker is not None:
                 item["provisional_marker"] = marker
+        elif provisional_text_quality is not None:
+            tier, marker = provisional_text_quality
+            item["quality_tier"] = tier
+            item["provisional_marker"] = marker
         geometry = record.get("geometry")
         if isinstance(geometry, dict) and geometry:
             item["geometry"] = geometry
@@ -279,7 +370,7 @@ def expected_semantic_evidence(
 
     for unit in search_units:
         unit_type = unit.get("unit_type")
-        if unit_type not in {"table_row", "image_text_packet"}:
+        if unit_type not in PROJECTED_SEARCH_UNIT_TYPES:
             continue
         document_id = unit.get("document_id")
         fail(document_id not in documents, "expected_search_unit_document_missing")
@@ -289,9 +380,13 @@ def expected_semantic_evidence(
             "expected_search_unit_sources_invalid",
         )
         quality = (
-            layer_image_packet_quality(unit, layer_evidence_by_id)
+            layer_image_packet_quality(
+                unit, layer_evidence_by_id, documents
+            )
             if unit_type == "image_text_packet" else None
         )
+        if unit_type in NATIVE_CHART_UNIT_TYPES:
+            layer_native_chart_search_unit(unit, layer_evidence_by_id)
         evidence_id = stable_id("ev", {
             "adapter": ADAPTER_NAME,
             "adapter_version": ADAPTER_VERSION,
@@ -442,6 +537,87 @@ def _expected_search_unit_projection_id(unit: dict[str, Any]) -> str:
     })
 
 
+def _layer_search_display_value(record: dict[str, Any]) -> str:
+    """Reproduce the SearchUnit builder's direct Evidence display value."""
+    content = record.get("content", {})
+    fail(not isinstance(content, dict), "chart_search_unit_source_content_invalid")
+    for key in ("normalized_text", "raw_text"):
+        if key in content:
+            return str(content[key]).strip()
+    for key in ("normalized_value", "raw_value"):
+        if key not in content:
+            continue
+        value = content[key]
+        if value is None:
+            return ""
+        if isinstance(value, (dict, list)):
+            return canonical(value)
+        return str(value).strip()
+    return ""
+
+
+def layer_native_chart_search_unit(
+    unit: dict[str, Any],
+    evidence_by_id: dict[str, dict[str, Any]],
+) -> None:
+    """Independently rebuild one native chart SearchUnit from its Evidence."""
+    unit_type = unit.get("unit_type")
+    expected_evidence_type = NATIVE_CHART_UNIT_TYPES.get(unit_type)
+    fail(expected_evidence_type is None, "chart_search_unit_type_invalid")
+    source_ids = unit.get("source_evidence_ids")
+    fail(
+        not isinstance(source_ids, list)
+        or len(source_ids) != 1
+        or not isinstance(source_ids[0], str),
+        "chart_search_unit_sources_invalid",
+    )
+    source = evidence_by_id.get(source_ids[0])
+    fail(source is None, "chart_search_unit_source_missing")
+    fail(
+        source.get("evidence_type") != expected_evidence_type,
+        "chart_search_unit_source_type_mismatch",
+    )
+    source_provenance = source.get("provenance", {})
+    fail(
+        not isinstance(source_provenance, dict)
+        or source_provenance.get("extraction_method")
+        not in VERIFIED_CHART_SEARCH_METHODS,
+        "chart_search_unit_source_method_invalid",
+    )
+    fail(
+        source.get("document_id") != unit.get("document_id"),
+        "chart_search_unit_source_document_mismatch",
+    )
+    location = source.get("location", {})
+    fail(not isinstance(location, dict), "chart_search_unit_source_locator_invalid")
+    expected_locator = {
+        key: location[key]
+        for key in IMAGE_PACKET_LOCATOR_KEYS if key in location
+    }
+    fail(
+        unit.get("locator") != expected_locator,
+        "chart_search_unit_locator_mismatch",
+    )
+    expected_text = _layer_search_display_value(source)
+    fail(not expected_text, "chart_search_unit_source_text_empty")
+    fail(
+        unit.get("text") != {
+            "search_text": expected_text,
+            "sha256": sha256_text(expected_text),
+            "char_count": len(expected_text),
+        },
+        "chart_search_unit_text_mismatch",
+    )
+    fail(
+        unit.get("context") != {"container_kind": "chart"},
+        "chart_search_unit_context_mismatch",
+    )
+    fail(
+        unit.get("search_unit_id") != _expected_search_unit_id(unit),
+        "chart_search_unit_id_unstable",
+    )
+
+
 def _stable_lineage_relation_id(
     from_ref: dict[str, str], to_ref: dict[str, str],
 ) -> str:
@@ -493,6 +669,354 @@ def _native_structural_relation(
         },
         "status": "verified",
     }
+
+
+def _native_smartart_connection_relation(
+    *,
+    from_ref: dict[str, str],
+    to_ref: dict[str, str],
+    properties: dict[str, Any],
+    supporting_evidence_ids: list[str],
+    extractor: str,
+    extractor_version: str,
+    generated_at: str,
+) -> dict[str, Any]:
+    identity = {
+        "class": "structural",
+        "type": "diagram_connection",
+        "from": from_ref,
+        "to": to_ref,
+        "generator": extractor,
+        "generator_version": extractor_version,
+    }
+    return {
+        "schema_version": SCHEMA_VERSION,
+        "record_type": "relation",
+        "relation_id": stable_id("rel", identity),
+        "relation_class": "structural",
+        "relation_type": "diagram_connection",
+        "from_ref": from_ref,
+        "to_ref": to_ref,
+        "properties": properties,
+        "supporting_evidence_ids": supporting_evidence_ids,
+        "provenance": {
+            "generated_by": extractor,
+            "generator_version": extractor_version,
+            "generated_at": generated_at,
+            "deterministic": True,
+            "confidence": 1.0,
+            "rule_or_model": NATIVE_SMARTART_CONNECTION_RULE,
+            "warnings": [],
+        },
+        "status": "verified",
+    }
+
+
+def _native_parser_provenance(
+    record: dict[str, Any],
+    *,
+    extractor: str,
+    extractor_version: str,
+    generated_at: str,
+    error: str,
+) -> None:
+    fail(
+        record.get("provenance") != {
+            "extraction_method": "native_parser",
+            "extractor": extractor,
+            "extractor_version": extractor_version,
+            "extracted_at": generated_at,
+            "deterministic": True,
+            "confidence": 1.0,
+            "warnings": [],
+        },
+        error,
+    )
+
+
+def _safe_smartart_member(value: object, prefix: str) -> bool:
+    if not isinstance(value, str) or not value:
+        return False
+    member = PurePosixPath(value)
+    return (
+        not member.is_absolute()
+        and all(part not in {"", ".", ".."} for part in member.parts)
+        and value.startswith(prefix)
+        and value.casefold().endswith(".xml")
+    )
+
+
+def _derive_native_smartart_relations(
+    *,
+    documents: dict[str, dict[str, Any]],
+    evidence_by_id: dict[str, dict[str, Any]],
+    extractor: str,
+    extractor_version: str,
+    generated_at: str,
+) -> list[dict[str, Any]]:
+    """Rebuild explicit SmartArt edges from their native Evidence records.
+
+    The relation is intentionally not inferred from visible text.  It is
+    accepted only when every endpoint and raw connection is bound to one
+    native SmartArt data part on one slide, and its supporting Evidence can be
+    reproduced without consulting the claimed Relation record.
+    """
+    children_by_parent: dict[str, list[dict[str, Any]]] = defaultdict(list)
+    connection_parents: set[str] = set()
+    for record in evidence_by_id.values():
+        parent_id = record.get("parent_evidence_id")
+        if isinstance(parent_id, str):
+            children_by_parent[parent_id].append(record)
+        native = record.get("native_properties", {})
+        if isinstance(native, dict) and "smartart_connection" in native:
+            fail(
+                not isinstance(parent_id, str),
+                f"native_smartart_connection_parent_invalid:{record.get('evidence_id')}",
+            )
+            connection_parents.add(parent_id)
+
+    expected: list[dict[str, Any]] = []
+    for parent_id in sorted(connection_parents):
+        diagram = evidence_by_id.get(parent_id)
+        fail(diagram is None, f"native_smartart_diagram_missing:{parent_id}")
+        diagram_id = str(diagram.get("evidence_id"))
+        document_id = diagram.get("document_id")
+        document = documents.get(document_id) if isinstance(document_id, str) else None
+        fail(
+            document is None
+            or PurePosixPath(
+                str(document.get("source", {}).get("relative_path", ""))
+            ).suffix.casefold() != ".pptx",
+            f"native_smartart_document_invalid:{diagram_id}",
+        )
+        fail(
+            diagram.get("evidence_type") != "shape"
+            or diagram.get("parent_evidence_id") is not None
+            or diagram.get("content", {}).get("raw_text") != NATIVE_SMARTART_MARKER,
+            f"native_smartart_diagram_invalid:{diagram_id}",
+        )
+        _native_parser_provenance(
+            diagram,
+            extractor=extractor,
+            extractor_version=extractor_version,
+            generated_at=generated_at,
+            error=f"native_smartart_diagram_provenance_invalid:{diagram_id}",
+        )
+        diagram_location = diagram.get("location", {})
+        diagram_native = diagram.get("native_properties", {})
+        relationship = (
+            diagram_native.get("ooxml_relationship")
+            if isinstance(diagram_native, dict) else None
+        )
+        fail(
+            not isinstance(diagram_location, dict)
+            or not isinstance(diagram_native, dict)
+            or set(diagram_native) != {
+                "ooxml_part", "xml_sha256", "point_count",
+                "connection_count", "ooxml_relationship",
+            }
+            or not isinstance(relationship, dict)
+            or set(relationship) != {
+                "source_part", "relationship_id", "relationship_occurrence",
+            },
+            f"native_smartart_diagram_metadata_invalid:{diagram_id}",
+        )
+        slide_number = diagram_location.get("slide_number")
+        source_member = diagram_location.get("source_member")
+        diagram_index = diagram_location.get("object_index")
+        relationship_id = relationship.get("relationship_id")
+        relationship_occurrence = relationship.get("relationship_occurrence")
+        source_part = relationship.get("source_part")
+        point_count = diagram_native.get("point_count")
+        connection_count = diagram_native.get("connection_count")
+        xml_sha256 = diagram_native.get("xml_sha256")
+        expected_diagram_locator = (
+            f"slide={slide_number};smartart={source_member};"
+            f"relationship={relationship_id};occurrence={relationship_occurrence}"
+        )
+        fail(
+            isinstance(slide_number, bool)
+            or not isinstance(slide_number, int)
+            or slide_number < 1
+            or isinstance(diagram_index, bool)
+            or not isinstance(diagram_index, int)
+            or diagram_index < 1
+            or diagram.get("ordinal") != diagram_index
+            or not _safe_smartart_member(source_member, "ppt/diagrams/")
+            or diagram_native.get("ooxml_part") != source_member
+            or not isinstance(xml_sha256, str)
+            or SHA256_PATTERN.fullmatch(xml_sha256) is None
+            or not _safe_smartart_member(source_part, "ppt/slides/")
+            or not isinstance(relationship_id, str)
+            or not relationship_id
+            or isinstance(relationship_occurrence, bool)
+            or not isinstance(relationship_occurrence, int)
+            or relationship_occurrence < 1
+            or isinstance(point_count, bool)
+            or not isinstance(point_count, int)
+            or point_count < 1
+            or isinstance(connection_count, bool)
+            or not isinstance(connection_count, int)
+            or connection_count < 1
+            or diagram_location != {
+                "slide_number": slide_number,
+                "source_member": source_member,
+                "object_index": diagram_index,
+                "locator_text": expected_diagram_locator,
+            },
+            f"native_smartart_diagram_binding_invalid:{diagram_id}",
+        )
+
+        points_by_model_id: dict[str, dict[str, Any]] = {}
+        point_ordinals: set[int] = set()
+        connections: list[dict[str, Any]] = []
+        connection_ordinals: set[int] = set()
+        for child in children_by_parent.get(parent_id, []):
+            native = child.get("native_properties", {})
+            if not isinstance(native, dict):
+                continue
+            child_id = str(child.get("evidence_id"))
+            if "smartart_model_id" in native:
+                model_id = native.get("smartart_model_id")
+                ordinal = child.get("ordinal")
+                expected_location = {
+                    "slide_number": slide_number,
+                    "source_member": source_member,
+                    "object_index": ordinal,
+                    "object_id": model_id,
+                    "locator_text": (
+                        f"{expected_diagram_locator};point="
+                        f"{urllib.parse.quote(str(model_id), safe='-._~')}"
+                    ),
+                }
+                fail(
+                    child.get("document_id") != document_id
+                    or child.get("evidence_type") != "text_block"
+                    or set(native) != {
+                        "smartart_model_id", "smartart_point_type",
+                        "ooxml_part", "xml_sha256",
+                    }
+                    or not isinstance(model_id, str)
+                    or not model_id
+                    or model_id in points_by_model_id
+                    or isinstance(ordinal, bool)
+                    or not isinstance(ordinal, int)
+                    or ordinal < 1
+                    or ordinal in point_ordinals
+                    or ordinal > point_count
+                    or native.get("ooxml_part") != source_member
+                    or native.get("xml_sha256") != xml_sha256
+                    or child.get("location") != expected_location
+                    or not isinstance(child.get("content", {}).get("raw_text"), str)
+                    or not child["content"]["raw_text"],
+                    f"native_smartart_point_invalid:{child_id}",
+                )
+                _native_parser_provenance(
+                    child,
+                    extractor=extractor,
+                    extractor_version=extractor_version,
+                    generated_at=generated_at,
+                    error=f"native_smartart_point_provenance_invalid:{child_id}",
+                )
+                point_ordinals.add(ordinal)
+                points_by_model_id[model_id] = child
+            if "smartart_connection" in native:
+                raw_connection = native.get("smartart_connection")
+                ordinal = child.get("ordinal")
+                fail(
+                    child.get("document_id") != document_id
+                    or child.get("evidence_type") != "text_block"
+                    or set(native) != {
+                        "smartart_connection", "ooxml_part", "xml_sha256",
+                        "semantic_interpretation_performed",
+                    }
+                    or not isinstance(raw_connection, dict)
+                    or not set(raw_connection) <= {
+                        "modelId", "srcId", "destId", "type",
+                    }
+                    or any(not isinstance(value, str) for value in raw_connection.values())
+                    or native.get("semantic_interpretation_performed") is not False
+                    or native.get("ooxml_part") != source_member
+                    or native.get("xml_sha256") != xml_sha256
+                    or isinstance(ordinal, bool)
+                    or not isinstance(ordinal, int)
+                    or ordinal < 1
+                    or ordinal in connection_ordinals
+                    or ordinal > connection_count
+                    or child.get("location") != {
+                        "slide_number": slide_number,
+                        "source_member": source_member,
+                        "object_index": ordinal,
+                        "locator_text": f"{expected_diagram_locator};connection={ordinal}",
+                    },
+                    f"native_smartart_connection_invalid:{child_id}",
+                )
+                _native_parser_provenance(
+                    child,
+                    extractor=extractor,
+                    extractor_version=extractor_version,
+                    generated_at=generated_at,
+                    error=f"native_smartart_connection_provenance_invalid:{child_id}",
+                )
+                connection_ordinals.add(ordinal)
+                connections.append(child)
+
+        fail(
+            not connections,
+            f"native_smartart_connection_set_empty:{diagram_id}",
+        )
+        grouped: dict[tuple[str, str], list[dict[str, Any]]] = defaultdict(list)
+        for connection in sorted(connections, key=lambda item: item["ordinal"]):
+            connection_id = str(connection.get("evidence_id"))
+            raw_connection = connection["native_properties"]["smartart_connection"]
+            source_id = raw_connection.get("srcId")
+            target_id = raw_connection.get("destId")
+            source = points_by_model_id.get(source_id)
+            target = points_by_model_id.get(target_id)
+            connection_type = str(raw_connection.get("type") or "unspecified")
+            fail(
+                source is None
+                or target is None
+                or connection.get("content", {}).get("raw_text") != (
+                    "SmartArtの明示接続: "
+                    f"{source['content']['raw_text']} -> "
+                    f"{target['content']['raw_text']} "
+                    f"(原形式type={connection_type})"
+                ),
+                f"native_smartart_connection_endpoint_invalid:{connection_id}",
+            )
+            grouped[(source_id, target_id)].append(connection)
+
+        for (source_id, target_id), grouped_connections in sorted(grouped.items()):
+            source = points_by_model_id[source_id]
+            target = points_by_model_id[target_id]
+            expected.append(_native_smartart_connection_relation(
+                from_ref={
+                    "record_type": "evidence",
+                    "record_id": source["evidence_id"],
+                },
+                to_ref={
+                    "record_type": "evidence",
+                    "record_id": target["evidence_id"],
+                },
+                properties={
+                    "raw_connections": [
+                        item["native_properties"]["smartart_connection"]
+                        for item in grouped_connections
+                    ],
+                    "source_member": source_member,
+                    "slide_number": slide_number,
+                    "semantic_interpretation_performed": False,
+                },
+                supporting_evidence_ids=[
+                    diagram_id,
+                    *[item["evidence_id"] for item in grouped_connections],
+                ],
+                extractor=extractor,
+                extractor_version=extractor_version,
+                generated_at=generated_at,
+            ))
+    return expected
 
 
 def derive_native_structural_relations(
@@ -627,7 +1151,7 @@ def derive_native_structural_relations(
         heading = evidence_by_id[heading_id]
         fail(
             record.get("evidence_type") != "table"
-            or heading.get("evidence_type") != "paragraph"
+            or heading.get("evidence_type") != "heading"
             or native_properties.get("preceding_heading_text")
             != heading.get("content", {}).get("raw_text"),
             f"native_structural_heading_binding_mismatch:{evidence_id}",
@@ -637,6 +1161,20 @@ def derive_native_structural_relations(
             {"record_type": "evidence", "record_id": heading_id},
             to_ref,
         )
+
+    for relation in _derive_native_smartart_relations(
+        documents=documents,
+        evidence_by_id=evidence_by_id,
+        extractor=str(extractor),
+        extractor_version=str(extractor_version),
+        generated_at=generated_at,
+    ):
+        relation_id = relation["relation_id"]
+        fail(
+            relation_id in relations,
+            f"native_structural_relation_duplicate:{relation_id}",
+        )
+        relations[relation_id] = relation
 
     return [relations[relation_id] for relation_id in sorted(relations)]
 
@@ -718,7 +1256,7 @@ def derive_verified_lineage_relations(
     seen_units: set[str] = set()
     projected_units = [
         unit for unit in search_units
-        if unit.get("unit_type") in {"table_row", "image_text_packet"}
+        if unit.get("unit_type") in PROJECTED_SEARCH_UNIT_TYPES
     ]
     for unit in projected_units:
         search_unit_id = unit.get("search_unit_id")
@@ -749,10 +1287,13 @@ def derive_verified_lineage_relations(
         generated_at = provenance.get("generated_at")
         fail(
             provenance.get("builder") != "search-unit-builder"
+            or provenance.get("builder_version") != SEARCH_UNIT_BUILDER_VERSION
             or provenance.get("deterministic") is not True
             or not is_rfc3339_timestamp(generated_at),
             f"lineage_search_unit_provenance_invalid:{search_unit_id}",
         )
+        if unit.get("unit_type") in NATIVE_CHART_UNIT_TYPES:
+            layer_native_chart_search_unit(unit, layer_by_id)
 
         expected_projection_id = _expected_search_unit_projection_id(unit)
         derived_records = sorted(
@@ -1024,6 +1565,207 @@ def validate_quality_projection(
         )
 
 
+def validate_provisional_text_projection(item: dict[str, Any]) -> None:
+    """Reject marker loss or accidental OCR-specific promotion metadata."""
+    fail(
+        item.get("quality_tier") != "provisional",
+        "provisional_vlm_projection_quality_mismatch",
+    )
+    fail(
+        item.get("provisional_marker") != PROVISIONAL_OCR_MARKER,
+        "provisional_vlm_projection_marker_mismatch",
+    )
+    fail(
+        bool(
+            {
+                "agreement_types",
+                "bbox_coordinate_system",
+                "reading_order_method",
+                "row_band_count",
+            }
+            & item.keys()
+        ),
+        "provisional_vlm_projection_has_ocr_metadata",
+    )
+    lines = content_lines(str(item.get("observed_text", "")), packet=False)
+    fail(not lines, "provisional_vlm_projection_text_empty")
+    fail(
+        any(
+            not line.lstrip().startswith(PROVISIONAL_OCR_MARKER + " ")
+            for line in lines
+        ),
+        "provisional_vlm_projection_text_unmarked",
+    )
+
+
+def _layer_ocr_match_text(value: object) -> str:
+    fail(not isinstance(value, str) or not value.strip(), "layer_ocr_supporter_text_missing")
+    return unicodedata.normalize("NFC", value).strip()
+
+
+def _layer_ocr_bbox(value: object) -> list[int]:
+    fail(
+        not isinstance(value, list)
+        or len(value) != 4
+        or any(isinstance(item, bool) or not isinstance(item, int) for item in value)
+        or value[0] < 0
+        or value[1] < 0
+        or value[2] <= 0
+        or value[3] <= 0
+        or value[0] + value[2] > 1000
+        or value[1] + value[3] > 1000,
+        "layer_ocr_supporter_bbox_invalid",
+    )
+    return list(value)
+
+
+def _layer_ocr_overlap(first: list[int], second: list[int]) -> float:
+    left = max(first[0], second[0])
+    top = max(first[1], second[1])
+    right = min(first[0] + first[2], second[0] + second[2])
+    bottom = min(first[1] + first[3], second[1] + second[3])
+    if right <= left or bottom <= top:
+        return 0.0
+    intersection = (right - left) * (bottom - top)
+    smaller = min(first[2] * first[3], second[2] * second[3])
+    return intersection / smaller if smaller else 0.0
+
+
+def validate_layer_ocr_supporters(record: dict[str, Any]) -> None:
+    """Recompute OCR consensus from the raw per-engine supporter records."""
+    native = record.get("native_properties", {})
+    observation = native.get("observation_provenance")
+    fail(not isinstance(observation, dict), "layer_ocr_observation_provenance_missing")
+    agreement = native.get("agreement_type")
+    primary_pass = observation.get("primary_pass")
+    primary_engine = OCR_ENGINE_BY_PASS.get(primary_pass)
+    fail(primary_engine is None, "layer_ocr_primary_pass_invalid")
+    primary_group = primary_engine
+    fail(
+        observation.get("primary_engine") != primary_engine
+        or observation.get("primary_independence_group") != primary_group,
+        "layer_ocr_primary_supporter_identity_invalid",
+    )
+    audit_pass = observation.get("audit_pass")
+    audit_engine = OCR_ENGINE_BY_PASS.get(audit_pass) if audit_pass is not None else None
+    audit_group = audit_engine
+    fail(
+        audit_pass is not None
+        and (
+            audit_engine is None
+            or observation.get("audit_engine") != audit_engine
+            or observation.get("audit_independence_group") != audit_group
+        ),
+        "layer_ocr_audit_supporter_identity_invalid",
+    )
+    fail(
+        agreement in {"independent_agreement", "display_transform_unresolved"}
+        and (audit_group is None or primary_group == audit_group),
+        "layer_high_ocr_supporters_not_independent",
+    )
+    fail(
+        agreement == "same_engine_agreement"
+        and (audit_group is None or primary_group != audit_group),
+        "layer_same_engine_ocr_supporters_not_same_group",
+    )
+    fail(
+        agreement == "provisional_single_pass" and audit_group is not None,
+        "layer_single_pass_ocr_has_audit_supporter",
+    )
+
+    coordinate_system = native.get("bbox_coordinate_system")
+    expected = [(
+        primary_pass,
+        primary_engine,
+        primary_group,
+        observation.get("primary_line_id"),
+        observation.get("primary_bbox_coordinate_system"),
+        native.get("primary_confidence"),
+    )]
+    if audit_pass is not None:
+        expected.append((
+            audit_pass,
+            audit_engine,
+            audit_group,
+            observation.get("audit_line_id"),
+            observation.get("audit_bbox_coordinate_system"),
+            native.get("audit_confidence"),
+        ))
+    fail(
+        any(contract[4] != coordinate_system for contract in expected),
+        "layer_ocr_supporter_coordinate_frame_mismatch",
+    )
+    fail(
+        len(expected) == 2
+        and observation.get("comparison_coordinate_system") != coordinate_system,
+        "layer_ocr_comparison_coordinate_frame_mismatch",
+    )
+    supporters = observation.get("supporters")
+    fail(
+        not isinstance(supporters, list) or len(supporters) != len(expected),
+        "layer_ocr_supporters_missing",
+    )
+    content = record.get("content", {})
+    line_text = _layer_ocr_match_text(content.get("raw_text"))
+    boxes: list[list[int]] = []
+    for supporter, contract in zip(supporters, expected):
+        fail(not isinstance(supporter, dict), "layer_ocr_supporter_invalid")
+        pass_name, engine, group, line_id, frame, confidence = contract
+        fail(
+            supporter.get("pass") != pass_name
+            or supporter.get("engine") != engine
+            or supporter.get("independence_group") != group
+            or supporter.get("line_id") != line_id
+            or supporter.get("bbox_coordinate_system") != frame,
+            "layer_ocr_supporter_identity_mismatch",
+        )
+        fail(
+            _layer_ocr_match_text(supporter.get("raw_text")) != line_text,
+            "layer_ocr_supporter_text_mismatch",
+        )
+        actual_confidence = supporter.get("confidence")
+        fail(
+            isinstance(actual_confidence, bool)
+            or not isinstance(actual_confidence, (int, float))
+            or isinstance(confidence, bool)
+            or not isinstance(confidence, (int, float))
+            or float(actual_confidence) != float(confidence),
+            "layer_ocr_supporter_confidence_mismatch",
+        )
+        boxes.append(_layer_ocr_bbox(supporter.get("bbox")))
+
+    geometry = record.get("geometry")
+    fail(not isinstance(geometry, dict), "layer_ocr_consensus_geometry_missing")
+    result_bbox = _layer_ocr_bbox([
+        geometry.get("x"), geometry.get("y"),
+        geometry.get("width"), geometry.get("height"),
+    ])
+    union = [
+        min(box[0] for box in boxes),
+        min(box[1] for box in boxes),
+        max(box[0] + box[2] for box in boxes),
+        max(box[1] + box[3] for box in boxes),
+    ]
+    union[2] -= union[0]
+    union[3] -= union[1]
+    fail(result_bbox != union, "layer_ocr_supporter_union_mismatch")
+    claimed_overlap = native.get("spatial_overlap")
+    if len(boxes) == 1:
+        fail(
+            claimed_overlap != 0 or agreement != "provisional_single_pass",
+            "layer_single_pass_ocr_supporter_contract_invalid",
+        )
+        return
+    recomputed_overlap = _layer_ocr_overlap(boxes[0], boxes[1])
+    fail(
+        isinstance(claimed_overlap, bool)
+        or not isinstance(claimed_overlap, (int, float))
+        or abs(float(claimed_overlap) - round(recomputed_overlap, 6)) > 0.000001
+        or recomputed_overlap < 0.5,
+        "layer_ocr_supporter_overlap_mismatch",
+    )
+
+
 def layer_ocr_quality(record: dict[str, Any]) -> tuple[str, list[str], str | None]:
     native = record.get("native_properties", {})
     agreement = native.get("agreement_type")
@@ -1040,6 +1782,24 @@ def layer_ocr_quality(record: dict[str, Any]) -> tuple[str, list[str], str | Non
     )
     numeric_overlap = isinstance(overlap, (int, float)) and not isinstance(overlap, bool)
     method = record.get("provenance", {}).get("extraction_method")
+    validate_layer_ocr_supporters(record)
+    origin = native.get("visual_origin")
+    materialization = (
+        origin.get("materialization") if isinstance(origin, dict) else None
+    )
+    if isinstance(origin, dict) and origin.get("kind") in {
+        "office_embedded_image", "notebook_embedded_image",
+    }:
+        fail(
+            expected_tier != "provisional"
+            or marker != PROVISIONAL_OCR_MARKER
+            or method != "adaptive_local_ocr_provisional"
+            or native.get("display_transform_resolved") is not False
+            or not isinstance(materialization, dict)
+            or materialization.get("display_transform_resolved") is not False
+            or materialization.get("display_transform_status") != "unresolved",
+            "layer_unresolved_embedded_ocr_not_provisional",
+        )
     if expected_tier == "high":
         fail(marker_present, "layer_high_ocr_has_provisional_marker")
         fail(native.get("independent_engines") is not True, "layer_high_ocr_not_independent")
@@ -1052,19 +1812,574 @@ def layer_ocr_quality(record: dict[str, Any]) -> tuple[str, list[str], str | Non
         return expected_tier, [agreement], None
     fail(marker != PROVISIONAL_OCR_MARKER, "layer_provisional_ocr_marker_invalid")
     fail(method != "adaptive_local_ocr_provisional", "layer_provisional_ocr_method_invalid")
-    if agreement == "same_engine_agreement":
+    if agreement in {
+        "same_engine_agreement", "display_transform_unresolved",
+    }:
         fail(not numeric_overlap or overlap < 0.5, "layer_same_engine_overlap_invalid")
+        if agreement == "display_transform_unresolved":
+            fail(
+                native.get("independent_engines") is not True,
+                "layer_display_transform_ocr_not_independent",
+            )
     else:
         fail(overlap != 0, "layer_single_pass_overlap_invalid")
+    if agreement == "display_transform_unresolved":
+        fail(
+            native.get("display_transform_resolved") is not False
+            or native.get("embedded_source_agreement_type")
+            != "independent_agreement",
+            "layer_display_transform_ocr_source_contract_invalid",
+        )
+        fail(
+            not isinstance(origin, dict)
+            or origin.get("kind") not in {
+                "office_embedded_image", "notebook_embedded_image",
+            }
+            or not isinstance(materialization, dict)
+            or materialization.get("display_transform_resolved") is not False
+            or materialization.get("display_transform_status") != "unresolved",
+            "layer_display_transform_ocr_origin_contract_invalid",
+        )
     return expected_tier, [agreement], PROVISIONAL_OCR_MARKER
+
+
+def layer_provisional_text_quality(
+    record: dict[str, Any],
+) -> tuple[str, str] | None:
+    """Independently reconstruct the allowlisted provisional VLM contract."""
+    evidence_type = record.get("evidence_type")
+    provenance = record.get("provenance", {})
+    method = provenance.get("extraction_method") if isinstance(provenance, dict) else None
+    native = record.get("native_properties", {})
+    if not isinstance(native, dict):
+        native = {}
+    declares_quality = any(
+        key in native for key in ("quality_tier", "provisional_marker")
+    )
+    local_vlm_method_like = (
+        isinstance(method, str)
+        and method.startswith("local_vlm_")
+    )
+    if not (
+        method in PROVISIONAL_TEXT_METHOD_TYPES
+        or local_vlm_method_like
+        or (
+            evidence_type in PROVISIONAL_TEXT_EVIDENCE_TYPES
+            and declares_quality
+        )
+    ):
+        return None
+    allowed_types = PROVISIONAL_TEXT_METHOD_TYPES.get(method)
+    fail(allowed_types is None, "layer_provisional_vlm_method_invalid")
+    fail(
+        evidence_type not in allowed_types,
+        "layer_provisional_vlm_evidence_type_invalid",
+    )
+    fail(
+        native.get("quality_tier") != "provisional",
+        "layer_provisional_vlm_quality_invalid",
+    )
+    fail(
+        native.get("provisional_marker") != PROVISIONAL_OCR_MARKER,
+        "layer_provisional_vlm_marker_invalid",
+    )
+    fail(
+        native.get("question_independent") is not True,
+        "layer_provisional_vlm_question_dependency_invalid",
+    )
+    if method == "local_vlm_unlocated_transcript_provisional":
+        fail(
+            native.get("location_status") != "unlocated"
+            or native.get("transcript_type")
+            != "whole_image_faithful_transcript",
+            "layer_unlocated_vlm_transcript_provenance_invalid",
+        )
+        fail(
+            "geometry" in record,
+            "layer_unlocated_vlm_transcript_has_geometry",
+        )
+    return "provisional", PROVISIONAL_OCR_MARKER
+
+
+def _layer_evidence_text(record: dict[str, Any]) -> str:
+    content = record.get("content", {})
+    for key in ("normalized_text", "raw_text"):
+        if isinstance(content.get(key), str):
+            return content[key].strip()
+    return ""
+
+
+def _layer_provisional_visual_search_text(value: str) -> str:
+    """Reproduce SearchUnit builder normalization, including line markers."""
+    lines: list[str] = []
+    for line in value.splitlines():
+        item = line.strip()
+        if not item or item == PROVISIONAL_OCR_MARKER:
+            continue
+        if not item.startswith(PROVISIONAL_OCR_MARKER + " "):
+            item = f"{PROVISIONAL_OCR_MARKER} {item}"
+        lines.append(item)
+    return "\n".join(lines)
+
+
+def layer_provisional_visual_search_unit_quality(
+    unit: dict[str, Any],
+    evidence_by_id: dict[str, dict[str, Any]],
+    documents_by_id: dict[str, dict[str, Any]] | None = None,
+) -> None:
+    """Independently rebuild a provisional VLM text SearchUnit."""
+    fail(
+        unit.get("unit_type") != "text_chunk",
+        "provisional_visual_search_unit_type_invalid",
+    )
+    source_ids = unit.get("source_evidence_ids")
+    fail(
+        not isinstance(source_ids, list) or len(source_ids) != 1,
+        "provisional_visual_search_unit_sources_invalid",
+    )
+    source = evidence_by_id.get(source_ids[0])
+    fail(source is None, "provisional_visual_search_unit_source_missing")
+    fail(
+        source.get("evidence_type") != "text_block",
+        "provisional_visual_search_unit_source_type_invalid",
+    )
+    provenance = source.get("provenance", {})
+    method = (
+        provenance.get("extraction_method")
+        if isinstance(provenance, dict) else None
+    )
+    fail(
+        method not in PROVISIONAL_TEXT_METHOD_TYPES,
+        "provisional_visual_search_unit_source_method_invalid",
+    )
+    # This also validates the source-side quality, marker, question independence,
+    # and the stricter unlocated-transcript contract.
+    fail(
+        layer_provisional_text_quality(source) is None,
+        "provisional_visual_search_unit_source_quality_missing",
+    )
+
+    expected_text = _layer_provisional_visual_search_text(
+        _layer_evidence_text(source)
+    )
+    fail(
+        not expected_text,
+        "provisional_visual_search_unit_source_text_empty",
+    )
+    expected_text_record = {
+        "search_text": expected_text,
+        "sha256": sha256_text(expected_text),
+        "char_count": len(expected_text),
+    }
+    fail(
+        unit.get("text") != expected_text_record,
+        "provisional_visual_search_unit_text_mismatch",
+    )
+
+    location = source.get("location", {})
+    fail(
+        not isinstance(location, dict),
+        "provisional_visual_search_unit_source_locator_invalid",
+    )
+    expected_locator = {
+        key: location[key]
+        for key in IMAGE_PACKET_LOCATOR_KEYS if key in location
+    }
+    fail(
+        unit.get("locator") != expected_locator,
+        "provisional_visual_search_unit_locator_mismatch",
+    )
+
+    native = source.get("native_properties", {})
+    origin = native.get("visual_origin") if isinstance(native, dict) else None
+    fail(
+        not isinstance(origin, dict)
+        or origin.get("kind") not in IMAGE_PACKET_CONTAINER_KINDS,
+        "provisional_visual_search_unit_origin_invalid",
+    )
+    parent_id = source.get("parent_evidence_id")
+    parent = evidence_by_id.get(parent_id) if isinstance(parent_id, str) else None
+    fail(
+        parent is None or parent.get("evidence_type") != "image",
+        "provisional_visual_search_unit_parent_image_missing",
+    )
+    document = (
+        documents_by_id.get(unit.get("document_id"))
+        if documents_by_id is not None else None
+    )
+    _validate_layer_visual_origins(
+        parent, [source], str(origin.get("kind")), document
+    )
+
+    origin_kind = origin.get("kind") if isinstance(origin, dict) else None
+    expected_container = (
+        origin_kind
+        if origin_kind in IMAGE_PACKET_CONTAINER_KINDS
+        else "standalone_image"
+    )
+    fail(
+        unit.get("context") != {
+            "container_kind": expected_container,
+            "quality_tier": "provisional",
+            "provisional_marker": PROVISIONAL_OCR_MARKER,
+        },
+        "provisional_visual_search_unit_context_mismatch",
+    )
+    fail(
+        unit.get("search_unit_id") != _expected_search_unit_id(unit),
+        "provisional_visual_search_unit_id_unstable",
+    )
+
+
+def _layer_image_fragment_text(value: str, quality_tier: str) -> str:
+    fragments: list[str] = []
+    for line in value.splitlines():
+        fragment = line.strip()
+        if quality_tier == "provisional" and fragment.startswith(PROVISIONAL_OCR_MARKER):
+            fragment = fragment[len(PROVISIONAL_OCR_MARKER):].lstrip()
+        if fragment:
+            fragments.append(fragment)
+    return " ".join(fragments)
+
+
+def _layer_image_row_bands(
+    lines: list[dict[str, Any]],
+) -> list[list[dict[str, Any]]]:
+    fragments: list[dict[str, Any]] = []
+    for line in lines:
+        geometry = line.get("geometry")
+        fail(not isinstance(geometry, dict), "image_packet_source_geometry_missing")
+        values = [geometry.get(key) for key in ("x", "y", "width", "height")]
+        fail(
+            any(
+                not isinstance(value, (int, float)) or isinstance(value, bool)
+                for value in values
+            ),
+            "image_packet_source_geometry_not_numeric",
+        )
+        x, y, width, height = values
+        fail(
+            x < 0 or y < 0 or width <= 0 or height <= 0
+            or x + width > 1000 or y + height > 1000,
+            "image_packet_source_geometry_out_of_bounds",
+        )
+        fragments.append({
+            **line,
+            "_x": float(x),
+            "_top": float(y),
+            "_height": float(height),
+            "_center_y": float(y) + float(height) / 2,
+        })
+    fragments.sort(key=lambda value: (
+        value["_center_y"], value["_x"], value["evidence_id"],
+    ))
+    groups: list[list[dict[str, Any]]] = []
+    for fragment in fragments:
+        candidates: list[tuple[float, int]] = []
+        for index, group in enumerate(groups):
+            group_center = statistics.median(value["_center_y"] for value in group)
+            group_height = statistics.median(value["_height"] for value in group)
+            distance = abs(fragment["_center_y"] - group_center)
+            if distance <= IMAGE_ROW_BAND_CENTER_TOLERANCE * min(
+                fragment["_height"], group_height
+            ):
+                candidates.append((distance, index))
+        if candidates:
+            groups[min(candidates)[1]].append(fragment)
+        else:
+            groups.append([fragment])
+    groups.sort(key=lambda group: (
+        min(value["_top"] for value in group),
+        min(value["_x"] for value in group),
+        min(value["evidence_id"] for value in group),
+    ))
+    return [
+        sorted(group, key=lambda value: (
+            value["_x"], value["_center_y"], value["evidence_id"],
+        ))
+        for group in groups
+    ]
+
+
+def _validate_layer_visual_origins(
+    parent: dict[str, Any],
+    visual_sources: list[dict[str, Any]],
+    expected_container: str,
+    document: dict[str, Any] | None = None,
+) -> None:
+    """Validate the canonical image origin and every child copy fail-closed."""
+    parent_location = parent.get("location", {})
+    parent_native = parent.get("native_properties", {})
+    fail(not isinstance(parent_location, dict), "image_packet_parent_location_invalid")
+    fail(not isinstance(parent_native, dict), "image_packet_parent_native_invalid")
+    parent_origin = (
+        parent_native.get("visual_origin") if isinstance(parent_native, dict) else None
+    )
+    fail(
+        not isinstance(parent_origin, dict),
+        "image_packet_parent_visual_origin_invalid",
+    )
+    fail(
+        not {
+            "kind", "source_relative_path", "source_sha256",
+            "source_location", "materialization",
+        }.issubset(parent_origin),
+        "image_packet_parent_visual_origin_incomplete",
+    )
+    fail(
+        parent_origin.get("kind") != expected_container,
+        "image_packet_parent_visual_origin_kind_invalid",
+    )
+    fail(
+        parent_origin.get("source_location") != parent_location,
+        "image_packet_parent_visual_origin_location_mismatch",
+    )
+    source_relative_path = parent_origin.get("source_relative_path")
+    source_sha256 = parent_origin.get("source_sha256")
+    fail(
+        not isinstance(source_relative_path, str) or not source_relative_path,
+        "image_packet_parent_visual_origin_source_path_invalid",
+    )
+    fail(
+        not isinstance(source_sha256, str)
+        or SHA256_PATTERN.fullmatch(source_sha256) is None,
+        "image_packet_parent_visual_origin_source_hash_invalid",
+    )
+    if document is not None:
+        document_source = document.get("source", {})
+        fail(
+            not isinstance(document_source, dict)
+            or source_relative_path != document_source.get("relative_path")
+            or source_sha256 != document_source.get("sha256"),
+            "image_packet_parent_visual_origin_document_mismatch",
+        )
+        document_path = (
+            document_source.get("relative_path")
+            if isinstance(document_source, dict) else None
+        )
+        expected_document_container = (
+            DOCUMENT_VISUAL_CONTAINER_BY_SUFFIX.get(
+                PurePosixPath(document_path).suffix.casefold()
+            )
+            if isinstance(document_path, str) else None
+        )
+        fail(
+            expected_document_container is not None
+            and expected_document_container != expected_container,
+            "image_packet_parent_visual_origin_document_kind_mismatch",
+        )
+
+    materialization = parent_origin.get("materialization")
+    fail(
+        not isinstance(materialization, dict),
+        "image_packet_parent_visual_materialization_invalid",
+    )
+    rendered_sha256 = materialization.get("rendered_sha256")
+    fail(
+        not isinstance(rendered_sha256, str)
+        or SHA256_PATTERN.fullmatch(rendered_sha256) is None,
+        "image_packet_parent_rendered_hash_invalid",
+    )
+    fail(
+        materialization.get("source_sha256") != source_sha256,
+        "image_packet_parent_materialization_source_hash_mismatch",
+    )
+    fail(
+        materialization.get("external_network_used") is not False,
+        "image_packet_parent_materialization_network_invalid",
+    )
+    if expected_container in {
+        "office_embedded_image", "notebook_embedded_image",
+    }:
+        embedded_sha256 = materialization.get("embedded_sha256")
+        fail(
+            not isinstance(embedded_sha256, str)
+            or SHA256_PATTERN.fullmatch(embedded_sha256) is None
+            or embedded_sha256 != rendered_sha256
+            or parent_native.get("embedded_sha256") != embedded_sha256,
+            "image_packet_parent_embedded_digest_mismatch",
+        )
+    else:
+        fail(
+            parent_native.get("source_sha256") != rendered_sha256,
+            "image_packet_parent_rendered_digest_mismatch",
+        )
+
+    for source in visual_sources:
+        native = source.get("native_properties", {})
+        origin = native.get("visual_origin") if isinstance(native, dict) else None
+        fail(
+            not isinstance(origin, dict),
+            "image_packet_child_visual_origin_missing",
+        )
+        fail(
+            origin != parent_origin,
+            "image_packet_child_visual_origin_parent_mismatch",
+        )
+
+
+def validate_layer_visual_source_binding(
+    source: dict[str, Any],
+    evidence_by_id: dict[str, dict[str, Any]],
+    documents_by_id: dict[str, dict[str, Any]],
+) -> None:
+    """Bind an individually projected visual Evidence item to its source image."""
+    document_id = source.get("document_id")
+    document = documents_by_id.get(document_id)
+    fail(document is None, "visual_source_document_missing")
+    parent_id = source.get("parent_evidence_id")
+    parent = evidence_by_id.get(parent_id) if isinstance(parent_id, str) else None
+    fail(
+        parent is None or parent.get("evidence_type") != "image",
+        "visual_source_parent_image_missing",
+    )
+    fail(
+        parent.get("document_id") != document_id,
+        "visual_source_parent_document_mismatch",
+    )
+    native = source.get("native_properties", {})
+    origin = native.get("visual_origin") if isinstance(native, dict) else None
+    fail(
+        not isinstance(origin, dict)
+        or origin.get("kind") not in IMAGE_PACKET_CONTAINER_KINDS,
+        "visual_source_origin_invalid",
+    )
+    _validate_layer_visual_origins(
+        parent, [source], str(origin.get("kind")), document
+    )
+
+
+def _reconstruct_layer_image_packet(
+    unit: dict[str, Any],
+    evidence_by_id: dict[str, dict[str, Any]],
+    documents_by_id: dict[str, dict[str, Any]] | None = None,
+) -> dict[str, Any]:
+    source_ids = unit.get("source_evidence_ids")
+    fail(
+        not isinstance(source_ids, list) or not source_ids,
+        "image_packet_source_ids_invalid",
+    )
+    source_records = [evidence_by_id.get(evidence_id) for evidence_id in source_ids]
+    fail(any(record is None for record in source_records), "image_packet_source_missing")
+    image_sources = [
+        record for record in source_records
+        if isinstance(record, dict) and record.get("evidence_type") == "image"
+    ]
+    fail(
+        len(image_sources) != 1,
+        "image_packet_parent_image_source_count_invalid",
+    )
+    parent = image_sources[0]
+    parent_id = parent["evidence_id"]
+    fail(source_ids[0] != parent_id, "image_packet_parent_image_not_first")
+    fail(
+        any(
+            record.get("evidence_type") not in {"image", "ocr_line"}
+            for record in source_records if isinstance(record, dict)
+        ),
+        "image_packet_non_ocr_source_present",
+    )
+    context = unit.get("context", {})
+    tier = context.get("quality_tier")
+    frame = context.get("bbox_coordinate_system")
+    parent_native = parent.get("native_properties", {})
+    parent_origin = (
+        parent_native.get("visual_origin") if isinstance(parent_native, dict) else None
+    )
+    fail(not isinstance(parent_origin, dict), "image_packet_parent_visual_origin_invalid")
+    expected_container = parent_origin.get("kind")
+    fail(
+        expected_container not in IMAGE_PACKET_CONTAINER_KINDS,
+        "image_packet_parent_visual_origin_kind_invalid",
+    )
+
+    ocr_sources = [
+        record for record in evidence_by_id.values()
+        if record.get("evidence_type") == "ocr_line"
+        and record.get("parent_evidence_id") == parent_id
+        and record.get("native_properties", {}).get("quality_tier") == tier
+        and record.get("native_properties", {}).get("bbox_coordinate_system") == frame
+        and _layer_evidence_text(record)
+    ]
+    fail(not ocr_sources, "image_packet_matching_child_ocr_missing")
+    for source in ocr_sources:
+        layer_ocr_quality(source)
+    document = (
+        documents_by_id.get(unit.get("document_id"))
+        if documents_by_id is not None else None
+    )
+    _validate_layer_visual_origins(
+        parent, ocr_sources, expected_container, document
+    )
+
+    rows: list[str] = []
+    ordered_sources: list[dict[str, Any]] = []
+    for band in _layer_image_row_bands(ocr_sources):
+        row = " ".join(
+            fragment
+            for fragment in (
+                _layer_image_fragment_text(_layer_evidence_text(source), str(tier))
+                for source in band
+            )
+            if fragment
+        ).strip()
+        if not row:
+            continue
+        if tier == "provisional":
+            row = f"{PROVISIONAL_OCR_MARKER} {row}"
+        rows.append(row)
+        ordered_sources.extend(band)
+    fail(not rows, "image_packet_reconstructed_text_empty")
+
+    content_ref = parent.get("content", {}).get("content_ref")
+    fail(
+        not isinstance(content_ref, str) or not content_ref,
+        "image_packet_parent_content_ref_missing",
+    )
+    source_name = Path(content_ref.split("::", 1)[0].split("#", 1)[0]).name
+    body = "\n".join(rows)
+    search_text = f"Image file: {source_name}\n{body}" if source_name else body
+    parent_location = parent.get("location", {})
+    locator = {
+        key: parent_location[key]
+        for key in IMAGE_PACKET_LOCATOR_KEYS if key in parent_location
+    }
+    if not locator:
+        locator = {"object_index": 1}
+    locator["locator_text"] = (
+        f"container_kind={expected_container};quality_tier={tier};"
+        f"bbox_coordinate_system={frame}"
+    )
+    agreement_types = {
+        source.get("native_properties", {}).get("agreement_type")
+        for source in ordered_sources
+    }
+    fail(
+        not agreement_types or any(not isinstance(value, str) for value in agreement_types),
+        "image_packet_reconstructed_agreement_invalid",
+    )
+    return {
+        "source_evidence_ids": [parent_id] + [
+            source["evidence_id"] for source in ordered_sources
+        ],
+        "locator": locator,
+        "search_text": search_text,
+        "container_kind": expected_container,
+        "agreement_types": sorted(agreement_types),
+        "row_band_count": len(rows),
+    }
 
 
 def layer_image_packet_quality(
     unit: dict[str, Any],
     evidence_by_id: dict[str, dict[str, Any]],
+    documents_by_id: dict[str, dict[str, Any]] | None = None,
 ) -> tuple[str, list[str], str | None]:
     context = unit.get("context", {})
-    fail(context.get("container_kind") != "standalone_image", "image_packet_container_invalid")
+    fail(
+        context.get("container_kind") not in IMAGE_PACKET_CONTAINER_KINDS,
+        "image_packet_container_invalid",
+    )
     bbox_coordinate_system = context.get("bbox_coordinate_system")
     fail(
         bbox_coordinate_system not in OCR_BBOX_COORDINATE_SYSTEMS,
@@ -1121,7 +2436,14 @@ def layer_image_packet_quality(
         "image_packet_source_coordinate_frame_mixed",
     )
     search_text = unit.get("text", {}).get("search_text", "")
-    lines = content_lines(str(search_text), packet=True)
+    packet_lines = [
+        line for line in str(search_text).splitlines() if line.strip()
+    ]
+    lines = (
+        packet_lines[1:]
+        if packet_lines and packet_lines[0].startswith("Image file: ")
+        else packet_lines
+    )
     fail(not lines, "image_packet_text_empty")
     fail(context.get("row_band_count") != len(lines), "image_packet_row_band_count_mismatch")
     if tier == "high":
@@ -1137,6 +2459,33 @@ def layer_image_packet_quality(
             ),
             "provisional_image_packet_text_unmarked",
         )
+    expected = _reconstruct_layer_image_packet(
+        unit, evidence_by_id, documents_by_id
+    )
+    fail(
+        unit.get("source_evidence_ids") != expected["source_evidence_ids"],
+        "image_packet_source_ids_or_order_mismatch",
+    )
+    fail(
+        unit.get("locator") != expected["locator"],
+        "image_packet_locator_mismatch",
+    )
+    fail(
+        search_text != expected["search_text"],
+        "image_packet_text_reconstruction_mismatch",
+    )
+    fail(
+        context.get("container_kind") != expected["container_kind"],
+        "image_packet_container_origin_mismatch",
+    )
+    fail(
+        agreements != expected["agreement_types"],
+        "image_packet_agreement_order_mismatch",
+    )
+    fail(
+        context.get("row_band_count") != expected["row_band_count"],
+        "image_packet_row_order_mismatch",
+    )
     return tier, agreements, expected_marker
 
 
@@ -1243,6 +2592,9 @@ def validate(output: Path, source_root: Path, inventory: Path) -> dict[str, Any]
     layer_documents = read_jsonl(layer_documents_path)
     layer_evidence = read_jsonl(layer_evidence_path)
     layer_relations = read_jsonl(layer_relations_path)
+    layer_documents_by_id = {
+        item["document_id"]: item for item in layer_documents
+    }
     expected_layer_relations = derive_native_structural_relations(
         layer_documents, layer_evidence, intermediate_state,
     )
@@ -1282,6 +2634,12 @@ def validate(output: Path, source_root: Path, inventory: Path) -> dict[str, Any]
     search_generated_at = search_state.get("generated_at")
     intermediate_run_at = intermediate_state.get("run_at")
     fail(
+        search_state.get("builder") != SEARCH_UNIT_BUILDER
+        or search_state.get("builder_version") != SEARCH_UNIT_BUILDER_VERSION
+        or search_state.get("deterministic") is not True,
+        "lineage_search_builder_provenance_invalid",
+    )
+    fail(
         not is_rfc3339_timestamp(search_generated_at)
         or search_generated_at != intermediate_run_at,
         "lineage_search_run_mismatch",
@@ -1295,11 +2653,44 @@ def validate(output: Path, source_root: Path, inventory: Path) -> dict[str, Any]
     )
     search_units_by_id = {item["search_unit_id"]: item for item in search_units}
     for item in search_units:
+        provenance = item.get("provenance", {})
         fail(
-            item.get("provenance", {}).get("generated_at")
-            != search_generated_at,
+            provenance != {
+                "builder": SEARCH_UNIT_BUILDER,
+                "builder_version": SEARCH_UNIT_BUILDER_VERSION,
+                "generated_at": search_generated_at,
+                "deterministic": True,
+            },
             f"lineage_search_unit_run_mismatch:{item['search_unit_id']}",
         )
+        if item.get("unit_type") == "image_text_packet":
+            continue
+        if item.get("unit_type") in NATIVE_CHART_UNIT_TYPES:
+            layer_native_chart_search_unit(item, layer_evidence_by_id)
+            continue
+        context = item.get("context", {})
+        fail(
+            not isinstance(context, dict),
+            f"lineage_search_unit_context_invalid:{item['search_unit_id']}",
+        )
+        source_records = [
+            layer_evidence_by_id.get(evidence_id)
+            for evidence_id in item.get("source_evidence_ids", [])
+            if isinstance(evidence_id, str)
+        ]
+        source_methods = {
+            source.get("provenance", {}).get("extraction_method")
+            for source in source_records if isinstance(source, dict)
+        }
+        provisional_source = any(
+            method in PROVISIONAL_TEXT_METHOD_TYPES
+            or (isinstance(method, str) and method.startswith("local_vlm_"))
+            for method in source_methods
+        )
+        if provisional_source or IMAGE_QUALITY_KEYS & context.keys():
+            layer_provisional_visual_search_unit_quality(
+                item, layer_evidence_by_id, layer_documents_by_id
+            )
 
     documents = read_jsonl(output / "semantic-documents.jsonl")
     evidence = read_jsonl(output / "semantic-evidence.jsonl")
@@ -1375,6 +2766,30 @@ def validate(output: Path, source_root: Path, inventory: Path) -> dict[str, Any]
                 "projected_ocr_line_has_packet_order_metadata",
             )
             image_quality_counts[tier] += 1
+        elif source_record_type in PROVISIONAL_TEXT_EVIDENCE_TYPES:
+            shard_metadata = adapter.get("question_shard")
+            source_projection_id = (
+                shard_metadata.get("source_projection_id")
+                if isinstance(shard_metadata, dict)
+                else item.get("evidence_id")
+            )
+            source_record = layer_evidence_by_id.get(source_projection_id)
+            fail(
+                source_record is None
+                or source_record.get("evidence_type") != source_record_type,
+                "projected_provisional_vlm_source_missing",
+            )
+            provisional_text_quality = layer_provisional_text_quality(
+                source_record
+            )
+            if provisional_text_quality is None:
+                fail(
+                    bool(IMAGE_QUALITY_KEYS & item.keys()),
+                    "native_text_projection_has_image_quality_metadata",
+                )
+            else:
+                validate_provisional_text_projection(item)
+                image_quality_counts[provisional_text_quality[0]] += 1
         elif (
             source_record_type == "search_unit"
             and adapter.get("unit_type") == "image_text_packet"
@@ -1389,7 +2804,7 @@ def validate(output: Path, source_root: Path, inventory: Path) -> dict[str, Any]
                 "projected_image_packet_evidence_lineage_mismatch",
             )
             tier, agreements, marker = layer_image_packet_quality(
-                source_unit, layer_evidence_by_id
+                source_unit, layer_evidence_by_id, layer_documents_by_id
             )
             validate_quality_projection(
                 item,
@@ -1411,6 +2826,28 @@ def validate(output: Path, source_root: Path, inventory: Path) -> dict[str, Any]
                 "projected_image_packet_reading_order_mismatch",
             )
             image_quality_counts[tier] += 1
+        elif (
+            source_record_type == "search_unit"
+            and adapter.get("unit_type") in NATIVE_CHART_UNIT_TYPES
+        ):
+            source_unit = search_units_by_id.get(
+                adapter.get("source_search_unit_id")
+            )
+            fail(
+                source_unit is None
+                or source_unit.get("unit_type") != adapter.get("unit_type"),
+                "projected_chart_search_unit_source_missing",
+            )
+            fail(
+                adapter.get("source_evidence_ids")
+                != source_unit.get("source_evidence_ids"),
+                "projected_chart_search_unit_evidence_lineage_mismatch",
+            )
+            layer_native_chart_search_unit(source_unit, layer_evidence_by_id)
+            fail(
+                bool(IMAGE_QUALITY_KEYS & item.keys()),
+                "projected_chart_search_unit_has_image_quality_metadata",
+            )
         else:
             fail(
                 bool(IMAGE_QUALITY_KEYS & item.keys()),

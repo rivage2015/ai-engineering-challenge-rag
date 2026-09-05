@@ -85,6 +85,135 @@ def write_stdlib_two_sheet_xlsx(path: Path) -> None:
             archive.writestr(name, value)
 
 
+def write_stdlib_docx(path: Path) -> None:
+    """Create a small DOCX whose body order and styles are independently visible."""
+    members = {
+        "[Content_Types].xml": (
+            '<?xml version="1.0" encoding="UTF-8"?>'
+            '<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">'
+            '<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>'
+            '<Default Extension="xml" ContentType="application/xml"/>'
+            '<Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/>'
+            '<Override PartName="/word/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.styles+xml"/>'
+            '</Types>'
+        ),
+        "_rels/.rels": (
+            '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'
+            '<Relationship Id="rIdOffice" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/>'
+            '</Relationships>'
+        ),
+        "word/document.xml": (
+            '<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">'
+            '<w:body>'
+            '<w:p><w:pPr><w:pStyle w:val="Heading1"/></w:pPr><w:r><w:t>Fallback DOCX Heading</w:t></w:r></w:p>'
+            '<w:p><w:r><w:t>docx-project-alpha</w:t></w:r></w:p>'
+            '<w:tbl>'
+            '<w:tr><w:tc><w:p><w:r><w:t>Work</w:t></w:r></w:p></w:tc><w:tc><w:p><w:r><w:t>Person</w:t></w:r></w:p></w:tc></w:tr>'
+            '<w:tr><w:tc><w:p><w:r><w:t>Reception</w:t></w:r></w:p></w:tc><w:tc><w:p><w:r><w:t>Aoi</w:t></w:r></w:p></w:tc></w:tr>'
+            '</w:tbl><w:sectPr/>'
+            '</w:body></w:document>'
+        ),
+        "word/_rels/document.xml.rels": (
+            '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'
+            '<Relationship Id="rIdStyles" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/>'
+            '</Relationships>'
+        ),
+        "word/styles.xml": (
+            '<w:styles xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">'
+            '<w:style w:type="paragraph" w:styleId="Heading1"><w:name w:val="heading 1"/></w:style>'
+            '</w:styles>'
+        ),
+    }
+    with zipfile.ZipFile(path, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+        for name, value in members.items():
+            archive.writestr(name, value)
+
+
+def write_stdlib_pptx(path: Path) -> None:
+    """Create a package-level PPTX with text, table, chart and SmartArt."""
+    members = {
+        "[Content_Types].xml": (
+            '<?xml version="1.0" encoding="UTF-8"?>'
+            '<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">'
+            '<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>'
+            '<Default Extension="xml" ContentType="application/xml"/>'
+            '<Override PartName="/ppt/presentation.xml" ContentType="application/vnd.openxmlformats-officedocument.presentationml.presentation.main+xml"/>'
+            '<Override PartName="/ppt/slides/slide1.xml" ContentType="application/vnd.openxmlformats-officedocument.presentationml.slide+xml"/>'
+            '<Override PartName="/ppt/charts/chart1.xml" ContentType="application/vnd.openxmlformats-officedocument.drawingml.chart+xml"/>'
+            '<Override PartName="/ppt/diagrams/data1.xml" ContentType="application/vnd.openxmlformats-officedocument.drawingml.diagramData+xml"/>'
+            '</Types>'
+        ),
+        "_rels/.rels": (
+            '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'
+            '<Relationship Id="rIdOffice" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="ppt/presentation.xml"/>'
+            '</Relationships>'
+        ),
+        "ppt/presentation.xml": (
+            '<p:presentation xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main" '
+            'xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">'
+            '<p:sldIdLst><p:sldId id="256" r:id="rIdSlide"/></p:sldIdLst>'
+            '</p:presentation>'
+        ),
+        "ppt/_rels/presentation.xml.rels": (
+            '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'
+            '<Relationship Id="rIdSlide" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/slide" Target="slides/slide1.xml"/>'
+            '</Relationships>'
+        ),
+        "ppt/slides/slide1.xml": (
+            '<p:sld xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main" '
+            'xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" '
+            'xmlns:c="http://schemas.openxmlformats.org/drawingml/2006/chart" '
+            'xmlns:dgm="http://schemas.openxmlformats.org/drawingml/2006/diagram" '
+            'xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">'
+            '<p:cSld><p:spTree>'
+            '<p:nvGrpSpPr><p:cNvPr id="1" name=""/><p:cNvGrpSpPr/><p:nvPr/></p:nvGrpSpPr><p:grpSpPr/>'
+            '<p:sp><p:nvSpPr><p:cNvPr id="2" name="Title"/><p:cNvSpPr/><p:nvPr/></p:nvSpPr>'
+            '<p:spPr><a:xfrm><a:off x="100" y="200"/><a:ext cx="3000" cy="400"/></a:xfrm></p:spPr>'
+            '<p:txBody><a:bodyPr/><a:lstStyle/><a:p><a:r><a:t>pptx-project-beta</a:t></a:r></a:p></p:txBody></p:sp>'
+            '<p:graphicFrame><p:nvGraphicFramePr><p:cNvPr id="3" name="Assignment Table"/><p:cNvGraphicFramePr/><p:nvPr/></p:nvGraphicFramePr>'
+            '<p:xfrm><a:off x="100" y="800"/><a:ext cx="3000" cy="1000"/></p:xfrm>'
+            '<a:graphic><a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/table"><a:tbl>'
+            '<a:tblPr/><a:tblGrid><a:gridCol w="1500"/><a:gridCol w="1500"/></a:tblGrid>'
+            '<a:tr h="500"><a:tc><a:txBody><a:bodyPr/><a:lstStyle/><a:p><a:r><a:t>Month</a:t></a:r></a:p></a:txBody></a:tc>'
+            '<a:tc><a:txBody><a:bodyPr/><a:lstStyle/><a:p><a:r><a:t>Owner</a:t></a:r></a:p></a:txBody></a:tc></a:tr>'
+            '<a:tr h="500"><a:tc><a:txBody><a:bodyPr/><a:lstStyle/><a:p><a:r><a:t>August</a:t></a:r></a:p></a:txBody></a:tc>'
+            '<a:tc><a:txBody><a:bodyPr/><a:lstStyle/><a:p><a:r><a:t>Ren</a:t></a:r></a:p></a:txBody></a:tc></a:tr>'
+            '</a:tbl></a:graphicData></a:graphic></p:graphicFrame>'
+            '<p:graphicFrame><p:nvGraphicFramePr><p:cNvPr id="4" name="Work Chart"/><p:cNvGraphicFramePr/><p:nvPr/></p:nvGraphicFramePr>'
+            '<p:xfrm><a:off x="4000" y="800"/><a:ext cx="2000" cy="1000"/></p:xfrm>'
+            '<a:graphic><a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/chart"><c:chart r:id="rIdChart"/></a:graphicData></a:graphic></p:graphicFrame>'
+            '<p:graphicFrame><p:nvGraphicFramePr><p:cNvPr id="5" name="Work Flow"/><p:cNvGraphicFramePr/><p:nvPr/></p:nvGraphicFramePr>'
+            '<p:xfrm><a:off x="4000" y="2000"/><a:ext cx="2000" cy="1000"/></p:xfrm>'
+            '<a:graphic><a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/diagram"><dgm:relIds r:dm="rIdSmart"/></a:graphicData></a:graphic></p:graphicFrame>'
+            '</p:spTree></p:cSld></p:sld>'
+        ),
+        "ppt/slides/_rels/slide1.xml.rels": (
+            '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'
+            '<Relationship Id="rIdChart" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/chart" Target="../charts/chart1.xml"/>'
+            '<Relationship Id="rIdSmart" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/diagramData" Target="../diagrams/data1.xml"/>'
+            '</Relationships>'
+        ),
+        "ppt/charts/chart1.xml": (
+            '<c:chartSpace xmlns:c="http://schemas.openxmlformats.org/drawingml/2006/chart"><c:chart><c:plotArea><c:barChart><c:ser>'
+            '<c:tx><c:strRef><c:strCache><c:pt idx="0"><c:v>Work Hours</c:v></c:pt></c:strCache></c:strRef></c:tx>'
+            '<c:cat><c:strRef><c:strCache><c:pt idx="0"><c:v>August</c:v></c:pt></c:strCache></c:strRef></c:cat>'
+            '<c:val><c:numRef><c:numCache><c:pt idx="0"><c:v>42</c:v></c:pt></c:numCache></c:numRef></c:val>'
+            '</c:ser></c:barChart></c:plotArea></c:chart></c:chartSpace>'
+        ),
+        "ppt/diagrams/data1.xml": (
+            '<dgm:dataModel xmlns:dgm="http://schemas.openxmlformats.org/drawingml/2006/diagram" '
+            'xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main">'
+            '<dgm:ptLst><dgm:pt modelId="n1"><dgm:t><a:t>Plan</a:t></dgm:t></dgm:pt>'
+            '<dgm:pt modelId="n2"><dgm:t><a:t>Deliver</a:t></dgm:t></dgm:pt></dgm:ptLst>'
+            '<dgm:cxnLst><dgm:cxn modelId="e1" srcId="n1" destId="n2" type="parOf"/></dgm:cxnLst>'
+            '</dgm:dataModel>'
+        ),
+    }
+    with zipfile.ZipFile(path, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+        for name, value in members.items():
+            archive.writestr(name, value)
+
+
 def load_engine(name: str):
     path = ENGINE / f"{name}.py"
     spec = importlib.util.spec_from_file_location(name, path)
@@ -829,7 +958,7 @@ class PackageTests(unittest.TestCase):
             state = json.loads((security_out / "content-security-state.json").read_text(encoding="utf-8"))
             self.assertEqual(state["execution_policy"], "never_execute")
 
-    def test_adaptive_reader_preflight_names_missing_pdf_dependency(self) -> None:
+    def test_adaptive_reader_pdf_has_no_external_python_dependency(self) -> None:
         bridge = load_engine("build_adaptive_semantic_graph")
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
@@ -837,9 +966,7 @@ class PackageTests(unittest.TestCase):
             source.write_bytes(b"%PDF-1.4\n%%EOF\n")
             selected = [{"relative_path": source.name}]
             missing = bridge.missing_dependencies(root, selected, finder=lambda _name: None)
-            self.assertEqual(missing, [{
-                "module": "pypdf", "package": "pypdf", "formats": [".pdf"],
-            }])
+            self.assertEqual(missing, [])
 
     @unittest.skipUnless(importlib.util.find_spec("openpyxl"), "openpyxl is required for the native XLSX integration test")
     def test_adaptive_reader_xlsx_reaches_security_gate_with_sheet_row_locators(self) -> None:
@@ -998,6 +1125,202 @@ class PackageTests(unittest.TestCase):
             self.assertEqual(validation.returncode, 0, validation.stderr)
             self.assertEqual(hashlib.sha256(workbook_path.read_bytes()).hexdigest(), before_hash)
 
+    def test_adaptive_reader_docx_pptx_stdlib_fallback_end_to_end(self) -> None:
+        reader_python = shutil.which("python3") or os.sys.executable
+        version = subprocess.run(
+            [reader_python, "-c", "import sys;raise SystemExit(0 if sys.version_info >= (3,10) else 1)"],
+            capture_output=True,
+            check=False,
+        )
+        if version.returncode:
+            self.skipTest("no Python 3.10+ interpreter is available")
+        reader_command = [reader_python, "-S"]
+        dependency_check = subprocess.run([
+            *reader_command,
+            "-c",
+            (
+                "import importlib.util;"
+                "raise SystemExit(0 if "
+                "importlib.util.find_spec('docx') is None and "
+                "importlib.util.find_spec('pptx') is None else 1)"
+            ),
+        ], capture_output=True, check=False)
+        self.assertEqual(dependency_check.returncode, 0, dependency_check.stderr)
+
+        with tempfile.TemporaryDirectory() as temporary:
+            base = Path(temporary)
+            source_root = base / "source"
+            source_root.mkdir()
+            docx_path = source_root / "fallback.docx"
+            pptx_path = source_root / "fallback.pptx"
+            write_stdlib_docx(docx_path)
+            write_stdlib_pptx(pptx_path)
+            before_hashes = {
+                path.name: hashlib.sha256(path.read_bytes()).hexdigest()
+                for path in (docx_path, pptx_path)
+            }
+
+            path_output = base / "path"
+            semantic_output = base / "semantic"
+            subprocess.run([
+                *reader_command,
+                str(ENGINE / "build_path_graph.py"),
+                str(source_root),
+                "--output-dir",
+                str(path_output),
+            ], check=True, capture_output=True, text=True)
+            build = subprocess.run([
+                *reader_command,
+                str(ENGINE / "build_adaptive_semantic_graph.py"),
+                "--inventory",
+                str(path_output / "path-source-inventory.jsonl"),
+                "--source-root",
+                str(source_root),
+                "--output-dir",
+                str(semantic_output),
+            ], check=False, capture_output=True, text=True)
+            self.assertEqual(build.returncode, 0, build.stderr)
+            self.assertNotIn("docx-project-alpha", build.stdout + build.stderr)
+            self.assertNotIn("pptx-project-beta", build.stdout + build.stderr)
+            state = json.loads(
+                (semantic_output / "adaptive-reader-state.json").read_text(
+                    encoding="utf-8"
+                )
+            )
+            self.assertEqual(state["status"], "complete_with_limits")
+            self.assertEqual(state["limitations"]["partial_documents"], 2)
+            self.assertEqual(
+                state["limitations"]["missing_reader_dependencies"], 0
+            )
+            self.assertEqual(state["missing_dependencies"], [])
+
+            documents = [
+                json.loads(line)
+                for line in (
+                    semantic_output / "semantic-documents.jsonl"
+                ).read_text(encoding="utf-8").splitlines()
+                if line.strip()
+            ]
+            self.assertEqual(
+                {
+                    item["source"]["relative_path"]: item["extraction_method"]
+                    for item in documents
+                },
+                {
+                    "fallback.docx": "ooxml-stdlib-docx-fallback",
+                    "fallback.pptx": "ooxml-stdlib-pptx-fallback",
+                },
+            )
+            evidence = [
+                json.loads(line)
+                for line in (
+                    semantic_output / "semantic-evidence.jsonl"
+                ).read_text(encoding="utf-8").splitlines()
+                if line.strip()
+            ]
+            observed = "\n".join(
+                item.get("observed_text", "") for item in evidence
+            )
+            for expected in (
+                "Fallback DOCX Heading",
+                "docx-project-alpha",
+                "Reception",
+                "Aoi",
+                "pptx-project-beta",
+                "August",
+                "Ren",
+                "Work Hours",
+                "August: 42",
+                "Plan",
+                "Deliver",
+            ):
+                self.assertIn(expected, observed)
+            unit_types = {
+                item.get("adapter", {}).get("unit_type") for item in evidence
+            }
+            self.assertTrue(
+                {"table_row", "chart_series"} <= unit_types,
+                unit_types,
+            )
+            source_record_types = {
+                item.get("adapter", {}).get("source_record_type")
+                for item in evidence
+            }
+            self.assertTrue(
+                {"heading", "paragraph", "shape", "table_cell", "text_block"}
+                <= source_record_types,
+                source_record_types,
+            )
+            layer_evidence = [
+                json.loads(line)
+                for line in (
+                    semantic_output / "layer1-intermediate" / "evidence.jsonl"
+                ).read_text(encoding="utf-8").splitlines()
+                if line.strip()
+            ]
+            docx_body = {
+                item.get("content", {}).get("raw_text"): item
+                for item in layer_evidence
+                if item.get("location", {}).get("paragraph_index")
+            }
+            self.assertEqual(
+                docx_body["Fallback DOCX Heading"]["evidence_type"],
+                "heading",
+            )
+            self.assertEqual(
+                docx_body["Fallback DOCX Heading"]["native_properties"]["body_order"],
+                1,
+            )
+            self.assertEqual(
+                docx_body["docx-project-alpha"]["native_properties"]["body_order"],
+                2,
+            )
+            pptx_text_shape = next(
+                item for item in layer_evidence
+                if item.get("content", {}).get("raw_text") == "pptx-project-beta"
+            )
+            self.assertEqual(
+                pptx_text_shape["geometry"],
+                {
+                    "coordinate_space": "slide",
+                    "unit": "emu",
+                    "x": 100,
+                    "y": 200,
+                    "width": 3000,
+                    "height": 400,
+                },
+            )
+            layer_relations = [
+                json.loads(line)
+                for line in (
+                    semantic_output / "layer1-intermediate" / "relations.jsonl"
+                ).read_text(encoding="utf-8").splitlines()
+                if line.strip()
+            ]
+            self.assertIn(
+                "diagram_connection",
+                {item.get("relation_type") for item in layer_relations},
+            )
+
+            validation = subprocess.run([
+                *reader_command,
+                str(ENGINE / "validate_adaptive_semantic_graph.py"),
+                "--output-dir",
+                str(semantic_output),
+                "--source-root",
+                str(source_root),
+                "--inventory",
+                str(path_output / "path-source-inventory.jsonl"),
+            ], check=False, capture_output=True, text=True)
+            self.assertEqual(validation.returncode, 0, validation.stderr)
+            self.assertEqual(
+                {
+                    path.name: hashlib.sha256(path.read_bytes()).hexdigest()
+                    for path in (docx_path, pptx_path)
+                },
+                before_hashes,
+            )
+
     def test_adaptive_reader_keeps_readable_documents_when_one_extraction_fails(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             base = Path(temporary)
@@ -1060,6 +1383,28 @@ class PackageTests(unittest.TestCase):
         self.assertIn('not image_fallback_available_before_reader', build_body)
         self.assertIn('image_fallback_available_after_models', build_body)
         self.assertNotIn('reader_dependencies_missing:', build_body)
+
+    def test_bootstrap_model_ready_rerun_covers_every_visual_reader_container(self) -> None:
+        bootstrap = load_app("bootstrap")
+        expected = bootstrap.IMAGE_SUFFIXES | {
+            ".pdf", ".docx", ".xlsx", ".pptx", ".ipynb",
+        }
+        self.assertEqual(bootstrap.VISUAL_READER_SUFFIXES, expected)
+        with tempfile.TemporaryDirectory() as temporary:
+            semantic = Path(temporary)
+            manifest = semantic / "layer1-input-manifest.json"
+            for suffix in sorted(expected):
+                with self.subTest(suffix=suffix):
+                    manifest.write_text(
+                        json.dumps({"paths": [f"fixtures/visual{suffix.upper()}"]}),
+                        encoding="utf-8",
+                    )
+                    self.assertTrue(bootstrap.semantic_contains_images(semantic))
+            manifest.write_text(
+                json.dumps({"paths": ["notes/readme.txt", "tables/data.csv"]}),
+                encoding="utf-8",
+            )
+            self.assertFalse(bootstrap.semantic_contains_images(semantic))
 
     def test_bootstrap_publishes_only_a_complete_generation(self) -> None:
         bootstrap = (ROOT / "app" / "bootstrap.py").read_text(encoding="utf-8")
@@ -2857,13 +3202,16 @@ class PackageTests(unittest.TestCase):
         self.assertTrue((ROOT / "app" / "semantic_graph_trust.py").is_file())
         self.assertTrue((ROOT / "app" / "launcher_lease.py").is_file())
         for name in (
-            "build_intermediate_records.py", "probe_intermediate_records.py",
+            "build_intermediate_records.py", "intermediate_build_integrity.py",
+            "probe_intermediate_records.py",
             "evidence_text_chunking.py",
             "build_search_units.py", "validate_search_units.py",
             "validate_intermediate_records.py",
             "validate_intermediate_records_streaming.py",
             "adapt_layer1_to_local_memory.py", "local_image_ocr.py",
+            "local_pdf_page_renderer.py", "local_visual_observation.py",
             "local_paddle_ocr.py", "image_canonicalizer.swift",
+            "pdf_page_renderer.js",
             "build_cross_document_semantic_graph.py",
             "query_cross_document_semantic_graph.py",
             "validate_cross_document_semantic_graph.py",
@@ -2901,8 +3249,20 @@ class PackageTests(unittest.TestCase):
 
     def test_package_build_is_versioned_portable_and_publish_after_verify(self) -> None:
         package = (ROOT / "build" / "build_package.sh").read_text(encoding="utf-8")
-        self.assertIn('PACKAGE_VERSION="0.5"', package)
-        self.assertIn('PACKAGE_BUILD="5"', package)
+        self.assertIn('PACKAGE_VERSION="0.6"', package)
+        self.assertIn('PACKAGE_BUILD="6"', package)
+        self.assertIn(
+            'DMG_NAME="Local-Memory-Search-v${PACKAGE_VERSION}-macOS-unsigned.dmg"',
+            package,
+        )
+        self.assertIn(
+            'ZIP_NAME="Local-Memory-Search-v${PACKAGE_VERSION}-macOS-unsigned.zip"',
+            package,
+        )
+        self.assertIn(
+            'CHECKSUM_NAME="Local-Memory-Search-v${PACKAGE_VERSION}-macOS-unsigned.sha256.txt"',
+            package,
+        )
         self.assertIn("CFBundleShortVersionString string $PACKAGE_VERSION", package)
         self.assertIn("CFBundleVersion string $PACKAGE_BUILD", package)
         self.assertIn('OUTPUT_STAGE="$(mktemp -d ', package)
@@ -3148,6 +3508,8 @@ class PackageTests(unittest.TestCase):
             target.write_text("version = 1\n", encoding="utf-8")
             swift = engine / "image_canonicalizer.swift"
             swift.write_text("let version = 1\n", encoding="utf-8")
+            jxa = engine / "pdf_page_renderer.js"
+            jxa.write_text("function run() { return '1'; }\n", encoding="utf-8")
             with (
                 mock.patch.object(server, "BASE", base),
                 mock.patch.object(server, "ENGINE", engine),
@@ -3157,15 +3519,18 @@ class PackageTests(unittest.TestCase):
                 second = server._server_build_id()
                 swift.write_text("let version = 2\n", encoding="utf-8")
                 third = server._server_build_id()
-                model_manifest.write_text('{"version":2}\n', encoding="utf-8")
+                jxa.write_text("function run() { return '2'; }\n", encoding="utf-8")
                 fourth = server._server_build_id()
-                launcher.write_text("run(2);\n", encoding="utf-8")
+                model_manifest.write_text('{"version":2}\n', encoding="utf-8")
                 fifth = server._server_build_id()
+                launcher.write_text("run(2);\n", encoding="utf-8")
+                sixth = server._server_build_id()
             self.assertRegex(first, r"^[0-9a-f]{64}$")
             self.assertNotEqual(first, second)
             self.assertNotEqual(second, third)
             self.assertNotEqual(third, fourth)
             self.assertNotEqual(fourth, fifth)
+            self.assertNotEqual(fifth, sixth)
 
     def test_server_identity_is_private_and_bound_to_instance(self) -> None:
         server = load_server()

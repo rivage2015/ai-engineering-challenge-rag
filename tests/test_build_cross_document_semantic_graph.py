@@ -100,6 +100,45 @@ def _edge_tuples(connection: sqlite3.Connection) -> set[tuple[Any, ...]]:
     }
 
 
+def _evidence_view(
+    evidence_id: str,
+    text: str,
+    *,
+    page_number: int,
+    ordinal: int,
+    x: float | None = None,
+    y: float | None = None,
+    coordinate_space: str = "page",
+    unit: str = "pt",
+    quality_disposition: str = "eligible_native",
+) -> Any:
+    geometry = None
+    if x is not None and y is not None:
+        geometry = {
+            "coordinate_space": coordinate_space,
+            "coordinate_origin": "top_left",
+            "unit": unit,
+            "x": x,
+            "y": y,
+            "width": 80.0,
+            "height": 10.0,
+        }
+    return builder.EvidenceView(
+        evidence_id=evidence_id,
+        document_id="doc_pdf",
+        relative_path="sample/register.pdf",
+        source_sha256="a" * 64,
+        evidence_type="text_block",
+        location={"page_number": page_number},
+        observed_text=text,
+        observed_sha256=hashlib.sha256(text.encode("utf-8")).hexdigest(),
+        text=text,
+        ordinal=ordinal,
+        geometry=geometry,
+        quality_disposition=quality_disposition,
+    )
+
+
 class CrossDocumentSemanticGraphBuilderTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
@@ -418,6 +457,427 @@ class CrossDocumentSemanticGraphBuilderTests(unittest.TestCase):
             self.assertEqual(coordinate_identities, fallback_identities)
             self.assertEqual(2, coordinate_state["counts"]["pdf_coordinate_rows"])
             self.assertEqual(2, fallback_state["counts"]["pdf_order_fallback"])
+
+    def test_quality_gate_excludes_provisional_marker_and_invalid_evidence(self) -> None:
+        with tempfile.TemporaryDirectory() as raw_directory:
+            root = Path(raw_directory)
+            documents_path = root / "semantic-documents.jsonl"
+            evidence_path = root / "safe-answer-evidence.jsonl"
+            source = {
+                "relative_path": "sample/quality.txt",
+                "sha256": "a" * 64,
+                "extension": "txt",
+            }
+            specifications = [
+                (
+                    "native",
+                    "text_block",
+                    "native_parser",
+                    "別表記: SAFE_NATIVE は Project ID: P-NATIVEの別表記",
+                    {},
+                ),
+                (
+                    "high",
+                    "ocr_line",
+                    "dual_local_ocr_consensus",
+                    "別表記: SAFE_HIGH は Project ID: P-HIGHの別表記",
+                    {"quality_tier": "high"},
+                ),
+                (
+                    "provisional",
+                    "text_block",
+                    "local_vlm_unlocated_transcript_provisional",
+                    "[暫定読取] 別表記: BAD_PROVISIONAL は Project ID: P-BAD-PROVISIONALの別表記",
+                    {
+                        "quality_tier": "provisional",
+                        "provisional_marker": "[暫定読取]",
+                    },
+                ),
+                (
+                    "marker",
+                    "paragraph",
+                    "native_parser",
+                    "別表記: BAD_MARKER [暫定読取] は Project ID: P-BAD-MARKERの別表記",
+                    {},
+                ),
+                (
+                    "invalid",
+                    "paragraph",
+                    "native_parser",
+                    "別表記: BAD_INVALID は Project ID: P-BAD-INVALIDの別表記",
+                    {"quality_tier": "trusted"},
+                ),
+                (
+                    "unknown_visual",
+                    "text_block",
+                    "local_vlm_unknown",
+                    "別表記: BAD_UNKNOWN は Project ID: P-BAD-UNKNOWNの別表記",
+                    {},
+                ),
+                (
+                    "promoted_visual",
+                    "text_block",
+                    "local_vlm_unlocated_transcript_provisional",
+                    "別表記: BAD_PROMOTED は Project ID: P-BAD-PROMOTEDの別表記",
+                    {"quality_tier": "high"},
+                ),
+                (
+                    "native_high",
+                    "paragraph",
+                    "native_parser",
+                    "別表記: BAD_NATIVE_HIGH は Project ID: P-BAD-NATIVE-HIGHの別表記",
+                    {"quality_tier": "high"},
+                ),
+            ]
+            evidence_records = []
+            for ordinal, (
+                suffix,
+                source_record_type,
+                extraction_method,
+                observed_text,
+                quality,
+            ) in enumerate(specifications, 1):
+                evidence_records.append({
+                    "evidence_id": f"ev_{suffix}",
+                    "document_id": "doc_quality",
+                    "source": source,
+                    "locator": {"paragraph_index": ordinal},
+                    "observed_text": observed_text,
+                    "ordinal": ordinal,
+                    "adapter": {
+                        "execution_policy": "never_execute",
+                        "source_record_type": source_record_type,
+                    },
+                    "status": "observed",
+                    "extraction_method": extraction_method,
+                    **quality,
+                })
+            _write_jsonl(
+                documents_path,
+                [{
+                    "document_id": "doc_quality",
+                    "source": source,
+                    "evidence_ids": [
+                        record["evidence_id"] for record in evidence_records
+                    ],
+                    "status": "extracted",
+                }],
+            )
+            _write_jsonl(evidence_path, evidence_records)
+
+            state, database_path, _ = self._build(
+                root, documents_path, evidence_path
+            )
+            with closing(sqlite3.connect(database_path)) as connection:
+                aliases = {
+                    row[0]
+                    for row in connection.execute(
+                        """
+                        SELECT target.canonical_key
+                        FROM edges AS edge
+                        JOIN nodes AS target ON target.node_id = edge.to_node_id
+                        WHERE edge.relation_type = 'HAS_ALIAS'
+                        """
+                    )
+                }
+                self.assertEqual({"SAFE_NATIVE", "SAFE_HIGH"}, aliases)
+                self.assertEqual(
+                    len(evidence_records),
+                    connection.execute(
+                        "SELECT COUNT(*) FROM source_evidence"
+                    ).fetchone()[0],
+                )
+                supporting_ids = {
+                    row[0]
+                    for row in connection.execute(
+                        "SELECT DISTINCT evidence_id FROM edge_evidence"
+                    )
+                }
+                self.assertEqual({"ev_native", "ev_high"}, supporting_ids)
+
+            self.assertEqual(1, state["counts"]["quality_gate_eligible_native"])
+            self.assertEqual(1, state["counts"]["quality_gate_eligible_high"])
+            self.assertEqual(1, state["counts"]["quality_gate_excluded_provisional"])
+            self.assertEqual(1, state["counts"]["quality_gate_excluded_marker"])
+            self.assertEqual(
+                4,
+                state["counts"]["quality_gate_excluded_invalid_quality"],
+            )
+            self.assertEqual(6, state["counts"]["quality_gate_excluded_total"])
+
+    def test_pdf_coordinate_rows_never_cross_page_or_coordinate_frame(self) -> None:
+        valid = [
+            _evidence_view("ev_header_id", "社員ID", page_number=1, ordinal=1, x=10, y=10),
+            _evidence_view("ev_header_name", "氏名", page_number=1, ordinal=2, x=110, y=10),
+            _evidence_view("ev_value_id", "EMP-001", page_number=1, ordinal=3, x=10, y=30),
+            _evidence_view("ev_value_name", "山田 太郎", page_number=1, ordinal=4, x=110, y=30),
+        ]
+        rows = builder._coordinate_identity_rows(valid)
+        self.assertEqual(1, len(rows))
+        self.assertEqual("EMP-001", rows[0]["employee_id"].value)
+        self.assertEqual("山田 太郎", rows[0]["person_name"].value)
+
+        crossed_page = [
+            valid[0],
+            valid[1],
+            _evidence_view("ev_page2_id", "EMP-002", page_number=2, ordinal=3, x=10, y=30),
+            _evidence_view("ev_page2_name", "佐藤 花子", page_number=2, ordinal=4, x=110, y=30),
+        ]
+        self.assertEqual([], builder._coordinate_identity_rows(crossed_page))
+
+        for field, value in (("coordinate_space", "image"), ("unit", "px")):
+            changed = []
+            for item in valid:
+                if item.evidence_id.startswith("ev_value"):
+                    kwargs = {
+                        "coordinate_space": "page",
+                        "unit": "pt",
+                    }
+                    kwargs[field] = value
+                    changed.append(_evidence_view(
+                        item.evidence_id + "_changed",
+                        item.text,
+                        page_number=1,
+                        ordinal=item.ordinal,
+                        x=float(item.geometry["x"]),
+                        y=float(item.geometry["y"]),
+                        **kwargs,
+                    ))
+                else:
+                    changed.append(item)
+            with self.subTest(field=field):
+                self.assertEqual([], builder._coordinate_identity_rows(changed))
+
+    def test_pdf_order_fallback_never_crosses_pages(self) -> None:
+        headers = [
+            _evidence_view("ev_order_header_id", "社員ID", page_number=1, ordinal=1),
+            _evidence_view("ev_order_header_name", "氏名", page_number=1, ordinal=2),
+        ]
+        values = [
+            _evidence_view("ev_order_value_id", "EMP-003", page_number=2, ordinal=3),
+            _evidence_view("ev_order_value_name", "高橋 次郎", page_number=2, ordinal=4),
+        ]
+        self.assertEqual([], builder._ordered_identity_rows([*headers, *values]))
+
+        same_page_values = [
+            _evidence_view("ev_order_page1_id", "EMP-003", page_number=1, ordinal=3),
+            _evidence_view("ev_order_page1_name", "高橋 次郎", page_number=1, ordinal=4),
+        ]
+        rows = builder._ordered_identity_rows([*headers, *same_page_values])
+        self.assertEqual(1, len(rows))
+        self.assertEqual("EMP-003", rows[0]["employee_id"].value)
+        self.assertEqual("高橋 次郎", rows[0]["person_name"].value)
+
+    def test_pdfkit_whitespace_identity_rows_bind_complete_status_suffix(self) -> None:
+        inactive = _evidence_view(
+            "ev_pdfkit_inactive",
+            "EmployeeID Name Status\nE1  Alice Smith  Not Approved",
+            page_number=1,
+            ordinal=1,
+        )
+        rows = builder._ordered_identity_rows([inactive])
+        self.assertEqual(1, len(rows))
+        self.assertEqual("Alice Smith", rows[0]["person_name"].value)
+        self.assertEqual("Not Approved", rows[0]["status"].value)
+
+        facts = builder.DocumentFacts(
+            document_id="doc_pdf",
+            relative_path="sample/register.pdf",
+            extension="pdf",
+        )
+        facts.add("document_status", "Approved", ["ev_status"])
+        graph = builder.GraphAccumulator()
+        builder._add_employee_identities(
+            graph, {"doc_pdf": facts}, [inactive], {}
+        )
+        self.assertFalse(any(
+            edge["relation_type"] == "IDENTIFIES_PERSON"
+            for edge in graph.edges.values()
+        ))
+
+        active = _evidence_view(
+            "ev_pdfkit_active",
+            "EmployeeID Name Status\nE2\tAlice Smith\tApproved",
+            page_number=1,
+            ordinal=1,
+        )
+        active_rows = builder._ordered_identity_rows([active])
+        self.assertEqual(1, len(active_rows))
+        self.assertEqual("Alice Smith", active_rows[0]["person_name"].value)
+        self.assertEqual("Approved", active_rows[0]["status"].value)
+
+        single_token_columns = _evidence_view(
+            "ev_pdfkit_role",
+            "EmployeeID Name Role Status\nE7  Alice  Lead  Not Approved",
+            page_number=1,
+            ordinal=1,
+        )
+        role_rows = builder._ordered_identity_rows([single_token_columns])
+        self.assertEqual(1, len(role_rows))
+        self.assertEqual("Alice", role_rows[0]["person_name"].value)
+        self.assertEqual("Lead", role_rows[0]["role"].value)
+        self.assertEqual("Not Approved", role_rows[0]["status"].value)
+
+    def test_pdfkit_whitespace_identity_rows_hold_ambiguous_free_text(self) -> None:
+        cases = {
+            "unknown_multiword_status": (
+                "EmployeeID Name Status\nE3 Alice Smith Pending Review"
+            ),
+            "multiword_role_and_name": (
+                "EmployeeID Name Role Status\n"
+                "E4 Alice Smith Senior Manager Approved"
+            ),
+            "multiword_name_without_status_anchor": (
+                "EmployeeID Name\nE5 Alice Smith"
+            ),
+            "status_not_at_row_end": (
+                "EmployeeID Status Name\nE6 Approved Alice Smith"
+            ),
+            "known_suffix_with_unknown_modifier": (
+                "EmployeeID Name Status\n"
+                "E8 Alice Smith Conditionally Approved"
+            ),
+            "known_multiword_status_without_boundaries": (
+                "EmployeeID Name Status\nE1 Alice Smith Not Approved"
+            ),
+        }
+        for label, text in cases.items():
+            with self.subTest(case=label):
+                item = _evidence_view(
+                    f"ev_{label}", text, page_number=1, ordinal=1
+                )
+                self.assertEqual(
+                    [], builder._ordered_identity_rows([item])
+                )
+
+    def test_pdf_native_and_high_ocr_identity_conflict_is_excluded(self) -> None:
+        facts = builder.DocumentFacts(
+            document_id="doc_pdf",
+            relative_path="sample/register.pdf",
+            extension="pdf",
+        )
+        facts.add("document_status", "Approved", ["ev_status"])
+        native = _evidence_view(
+            "ev_native_page",
+            "社員ID\n氏名\nEMP-001\n山田 太郎",
+            page_number=1,
+            ordinal=1,
+        )
+        high = [
+            _evidence_view(
+                "ev_high_header_id", "社員ID", page_number=1, ordinal=2,
+                x=10, y=10, quality_disposition="eligible_high",
+            ),
+            _evidence_view(
+                "ev_high_header_name", "氏名", page_number=1, ordinal=3,
+                x=110, y=10, quality_disposition="eligible_high",
+            ),
+            _evidence_view(
+                "ev_high_value_id", "EMP-001", page_number=1, ordinal=4,
+                x=10, y=30, quality_disposition="eligible_high",
+            ),
+            _evidence_view(
+                "ev_high_value_name", "山田 大郎", page_number=1, ordinal=5,
+                x=110, y=30, quality_disposition="eligible_high",
+            ),
+        ]
+        graph = builder.GraphAccumulator()
+        diagnostics: dict[str, int] = {}
+        builder._add_employee_identities(
+            graph,
+            {"doc_pdf": facts},
+            [native, *high],
+            diagnostics,
+        )
+        self.assertFalse(any(
+            edge["relation_type"] == "IDENTIFIES_PERSON"
+            for edge in graph.edges.values()
+        ))
+        self.assertEqual(2, diagnostics["pdf_identity_conflicts_excluded"])
+
+    def test_pdf_native_and_high_identity_status_must_agree(self) -> None:
+        facts = builder.DocumentFacts(
+            document_id="doc_pdf",
+            relative_path="sample/register.pdf",
+            extension="pdf",
+        )
+        facts.add("document_status", "Approved", ["ev_status"])
+
+        def high_row(*, include_status: bool) -> list[Any]:
+            cells = [
+                _evidence_view(
+                    "ev_high_status_header_id", "EmployeeID",
+                    page_number=1, ordinal=2, x=10, y=10,
+                    quality_disposition="eligible_high",
+                ),
+                _evidence_view(
+                    "ev_high_status_header_name", "Name",
+                    page_number=1, ordinal=3, x=110, y=10,
+                    quality_disposition="eligible_high",
+                ),
+            ]
+            if include_status:
+                cells.append(_evidence_view(
+                    "ev_high_status_header_status", "Status",
+                    page_number=1, ordinal=4, x=210, y=10,
+                    quality_disposition="eligible_high",
+                ))
+            cells.extend([
+                _evidence_view(
+                    "ev_high_status_value_id", "E1",
+                    page_number=1, ordinal=5, x=10, y=30,
+                    quality_disposition="eligible_high",
+                ),
+                _evidence_view(
+                    "ev_high_status_value_name", "Alice",
+                    page_number=1, ordinal=6, x=110, y=30,
+                    quality_disposition="eligible_high",
+                ),
+            ])
+            if include_status:
+                cells.append(_evidence_view(
+                    "ev_high_status_value_status", "Active",
+                    page_number=1, ordinal=7, x=210, y=30,
+                    quality_disposition="eligible_high",
+                ))
+            return cells
+
+        cases = {
+            "active_inactive_conflict": (
+                "EmployeeID Name Status\nE1  Alice  Inactive",
+                True,
+            ),
+            "missing_native_status": (
+                "EmployeeID Name\nE1 Alice",
+                True,
+            ),
+            "missing_high_status": (
+                "EmployeeID Name Status\nE1  Alice  Active",
+                False,
+            ),
+        }
+        for label, (native_text, high_has_status) in cases.items():
+            native = _evidence_view(
+                f"ev_native_{label}", native_text,
+                page_number=1, ordinal=1,
+            )
+            graph = builder.GraphAccumulator()
+            diagnostics: dict[str, int] = {}
+            builder._add_employee_identities(
+                graph,
+                {"doc_pdf": facts},
+                [native, *high_row(include_status=high_has_status)],
+                diagnostics,
+            )
+            with self.subTest(case=label):
+                self.assertFalse(any(
+                    edge["relation_type"] == "IDENTIFIES_PERSON"
+                    for edge in graph.edges.values()
+                ))
+                self.assertEqual(
+                    2,
+                    diagnostics["pdf_identity_status_conflicts_excluded"],
+                )
 
     def test_cli_contract_is_question_independent_and_rejects_non_safe_input_name(self) -> None:
         self.assertEqual(

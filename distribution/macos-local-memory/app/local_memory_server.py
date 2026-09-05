@@ -66,6 +66,7 @@ def _server_build_id() -> str:
     paths |= set(BASE.glob("*.js"))
     paths |= set(ENGINE.rglob("*.py"))
     paths |= set(ENGINE.rglob("*.json"))
+    paths |= set(ENGINE.rglob("*.js"))
     paths |= set(ENGINE.rglob("*.swift"))
     runtime_contracts: list[tuple[str, Path]] = []
     for name in (
@@ -512,6 +513,16 @@ def semantic_graph_answer_path_status(
 ) -> dict:
     """Describe Step 5 without implying that per-question checks have passed."""
     phase_ready = current.get("phase") in {"ready", "ready_with_limits"}
+    if diagnosis.get("reader_migration_required") is True:
+        return {
+            "state": "reader_migration_required",
+            "label": (
+                "reader_migration_required（Reader更新あり・再構築までは"
+                "現在の索引で回答）"
+            ),
+            "css_class": "warn",
+            "show_rebuild": True,
+        }
     configured = diagnosis.get(
         "cross_document_semantic_graph_answer_promotion_configured"
     ) is True
@@ -660,10 +671,14 @@ def home(message: str = "", csrf_token: str = "") -> bytes:
     <section class="card"><div class="eyebrow">ASK YOUR MEMORY</div><h2>パソコンの中に質問する</h2>
     <form method="post" action="/ask">{csrf_field}<textarea name="query" required placeholder="例：あの頃、AIの講演で何を話したっけ？"></textarea><br><button>根拠を探して答える</button></form></section>
     """
+    rebuild_label = (
+        "Step 7 Reader索引を再構築"
+        if answer_path["state"] == "reader_migration_required"
+        else "意味グラフ回答を有効化して再構築"
+    )
     migration_action = (
         f'<form method="post" action="/build">{csrf_field}<button>'
-        '意味グラフ回答を有効化して再構築'
-        '</button></form>'
+        f'{html.escape(rebuild_label)}</button></form>'
         if answer_path["show_rebuild"]
         else ""
     )
@@ -686,7 +701,7 @@ def home(message: str = "", csrf_token: str = "") -> bytes:
     <div class="metric">チップ<b>{html.escape(diagnosis['architecture'])}</b></div><div class="metric">Ollama<b>{'起動中' if diagnosis['ollama_online'] else '停止中/未導入'}</b></div></div>
     <p class="small">検索対象: {html.escape(diagnosis['source_root'] or '未選択')}<br>モデル: {html.escape(models)}</p>{answer_path_notice}{setup}</section>{ask}
     {security_exclusion_notice()}
-    <section class="card"><details><summary>プライバシーと制限</summary><p class="small">質問・回答・索引は <code>~/Library/Application Support/LocalMemorySearch</code> に保存されます。通常利用中のAI処理は127.0.0.1のOllamaのみです。初回のOllama導入・モデル取得にはインターネットが必要です。画像はまずローカルOCRで位置付き文字を取り出し、位置付き結果が空の場合だけGemmaの座標なし文字起こしを暫定情報として残します。音声・動画は未対応です。</p></details></section>
+    <section class="card"><details><summary>プライバシーと制限</summary><p class="small">質問・回答・索引は <code>~/Library/Application Support/LocalMemorySearch</code> に保存されます。通常利用中のAI処理は127.0.0.1のOllamaのみです。初回のOllama導入・モデル取得にはインターネットが必要です。画像、スキャンPDF、対応する埋め込み画像はローカルOCRで位置付き文字を読みます。Gemmaによる座標なし文字起こしと、図・表・写真の意味観測は <code>[暫定読取]</code> として検索にだけ使い、それ単独で確定回答や確定グラフを作りません。音声・動画は未対応です。</p></details></section>
     """, refresh=refresh)
 
 

@@ -64,6 +64,27 @@ Office・Notebook埋め込み画像、単体画像を実体化し、文章、表
 二重OCRで文字と位置を独立観測します。一致しない読みは統合せず、
 `unresolved`のまま両方を保存します。このOCR出力もまだ検索経路へ接続しません。
 
+上記の大会向けbatch成果物とは別に、macOS Local Memory SearchのStep 7
+source実装は、原本を外部へ送信せず、PDFの各ページと単体画像、
+DOCX・XLSX・PPTX・Notebookの参照付き埋め込みラスター画像を
+既存のローカルOCRへ接続しています。Office・Notebook埋め込み画像のraw bytesは、
+表示representation・crop・透過・transformをまだ再現していないため、OCRが複数方式で一致しても
+`[暫定読取]`に降格し、確定グラフから除外します。XLSX・PPTXのOOXMLネイティブグラフは、
+関係パーツとハッシュに結合した保存済みcacheを
+`verified_ooxml_chart_cache`として検索化します。ただし`verified`は
+出典結合と構造検証を表し、Officeアプリでの最新再計算や業務上の正しさまで
+保証するものではありません。PPTXのSmartArtは、参照できたテキスト要素と
+`srcId`/`destId`の明示接続だけを保持し、接続typeの意味や配置から因果・階層を
+推定しません。DOCX内のネイティブグラフ構造は未対応です。
+
+同Readerの`gemma4:12b`による図・表・写真の質問非依存な視覚観測は
+検索可能ですが、常に`[暫定読取]`であり、cross-document semantic graphの
+Node/Edge候補および確定回答の単独根拠から除外します。OCR不足、cache欠落、
+SmartArt端点不解決、非対応画像、または件数・容量・時間の安全上限到達時は
+Documentを`partial`とし、欠落を成功扱いしません。Officeのスライド/ページ/
+シート全体レンダリングと、独立したAgent 1/2の観測をAgent 3で融合する
+完全経路は、引き続き設計段階です。
+
 ```bash
 python scripts/build_visual_asset_manifest.py --help
 python scripts/materialize_visual_assets.py --help
@@ -107,9 +128,11 @@ FormatCheckerも使い、キャッシュ利用と初回推論時刻を別々に�
 
 ## 実行例
 
-依存ライブラリとして`python-docx`、`openpyxl`、`python-pptx`、`pypdf`、
-NumPy、pandas、Pillow、jsonschemaを使用します。意味索引にはOllamaとローカルの
-`embeddinggemma`が追加で必要です。
+開発・高忠実度Readerでは`python-docx`、`openpyxl`、`python-pptx`、`pypdf`、
+NumPy、pandas、Pillow、jsonschemaを使用します。配布版のDOCX・XLSX・PPTXには
+Python標準ライブラリのOOXML fallbackもあり、これらの追加パッケージが
+ないMacでも本文・表・対応図表を制限付きで保持します。意味索引にはOllamaと
+ローカルの`embeddinggemma`が追加で必要です。
 
 ```bash
 python scripts/build_intermediate_records.py \
@@ -318,9 +341,13 @@ python scripts/build_intermediate_records.py \
   --resume
 ```
 
-`build-state.json`には原本とファイル単位シャードのSHA-256が記録されます。
-再開時は両方が一致する完了済みファイルをスキップし、未完了・失敗・変更済みの
-ファイルだけを再処理します。
+`build-state.json`には原本、ファイル単位シャード、集約JSONLの順序付き
+SHA-256/件数/サイズと、Reader、OCR、ローカルVLMのモデルdigest・
+prompt・loopback Ollama版、通常parser依存を含む
+processing fingerprintを記録します。再開時は原本・シャード・fingerprintが
+すべて一致する`success`/`partial`/`deferred`だけを再利用し、不一致と`failed`は
+再処理します。ValidatorとLocal Memory変換入口は集約JSONLをstateと独立照合し、
+追記や順序改変をfail-closedに拒否します。
 
 ## 現在の状態
 

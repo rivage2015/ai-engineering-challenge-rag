@@ -306,8 +306,8 @@ class AnswerGraphRetrievalPolicyTests(unittest.TestCase):
             json.dumps(raw, ensure_ascii=False).encode("utf-8")
         )
         with mock.patch.object(
-            final_audit.urllib.request,
-            "urlopen",
+            final_audit.LOCAL_HTTP_OPENER,
+            "open",
             return_value=response,
         ):
             with self.assertRaisesRegex(
@@ -334,8 +334,8 @@ class AnswerGraphRetrievalPolicyTests(unittest.TestCase):
             json.dumps(raw, ensure_ascii=False).encode("utf-8")
         )
         with mock.patch.object(
-            final_audit.urllib.request,
-            "urlopen",
+            final_audit.LOCAL_HTTP_OPENER,
+            "open",
             return_value=response,
         ):
             with self.assertRaisesRegex(
