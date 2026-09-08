@@ -28,6 +28,16 @@ def sha256_file(path: Path) -> str:
     return digest.hexdigest()
 
 
+def birthtime_ns(metadata: os.stat_result) -> int | None:
+    value = getattr(metadata, "st_birthtime_ns", None)
+    if isinstance(value, int) and not isinstance(value, bool):
+        return value
+    seconds = getattr(metadata, "st_birthtime", None)
+    if isinstance(seconds, (int, float)) and not isinstance(seconds, bool):
+        return int(seconds * 1_000_000_000)
+    return None
+
+
 def fail(errors: list[str], message: str) -> None:
     errors.append(message)
 
@@ -104,6 +114,8 @@ def validate(graph_path: Path, inventory_path: Path) -> dict:
         except OSError as exc:
             fail(errors, f"current_source_missing:{relative}:{type(exc).__name__}")
             continue
+        if "birthtime_ns" in item and item["birthtime_ns"] != birthtime_ns(metadata):
+            fail(errors, f"current_source_birthtime_changed:{relative}")
         if item["kind"] == "file":
             if not stat.S_ISREG(metadata.st_mode):
                 fail(errors, f"current_source_type_changed:{relative}")

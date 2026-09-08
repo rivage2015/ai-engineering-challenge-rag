@@ -2502,7 +2502,12 @@ def bound_source(root: Path, relative_path: str) -> Path:
     return resolved
 
 
-def validate(output: Path, source_root: Path, inventory: Path) -> dict[str, Any]:
+def validate(
+    output: Path,
+    source_root: Path,
+    inventory: Path,
+    version_graph: Path | None = None,
+) -> dict[str, Any]:
     output = output.resolve(strict=True)
     source_root = source_root.resolve(strict=True)
     inventory = inventory.resolve(strict=True)
@@ -2522,6 +2527,35 @@ def validate(output: Path, source_root: Path, inventory: Path) -> dict[str, Any]
     fail(state.get("requires_content_security_gate") is not True, "security_gate_requirement_invalid")
     fail(Path(state.get("source_root", "")).resolve() != source_root, "source_root_mismatch")
     fail(state.get("source_inventory", {}).get("sha256") != sha256_file(inventory), "source_inventory_hash_mismatch")
+    version_binding = state.get("document_version_graph")
+    version_value = None
+    if version_graph is None:
+        fail(version_binding is not None, "unexpected_document_version_graph")
+    else:
+        version_graph = version_graph.resolve(strict=True)
+        fail(not isinstance(version_binding, dict), "document_version_graph_binding_missing")
+        fail(
+            version_binding.get("sha256") != sha256_file(version_graph),
+            "document_version_graph_hash_mismatch",
+        )
+        version_value = json.loads(version_graph.read_text(encoding="utf-8"))
+        version_core = {
+            key: value for key, value in version_value.items()
+            if key != "graph_sha256"
+        }
+        fail(
+            version_value.get("graph_sha256") != sha256_text(canonical(version_core)),
+            "document_version_graph_integrity_invalid",
+        )
+        fail(
+            version_binding.get("graph_sha256") != version_value.get("graph_sha256"),
+            "document_version_graph_identity_mismatch",
+        )
+        fail(
+            version_value.get("source", {}).get("inventory_sha256")
+            != sha256_file(inventory),
+            "document_version_graph_inventory_mismatch",
+        )
 
     for stage in state.get("stages", {}).values():
         stage_path = output / stage.get("path", "")
@@ -2545,6 +2579,19 @@ def validate(output: Path, source_root: Path, inventory: Path) -> dict[str, Any]
         if item.get("kind") == "file" and isinstance(item.get("relative_path"), str)
     }
     fail(not set(paths) <= set(inventory_files), "manifest_path_missing_from_inventory")
+    if isinstance(version_value, dict):
+        held_version_paths = {
+            item.get("relative_path")
+            for group in version_value.get("groups", [])
+            if isinstance(group, dict)
+            for item in group.get("candidates", [])
+            if isinstance(item, dict)
+            and item.get("disposition") in {"historical", "needs_human_review"}
+        }
+        fail(
+            bool(set(paths) & held_version_paths),
+            "held_document_version_in_answer_manifest",
+        )
 
     intermediate_state = json.loads((output / "layer1-intermediate" / "build-state.json").read_text(encoding="utf-8"))
     fail(
@@ -2959,8 +3006,11 @@ def main() -> int:
     parser.add_argument("--output-dir", required=True, type=Path)
     parser.add_argument("--source-root", required=True, type=Path)
     parser.add_argument("--inventory", required=True, type=Path)
+    parser.add_argument("--version-graph", type=Path)
     args = parser.parse_args()
-    print(json.dumps(validate(args.output_dir, args.source_root, args.inventory), ensure_ascii=False, sort_keys=True))
+    print(json.dumps(validate(
+        args.output_dir, args.source_root, args.inventory, args.version_graph
+    ), ensure_ascii=False, sort_keys=True))
     return 0
 
 

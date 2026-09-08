@@ -4360,6 +4360,47 @@ class PackageTests(unittest.TestCase):
         )
         self.assertIn("意味グラフ回答を有効化して再構築", held_rendered)
 
+    def test_document_version_review_renders_only_hash_verified_candidates(self) -> None:
+        server = load_server()
+        resolver = load_engine("document_version_resolver")
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            inventory = root / "inventory.jsonl"
+            records = [
+                {
+                    "relative_path": "DAWN/現行/業務内容2024.xlsx",
+                    "kind": "file", "size_bytes": 1, "mtime_ns": 2,
+                    "birthtime_ns": 1, "sha256": "a" * 64,
+                    "read_status": "observed",
+                },
+                {
+                    "relative_path": "DAWN/業務内容2025.xlsx",
+                    "kind": "file", "size_bytes": 1, "mtime_ns": 3,
+                    "birthtime_ns": 2, "sha256": "b" * 64,
+                    "read_status": "observed",
+                },
+            ]
+            inventory.write_text(
+                "".join(resolver.canonical_json(item) + "\n" for item in records),
+                encoding="utf-8",
+            )
+            graph = root / "review.json"
+            resolver.build(inventory, graph)
+            with mock.patch.object(server.bootstrap, "DOCUMENT_VERSION_REVIEW", graph):
+                rendered = server.document_version_review_notice(
+                    '<input type="hidden" name="csrf" value="token">'
+                )
+                self.assertIn("HUMAN IN THE LOOP", rendered)
+                self.assertIn("どれを現在使う資料にしますか？", rendered)
+                self.assertIn("DAWN/業務内容2025.xlsx", rendered)
+                value = json.loads(graph.read_text(encoding="utf-8"))
+                value["groups"][0]["reason_code"] = "tampered"
+                graph.write_text(json.dumps(value), encoding="utf-8")
+                self.assertIn(
+                    "安全に読み込めません",
+                    server.document_version_review_notice(""),
+                )
+
     def test_home_keeps_refreshing_for_pending_graph_observers(self) -> None:
         server = load_server()
         diagnosis = {

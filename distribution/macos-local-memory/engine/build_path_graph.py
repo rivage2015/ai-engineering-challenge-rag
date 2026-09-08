@@ -14,8 +14,8 @@ from datetime import datetime
 from pathlib import Path
 
 
-SCHEMA_VERSION = "1.0"
-BUILDER_VERSION = "0.1.0"
+SCHEMA_VERSION = "1.1"
+BUILDER_VERSION = "0.2.0"
 
 
 def canonical(value: object) -> bytes:
@@ -50,6 +50,17 @@ def kind_from_mode(mode: int) -> str:
 
 def extension(path: Path, kind: str) -> str:
     return path.suffix.casefold() if kind == "file" and path.suffix else ""
+
+
+def birthtime_ns(metadata: os.stat_result) -> int | None:
+    """Return the filesystem creation time when the platform exposes it."""
+    value = getattr(metadata, "st_birthtime_ns", None)
+    if isinstance(value, int) and not isinstance(value, bool):
+        return value
+    seconds = getattr(metadata, "st_birthtime", None)
+    if isinstance(seconds, (int, float)) and not isinstance(seconds, bool):
+        return int(seconds * 1_000_000_000)
+    return None
 
 
 def atomic_json(path: Path, value: object) -> None:
@@ -108,6 +119,7 @@ def enumerate_entries(root: Path) -> tuple[list[dict], list[dict]]:
                     "extension": extension(path, kind),
                     "size_bytes": metadata.st_size if kind == "file" else 0,
                     "mtime_ns": metadata.st_mtime_ns,
+                    "birthtime_ns": birthtime_ns(metadata),
                     "mode": stat.S_IMODE(metadata.st_mode),
                     "symlink_target": target,
                     "sha256": None,
@@ -156,7 +168,10 @@ def directory_hashes(entries: list[dict]) -> dict[str, str]:
 def inventory_records(entries: list[dict]) -> list[dict]:
     return [{
         key: item[key]
-        for key in ("relative_path", "kind", "size_bytes", "mtime_ns", "sha256", "read_status")
+        for key in (
+            "relative_path", "kind", "size_bytes", "mtime_ns",
+            "birthtime_ns", "sha256", "read_status",
+        )
     } for item in entries]
 
 
@@ -197,6 +212,7 @@ def make_graph(root: Path, entries: list[dict], errors: list[dict], inventory_sh
                 "extension": item["extension"],
                 "size_bytes": item["size_bytes"],
                 "mtime_ns": item["mtime_ns"],
+                "birthtime_ns": item["birthtime_ns"],
                 "mode": item["mode"],
                 "symlink_target": item["symlink_target"],
             },

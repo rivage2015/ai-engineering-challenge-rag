@@ -27,7 +27,7 @@ from typing import Any, Callable
 
 
 BUILDER = "adaptive-layer1-semantic-bridge"
-BUILDER_VERSION = "0.3.0"
+BUILDER_VERSION = "0.4.0"
 SCHEMA_VERSION = "0.1"
 LOCAL_LLM_RUNNERS = {"ollama_loopback_chat"}
 
@@ -189,6 +189,62 @@ def select_inventory(inventory: list[dict[str, Any]]) -> tuple[list[dict[str, An
     return selected, dict(sorted(counts.items()))
 
 
+def apply_document_version_policy(
+    selected: list[dict[str, Any]],
+    version_graph_path: Path | None,
+    expected_inventory_sha256: str | None = None,
+) -> tuple[list[dict[str, Any]], dict[str, int], dict[str, Any] | None]:
+    """Keep only answer-eligible candidates from validated version families.
+
+    Historical files remain on disk and in the version graph.  Ambiguous
+    families are held out of the answer index until a human decision is bound
+    to the complete candidate set and selected source hash.
+    """
+    if version_graph_path is None:
+        return selected, {}, None
+    version_graph_path = version_graph_path.resolve(strict=True)
+    graph = json.loads(version_graph_path.read_text(encoding="utf-8"))
+    core = {key: value for key, value in graph.items() if key != "graph_sha256"}
+    if graph.get("graph_sha256") != hashlib.sha256(
+        canonical(core).encode("utf-8")
+    ).hexdigest():
+        raise ValueError("document_version_graph_hash_mismatch")
+    if (
+        expected_inventory_sha256 is not None
+        and graph.get("source", {}).get("inventory_sha256")
+        != expected_inventory_sha256
+    ):
+        raise ValueError("document_version_graph_inventory_mismatch")
+    dispositions: dict[str, str] = {}
+    for group in graph.get("groups", []):
+        if not isinstance(group, dict):
+            raise ValueError("document_version_group_invalid")
+        for item in group.get("candidates", []):
+            relative = item.get("relative_path") if isinstance(item, dict) else None
+            disposition = item.get("disposition") if isinstance(item, dict) else None
+            if (
+                not isinstance(relative, str)
+                or disposition not in {"active", "historical", "needs_human_review"}
+                or relative in dispositions
+            ):
+                raise ValueError("document_version_candidate_invalid")
+            dispositions[relative] = disposition
+    counts: Counter[str] = Counter()
+    eligible: list[dict[str, Any]] = []
+    for item in selected:
+        disposition = dispositions.get(item["relative_path"])
+        if disposition in {"historical", "needs_human_review"}:
+            counts[f"version_{disposition}"] += 1
+        else:
+            eligible.append(item)
+            counts["version_active" if disposition == "active" else "version_ungrouped"] += 1
+    return eligible, dict(sorted(counts.items())), {
+        "path": str(version_graph_path),
+        "sha256": sha256_file(version_graph_path),
+        "graph_sha256": graph["graph_sha256"],
+    }
+
+
 def source_path(root: Path, relative_path: str) -> Path:
     root = root.resolve(strict=True)
     relative = safe_relative(relative_path)
@@ -269,7 +325,13 @@ def run_tool(label: str, command: list[str], tools_dir: Path, log_path: Path) ->
         raise RuntimeError(f"adaptive_reader_stage_failed:{label}:exit_{process.returncode}")
 
 
-def build(source_root: Path, inventory_path: Path, output: Path, tools_dir: Path) -> dict[str, Any]:
+def build(
+    source_root: Path,
+    inventory_path: Path,
+    output: Path,
+    tools_dir: Path,
+    version_graph_path: Path | None = None,
+) -> dict[str, Any]:
     source_root = source_root.resolve(strict=True)
     inventory_path = inventory_path.resolve(strict=True)
     tools_dir = tools_dir.resolve(strict=True)
@@ -289,6 +351,10 @@ def build(source_root: Path, inventory_path: Path, output: Path, tools_dir: Path
 
     inventory = read_jsonl(inventory_path)
     selected, selection_counts = select_inventory(inventory)
+    selected, version_counts, version_binding = apply_document_version_policy(
+        selected, version_graph_path, sha256_file(inventory_path)
+    )
+    selection_counts.update(version_counts)
     if not selected:
         state = {
             "schema_version": SCHEMA_VERSION, "builder": BUILDER,
@@ -372,6 +438,10 @@ def build(source_root: Path, inventory_path: Path, output: Path, tools_dir: Path
         "unsupported_files": selection_counts.get("unsupported", 0),
         "policy_excluded_files": selection_counts.get("policy_excluded", 0),
         "inventory_unresolved_files": selection_counts.get("inventory_unresolved", 0),
+        "historical_version_files_held": selection_counts.get("version_historical", 0),
+        "version_files_needing_human_review": selection_counts.get(
+            "version_needs_human_review", 0
+        ),
         "partial_documents": int(adapter_state.get("layer1_status_counts", {}).get("partial", 0)),
         "deferred_documents": int(adapter_state.get("layer1_status_counts", {}).get("deferred", 0)),
         "empty_after_extraction_documents": status_counts.get("empty_after_extraction", 0),
@@ -394,6 +464,7 @@ def build(source_root: Path, inventory_path: Path, output: Path, tools_dir: Path
         "requires_content_security_gate": True,
         "source_root": str(source_root),
         "source_inventory": {"path": str(inventory_path), "sha256": sha256_file(inventory_path)},
+        "document_version_graph": version_binding,
         "selection_counts": selection_counts,
         "selected_file_count": len(selected),
         "limitations": limitations,
@@ -422,13 +493,17 @@ def main() -> int:
     parser.add_argument("--inventory", required=True, type=Path)
     parser.add_argument("--source-root", required=True, type=Path)
     parser.add_argument("--output-dir", required=True, type=Path)
+    parser.add_argument("--version-graph", type=Path)
     parser.add_argument(
         "--tools-dir", type=Path,
         default=default_tools_dir(),
     )
     args = parser.parse_args()
     try:
-        result = build(args.source_root, args.inventory, args.output_dir, args.tools_dir)
+        result = build(
+            args.source_root, args.inventory, args.output_dir, args.tools_dir,
+            args.version_graph,
+        )
     except Exception as exc:
         raise SystemExit(f"{type(exc).__name__}:{exc}") from exc
     print(canonical({

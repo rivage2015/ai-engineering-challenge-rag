@@ -31,6 +31,8 @@ APP_NAME = "LocalMemorySearch"
 SUPPORT = Path.home() / "Library" / "Application Support" / APP_NAME
 CONFIG = SUPPORT / "config.json"
 STATE = SUPPORT / "state.json"
+DOCUMENT_VERSION_DECISIONS = SUPPORT / "document-version-decisions.json"
+DOCUMENT_VERSION_REVIEW = SUPPORT / "document-version-review.json"
 ENGINE = Path(__file__).resolve().parent / "engine"
 OLLAMA = "http://127.0.0.1:11434"
 LOCAL_HTTP_OPENER = urllib.request.build_opener(
@@ -2141,11 +2143,13 @@ def run_semantic_pipeline(
         sys.executable, str(ENGINE / "build_adaptive_semantic_graph.py"),
         "--inventory", str(paths / "path-source-inventory.jsonl"),
         "--source-root", str(source), "--output-dir", str(semantic),
+        "--version-graph", str(paths / "document-version-graph.json"),
     ], log)
     run([
         sys.executable, str(ENGINE / "validate_adaptive_semantic_graph.py"),
         "--output-dir", str(semantic), "--source-root", str(source),
         "--inventory", str(paths / "path-source-inventory.jsonl"),
+        "--version-graph", str(paths / "document-version-graph.json"),
     ], log)
     reader_state = load_json(semantic / "adaptive-reader-state.json")
     run([
@@ -3621,6 +3625,21 @@ def build_index() -> None:
             paths.mkdir(parents=True, exist_ok=False)
             run([sys.executable, str(ENGINE / "build_path_graph.py"), str(source), "--output-dir", str(paths)], log)
             run([sys.executable, str(ENGINE / "validate_path_graph.py"), str(paths / "path-evidence-graph.json"), str(paths / "path-source-inventory.jsonl")], log)
+            run([
+                sys.executable, str(ENGINE / "document_version_resolver.py"),
+                "build", "--inventory", str(paths / "path-source-inventory.jsonl"),
+                "--output", str(paths / "document-version-graph.json"),
+                "--decisions", str(DOCUMENT_VERSION_DECISIONS),
+            ], log)
+            run([
+                sys.executable, str(ENGINE / "document_version_resolver.py"),
+                "validate", "--graph", str(paths / "document-version-graph.json"),
+                "--inventory", str(paths / "path-source-inventory.jsonl"),
+            ], log)
+            atomic_json(
+                DOCUMENT_VERSION_REVIEW,
+                load_json(paths / "document-version-graph.json"),
+            )
             image_fallback_available_before_reader = local_model_available(
                 IMAGE_FALLBACK_MODEL
             )

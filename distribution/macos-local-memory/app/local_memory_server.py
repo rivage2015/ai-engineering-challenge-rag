@@ -643,6 +643,67 @@ def security_exclusion_notice() -> str:
     )
 
 
+def document_version_review_notice(csrf_field: str) -> str:
+    """Render unresolved version families without exposing document content."""
+    path = bootstrap.DOCUMENT_VERSION_REVIEW
+    if not path.is_file() or path.is_symlink():
+        return ""
+    try:
+        graph = json.loads(path.read_text(encoding="utf-8"))
+        core = {key: value for key, value in graph.items() if key != "graph_sha256"}
+        expected = hashlib.sha256(
+            json.dumps(
+                core, ensure_ascii=False, sort_keys=True, separators=(",", ":")
+            ).encode("utf-8")
+        ).hexdigest()
+        if not hmac.compare_digest(str(graph.get("graph_sha256", "")), expected):
+            raise ValueError("version graph integrity mismatch")
+        groups = [
+            item for item in graph.get("groups", [])
+            if isinstance(item, dict) and item.get("status") == "needs_human_review"
+        ]
+    except (OSError, ValueError, TypeError):
+        return '<p class="warn">資料版の確認候補を安全に読み込めませんでした。</p>'
+    if not groups:
+        return ""
+    cards: list[str] = []
+    for group in groups:
+        group_id = group.get("group_id")
+        candidates = group.get("candidates")
+        if not isinstance(group_id, str) or not isinstance(candidates, list):
+            continue
+        choices: list[str] = []
+        for item in candidates:
+            if not isinstance(item, dict) or not isinstance(item.get("relative_path"), str):
+                continue
+            relative = item["relative_path"]
+            years = ", ".join(str(value) for value in item.get("explicit_years", []))
+            choices.append(
+                '<label><input type="radio" name="selected_relative_path" '
+                f'value="{html.escape(relative, quote=True)}" required> '
+                f'{html.escape(relative)} <span class="small">({html.escape(years)})</span></label><br>'
+            )
+        if not choices:
+            continue
+        reason = html.escape(str(group.get("reason_code", "ambiguous")))
+        cards.append(
+            '<form method="post" action="/document-version-decision">'
+            f'{csrf_field}<input type="hidden" name="group_id" '
+            f'value="{html.escape(group_id, quote=True)}">'
+            f'<p><b>どれを現在使う資料にしますか？</b><br><span class="small">判定保留: {reason}</span></p>'
+            + "".join(choices)
+            + '<br><button>この資料を採用して索引を再構築</button></form>'
+        )
+    if not cards:
+        return ""
+    return (
+        '<section class="card"><div class="eyebrow">HUMAN IN THE LOOP</div>'
+        f'<h2>資料の新旧を確認してください（{len(cards)}件）</h2>'
+        '<p class="small">作成日時・更新日時だけでは最新版と断定しません。選択は候補一式とファイル内容のハッシュに結び付け、変更されたら再確認します。</p>'
+        + "".join(cards) + "</section>"
+    )
+
+
 def home(message: str = "", csrf_token: str = "") -> bytes:
     diagnosis = bootstrap.diagnose()
     current = state()
@@ -700,6 +761,7 @@ def home(message: str = "", csrf_token: str = "") -> bytes:
     <div class="metric">メモリ<b>{diagnosis['memory_gb'] or '?'} GB</b></div><div class="metric">空き容量<b>{diagnosis['free_gb']} GB</b></div>
     <div class="metric">チップ<b>{html.escape(diagnosis['architecture'])}</b></div><div class="metric">Ollama<b>{'起動中' if diagnosis['ollama_online'] else '停止中/未導入'}</b></div></div>
     <p class="small">検索対象: {html.escape(diagnosis['source_root'] or '未選択')}<br>モデル: {html.escape(models)}</p>{answer_path_notice}{setup}</section>{ask}
+    {document_version_review_notice(csrf_field)}
     {security_exclusion_notice()}
     <section class="card"><details><summary>プライバシーと制限</summary><p class="small">質問・回答・索引は <code>~/Library/Application Support/LocalMemorySearch</code> に保存されます。通常利用中のAI処理は127.0.0.1のOllamaのみです。初回のOllama導入・モデル取得にはインターネットが必要です。画像、スキャンPDF、対応する埋め込み画像はローカルOCRで位置付き文字を読みます。Gemmaによる座標なし文字起こしと、図・表・写真の意味観測は <code>[暫定読取]</code> として検索にだけ使い、それ単独で確定回答や確定グラフを作りません。音声・動画は未対応です。</p></details></section>
     """, refresh=refresh)
@@ -2625,6 +2687,48 @@ class Handler(BaseHTTPRequestHandler):
             threading.Thread(target=build_worker, daemon=True).start()
             self.send(home(
                 "セットアップを開始しました。",
+                self.server.ui_csrf_token,
+            ))
+            return
+        if self.path == "/document-version-decision":
+            if state().get("phase") == "building":
+                self.send(home(
+                    "索引作成中のため、資料版の選択を保留しました。",
+                    self.server.ui_csrf_token,
+                ), 409)
+                return
+            group_id = str(form.get("group_id", [""])[0]).strip()
+            selected = str(form.get("selected_relative_path", [""])[0]).strip()
+            if not group_id or not selected:
+                self.send(home(
+                    "現在使う資料を1つ選んでください。",
+                    self.server.ui_csrf_token,
+                ), 400)
+                return
+            process = subprocess.run(
+                [
+                    sys.executable,
+                    str(bootstrap.ENGINE / "document_version_resolver.py"),
+                    "decide",
+                    "--graph", str(bootstrap.DOCUMENT_VERSION_REVIEW),
+                    "--decisions", str(bootstrap.DOCUMENT_VERSION_DECISIONS),
+                    "--group-id", group_id,
+                    "--select", selected,
+                    "--actor", "local-ui-human",
+                ],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                check=False,
+            )
+            if process.returncode:
+                self.send(home(
+                    "資料版の選択を記録できませんでした。候補を再確認してください。",
+                    self.server.ui_csrf_token,
+                ), 409)
+                return
+            threading.Thread(target=build_worker, daemon=True).start()
+            self.send(home(
+                "選択を記録し、索引の再構築を開始しました。",
                 self.server.ui_csrf_token,
             ))
             return
