@@ -1,0 +1,71 @@
+{
+  "schema_version": "1.0",
+  "task_id": "lms-v1-f11a-notebook-metadata-2026-09-09",
+  "status": "read_only_artifact_generation_complete_draft_pending_root_review",
+  "product_or_test_imports": false,
+  "new_test_runs": 0,
+  "product_edits": 0,
+  "attempts": [
+    {
+      "number": 1,
+      "generator": "f11a-final-artifact-generator.v1.py",
+      "exit_code": 1,
+      "wall_time_seconds": 0.380385166,
+      "result": "stopped_on_historical_concatenated_progress_format",
+      "log": "f11a-artifact-generation-attempt-001.log",
+      "log_sha256": "65536dcf7a8f0af75617ae996dcee8521de88ecd113b57179d1f4cecda80bd5e"
+    },
+    {
+      "number": 2,
+      "generator": "f11a-final-artifact-generator.v2.py",
+      "generator_sha256": "19e9e45ca189f89a3aa28c3e3c6b5059e272605bc30ebb1ce253ab5a0fbe4f2e",
+      "exit_code": 0,
+      "wall_time_seconds": 0.244969666,
+      "result": "generated_artifact_and_source_packet_via_apply_patch"
+    }
+  ],
+  "outputs": [
+    {
+      "path": "design/local-memory-v1-hardening/runs/f11a-graph-artifact.v1.json",
+      "sha256": "b0b63af872e7b669f791941bb8938e1a813f81e38c37c4f4aeece58f1f4b1843"
+    },
+    {
+      "path": "design/local-memory-v1-hardening/runs/f11a-source-packet.v1.json",
+      "sha256": "b5d9bd12bd109432d9fa61c3b40589115610349bfd9a9ab7977f381efda0ba45"
+    }
+  ],
+  "mechanical_checks": {
+    "pins_verified": 22,
+    "files": 170,
+    "read_bytes": 3922887,
+    "all_delta_forward_inverse_exact": true,
+    "initial_gold_complete_ast_unchanged": true,
+    "permanent_gold2_byte_exact": true,
+    "run_hash_footer_method_checks": true
+  },
+  "counts": {
+    "current_products": 11,
+    "sources": 170,
+    "runs": 19,
+    "isolated_delta_chains": 18,
+    "nodes": 11,
+    "edges": 8,
+    "required_paths": 6
+  },
+  "current_categories": {
+    "metadata_acceptance_candidate_methods": 30,
+    "app_methods": 4,
+    "additional_image_methods": 6,
+    "image_regression_methods": 3,
+    "legacy_image_methods": 3,
+    "current_index_only_methods": 9,
+    "residual_witness_methods_not_defenses": 3
+  },
+  "remaining": [
+    "root paired source/hash/gold/run verification",
+    "broader collateral selection/results not listed here",
+    "separate-context formal audit",
+    "F11b/body/membership follow-ons"
+  ],
+  "self_approval": false
+}

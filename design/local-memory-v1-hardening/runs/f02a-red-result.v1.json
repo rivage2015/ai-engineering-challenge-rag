@@ -1,0 +1,57 @@
+{
+  "schema_version": "1.0",
+  "task_id": "lms-v1-00-hardening-2026-09-09-f02a",
+  "status": "RED_defect_reproduced_not_acceptance",
+  "product_implemented": false,
+  "existing_product_and_test_source_freeze_preserved": true,
+  "command": "python3 -I -B design/local-memory-v1-hardening/runs/f02a-red-run.v1.py",
+  "supervisor_result": {
+    "path": "design/local-memory-v1-hardening/runs/f02a-red-001/result.json",
+    "sha256": "48a97398206956552fe5ac00db7405d9694fa22418c8cff5f3a7c8bfd9ec5b03",
+    "status": "failed",
+    "exit_code": 1,
+    "elapsed_seconds": 0.054378,
+    "timeout_seconds": 30
+  },
+  "log": {
+    "path": "design/local-memory-v1-hardening/runs/f02a-red-001/unittest.log",
+    "sha256": "9b01a46b4b24b5dbb60a213e012f682b5c99acc3faf632ec7245a61626b2ec82",
+    "bytes": 3750,
+    "limit_bytes": 1048576,
+    "terminal_footer": "Ran 11 tests in 0.001s; FAILED (failures=5)"
+  },
+  "counts": {
+    "tests_run": 11,
+    "failures": 5,
+    "errors": 0,
+    "skips": 0,
+    "expected_failures": 0,
+    "successful_unchanged_control_methods": 5,
+    "successful_residual_witness_methods_not_improvement_acceptance": 1
+  },
+  "failed_requirements": [
+    "YearOnlySupersessionTests.test_basename_year_order_is_held",
+    "YearOnlySupersessionTests.test_candidate_permutation_preserves_complete_hold",
+    "YearOnlySupersessionTests.test_neutral_words_do_not_prove_supersession",
+    "YearOnlySupersessionTests.test_year_directories_are_held",
+    "YearOnlySupersessionTests.test_year_version_inverse_is_held_without_fallthrough"
+  ],
+  "all_failure_evidence": "AssertionError: 'needs_human_review' != 'resolved'",
+  "residual_witness": "CurrentMarkerResidualWitnessTests.test_current_marker_year_residual_is_observable records current-label selection across years; this does not establish annual identity or correct annual retention.",
+  "execution": {
+    "python": "3.14.6",
+    "executable": "/opt/homebrew/opt/python@3.14/bin/python3.14",
+    "synthetic_fixture_bytes": 4022,
+    "resolver_source_bytes": 21626,
+    "runtime_io_denial_installed_after_imports": true,
+    "guard_failures_observed": 0,
+    "not_an_os_sandbox_certification": true
+  },
+  "frozen_target_hashes_after": {
+    "distribution/macos-local-memory/engine/document_version_resolver.py": "f42db568267befe8a041d036242795599544ba6a46236866a643b91d4f93811b",
+    "distribution/macos-local-memory/tests/test_document_version_resolver.py": "b42fa5abafe2175ca29b26efe9a10d2626aca2d2321087f4bc798961fdf7116c",
+    "distribution/macos-local-memory/tests/test_versioned_safe_index_e2e.py": "03d5dc06b47548c09a8f38348a5cbd0c8f29efbdd1a4565083ea6b660f8db771"
+  },
+  "next_action": "Await F18 source freeze release and separate root assignment before any resolver or existing-test change. Preserve this actual failed RED run unchanged.",
+  "limits": "Pure in-memory resolver tests only; no Reader/index/UI/model/real-data execution, product change, independent audit, annual retention support, F02 completion, commit or publication."
+}

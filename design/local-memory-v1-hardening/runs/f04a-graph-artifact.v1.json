@@ -1,0 +1,44 @@
+{
+  "schema_version": "1.0",
+  "task_id": "lms-v1-00-hardening-2026-09-09-f04a",
+  "artifact_version": 1,
+  "audit_repair_round": 0,
+  "status": "awaiting_separate_audit",
+  "task_contract": {
+    "requested": "Implement only F04a: a unique current candidate and a higher single explicit numeric version must require human review.",
+    "review_scope": "Resolver automatic_selection guard and policy version/description, six regression methods in the existing test file, guarded deterministic Reader and F01 wiring checks.",
+    "max_repair_cycles": 2,
+    "role_separation": "same_model_separate_context",
+    "forbidden": ["auditor product edits", "real source documents or production index/CONFIG", "network/model/GUI/credentials", "unbounded tests", "expansion into F02/F03/F05/F06/F19"],
+    "acceptance_is_local": true
+  },
+  "nodes": [
+    {"id": "N_CONFLICT", "text": "When a unique current candidate and another candidate each have one explicit version tuple, a larger peer version leaves selection null, all candidates held, and no active-version edge.", "basis": ["RESOLVER", "TESTS", "RED", "GREEN_RESOLVER"]},
+    {"id": "N_PRECEDENCE", "text": "Existing current/year conflict checks and valid human decision precedence remain. Changes to selected or unselected candidate contents invalidate the prior human choice and retain stale_human_decision.", "basis": ["RESOLVER", "TESTS", "GREEN_RESOLVER"]},
+    {"id": "N_NORMAL", "text": "Numeric tuple comparison preserves current-newest and current-equal cases, current-absent numeric version ordering, existing year/status cases and candidate-order invariance.", "basis": ["TESTS", "GREEN_RESOLVER"]},
+    {"id": "N_READER", "text": "The F04a conflict fixture excludes both competing versions from the real Reader manifest, preserves an unrelated source, validates the generated Reader output and retains source hashes.", "basis": ["TESTS", "READER", "READER_VALIDATOR", "GREEN_RESOLVER"]},
+    {"id": "N_WIRING", "text": "All 15 existing synthetic F01 application wiring tests pass on Python 3.14.6 after the resolver change, including publication, binding failure, valid/stale human choice, query and final audit orchestration. Model outputs are fixtures.", "basis": ["E2E_TESTS", "GREEN_E2E", "EXECUTOR"]},
+    {"id": "N_BOUNDARIES", "text": "The result covers F04a only. Annual/revision identity, candidate completeness, independent version graph validation, HITL generation/revision binding and answer-time freshness remain open. Python 3.9 application and real-model/package acceptance are not claimed.", "basis": ["CONTRACT", "EXECUTOR", "GUARDS"]}
+  ],
+  "edges": [
+    {"id": "E_HOLD", "source": "N_CONFLICT", "target": "N_READER", "relation": "feeds_existing_held_disposition_policy", "basis": ["RESOLVER", "READER", "TESTS"]},
+    {"id": "E_DECISION", "source": "N_PRECEDENCE", "target": "N_CONFLICT", "relation": "retains_authority_of_valid_human_choice_and_stale_choice_hold", "basis": ["RESOLVER", "TESTS"]},
+    {"id": "E_POSITIVE", "source": "N_NORMAL", "target": "N_CONFLICT", "relation": "bounds_guard_to_the_confirmed_single_version_conflict", "basis": ["RESOLVER", "TESTS", "GREEN_RESOLVER"]},
+    {"id": "E_SCOPE", "source": "N_WIRING", "target": "N_BOUNDARIES", "relation": "limits_claim_to_guarded_synthetic_wiring_on_supported_interpreter", "basis": ["GREEN_E2E", "EXECUTOR", "GUARDS"]}
+  ],
+  "sources": [
+    {"id": "CONTRACT", "path": "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/design/local-memory-v1-hardening/runs/f02-f06-next-slice-contract.v1.md", "sha256": "a163bf175335dc9901051cb4b0462bdf0cdb1a32a121269ffeec6cef2b6ce493"},
+    {"id": "RESOLVER", "path": "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/distribution/macos-local-memory/engine/document_version_resolver.py", "sha256": "f42db568267befe8a041d036242795599544ba6a46236866a643b91d4f93811b"},
+    {"id": "TESTS", "path": "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/distribution/macos-local-memory/tests/test_document_version_resolver.py", "sha256": "6031c30fbfc1b8eda0159b926ef07bbcedee1b0c2c92747b3135f9be6f6efd17"},
+    {"id": "READER", "path": "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/distribution/macos-local-memory/engine/build_adaptive_semantic_graph.py", "sha256": "19b5c55c64959dc136cd4d6b2081151ed1e39560874fb083e9796edb8812adfa"},
+    {"id": "READER_VALIDATOR", "path": "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/distribution/macos-local-memory/engine/validate_adaptive_semantic_graph.py", "sha256": "1a3aff494b724882a600adc6978fda3e0f3955da6e2f11291180a92d7f898e1a"},
+    {"id": "E2E_TESTS", "path": "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/distribution/macos-local-memory/tests/test_versioned_safe_index_e2e.py", "sha256": "c16cc5bfafe493ad4096eadbf84722c8d9f1d476dcb03bfc36bb26959983341b"},
+    {"id": "GUARDS", "path": "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/design/local-memory-v1-hardening/runs/f04a-executor-run.v1.py", "sha256": "7c6953d3e92c46ede699b81690a138fb50e74e51b79fc37d14f9fc44d6c4391b"},
+    {"id": "RED", "path": "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/design/local-memory-v1-hardening/runs/f04a-red-002/result.json", "sha256": "24da0c02fb18792dfcca9ac6f409163cd6639e4473964c40a19414953d434689"},
+    {"id": "GREEN_RESOLVER", "path": "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/design/local-memory-v1-hardening/runs/f04a-resolver-python314-001/result.json", "sha256": "c512e92911f1bc7b1c7972221f9ba7b97a8cc374f3ce8b209bd21b9c505b5fe6"},
+    {"id": "GREEN_E2E", "path": "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/design/local-memory-v1-hardening/runs/f04a-e2e-python314-001/result.json", "sha256": "82d60a9733faeaa09145286e259b028f62187967b6c27f775ea39747a8eaf3e7"},
+    {"id": "EXECUTOR", "path": "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/design/local-memory-v1-hardening/runs/f04a-executor.v1.json", "sha256": "5a8613a1aaf136a7a07704d3dabc100981eb905293ecd85523d011db724ccc7b"}
+  ],
+  "dependency_note": "Auditor must verify these frozen identities and independently challenge arithmetic/policy boundaries. Independent graph partition correctness (F05) is not inferred from existing version Validator PASS. Core principles were not changed.",
+  "proposed_output": "Independent audit decision for F04a only; no executor self-approval or complete V1 acceptance."
+}

@@ -1,0 +1,16 @@
+{"mode": "year", "test_sha256": "70a1226cb30daa6692533d2c6f1fe270fe301a8f759c0db56a142acbc945b8c0", "resolver_sha256": "11218cc2b5170ba59a69203bcc549a50dc6eb6f88e487d191fb55a76048973a8", "methods": ["test_basename_year_order_is_held", "test_candidate_permutation_preserves_complete_hold", "test_existing_draft_and_tied_year_holds_remain", "test_f04a_single_version_conflict_remains_held", "test_hash_bound_human_choice_can_select_older_year", "test_neutral_words_do_not_prove_supersession", "test_stale_human_choice_holds_changed_or_added_candidates", "test_version_only_numeric_order_remains_selected", "test_year_directories_are_held", "test_year_version_inverse_is_held_without_fallthrough"], "original_document_reads": false, "residual_not_acceptance": false}
+test_basename_year_order_is_held (dated_hitl_year.YearOnlySupersessionTests.test_basename_year_order_is_held) ... ok
+test_candidate_permutation_preserves_complete_hold (dated_hitl_year.YearOnlySupersessionTests.test_candidate_permutation_preserves_complete_hold) ... ok
+test_existing_draft_and_tied_year_holds_remain (dated_hitl_year.YearOnlySupersessionTests.test_existing_draft_and_tied_year_holds_remain) ... ok
+test_f04a_single_version_conflict_remains_held (dated_hitl_year.YearOnlySupersessionTests.test_f04a_single_version_conflict_remains_held) ... ok
+test_hash_bound_human_choice_can_select_older_year (dated_hitl_year.YearOnlySupersessionTests.test_hash_bound_human_choice_can_select_older_year) ... ok
+test_neutral_words_do_not_prove_supersession (dated_hitl_year.YearOnlySupersessionTests.test_neutral_words_do_not_prove_supersession) ... ok
+test_stale_human_choice_holds_changed_or_added_candidates (dated_hitl_year.YearOnlySupersessionTests.test_stale_human_choice_holds_changed_or_added_candidates) ... ok
+test_version_only_numeric_order_remains_selected (dated_hitl_year.YearOnlySupersessionTests.test_version_only_numeric_order_remains_selected) ... ok
+test_year_directories_are_held (dated_hitl_year.YearOnlySupersessionTests.test_year_directories_are_held) ... ok
+test_year_version_inverse_is_held_without_fallthrough (dated_hitl_year.YearOnlySupersessionTests.test_year_version_inverse_is_held_without_fallthrough) ... ok
+
+----------------------------------------------------------------------
+Ran 10 tests in 0.001s
+
+OK

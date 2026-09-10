@@ -1,0 +1,11 @@
+{
+  "schema_version": "1.0",
+  "task_id": "lms-v1-00-hardening-2026-09-09-f16",
+  "status": "executor_factual_correction_before_audit",
+  "corrects": "f16-executor.v1.json changes[4]",
+  "incorrect_claim": "changed builder code participates in existing rebuild fingerprints",
+  "corrected_claim": "Builder version is bumped to0.3.0, but bootstrap._current_reader_resource_contract() currently does not include build_path_graph.py. Automatic migration of existing published Path Graph generations is not established by this patch. Rebuilding through the patched CLI uses the new boundary; existing artifacts remain separate.",
+  "evidence": "Read-only inspection of distribution/macos-local-memory/app/bootstrap.py function _current_reader_resource_contract (lines349-380 at observation) lists adaptive_builder/adaptive_validator/document_version_resolver/safe_index_projector/adapter/processing_code/schemas, not the Path Graph builder.",
+  "action": "Parent notified. No bootstrap edit because it is outside assigned F16 ownership; scope the audit and handoff to newly executed builder runs, not retroactive safety of old generations.",
+  "note": "Append-only correction; the original executor record and all test logs remain unchanged. This is not an audit repair round."
+}

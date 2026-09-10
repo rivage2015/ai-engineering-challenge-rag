@@ -1,0 +1,25 @@
+{
+  "schema_version": "1.0",
+  "task_id": "lms-v1-00-hardening-2026-09-09",
+  "finding": "F16-directory-hash-order",
+  "status": "open_reproduced_not_implemented",
+  "source": "distribution/macos-local-memory/engine/build_path_graph.py",
+  "source_sha256": "caa1c98d02190c18c4fad6cd354a812dc4b06d86d99768773b6169cd2b18d0db",
+  "observations": {
+    "status": "defect_reproduced",
+    "before": {
+      ".": "1b16a36068fd8529514ebbf0b71fa33c4cdb0069c2b2cfa8841f1c8c3035ece5",
+      "bucket": "1c458661c1496754ec57a26976a8c20dba0ee7536c2748d666c5c9cc27156def"
+    },
+    "after": {
+      ".": "1b16a36068fd8529514ebbf0b71fa33c4cdb0069c2b2cfa8841f1c8c3035ece5",
+      "bucket": "7ab1ea3e3c1f3573cbfaa575e2d9fbfdfe08f5c6ad3f6ae0fae1de806e3e381f"
+    },
+    "filesystem_source_reads": 0,
+    "reason": "root dot and top-level directory have equal slash count; lexical sort processes root first"
+  },
+  "scope": "Preexisting directory_hashes bottom-up ordering issue, separate from the completed descriptor-read repair. No extra product changes during current Path Validator audit.",
+  "impact": "A root directory digest can remain unchanged when a nested file digest changes at the same length. Current Path Validator still compares the full inventory and every file node hash, so this is not evidence that changed file bytes pass that new Validator. Do not claim complete Merkle-root semantics.",
+  "next": "After current source freeze, add a tiny exact independent directory-hash gold and fix actual hierarchy depth ordering. Keep audit history and repair counters explicit; do not treat this as a reopened failed mandatory issue under a new name.",
+  "safety": "Pure two-record memory fixture only, no external filesystem document observation, network/model/GUI. Observed values are algorithm output, not a product PASS."
+}

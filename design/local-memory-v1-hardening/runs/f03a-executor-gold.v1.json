@@ -1,0 +1,15 @@
+{
+  "schema_version": "1.0",
+  "task_id": "lms-v1-00-hardening-2026-09-09-f03a",
+  "phase": "preimplementation_gold_frozen",
+  "test_path": "tests/test_unmarked_version_candidates.py",
+  "test_sha256": "cba73b1f99a5fb5ce306e5e71f0aad0b44579ad109189d79e626e89d494d06ea",
+  "runner_path": "design/local-memory-v1-hardening/runs/f03a-executor-run.v1.py",
+  "runner_sha256": "0665e6f623f3914db13d405dd5f08e495f7817bed6e60928944a947c41263573",
+  "resolver_before_sha256": "9a7443862c015ed768007ef5a7b21bd3bc197c9bb7a3d7ed2f7b39b33374359d",
+  "expected": "True acceptance RED before implementation; no expectedFailure. 17 required acceptance/control methods and 2 separately reported residual witness methods. Exact held candidate paths/source hashes, null selection/no active edge/no historical disposition, Human/stale precedence, all-marked golden group/set hashes and 0.1.3 metadata are fixed before product edits.",
+  "limits": {"wall_seconds": 30, "source_and_fixture_bytes": 1048576, "log_bytes": 1048576},
+  "preflight": "Pure test source read while authoring: inspected resolver stdlib-only import; no document files; build IO and datetime adapted in memory; guard denies open, enumeration, network, ctypes, worker process launch and mutations; stat/lstat/readlink patched at CLI runtime; unittest exceptions formatted without source reads. Supervisor reviewed and writes only new run directory. Not OS isolation.",
+  "parent_gate": "Parent confirmed new app four-test RED, source still before hash, and authorized minimum implementation after executor pure RED is saved.",
+  "immutability": "Do not rewrite this test/gold/RED after implementation to hide failures. Unexpected test defect requires append-only explanation and parent decision."
+}

@@ -1,0 +1,290 @@
+{"mode": "temporal", "test_sha256": "6a9a877771117441b33cdb94f5bc4f459b067bf682c538dbade00593189c7154", "resolver_sha256": "14ecce2c01d68bfbfaa27d3022bfc6076a97465a331eb03443af0e6d50cc006f", "methods": ["test_compact_202_and_203_calendar_days", "test_dated_current_and_undated_current_both_hold", "test_existing_year_only_reason_and_version_cautions_remain", "test_fiscal_year_is_candidate_not_replacement", "test_fullwidth_calendar_candidates", "test_invalid_calendar_preserves_digits_without_partial_year", "test_japanese_full_days", "test_mixed_dated_numeric_versions_never_fall_through", "test_month_precision", "test_order_and_peer_change_keep_hold_and_change_bound_set", "test_other_numeric_identifiers_are_preserved", "test_reconstruction_includes_complete_dated_family_and_policy", "test_separated_days", "test_undated_current_and_numeric_controls_remain", "test_unknown_202_203_digit_runs_are_not_normalized_away", "test_unrelated_labels_directories_extensions_stay_separate"], "original_document_reads": false, "residual_not_acceptance": false}
+test_compact_202_and_203_calendar_days (dated_hitl_temporal.DatedTemporalCandidateTests.test_compact_202_and_203_calendar_days) ... 
+  test_compact_202_and_203_calendar_days (dated_hitl_temporal.DatedTemporalCandidateTests.test_compact_202_and_203_calendar_days) (token='20240101') ... FAIL
+  test_compact_202_and_203_calendar_days (dated_hitl_temporal.DatedTemporalCandidateTests.test_compact_202_and_203_calendar_days) (token='20301231') ... FAIL
+  test_compact_202_and_203_calendar_days (dated_hitl_temporal.DatedTemporalCandidateTests.test_compact_202_and_203_calendar_days) (token='20390228') ... FAIL
+test_dated_current_and_undated_current_both_hold (dated_hitl_temporal.DatedTemporalCandidateTests.test_dated_current_and_undated_current_both_hold) ... 
+  test_dated_current_and_undated_current_both_hold (dated_hitl_temporal.DatedTemporalCandidateTests.test_dated_current_and_undated_current_both_hold) (paths=['手順20240101.csv', '現行_手順20300101.csv']) ... FAIL
+  test_dated_current_and_undated_current_both_hold (dated_hitl_temporal.DatedTemporalCandidateTests.test_dated_current_and_undated_current_both_hold) (paths=['手順20240101.csv', '現行_手順.csv']) ... FAIL
+  test_dated_current_and_undated_current_both_hold (dated_hitl_temporal.DatedTemporalCandidateTests.test_dated_current_and_undated_current_both_hold) (paths=['手順20251340.csv', '現行_手順20251340.csv']) ... FAIL
+test_existing_year_only_reason_and_version_cautions_remain (dated_hitl_temporal.DatedTemporalCandidateTests.test_existing_year_only_reason_and_version_cautions_remain) ... ok
+test_fiscal_year_is_candidate_not_replacement (dated_hitl_temporal.DatedTemporalCandidateTests.test_fiscal_year_is_candidate_not_replacement) ... FAIL
+test_fullwidth_calendar_candidates (dated_hitl_temporal.DatedTemporalCandidateTests.test_fullwidth_calendar_candidates) ... 
+  test_fullwidth_calendar_candidates (dated_hitl_temporal.DatedTemporalCandidateTests.test_fullwidth_calendar_candidates) (token='２０２４０２２９') ... FAIL
+  test_fullwidth_calendar_candidates (dated_hitl_temporal.DatedTemporalCandidateTests.test_fullwidth_calendar_candidates) (token='２０２４－０２－２９') ... FAIL
+  test_fullwidth_calendar_candidates (dated_hitl_temporal.DatedTemporalCandidateTests.test_fullwidth_calendar_candidates) (token='２０２４年度') ... FAIL
+test_invalid_calendar_preserves_digits_without_partial_year (dated_hitl_temporal.DatedTemporalCandidateTests.test_invalid_calendar_preserves_digits_without_partial_year) ... 
+  test_invalid_calendar_preserves_digits_without_partial_year (dated_hitl_temporal.DatedTemporalCandidateTests.test_invalid_calendar_preserves_digits_without_partial_year) (token='20251340') ... FAIL
+  test_invalid_calendar_preserves_digits_without_partial_year (dated_hitl_temporal.DatedTemporalCandidateTests.test_invalid_calendar_preserves_digits_without_partial_year) (token='20230229') ... FAIL
+  test_invalid_calendar_preserves_digits_without_partial_year (dated_hitl_temporal.DatedTemporalCandidateTests.test_invalid_calendar_preserves_digits_without_partial_year) (token='2025-13-40') ... FAIL
+  test_invalid_calendar_preserves_digits_without_partial_year (dated_hitl_temporal.DatedTemporalCandidateTests.test_invalid_calendar_preserves_digits_without_partial_year) (token='2024-00') ... FAIL
+  test_invalid_calendar_preserves_digits_without_partial_year (dated_hitl_temporal.DatedTemporalCandidateTests.test_invalid_calendar_preserves_digits_without_partial_year) (token='2024年2月30日') ... FAIL
+  test_invalid_calendar_preserves_digits_without_partial_year (dated_hitl_temporal.DatedTemporalCandidateTests.test_invalid_calendar_preserves_digits_without_partial_year) (token='2024-01_02') ... FAIL
+test_japanese_full_days (dated_hitl_temporal.DatedTemporalCandidateTests.test_japanese_full_days) ... 
+  test_japanese_full_days (dated_hitl_temporal.DatedTemporalCandidateTests.test_japanese_full_days) (token='2024年1月1日') ... FAIL
+  test_japanese_full_days (dated_hitl_temporal.DatedTemporalCandidateTests.test_japanese_full_days) (token='2030年02月28日') ... FAIL
+test_mixed_dated_numeric_versions_never_fall_through (dated_hitl_temporal.DatedTemporalCandidateTests.test_mixed_dated_numeric_versions_never_fall_through) ... FAIL
+test_month_precision (dated_hitl_temporal.DatedTemporalCandidateTests.test_month_precision) ... 
+  test_month_precision (dated_hitl_temporal.DatedTemporalCandidateTests.test_month_precision) (token='2024-01') ... FAIL
+  test_month_precision (dated_hitl_temporal.DatedTemporalCandidateTests.test_month_precision) (token='2030-12') ... FAIL
+  test_month_precision (dated_hitl_temporal.DatedTemporalCandidateTests.test_month_precision) (token='2024_09') ... FAIL
+test_order_and_peer_change_keep_hold_and_change_bound_set (dated_hitl_temporal.DatedTemporalCandidateTests.test_order_and_peer_change_keep_hold_and_change_bound_set) ... ok
+test_other_numeric_identifiers_are_preserved (dated_hitl_temporal.DatedTemporalCandidateTests.test_other_numeric_identifiers_are_preserved) ... ok
+test_reconstruction_includes_complete_dated_family_and_policy (dated_hitl_temporal.DatedTemporalCandidateTests.test_reconstruction_includes_complete_dated_family_and_policy) ... FAIL
+test_separated_days (dated_hitl_temporal.DatedTemporalCandidateTests.test_separated_days) ... 
+  test_separated_days (dated_hitl_temporal.DatedTemporalCandidateTests.test_separated_days) (token='2024-2-29') ... FAIL
+  test_separated_days (dated_hitl_temporal.DatedTemporalCandidateTests.test_separated_days) (token='2024_02_29') ... FAIL
+  test_separated_days (dated_hitl_temporal.DatedTemporalCandidateTests.test_separated_days) (token='2024.02.29') ... FAIL
+test_undated_current_and_numeric_controls_remain (dated_hitl_temporal.DatedTemporalCandidateTests.test_undated_current_and_numeric_controls_remain) ... ok
+test_unknown_202_203_digit_runs_are_not_normalized_away (dated_hitl_temporal.DatedTemporalCandidateTests.test_unknown_202_203_digit_runs_are_not_normalized_away) ... 
+  test_unknown_202_203_digit_runs_are_not_normalized_away (dated_hitl_temporal.DatedTemporalCandidateTests.test_unknown_202_203_digit_runs_are_not_normalized_away) (token='202') ... FAIL
+  test_unknown_202_203_digit_runs_are_not_normalized_away (dated_hitl_temporal.DatedTemporalCandidateTests.test_unknown_202_203_digit_runs_are_not_normalized_away) (token='203') ... FAIL
+  test_unknown_202_203_digit_runs_are_not_normalized_away (dated_hitl_temporal.DatedTemporalCandidateTests.test_unknown_202_203_digit_runs_are_not_normalized_away) (token='20251') ... FAIL
+  test_unknown_202_203_digit_runs_are_not_normalized_away (dated_hitl_temporal.DatedTemporalCandidateTests.test_unknown_202_203_digit_runs_are_not_normalized_away) (token='203012345678') ... FAIL
+  test_unknown_202_203_digit_runs_are_not_normalized_away (dated_hitl_temporal.DatedTemporalCandidateTests.test_unknown_202_203_digit_runs_are_not_normalized_away) (token='202401011') ... FAIL
+test_unrelated_labels_directories_extensions_stay_separate (dated_hitl_temporal.DatedTemporalCandidateTests.test_unrelated_labels_directories_extensions_stay_separate) ... ok
+
+======================================================================
+FAIL: test_compact_202_and_203_calendar_days (dated_hitl_temporal.DatedTemporalCandidateTests.test_compact_202_and_203_calendar_days) (token='20240101')
+----------------------------------------------------------------------
+AssertionError: 'dawn\x00受付手順20240101\x00.xlsx' != 'dawn\x00受付手順\x00.xlsx'
+- dawn 受付手順20240101 .xlsx
+?          --------
++ dawn 受付手順 .xlsx
+
+
+======================================================================
+FAIL: test_compact_202_and_203_calendar_days (dated_hitl_temporal.DatedTemporalCandidateTests.test_compact_202_and_203_calendar_days) (token='20301231')
+----------------------------------------------------------------------
+AssertionError: 'dawn\x00受付手順20301231\x00.xlsx' != 'dawn\x00受付手順\x00.xlsx'
+- dawn 受付手順20301231 .xlsx
+?          --------
++ dawn 受付手順 .xlsx
+
+
+======================================================================
+FAIL: test_compact_202_and_203_calendar_days (dated_hitl_temporal.DatedTemporalCandidateTests.test_compact_202_and_203_calendar_days) (token='20390228')
+----------------------------------------------------------------------
+AssertionError: 'dawn\x00受付手順20390228\x00.xlsx' != 'dawn\x00受付手順\x00.xlsx'
+- dawn 受付手順20390228 .xlsx
+?          --------
++ dawn 受付手順 .xlsx
+
+
+======================================================================
+FAIL: test_dated_current_and_undated_current_both_hold (dated_hitl_temporal.DatedTemporalCandidateTests.test_dated_current_and_undated_current_both_hold) (paths=['手順20240101.csv', '現行_手順20300101.csv'])
+----------------------------------------------------------------------
+AssertionError: literal fixture must form one candidate family
+
+======================================================================
+FAIL: test_dated_current_and_undated_current_both_hold (dated_hitl_temporal.DatedTemporalCandidateTests.test_dated_current_and_undated_current_both_hold) (paths=['手順20240101.csv', '現行_手順.csv'])
+----------------------------------------------------------------------
+AssertionError: literal fixture must form one candidate family
+
+======================================================================
+FAIL: test_dated_current_and_undated_current_both_hold (dated_hitl_temporal.DatedTemporalCandidateTests.test_dated_current_and_undated_current_both_hold) (paths=['手順20251340.csv', '現行_手順20251340.csv'])
+----------------------------------------------------------------------
+AssertionError: 'unmarked_candidate_requires_human_review' != 'dated_family_requires_human_review'
+- unmarked_candidate_requires_human_review
++ dated_family_requires_human_review
+
+
+======================================================================
+FAIL: test_fiscal_year_is_candidate_not_replacement (dated_hitl_temporal.DatedTemporalCandidateTests.test_fiscal_year_is_candidate_not_replacement)
+----------------------------------------------------------------------
+AssertionError: 'dawn\x00受付手順年度\x00.xlsx' != 'dawn\x00受付手順\x00.xlsx'
+- dawn 受付手順年度 .xlsx
+?          --
++ dawn 受付手順 .xlsx
+
+
+======================================================================
+FAIL: test_fullwidth_calendar_candidates (dated_hitl_temporal.DatedTemporalCandidateTests.test_fullwidth_calendar_candidates) (token='２０２４０２２９')
+----------------------------------------------------------------------
+AssertionError: 'dawn\x00受付手順20240229\x00.xlsx' != 'dawn\x00受付手順\x00.xlsx'
+- dawn 受付手順20240229 .xlsx
+?          --------
++ dawn 受付手順 .xlsx
+
+
+======================================================================
+FAIL: test_fullwidth_calendar_candidates (dated_hitl_temporal.DatedTemporalCandidateTests.test_fullwidth_calendar_candidates) (token='２０２４－０２－２９')
+----------------------------------------------------------------------
+AssertionError: 'dawn\x00受付手順0229\x00.xlsx' != 'dawn\x00受付手順\x00.xlsx'
+- dawn 受付手順0229 .xlsx
+?          ----
++ dawn 受付手順 .xlsx
+
+
+======================================================================
+FAIL: test_fullwidth_calendar_candidates (dated_hitl_temporal.DatedTemporalCandidateTests.test_fullwidth_calendar_candidates) (token='２０２４年度')
+----------------------------------------------------------------------
+AssertionError: 'dawn\x00受付手順年度\x00.xlsx' != 'dawn\x00受付手順\x00.xlsx'
+- dawn 受付手順年度 .xlsx
+?          --
++ dawn 受付手順 .xlsx
+
+
+======================================================================
+FAIL: test_invalid_calendar_preserves_digits_without_partial_year (dated_hitl_temporal.DatedTemporalCandidateTests.test_invalid_calendar_preserves_digits_without_partial_year) (token='20251340')
+----------------------------------------------------------------------
+AssertionError: False is not true
+
+======================================================================
+FAIL: test_invalid_calendar_preserves_digits_without_partial_year (dated_hitl_temporal.DatedTemporalCandidateTests.test_invalid_calendar_preserves_digits_without_partial_year) (token='20230229')
+----------------------------------------------------------------------
+AssertionError: False is not true
+
+======================================================================
+FAIL: test_invalid_calendar_preserves_digits_without_partial_year (dated_hitl_temporal.DatedTemporalCandidateTests.test_invalid_calendar_preserves_digits_without_partial_year) (token='2025-13-40')
+----------------------------------------------------------------------
+AssertionError: '\x00手順1340\x00.csv' != '\x00手順20251340\x00.csv'
+-  手順1340 .csv
++  手順20251340 .csv
+?    ++++
+
+
+======================================================================
+FAIL: test_invalid_calendar_preserves_digits_without_partial_year (dated_hitl_temporal.DatedTemporalCandidateTests.test_invalid_calendar_preserves_digits_without_partial_year) (token='2024-00')
+----------------------------------------------------------------------
+AssertionError: '\x00手順00\x00.csv' != '\x00手順202400\x00.csv'
+-  手順00 .csv
++  手順202400 .csv
+?    ++++
+
+
+======================================================================
+FAIL: test_invalid_calendar_preserves_digits_without_partial_year (dated_hitl_temporal.DatedTemporalCandidateTests.test_invalid_calendar_preserves_digits_without_partial_year) (token='2024年2月30日')
+----------------------------------------------------------------------
+AssertionError: '\x00手順年2月30日\x00.csv' != '\x00手順2024年2月30日\x00.csv'
+-  手順年2月30日 .csv
++  手順2024年2月30日 .csv
+?    ++++
+
+
+======================================================================
+FAIL: test_invalid_calendar_preserves_digits_without_partial_year (dated_hitl_temporal.DatedTemporalCandidateTests.test_invalid_calendar_preserves_digits_without_partial_year) (token='2024-01_02')
+----------------------------------------------------------------------
+AssertionError: '\x00手順0102\x00.csv' != '\x00手順20240102\x00.csv'
+-  手順0102 .csv
++  手順20240102 .csv
+?    ++++
+
+
+======================================================================
+FAIL: test_japanese_full_days (dated_hitl_temporal.DatedTemporalCandidateTests.test_japanese_full_days) (token='2024年1月1日')
+----------------------------------------------------------------------
+AssertionError: 'dawn\x00受付手順年1月1日\x00.xlsx' != 'dawn\x00受付手順\x00.xlsx'
+- dawn 受付手順年1月1日 .xlsx
+?          -----
++ dawn 受付手順 .xlsx
+
+
+======================================================================
+FAIL: test_japanese_full_days (dated_hitl_temporal.DatedTemporalCandidateTests.test_japanese_full_days) (token='2030年02月28日')
+----------------------------------------------------------------------
+AssertionError: 'dawn\x00受付手順年02月28日\x00.xlsx' != 'dawn\x00受付手順\x00.xlsx'
+- dawn 受付手順年02月28日 .xlsx
+?          -------
++ dawn 受付手順 .xlsx
+
+
+======================================================================
+FAIL: test_mixed_dated_numeric_versions_never_fall_through (dated_hitl_temporal.DatedTemporalCandidateTests.test_mixed_dated_numeric_versions_never_fall_through)
+----------------------------------------------------------------------
+AssertionError: literal fixture must form one candidate family
+
+======================================================================
+FAIL: test_month_precision (dated_hitl_temporal.DatedTemporalCandidateTests.test_month_precision) (token='2024-01')
+----------------------------------------------------------------------
+AssertionError: 'dawn\x00受付手順01\x00.xlsx' != 'dawn\x00受付手順\x00.xlsx'
+- dawn 受付手順01 .xlsx
+?          --
++ dawn 受付手順 .xlsx
+
+
+======================================================================
+FAIL: test_month_precision (dated_hitl_temporal.DatedTemporalCandidateTests.test_month_precision) (token='2030-12')
+----------------------------------------------------------------------
+AssertionError: 'dawn\x00受付手順12\x00.xlsx' != 'dawn\x00受付手順\x00.xlsx'
+- dawn 受付手順12 .xlsx
+?          --
++ dawn 受付手順 .xlsx
+
+
+======================================================================
+FAIL: test_month_precision (dated_hitl_temporal.DatedTemporalCandidateTests.test_month_precision) (token='2024_09')
+----------------------------------------------------------------------
+AssertionError: 'dawn\x00受付手順09\x00.xlsx' != 'dawn\x00受付手順\x00.xlsx'
+- dawn 受付手順09 .xlsx
+?          --
++ dawn 受付手順 .xlsx
+
+
+======================================================================
+FAIL: test_reconstruction_includes_complete_dated_family_and_policy (dated_hitl_temporal.DatedTemporalCandidateTests.test_reconstruction_includes_complete_dated_family_and_policy)
+----------------------------------------------------------------------
+AssertionError: {'groups': 0, 'resolved': 0, 'needs_human_review': 0} != {'groups': 1, 'resolved': 0, 'needs_human_review': 1}
+- {'groups': 0, 'needs_human_review': 0, 'resolved': 0}
+?            ^                        ^
+
++ {'groups': 1, 'needs_human_review': 1, 'resolved': 0}
+?            ^                        ^
+
+
+======================================================================
+FAIL: test_separated_days (dated_hitl_temporal.DatedTemporalCandidateTests.test_separated_days) (token='2024-2-29')
+----------------------------------------------------------------------
+AssertionError: 'dawn\x00受付手順229\x00.xlsx' != 'dawn\x00受付手順\x00.xlsx'
+- dawn 受付手順229 .xlsx
+?          ---
++ dawn 受付手順 .xlsx
+
+
+======================================================================
+FAIL: test_separated_days (dated_hitl_temporal.DatedTemporalCandidateTests.test_separated_days) (token='2024_02_29')
+----------------------------------------------------------------------
+AssertionError: 'dawn\x00受付手順0229\x00.xlsx' != 'dawn\x00受付手順\x00.xlsx'
+- dawn 受付手順0229 .xlsx
+?          ----
++ dawn 受付手順 .xlsx
+
+
+======================================================================
+FAIL: test_separated_days (dated_hitl_temporal.DatedTemporalCandidateTests.test_separated_days) (token='2024.02.29')
+----------------------------------------------------------------------
+AssertionError: 'dawn\x00受付手順.02.29\x00.xlsx' != 'dawn\x00受付手順\x00.xlsx'
+- dawn 受付手順.02.29 .xlsx
+?          ------
++ dawn 受付手順 .xlsx
+
+
+======================================================================
+FAIL: test_unknown_202_203_digit_runs_are_not_normalized_away (dated_hitl_temporal.DatedTemporalCandidateTests.test_unknown_202_203_digit_runs_are_not_normalized_away) (token='202')
+----------------------------------------------------------------------
+AssertionError: False is not true
+
+======================================================================
+FAIL: test_unknown_202_203_digit_runs_are_not_normalized_away (dated_hitl_temporal.DatedTemporalCandidateTests.test_unknown_202_203_digit_runs_are_not_normalized_away) (token='203')
+----------------------------------------------------------------------
+AssertionError: False is not true
+
+======================================================================
+FAIL: test_unknown_202_203_digit_runs_are_not_normalized_away (dated_hitl_temporal.DatedTemporalCandidateTests.test_unknown_202_203_digit_runs_are_not_normalized_away) (token='20251')
+----------------------------------------------------------------------
+AssertionError: False is not true
+
+======================================================================
+FAIL: test_unknown_202_203_digit_runs_are_not_normalized_away (dated_hitl_temporal.DatedTemporalCandidateTests.test_unknown_202_203_digit_runs_are_not_normalized_away) (token='203012345678')
+----------------------------------------------------------------------
+AssertionError: False is not true
+
+======================================================================
+FAIL: test_unknown_202_203_digit_runs_are_not_normalized_away (dated_hitl_temporal.DatedTemporalCandidateTests.test_unknown_202_203_digit_runs_are_not_normalized_away) (token='202401011')
+----------------------------------------------------------------------
+AssertionError: False is not true
+
+----------------------------------------------------------------------
+Ran 16 tests in 0.003s
+
+FAILED (failures=31)

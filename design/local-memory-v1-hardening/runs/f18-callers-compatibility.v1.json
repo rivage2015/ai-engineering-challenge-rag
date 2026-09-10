@@ -1,0 +1,78 @@
+{
+  "record_id": "F18-CALLERS-COMPATIBILITY-V1",
+  "role": "executor_support_not_formal_auditor",
+  "authorization": "Parent explicitly authorized only initial 10 successful plus 1 intentionally failing validator callsite changes in the six named legacy test files, and replacement of two deletion-on-failure assertions with lineage bytes/inode/mtime preservation. No other assertions, product source or new F18 tests authorized.",
+  "caller_contract": "Default validate revalidates independently and compares existing lineage read-only. Only explicit initialize_lineage=True or --initialize-lineage publishes the initial lineage pair, and the caller is responsible for a fresh unpublished output. Existing, partial and symlink outputs are not overwrite targets. This contract review is not implementation approval.",
+  "review": "design/local-memory-v1-hardening/runs/f18-callers-review.v1.json",
+  "applied_delta": {
+    "path": "design/local-memory-v1-hardening/runs/f18-callers-compatibility.v1.patch",
+    "format": "apply_patch delta; relative to repository root; contains only this helper's changes, not preexisting working-tree differences",
+    "sha256": "5c79d91f1ced98b8386ddbc0c094811202ec7b926725f693387fea3b86cdb009"
+  },
+  "files": [
+    {
+      "path": "tests/test_semantic_lineage_relations.py",
+      "before_sha256": "1656f08019db1f1910e1a82329048c603b3525980f685e362d9bc30dd8934732",
+      "after_sha256": "26f1624c0dcdddacd86f8cf21253247db9f3f330d764c9b9e4cad80f8e41f4d0",
+      "changes": [
+        "First successful validation at current line 411 opts into initialization.",
+        "Intentionally failing first validation for mixed timestamps at current line 667 opts into initialization to retain the original error-path assertion.",
+        "At current lines 593-610, snapshot each existing lineage file's bytes, inode and mtime before tampering; keep failing revalidation default read-only; replace only the two old assertFalse(exists) assertions with exact snapshot equality. Added F18 contract-change comment."
+      ]
+    },
+    {
+      "path": "tests/test_security_graph_partition.py",
+      "before_sha256": "a50466c39621a4583f99d74d92977d8359db68d971afbd906a73b67a5d8e3462",
+      "after_sha256": "ae9d957baacdd46b1225f8e6f10e4909fad153e412e6a622e4aa1bd25cb5be6d",
+      "changes": ["Only initial semantic validator call at line 160 opts into initialization."]
+    },
+    {
+      "path": "tests/test_local_embedded_visual_pipeline.py",
+      "before_sha256": "a42c525ef2e6cd461ce7ddc61c24f735b43da4d8d3f820d78115b6074e25a3ea",
+      "after_sha256": "892658aa919cad1dd35a7fdc19aba9c8b0ef1b931e83f3137fc6112b5a150508",
+      "changes": ["Only first successful adaptive validator call at line 1180 opts into initialization. Tamper and restored-input revalidations at lines 1250 and 1254 unchanged."]
+    },
+    {
+      "path": "distribution/macos-local-memory/tests/test_document_version_resolver.py",
+      "before_sha256": "6031c30fbfc1b8eda0159b926ef07bbcedee1b0c2c92747b3135f9be6f6efd17",
+      "after_sha256": "b42fa5abafe2175ca29b26efe9a10d2626aca2d2321087f4bc798961fdf7116c",
+      "changes": ["Initial validations at current lines 315 and 353 opt into initialization; original PASS assertions retained."]
+    },
+    {
+      "path": "distribution/macos-local-memory/tests/test_package.py",
+      "before_sha256": "f98596239852363a77c991b2a886b8d455a31b6def656667197412e298799296",
+      "after_sha256": "1f5bf0dffd036649049058980e73e1517be05c4a0c967471e3d214ba6cfff190",
+      "changes": ["Added --initialize-lineage only to four initial validator commands (flag current lines 1015, 1124, 1311, 1362). No assertion changes."]
+    },
+    {
+      "path": "distribution/macos-local-memory/tests/test_versioned_safe_index_e2e.py",
+      "before_sha256": "c16cc5bfafe493ad4096eadbf84722c8d9f1d476dcb03bfc36bb26959983341b",
+      "after_sha256": "03d5dc06b47548c09a8f38348a5cbd0c8f29efbdd1a4565083ea6b660f8db771",
+      "changes": ["Added --initialize-lineage only to unpublished_reader validator command at line 195. Shared reader_args and builder command unchanged."]
+    }
+  ],
+  "verification": {
+    "successful_initial_callsites_changed": 10,
+    "intentionally_failing_initial_callsites_changed": 1,
+    "deletion_assertions_replaced": 2,
+    "other_assertions_changed": 0,
+    "product_files_edited_by_helper": 0,
+    "test_execution_count": 0,
+    "dynamic_exploit_claim": false,
+    "static_record_validation": {
+      "json_parse": true,
+      "exact_delta_reversal_all_six_before_hashes_match": true,
+      "all_six_current_after_hashes_match": true,
+      "method": "Python 3.14 standard-library JSON/hash/text processing only; inverted the saved patch in memory and compared all six original hashes. No repository module or test code was imported or executed.",
+      "diagnostic_note": "An initial plutil -lint attempt rejected JSON with Unexpected character {; this was a plist-tool mismatch, not a test failure. The subsequent actual JSON parse succeeded for both review records."
+    },
+    "checks": [
+      "Exact before hashes matched the static review snapshot immediately before edit.",
+      "apply_patch completed for the six authorized files only; exact delta preserved separately.",
+      "git diff --check emitted no whitespace errors for the six files.",
+      "Static rg showed exactly eleven new initialization flags and preserved three direct revalidation callsites without flags.",
+      "No test runs, original/index/model/network/GUI operations, or commits."
+    ]
+  },
+  "handoff": "Execution intentionally deferred to parent. Updated tests are implementation support, not independent evidence or formal F18 approval; a separate source-frozen audit is required."
+}

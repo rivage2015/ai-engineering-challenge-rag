@@ -1,0 +1,19 @@
+{
+  "captured_at_utc": "2026-09-08 18:33:55 UTC",
+  "environment_raw": "79a69260fb1a42efb3c0e2c0093ed6101470f2a1\ndistribution/macos-local-memory/build/build_package.sh\ndistribution/macos-local-memory/docs/START-HERE.html\n\"distribution/macos-local-memory/docs/\\343\\201\\257\\343\\201\\230\\343\\202\\201\\343\\201\\253\\343\\201\\212\\350\\252\\255\\343\\201\\277\\343\\201\\217\\343\\201\\240\\343\\201\\225\\343\\201\\204.md\"\nProductName:\t\tmacOS\nProductVersion:\t\t26.5.1\nBuildVersion:\t\t25F80\nsysctl: sysctl fmt -1 1024 1: Operation not permitted\n",
+  "protected_and_disk_raw": "10989f5f941c1e567a7a8c7fe82f2d5d5d88e66345d4503a1600c7c9827bd02f  distribution/macos-local-memory/build/build_package.sh\n5724d3d4db018f967c8b11cba0e448f529928ca90b4597dc6dc295bc9a202270  distribution/macos-local-memory/docs/START-HERE.html\n53dc3897f04cb0f8152f78f45aea22be925357377ee44f8900b6f9c2489086d2  distribution/macos-local-memory/docs/はじめにお読みください.md\n8\t1\tdistribution/macos-local-memory/build/build_package.sh\n1\t0\tdistribution/macos-local-memory/docs/START-HERE.html\n16\t0\t\"distribution/macos-local-memory/docs/\\343\\201\\257\\343\\201\\230\\343\\202\\201\\343\\201\\253\\343\\201\\212\\350\\252\\255\\343\\201\\277\\343\\201\\217\\343\\201\\240\\343\\201\\225\\343\\201\\204.md\"\nFilesystem   1024-blocks      Used Available Capacity iused      ifree %iused  Mounted on\n/dev/disk3s1   971298980 234769244 697901008    26%  965353 6979010080    0%   /System/Volumes/Data\n",
+  "interpreter": {
+    "path": "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/rag/.venv/bin/python",
+    "version": "3.9.6",
+    "packages": {
+      "jsonschema": "4.25.1",
+      "numpy": "2.0.2",
+      "openpyxl": "3.1.5",
+      "python-docx": "1.2.0",
+      "python-pptx": "1.0.2",
+      "pypdf": "6.15.0",
+      "Pillow": "11.3.0"
+    }
+  },
+  "memory_capacity": "unverified: sysctl denied; no escalation needed for tiny deterministic tests"
+}

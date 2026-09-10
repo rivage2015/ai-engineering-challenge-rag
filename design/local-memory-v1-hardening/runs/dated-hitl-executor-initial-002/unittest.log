@@ -1,0 +1,11 @@
+{"mode": "initial", "test_sha256": "ee62aaf42632bca032c80a40a54893a817cd78f72c5d95e1c1078ba96a69586a", "resolver_sha256": "b0e5a5b57ef57d1f3d2499a9ce619a3a30f4b40b67b4b3a27da173a7656c5615", "methods": ["test_compact_full_dates_form_one_candidate_family", "test_dated_current_marker_still_requires_human_approval", "test_japanese_full_dates_form_one_candidate_family", "test_unrelated_procedures_remain_separate", "test_year_only_peers_already_hold"], "original_document_reads": false, "residual_not_acceptance": false}
+test_compact_full_dates_form_one_candidate_family (dated_hitl_initial.DatedDocumentHumanGateTests.test_compact_full_dates_form_one_candidate_family) ... ok
+test_dated_current_marker_still_requires_human_approval (dated_hitl_initial.DatedDocumentHumanGateTests.test_dated_current_marker_still_requires_human_approval) ... ok
+test_japanese_full_dates_form_one_candidate_family (dated_hitl_initial.DatedDocumentHumanGateTests.test_japanese_full_dates_form_one_candidate_family) ... ok
+test_unrelated_procedures_remain_separate (dated_hitl_initial.DatedDocumentHumanGateTests.test_unrelated_procedures_remain_separate) ... ok
+test_year_only_peers_already_hold (dated_hitl_initial.DatedDocumentHumanGateTests.test_year_only_peers_already_hold) ... ok
+
+----------------------------------------------------------------------
+Ran 5 tests in 0.000s
+
+OK

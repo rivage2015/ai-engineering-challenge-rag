@@ -1,0 +1,161 @@
+{
+  "schema_version": "1.0",
+  "task_id": "lms-v1-00-hardening-2026-09-09-f08-f09",
+  "artifact_version": 1,
+  "task_contract": {
+    "requested": "Repair F08 XML mixed-content tail loss and F09 silent JSON duplicate-key last-wins using smallest changes and safe regressions.",
+    "review_scope": "Scoped code/behavior acceptance only. Not universal XML/JSON support or complete product acceptance.",
+    "forbidden": [
+      "real personal inputs",
+      "real model or network calls",
+      "product source edits by auditor",
+      "self-approval",
+      "unrelated feature expansion"
+    ],
+    "max_repair_cycles": 2,
+    "role_separation": "same_model_separate_context"
+  },
+  "goal": "XML text/tail data remains ordered and parent-bound; duplicate JSON object keys fail explicitly before evidence can be accepted, without dropping valid neighboring files.",
+  "nodes": [
+    {
+      "id": "F08",
+      "text": "XML mixed content and nonempty whitespace is preserved in Reader locator convention, not a general XPath API.",
+      "basis": [
+        "PARSER",
+        "TESTS"
+      ]
+    },
+    {
+      "id": "F09",
+      "text": "Duplicate keys at all object depths are rejected before any partial values win.",
+      "basis": [
+        "PARSER",
+        "TESTS"
+      ]
+    },
+    {
+      "id": "XML_SAFETY",
+      "text": "DTD/entity gate checks same byte sequence before native XML parsing; not applied to literal large partial fallback.",
+      "basis": [
+        "PARSER",
+        "TESTS"
+      ]
+    },
+    {
+      "id": "ROLLBACK",
+      "text": "Failed source leaves failed Document but no Evidence/Relation/SearchUnit; valid neighbors retained.",
+      "basis": [
+        "BUILDER",
+        "TESTS",
+        "ADAPTER"
+      ]
+    },
+    {
+      "id": "COMPAT",
+      "text": "Other read_text callers and ordinary encoded XML/JSON remain valid; changed XML locator/code hash requires rebuilding affected derived artifacts.",
+      "basis": [
+        "PARSER",
+        "TESTS",
+        "BUILDER"
+      ]
+    },
+    {
+      "id": "VALIDATION",
+      "text": "Executor RED/GREEN and parent repeat 13 tests, no skipped tests; embedding/safe-index/answer tests not done for this issue.",
+      "basis": [
+        "EXECUTOR",
+        "PARENT_RUN"
+      ]
+    },
+    {
+      "id": "LIMITS",
+      "text": "Generic nonfinite JSON, broad encoding/depth/resource support, comments/PI, legacy indexes and whole app remain separate open boundaries.",
+      "basis": [
+        "EXECUTOR"
+      ]
+    }
+  ],
+  "edges": [
+    {
+      "id": "E08",
+      "source": "F08",
+      "target": "ROLLBACK",
+      "relation": "must_preserve_valid_neighbor",
+      "basis": [
+        "TESTS"
+      ]
+    },
+    {
+      "id": "E09",
+      "source": "F09",
+      "target": "ROLLBACK",
+      "relation": "requires_atomic_failure",
+      "basis": [
+        "TESTS",
+        "BUILDER"
+      ]
+    },
+    {
+      "id": "E10",
+      "source": "XML_SAFETY",
+      "target": "F08",
+      "relation": "guards_native_parse",
+      "basis": [
+        "PARSER"
+      ]
+    },
+    {
+      "id": "E11",
+      "source": "COMPAT",
+      "target": "VALIDATION",
+      "relation": "must_be_regression_tested",
+      "basis": [
+        "TESTS"
+      ]
+    }
+  ],
+  "sources": [
+    {
+      "id": "PARSER",
+      "path": "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/scripts/probe_intermediate_records.py",
+      "sha256": "155b62aebe2ea786afd74a95e167997c9b9cfcfa52f5099176c9bc13df09e7f7"
+    },
+    {
+      "id": "TESTS",
+      "path": "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/tests/test_generic_structured_reader_hardening.py",
+      "sha256": "08b62feffba0e70330312779d699225ac63aa878be9caea5ceabe71111fb43f8"
+    },
+    {
+      "id": "EXECUTOR",
+      "path": "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/design/local-memory-v1-hardening/runs/f08-f09-cycle-01-executor.json",
+      "sha256": "608e2540e3780df5fbadf25f57100815face39c501024acc5c72f7096c56abde"
+    },
+    {
+      "id": "PARENT_RUN",
+      "path": "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/artifacts/local-memory-v1-hardening/runs/003-xml-json-parent/result.json",
+      "sha256": "09edea8bc59217e12ecacbeb3bca73a4d22620481c471b2b15cff7f1c2d3ee0b"
+    },
+    {
+      "id": "BUILDER",
+      "path": "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/scripts/build_intermediate_records.py",
+      "sha256": "7312ebdffc7221ef989195afd03bdbbe34f945582cb25b9020d64b19316bdabe"
+    },
+    {
+      "id": "SEARCH",
+      "path": "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/scripts/build_search_units.py",
+      "sha256": "a14ffa6f5c4b04fd63ed3b95ba8b6892ca5c11f1cee050b323861c009c6eaaa1"
+    },
+    {
+      "id": "ADAPTER",
+      "path": "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/scripts/adapt_layer1_to_local_memory.py",
+      "sha256": "0ef2f634966e9be671628889b82e13baf8b57d14a6b649d7ffaee981279f9214"
+    }
+  ],
+  "patch_snapshot": "diff --git a/scripts/probe_intermediate_records.py b/scripts/probe_intermediate_records.py\nindex 899ab97..9927f35 100644\n--- a/scripts/probe_intermediate_records.py\n+++ b/scripts/probe_intermediate_records.py\n@@ -451,7 +451,11 @@ def detect_text_file_encoding(path: Path) -> str:\n     return next((encoding for encoding in candidates if encoding in decoders), \"utf-8-replacement\")\n \n \n-def read_text(path: Path) -> tuple[str, str]:\n+def read_text(\n+    path: Path,\n+    *,\n+    byte_validator: Callable[[bytes], None] | None = None,\n+) -> tuple[str, str]:\n     \"\"\"Read bounded native text while reporting the selected encoding.\n \n     ``Probe.extract`` routes larger text-like files to the streaming reader\n@@ -462,6 +466,8 @@ def read_text(path: Path) -> tuple[str, str]:\n     if path.stat().st_size > MAX_DIRECT_TEXT_BYTES:\n         raise ValueError(\"direct_text_resource_limit\")\n     raw = path.read_bytes()\n+    if byte_validator is not None:\n+        byte_validator(raw)\n     encoding = detect_text_encoding(raw)\n     if encoding == \"utf-8-replacement\":\n         return raw.decode(\"utf-8\", errors=\"replace\"), encoding\n@@ -6361,7 +6367,19 @@ class Probe:\n \n     def extract_json(self, path: Path) -> None:\n         text_value, encoding = read_text(path)\n-        parsed = json.loads(text_value)\n+\n+        def unique_object(pairs: list[tuple[str, Any]]) -> dict[str, Any]:\n+            result: dict[str, Any] = {}\n+            for key, value in pairs:\n+                if key in result:\n+                    # Do not choose a last-wins value or leak an untrusted key\n+                    # into logs. process_file retains a failed Document and\n+                    # discards its uncommitted Evidence/Relation shards.\n+                    raise ValueError(\"duplicate JSON object key\")\n+                result[key] = value\n+            return result\n+\n+        parsed = json.loads(text_value, object_pairs_hook=unique_object)\n         doc = self.add_document(path, \"python-json\")\n         doc_id = doc[\"document_id\"]\n \n@@ -6404,7 +6422,9 @@ class Probe:\n         walk(parsed, \"\", None, 1)\n \n     def extract_xml(self, path: Path) -> None:\n-        text_value, encoding = read_text(path)\n+        # Reuse the existing wide-encoding-aware DTD/entity gate on the same\n+        # bytes that are decoded and parsed; do not validate a separate read.\n+        text_value, encoding = read_text(path, byte_validator=validate_xml_bytes)\n         root = ElementTree.fromstring(text_value)\n         doc = self.add_document(path, \"xml.etree.ElementTree\")\n         doc_id = doc[\"document_id\"]\n@@ -6433,17 +6453,30 @@ class Probe:\n                         ordinal=attr_index,\n                         native_properties={\"xml_path\": f\"{element_path}/@{name}\"},\n                     )\n-            if element.text and element.text.strip() and self.may_add_leaf(doc_id):\n-                self.add_evidence(\n-                    doc_id,\n-                    \"field\",\n-                    {\"locator_text\": f\"{element_path}/text()\"},\n-                    content(raw_text=element.text),\n-                    parent_id=container[\"evidence_id\"],\n-                    native_properties={\"xml_path\": f\"{element_path}/text()\"},\n-                )\n+            text_index = 0\n+\n+            def add_text(value: str | None) -> None:\n+                nonlocal text_index\n+                if value is None or value == \"\":\n+                    return\n+                # A child's tail belongs to its parent, after that child's\n+                # complete subtree. Whitespace can separate meaningful text.\n+                text_index += 1\n+                if self.may_add_leaf(doc_id):\n+                    text_path = f\"{element_path}/text()[{text_index}]\"\n+                    self.add_evidence(\n+                        doc_id,\n+                        \"field\",\n+                        {\"locator_text\": text_path},\n+                        content(raw_text=value),\n+                        parent_id=container[\"evidence_id\"],\n+                        native_properties={\"xml_path\": text_path},\n+                    )\n+\n+            add_text(element.text)\n             for child_index, child in enumerate(list(element), 1):\n                 walk(child, element_path, container[\"evidence_id\"], child_index)\n+                add_text(child.tail)\n \n         walk(root, \"\", None, 1)\n \n",
+  "unverified_points": [
+    "No full product acceptance",
+    "No safe SQLite/answer tests for this Reader-specific task",
+    "Broad limitations listed in EXECUTOR"
+  ],
+  "proposed_output": "Accept or revise this scoped F08/F09 patch after independent counterexamples; retain all other findings open."
+}

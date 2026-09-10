@@ -1,0 +1,135 @@
+--- distribution/macos-local-memory/engine/build_local_semantic_index.py
++++ distribution/macos-local-memory/engine/build_local_semantic_index.py
+@@ -81,7 +81,8 @@
+     "derived_evidence_sha256",
+ }
+ LINEAGE_CONTEXT_FIELDS = {"output_dir", "source_root", "inventory"}
+-VERSIONED_LINEAGE_CONTEXT_FIELDS = LINEAGE_CONTEXT_FIELDS | {"version_graph"}
++VERSIONED_LINEAGE_CONTEXT_FIELDS = LINEAGE_CONTEXT_FIELDS | {"version_graph", "version_authority_mode"}
++SNAPSHOT_LINEAGE_CONTEXT_FIELDS = VERSIONED_LINEAGE_CONTEXT_FIELDS | {"version_decisions_path", "version_decisions_sha256"}
+ LINEAGE_STATE_FIELDS = {
+     "schema_version", "validator", "validator_version", "status",
+     "question_independent", "generated_at", "inputs", "output", "coverage",
+@@ -829,6 +830,29 @@
+         connection_ordinals.append(ordinal)
+     if connection_ordinals != sorted(set(connection_ordinals)):
+         raise ValueError(f"graph_smartart_support_order_invalid:{relation_id}")
++
++
++def _version_context_kwargs(context: dict) -> dict:
++    if not isinstance(context, dict) or set(context) not in (
++        LINEAGE_CONTEXT_FIELDS, VERSIONED_LINEAGE_CONTEXT_FIELDS, SNAPSHOT_LINEAGE_CONTEXT_FIELDS,
++    ):
++        raise ValueError("graph_lineage_validation_context_required")
++    path_fields = set(context) - {"version_authority_mode", "version_decisions_sha256"}
++    if any(not isinstance(context[key], (str, Path)) or not str(context[key]) for key in path_fields):
++        raise ValueError("graph_lineage_validation_context_invalid")
++    if set(context) == LINEAGE_CONTEXT_FIELDS:
++        return {}
++    mode = context["version_authority_mode"]
++    if set(context) == VERSIONED_LINEAGE_CONTEXT_FIELDS and mode == "no_decisions":
++        return {"version_authority_mode": mode}
++    if set(context) != SNAPSHOT_LINEAGE_CONTEXT_FIELDS or mode != "snapshot":
++        raise ValueError("version_decision_authority_required")
++    digest = context["version_decisions_sha256"]
++    if not isinstance(digest, str) or re.fullmatch(r"[0-9a-f]{64}", digest) is None:
++        raise ValueError("version_decision_snapshot_hash_required")
++    return {"version_authority_mode": mode,
++            "version_decisions_path": Path(context["version_decisions_path"]),
++            "version_decisions_sha256": digest}
+ 
+ 
+ def _attest_lineage_context(
+@@ -838,10 +862,7 @@
+     context: dict | None,
+ ) -> dict:
+     """Re-run the source-bound validator; never trust a caller-issued PASS JSON."""
+-    if not isinstance(context, dict) or set(context) not in (
+-        LINEAGE_CONTEXT_FIELDS, VERSIONED_LINEAGE_CONTEXT_FIELDS,
+-    ):
+-        raise ValueError("graph_lineage_validation_context_required")
++    authority_kwargs = _version_context_kwargs(context)
+     try:
+         output_dir = Path(context["output_dir"]).resolve(strict=True)
+         source_root = Path(context["source_root"]).resolve(strict=True)
+@@ -858,11 +879,30 @@
+         raise ValueError("graph_lineage_output_directory_invalid")
+ 
+     validator = _load_lineage_validator()
+-    report = validator.validate(output_dir, source_root, inventory, version_graph)
++    report = validator.validate(output_dir, source_root, inventory, version_graph, **authority_kwargs)
+     if report.get("status") != "PASS":
+         raise ValueError("graph_lineage_independent_validation_failed")
+     if "document_version_graph" not in report:
+         raise ValueError("graph_lineage_version_attestation_missing")
++    binding = report["document_version_graph"]
++    if version_graph is None:
++        if binding is not None:
++            raise ValueError("graph_lineage_version_attestation_invalid")
++    else:
++        if (not isinstance(binding, dict) or set(binding) != {"path", "sha256", "graph_sha256", "decision_authority"}
++            or binding["path"] != str(version_graph)
++            or any(not isinstance(binding[key], str) or re.fullmatch(r"[0-9a-f]{64}", binding[key]) is None for key in ("sha256", "graph_sha256"))):
++            raise ValueError("graph_lineage_version_attestation_invalid")
++        authority = binding["decision_authority"]
++        if authority_kwargs["version_authority_mode"] == "no_decisions":
++            if authority != {"mode": "no_decisions"}:
++                raise ValueError("graph_lineage_decision_attestation_invalid")
++        elif (not isinstance(authority, dict) or set(authority) != {"mode", "path", "sha256", "byte_count"}
++              or authority["mode"] != "snapshot"
++              or authority["path"] != str(authority_kwargs["version_decisions_path"])
++              or authority["sha256"] != authority_kwargs["version_decisions_sha256"]
++              or type(authority["byte_count"]) is not int or not 0 <= authority["byte_count"] <= 67108864):
++            raise ValueError("graph_lineage_decision_attestation_invalid")
+ 
+     state_path = output_dir / validator.LINEAGE_VALIDATION_FILE
+     relation_path = output_dir / validator.LINEAGE_RELATIONS_FILE
+@@ -1250,10 +1290,7 @@
+         or set(security_context) != SECURITY_CONTEXT_FIELDS
+     ):
+         raise ValueError("graph_security_validation_context_required")
+-    if not isinstance(lineage_context, dict) or set(lineage_context) not in (
+-        LINEAGE_CONTEXT_FIELDS, VERSIONED_LINEAGE_CONTEXT_FIELDS,
+-    ):
+-        raise ValueError("graph_security_lineage_context_required")
++    _version_context_kwargs(lineage_context)
+     try:
+         output_dir = Path(lineage_context["output_dir"]).resolve(strict=True)
+         gate_dir = Path(security_context["gate_dir"]).resolve(strict=True)
+@@ -2462,9 +2499,25 @@
+         help="Explicit version graph bound to this Reader generation",
+     )
+     parser.add_argument("--model", default="embeddinggemma:latest")
++    parser.add_argument("--version-authority-mode", choices=("no_decisions", "snapshot"))
++    parser.add_argument("--version-decisions")
++    parser.add_argument("--version-decisions-sha256")
+     parser.add_argument("--batch-size", type=int, default=8)
+     parser.add_argument("--timeout", type=int, default=180)
+     args = parser.parse_args()
++    authority_values = (args.version_authority_mode, args.version_decisions, args.version_decisions_sha256)
++    if args.version_graph:
++        if args.version_authority_mode not in ("no_decisions", "snapshot"):
++            raise ValueError("version_decision_authority_required")
++        if args.version_authority_mode == "no_decisions" and any(value is not None for value in authority_values[1:]):
++            raise ValueError("unexpected_version_decision_authority")
++        if args.version_authority_mode == "snapshot" and (
++            not args.version_decisions or not isinstance(args.version_decisions_sha256, str)
++            or re.fullmatch(r"[0-9a-f]{64}", args.version_decisions_sha256) is None
++        ):
++            raise ValueError("version_decision_snapshot_authority_required")
++    elif any(value is not None for value in authority_values):
++        raise ValueError("unexpected_version_decision_authority")
+     if args.version_graph and args.index_purpose != "safe_answer":
+         raise SystemExit("version_graph_requires_safe_answer_index")
+     if args.batch_size < 1 or args.batch_size > 64:
+@@ -2538,6 +2591,10 @@
+             graph_context["lineage"]["version_graph"] = Path(
+                 args.version_graph
+             ).resolve(strict=True)
++            graph_context["lineage"]["version_authority_mode"] = args.version_authority_mode
++            if args.version_authority_mode == "snapshot":
++                graph_context["lineage"]["version_decisions_path"] = Path(args.version_decisions)
++                graph_context["lineage"]["version_decisions_sha256"] = args.version_decisions_sha256
+     document_paths = {item["document_id"]: item["source"]["relative_path"] for item in documents}
+     if len(document_paths) != len(documents):
+         raise SystemExit("Document IDs must be unique")

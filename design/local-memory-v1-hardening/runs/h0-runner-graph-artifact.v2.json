@@ -1,0 +1,137 @@
+{
+  "schema_version": "1.0",
+  "task_id": "lms-v1-00-h0-test-supervisor",
+  "artifact_version": 2,
+  "task_contract": {
+    "requested": "Durably record preflight-approved synthetic unittest results; bound test wall time and captured output; avoid overwriting runs; never count no-tests or skipped suite as passed.",
+    "review_scope": "Internal test-supervisor correctness, not OS isolation, no-network guarantee, or product certification.",
+    "forbidden": [
+      "product edits by auditor",
+      "real models/network/personal data",
+      "unbounded stress"
+    ],
+    "max_repair_cycles": 2,
+    "role_separation": "same_model_separate_context"
+  },
+  "goal": "A resumable test run has immutable started/result metadata plus bounded logs and explicit interrupted/timeout/failure/skip states.",
+  "nodes": [
+    {
+      "id": "BOUNDS",
+      "text": "Wall/output bounds preserved; ordinary SIGTERM/SIGHUP cancellation triggers bounded own-group cleanup and interrupted metadata; prior handlers restored.",
+      "basis": [
+        "RUNNER",
+        "TESTS"
+      ]
+    },
+    {
+      "id": "DURABILITY",
+      "text": "New run directory and exclusive write of started/result prevent overwriting prior records.",
+      "basis": [
+        "RUNNER",
+        "TESTS"
+      ]
+    },
+    {
+      "id": "TRUTH",
+      "text": "Only complete terminal unittest footer is used; zero/no tests, FAILED, nonzero exit, skips, or expected failures cannot be plain passed.",
+      "basis": [
+        "RUNNER",
+        "TESTS"
+      ]
+    },
+    {
+      "id": "LIMITS",
+      "text": "Not a security sandbox. Preflight remains mandatory; successful-run descendants and actual I/O need separate acceptance.",
+      "basis": [
+        "RUNNER"
+      ]
+    },
+    {
+      "id": "RESULTS",
+      "text": "Eleven permanent runner methods passed, including prefixed false footers, real unittest failure with exit=False, SIGTERM cleanup and explicit root import. Four selected recovery cases passed after import fix.",
+      "basis": [
+        "RESULT",
+        "TESTS",
+        "RECOVERY_RESULT"
+      ]
+    }
+  ],
+  "edges": [
+    {
+      "id": "E01",
+      "source": "BOUNDS",
+      "target": "DURABILITY",
+      "relation": "records_bounded_outcome",
+      "basis": [
+        "RUNNER"
+      ]
+    },
+    {
+      "id": "E02",
+      "source": "RESULTS",
+      "target": "TRUTH",
+      "relation": "tests_status_classification",
+      "basis": [
+        "TESTS"
+      ]
+    }
+  ],
+  "sources": [
+    {
+      "id": "RUNNER",
+      "path": "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/scripts/run_local_memory_hardening_tests.py",
+      "sha256": "6b3bde90b6ed649a82325f6b5ad9661756bef7b6e0303fa74c2d045fb26eb4a9"
+    },
+    {
+      "id": "TESTS",
+      "path": "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/tests/test_hardening_test_runner.py",
+      "sha256": "a00efe59208a0b4ec036a92a79d47168c910d5372493a2dfd15c3654a8d5f3c7"
+    },
+    {
+      "id": "RESULT",
+      "path": "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/artifacts/local-memory-v1-hardening/runs/014-runner-repair-green/result.json",
+      "sha256": "8aef1f3706895850e8401cdfae4a189f8ee0894d32289f9dc19bb178729d7720"
+    },
+    {
+      "id": "RECOVERY_RESULT",
+      "path": "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/artifacts/local-memory-v1-hardening/runs/015-h0-recovery-import-fixed/result.json",
+      "sha256": "ef4b11cc49bce66bf2db06a5f1f148357e9dc657923839a645368713e0dadc91"
+    }
+  ],
+  "unverified_points": [
+    "No OS/network isolation claim; test preflight mandatory.",
+    "No guarantee for SIGKILL, power loss or child processes escaping the created process group.",
+    "Log footer is a diagnostic contract for preflight-approved tests, not authentication against a malicious test program fabricating a terminal OK.",
+    "New v2 records and tests verify actual outcomes; old v1 regex may have captured a wrong count from failure tracebacks, including RED run013. Its terminal unittest log, not old tests_reported=1, is authoritative for the actual11 methods."
+  ],
+  "proposed_output": "Review internal harness before relying on its results; callers still inspect real unittest output and scope.",
+  "audit_repair_round": 1,
+  "repair_response": {
+    "A01": "Anchored terminal summary; same-footer counts/outcome; failures with exit0 rejected, skips/expected-failures explicit.",
+    "A02": "SIGTERM/SIGHUP raise controlled exception into own-group cleanup; repeat signals ignored while cleaning; main-thread contract explicit. SIGKILL/shutdown/escaped descendants are not guaranteed.",
+    "A06": "Root explicitly prepended to inherited PYTHONPATH, recorded in metadata; original run008 import errors now rerun015 passed4; no product recovery code changed."
+  },
+  "execution": {
+    "red": {
+      "id": "013-runner-repair-red",
+      "exit_code": 1,
+      "actual_test_methods": 11,
+      "note": "Old parser falsely reports first embedded count1 in traceback. Raw footer says11, failures/errors show the mandatory defects.",
+      "log_sha256": "703f2cddbfa4391d83dbc58feae5b131fa324400f3de68b847176e8853955a9b"
+    },
+    "green": {
+      "id": "014-runner-repair-green",
+      "tests": 11,
+      "skips": 0,
+      "expected_failures": 0,
+      "elapsed_seconds": 0.812472
+    },
+    "recovery": {
+      "id": "015-h0-recovery-import-fixed",
+      "tests": 4,
+      "skips": 0,
+      "elapsed_seconds": 0.257811
+    },
+    "safety": "Synthetic child signal fixture cleans only its own spawned supervisor and child IDs. No external data/model/network. All runs≤30sec."
+  }
+}

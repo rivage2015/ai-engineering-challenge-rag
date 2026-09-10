@@ -1,0 +1,19 @@
+test_capture_exact_present_bytes_retains_two_groups (f05b_audit_target.IndependentSnapshotApplicationHoldouts.test_capture_exact_present_bytes_retains_two_groups) ... ok
+test_capture_preserves_existing_directory_and_symlink_targets (f05b_audit_target.IndependentSnapshotApplicationHoldouts.test_capture_preserves_existing_directory_and_symlink_targets) ... ok
+test_capture_rejects_shared_symlink_and_directory (f05b_audit_target.IndependentSnapshotApplicationHoldouts.test_capture_rejects_shared_symlink_and_directory) ... ok
+test_capture_rejects_strict_invalid_present_json_before_resolver (f05b_audit_target.IndependentSnapshotApplicationHoldouts.test_capture_rejects_strict_invalid_present_json_before_resolver) ... ok
+test_model_ready_shared_change_between_calls_keeps_captured_d0 (f05b_audit_target.IndependentSnapshotApplicationHoldouts.test_model_ready_shared_change_between_calls_keeps_captured_d0) ... ok
+test_next_d1_generation_preserves_all_d0_generation_bytes (f05b_audit_target.IndependentSnapshotApplicationHoldouts.test_next_d1_generation_preserves_all_d0_generation_bytes) ... ok
+test_pipeline_rejects_01_path_symlink_to_other_generation_identical_bytes (f05b_audit_target.IndependentSnapshotApplicationHoldouts.test_pipeline_rejects_01_path_symlink_to_other_generation_identical_bytes) ... ok
+test_pipeline_rejects_descriptor_omission_types_and_wrong_generation (f05b_audit_target.IndependentSnapshotApplicationHoldouts.test_pipeline_rejects_descriptor_omission_types_and_wrong_generation) ... ok
+test_generic_unversioned_success_is_distinct_from_authority_without_graph (f05b_audit_target.IndependentSnapshotConsumerHoldouts.test_generic_unversioned_success_is_distinct_from_authority_without_graph) ... ok
+test_reader_opens_each_attested_input_once_and_uses_literal_selection (f05b_audit_target.IndependentSnapshotConsumerHoldouts.test_reader_opens_each_attested_input_once_and_uses_literal_selection) ... ok
+test_reader_wrong_snapshot_expectation_stops_before_source_open (f05b_audit_target.IndependentSnapshotConsumerHoldouts.test_reader_wrong_snapshot_expectation_stops_before_source_open) ... ok
+test_strict_count_types_extra_zero_missing_and_inventory_digest_fail (f05b_audit_target.IndependentSnapshotConsumerHoldouts.test_strict_count_types_extra_zero_missing_and_inventory_digest_fail) ... ok
+test_validator_opens_each_attested_input_once_per_invocation (f05b_audit_target.IndependentSnapshotConsumerHoldouts.test_validator_opens_each_attested_input_once_per_invocation) ... ok
+F05b explicit fixture budget: {"explicit_test_bytes": 69706, "explicit_test_writes": 92, "max_source_fixture_bytes": 129, "source_fixture_count": 13}
+
+----------------------------------------------------------------------
+Ran 13 tests in 1.652s
+
+OK

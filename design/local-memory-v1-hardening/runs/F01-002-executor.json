@@ -1,0 +1,107 @@
+{
+  "schema_version": "1.0",
+  "task_id": "lms-v1-00-hardening-2026-09-09-f01-f07",
+  "executor": "fix_version_lineage",
+  "status": "awaiting_separate_audit",
+  "issue_ids": ["F01", "F07"],
+  "repair_cycle": 1,
+  "base_commit": "79a69260fb1a42efb3c0e2c0093ed6101470f2a1",
+  "date": "2026-09-09",
+  "product_acceptance": "not_evaluated",
+  "scope": {
+    "production_files": ["distribution/macos-local-memory/engine/build_local_semantic_index.py", "distribution/macos-local-memory/app/bootstrap.py"],
+    "test_files": ["distribution/macos-local-memory/tests/test_versioned_safe_index_e2e.py", "distribution/macos-local-memory/tests/test_reader_generation_migration.py"],
+    "core_changed": false,
+    "version_selection_rules_changed": false,
+    "validator_publication_behavior_changed": false,
+    "committed": false,
+    "public_index_changed": false,
+    "personal_documents_used": false
+  },
+  "source_hashes": {
+    "bootstrap.py": "0856989a86d2be19cb0761fee51e10da3aa7c8694ecde9c4e128d725c0d7081a",
+    "build_local_semantic_index.py": "3a8025d97c1071ee4513e32ec583bd6d281fb0674c34dcd5d6dabe890a724803",
+    "test_versioned_safe_index_e2e.py": "de7510843bfbdd9ff62cfa73f25f1b415ea7f87a19a9abd8bde2fdd8b1575000",
+    "test_reader_generation_migration.py": "3ea1d0281b000a4c93ce51b62262cfd78eb348d8398bc73cf48eadb34c97d0ad",
+    "shared_probe_during_green": "155b62aebe2ea786afd74a95e167997c9b9cfcfa52f5099176c9bc13df09e7f7"
+  },
+  "environment": {
+    "full_wiring_interpreter": "/opt/homebrew/bin/python3 (3.14.6)",
+    "additional_build_only_interpreter": "rag/.venv/bin/python (3.9.6)",
+    "sources": "Three tiny synthetic CSV/text files in TemporaryDirectory; one test changes a synthetic current marker and one synthetic source value.",
+    "state": "Temporary SUPPORT, CONFIG, STATE, decisions, review, workspace, generation and SQLite paths.",
+    "real_cli_and_functions": "CLI argparse and production functions run in process; no subprocess executable launched by fixtures.",
+    "inference": "Fixed synthetic embedding vector and schema-shaped model HTTP responses only.",
+    "runtime_identity": "Reader OCR/VLM/model identities stubbed; code hashes remain real; no Ollama /api/version or /api/tags requests.",
+    "guards": "HTTP connect, urllib opener and Popen fail if an unmocked attempt occurs; these guards are not an OS sandbox.",
+    "cross_document_semantic_feature_flags": "Explicitly disabled. No Keychain or cross-document semantic graph trust publication."
+  },
+  "budget": {
+    "focused_suite_wall_seconds": 180,
+    "combined_output_bytes": 8388608,
+    "synthetic_file_bytes": 1048576,
+    "parallel_heavy_models": 0
+  },
+  "runs": [
+    {
+      "phase": "RED",
+      "record": "design/local-memory-v1-hardening/runs/F01-001-red.md",
+      "tests": 1,
+      "exit_code": 1,
+      "elapsed_seconds_reported": 0.341,
+      "error": "unexpected_document_version_graph"
+    },
+    {
+      "phase": "GREEN-full-wiring",
+      "command": "python3 scripts/run_local_memory_hardening_tests.py --run-id f01-f07-executor-green-001 --test-file distribution/macos-local-memory/tests/test_versioned_safe_index_e2e.py --python /opt/homebrew/bin/python3 --timeout 180 --max-log-bytes 8388608",
+      "result": "artifacts/local-memory-v1-hardening/runs/f01-f07-executor-green-001/result.json",
+      "tests": 13,
+      "skips": 0,
+      "exit_code": 0,
+      "elapsed_seconds": 1.17108,
+      "log_bytes": 2011,
+      "log_sha256": "a97e5dc58e583be1921d8c5c2b0671dc65f39a9eb6546290044e0d9bdb83257f"
+    },
+    {
+      "phase": "GREEN-build-only-python39",
+      "result": "artifacts/local-memory-v1-hardening/runs/f01-f07-python39-build-green-001/result.json",
+      "tests": 11,
+      "skips": 0,
+      "exit_code": 0,
+      "elapsed_seconds": 2.237256,
+      "log_bytes": 1130,
+      "log_sha256": "7a4393d870be6151ede7654264343b0fbc93c9901660eda70f48f7905dea523b",
+      "excluded": "Two query tests deliberately not selected. Python 3.9 does not support existing zip(strict=True) in answer_local_memory.py; not counted as PASS."
+    },
+    {
+      "phase": "GREEN-related-regression",
+      "tests": 15,
+      "exit_code": 0,
+      "elapsed_seconds_reported": 0.208,
+      "scope": "8 unchanged tests/test_semantic_lineage_relations.py cases plus all 7 test_reader_generation_migration.py cases under Python 3.14; in-process CLI/HTTP/model guards reused. Exact wrapper in accompanying executor notes.",
+      "durable_raw_log": false
+    },
+    {"phase": "diff-check", "command": "git diff --check", "exit_code": 0}
+  ],
+  "expected_contracts": [
+    "Version graph is explicit from bootstrap CLI through lineage/security context to source-bound independent Reader revalidation.",
+    "Legacy three-field unversioned context is supported; supplying null, unknown fields, omitted version on versioned Reader, or version on legacy Reader does not bypass validation.",
+    "Index metadata retains the validated version graph binding, and app publication hashes the complete index bytes.",
+    "Reader generation contract fingerprints resolver and safe-index-projector code and binds the fixed same-generation version artifact; changed version bytes or resolver code require migration.",
+    "Safe index stores only selected active version plus ungrouped evidence; historical source files remain untouched.",
+    "Human choice is exercised through real resolver decision persistence and application rebuild; changing the selected synthetic source invalidates the decision and holds both version candidates.",
+    "Failed rebuild retains prior published CONFIG and SQLite bytes.",
+    "Application build, publication, query retrieval, answer projection and final deterministic claim/orchestration gates run through real functions; synthetic model success cannot promote a blocked ambiguous Graph question."
+  ],
+  "limitations": [
+    "Awaiting separate-context audit; executor does not approve its own changes.",
+    "No real-model quality, OCR, GUI, native HTTP server transport, cross-document graph trust, packaging or macOS installation acceptance here.",
+    "Three-layer V2 search and all version-selection semantics F02-F06 are unchanged; current explicit-year winner behavior is tested as existing wiring, not endorsed as correct policy for annual records.",
+    "F18 destructive lineage revalidation behavior is unchanged. Failure assertions target unpublished new generations, not revalidation of production user generations.",
+    "Python 3.9 query-path incompatibility remains; diagnosis already requires Python >=3.10. It is not silently skipped or fixed in this issue.",
+    "No claim of complete support for all file formats, security completeness or V1.00 final acceptance.",
+    "A first green candidate expected phase ready; it was corrected to ready_with_limits because historical files are intentionally held. Another fixture forgot to create the security directory and was corrected. An initial ambiguous owner query correctly hit the existing Graph hold; it was retained as a negative regression, with a separate generic positive question."
+  ],
+  "rollback": "Review and reverse only the four owned source/test file changes, preserving all other working-tree changes and append-only run evidence; no destructive reset. Existing registered Reader generations conservatively request explicit rebuild after changed executable fingerprints.",
+  "next_action": "Separate auditor checks task contract, code/test hashes, source-bound validation, negative fixtures and untested boundaries before root decides F01/F07 status."
+}

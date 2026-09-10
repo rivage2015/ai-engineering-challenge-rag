@@ -1,0 +1,29 @@
+{
+  "schema_version": "1.0",
+  "status": "failed",
+  "command": [
+    "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/rag/.venv/bin/python",
+    "-I",
+    "-B",
+    "-u",
+    "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/design/local-memory-v1-hardening/runs/f11a-collateral-run.v1.py",
+    "lineage",
+    "f11a-collateral-lineage-001",
+    "--worker"
+  ],
+  "cwd": "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ",
+  "started_at": "2026-09-09T08:07:15.984732+00:00",
+  "timeout_seconds": 30,
+  "max_log_bytes": 1048576,
+  "repository_import_root": "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ",
+  "safety_scope": "preflight-approved synthetic tests; not an OS sandbox",
+  "exit_code": 1,
+  "elapsed_seconds": 0.529435,
+  "tests_reported": 3,
+  "skipped_reported": 0,
+  "expected_failures_reported": 0,
+  "log_path": "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/design/local-memory-v1-hardening/runs/f11a-collateral-lineage-001/unittest.log",
+  "log_bytes": 1652,
+  "log_sha256": "f76a721c2110cf1f388479f2edcc6c1337c9f8fcb14773fa56b9d54149f01cd2",
+  "finished_at": "2026-09-09T08:07:16.514542+00:00"
+}

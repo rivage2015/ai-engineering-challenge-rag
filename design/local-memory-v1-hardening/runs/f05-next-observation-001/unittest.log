@@ -1,0 +1,8 @@
+test_absent_source_candidate_is_currently_accepted (f05_observer.F05StoredGraphGapObservations.test_absent_source_candidate_is_currently_accepted) ... ok
+test_empty_self_consistent_graph_is_currently_accepted (f05_observer.F05StoredGraphGapObservations.test_empty_self_consistent_graph_is_currently_accepted) ... ok
+test_fabricated_active_selection_is_currently_accepted (f05_observer.F05StoredGraphGapObservations.test_fabricated_active_selection_is_currently_accepted) ... ok
+
+----------------------------------------------------------------------
+Ran 3 tests in 0.004s
+
+OK

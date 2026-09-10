@@ -1,0 +1,126 @@
+{
+  "status": "PASS",
+  "meaning": "read-only inverse and original-gold preservation, not audit approval",
+  "deltas": [
+    {
+      "id": "resolver",
+      "current_sha256": "14ecce2c01d68bfbfaa27d3022bfc6076a97465a331eb03443af0e6d50cc006f",
+      "before_sha256": "4ca6df75ced0c44e7da4364509311aad21f81601ba9d42b88efc1f6a9b157734",
+      "inverse_sha256": "4ca6df75ced0c44e7da4364509311aad21f81601ba9d42b88efc1f6a9b157734",
+      "delta_sha256": "3e12353a100b0abdee0ba7db47c3d870dafb2dd019bc8f02db4a82ad0f8fca3b",
+      "exact_inverse": true
+    },
+    {
+      "id": "reader",
+      "current_sha256": "5d2883e2a053776935d71b2486180b177078fe71b5d7a0a02bf8741e8e041c0a",
+      "before_sha256": "19b5c55c64959dc136cd4d6b2081151ed1e39560874fb083e9796edb8812adfa",
+      "inverse_sha256": "19b5c55c64959dc136cd4d6b2081151ed1e39560874fb083e9796edb8812adfa",
+      "delta_sha256": "588e857278efd90429fc0915aca8a52eff95f1a7d265b4a9b03b9f7c4d67e621",
+      "exact_inverse": true
+    },
+    {
+      "id": "validator",
+      "current_sha256": "17c5de11a6f8f958ea5d1db447840f5653128ef24314fad193a610f824c5a106",
+      "before_sha256": "49138ecc11bde5709f129e879cbc5140717dca716a8563ebafe77dda4e37187d",
+      "inverse_sha256": "49138ecc11bde5709f129e879cbc5140717dca716a8563ebafe77dda4e37187d",
+      "delta_sha256": "f244cf2bf474b1da2fc9df1f8f1981058e6c88524da41dd982f1fdf58e8d41de",
+      "exact_inverse": true
+    },
+    {
+      "id": "projector",
+      "current_sha256": "95b44b327fb0e0c1e747c9d244b077950ebf5b61dd0a8bf56b33b1a6c0e163da",
+      "before_sha256": "2bfaf8174e8249087d720e49070c9812ce9ecf93b21dd5276f057e145965dfb2",
+      "inverse_sha256": "2bfaf8174e8249087d720e49070c9812ce9ecf93b21dd5276f057e145965dfb2",
+      "delta_sha256": "69ef824fcb38aeed1b1da590fe1aed41e63ff49d9f08664e1d20e9df3df38c99",
+      "exact_inverse": true
+    },
+    {
+      "id": "bootstrap",
+      "current_sha256": "e6248aae9ffa89e3cd6a43839af7f41e4d5941482f8f00a48f466de5524b526b",
+      "before_sha256": "cad0bfee06fbdf0af0319d6fed2d467310ef697e848a9b6d170eacf061f31b55",
+      "inverse_sha256": "cad0bfee06fbdf0af0319d6fed2d467310ef697e848a9b6d170eacf061f31b55",
+      "delta_sha256": "1cfaf7bca74a551a02ca326f1f414d3364ae27385f7a2e62b38a7af4aaca12d1",
+      "exact_inverse": true
+    },
+    {
+      "id": "resolver-test",
+      "current_sha256": "594089cdee5e0298c5c732e7da369417e14de7fea6282594acc43a55c6a4a126",
+      "before_sha256": "111b9ab6473145dbe0d43904219fb2355d9695e7e018798f1a75c5df11140d03",
+      "inverse_sha256": "111b9ab6473145dbe0d43904219fb2355d9695e7e018798f1a75c5df11140d03",
+      "delta_sha256": "4c0a4715ebb362c71a12904e8e9d5ec16a0bc554cade7f73ef676b8116336be8",
+      "exact_inverse": true
+    },
+    {
+      "id": "e2e-test",
+      "current_sha256": "bd967cb2e4d22aa3985d59514a72e22e42e9e9d03841dbc6b80164a69c9f97ff",
+      "before_sha256": "41540a858d17f8abb322c15353032ec4dd3099eac4e767090f7b9dbabfbcf64a",
+      "inverse_sha256": "41540a858d17f8abb322c15353032ec4dd3099eac4e767090f7b9dbabfbcf64a",
+      "delta_sha256": "b38daaa350c9594f0d899c8be664961a54f3458657c10de2653d71d375290048",
+      "exact_inverse": true
+    },
+    {
+      "id": "migration-test",
+      "current_sha256": "c0b4774ecbc9e45fa17b0a983c9f9f23c1725001972ecd3026c5f5cf03fe8c0c",
+      "before_sha256": "7d92425d39eb0316687ca9b8b0250768444652dcd39b7dfa9324380396b72d80",
+      "inverse_sha256": "7d92425d39eb0316687ca9b8b0250768444652dcd39b7dfa9324380396b72d80",
+      "delta_sha256": "2b51c459ff1ed62d37bf770e338af46fd801d801c156a4f314564216a0f4f8db",
+      "exact_inverse": true
+    },
+    {
+      "id": "lineage-test",
+      "current_sha256": "e6f051e4dbf1aea266b7c7cb3f62511c9f499a5d66d11a4f051b223b408a2e32",
+      "before_sha256": "89da7502c783e78fa3f3f11ba25a0f09680d35602548ea858d203ff9c8339989",
+      "inverse_sha256": "89da7502c783e78fa3f3f11ba25a0f09680d35602548ea858d203ff9c8339989",
+      "delta_sha256": "da378bce987b6cd6514c10559014dd463f3b070ee357b33373bacef142ff29a6",
+      "exact_inverse": true
+    },
+    {
+      "id": "runtime-test",
+      "current_sha256": "e1e9581ca582fd457dda2dbd21b2848986bc0268ecb1cd8075a3df00c0795b4f",
+      "before_sha256": "f4a146b54526f279bf6923029e1887c7bea0298680913b768496502ade89ae77",
+      "inverse_sha256": "f4a146b54526f279bf6923029e1887c7bea0298680913b768496502ade89ae77",
+      "delta_sha256": "0f4746df723ff437bea168d8dd90dda034715748613a1ac9102119000722d763",
+      "exact_inverse": true
+    },
+    {
+      "id": "gate-test",
+      "current_sha256": "eb160ba4140aa4c8360f3d7c8bb626d9c1c7edc432d69b81b6104e8ffbc26c69",
+      "before_sha256": "d401950ee20a9d88e13f81bcb551ce3f05ef403e289e0ffa0364a9e93914a9b8",
+      "inverse_sha256": "d401950ee20a9d88e13f81bcb551ce3f05ef403e289e0ffa0364a9e93914a9b8",
+      "delta_sha256": "9672d60f9d59f93ea1d3fd4cb70f531cc4328511d17bc2304b9872065a9d71f8",
+      "exact_inverse": true
+    }
+  ],
+  "original_gold_methods": 26,
+  "current_gold_methods": [
+    "test_no_decisions_returns_exact_detached_payload",
+    "test_snapshot_empty_payload_is_real_authority",
+    "test_snapshot_human_either_member_has_exact_bound_payload",
+    "test_snapshot_d0_survives_shared_d1_corruption_and_absence",
+    "test_next_explicit_snapshot_uses_d1_without_mutating_d0_result",
+    "test_snapshot_missing_file_fails_without_legacy_fallback",
+    "test_snapshot_changed_bytes_fail_against_capture_digest",
+    "test_snapshot_wrong_expected_digest_fails_even_with_valid_graph",
+    "test_snapshot_mode_requires_complete_typed_authority",
+    "test_no_decisions_forbids_external_authority_inputs",
+    "test_unknown_modes_fail_without_partial_payload",
+    "test_no_decisions_rejects_graph_with_human_digest",
+    "test_failure_has_no_inventory_groups_or_binding",
+    "test_duplicate_or_nonfinite_snapshot_is_not_empty_fallback",
+    "test_duplicate_decision_ids_fail_before_collapse",
+    "test_snapshot_small_injected_capacity_boundary",
+    "test_snapshot_reads_each_explicit_input_once_and_returns_those_bytes",
+    "test_metadata_canaries_never_choose_paths_or_returned_authority",
+    "test_returned_payload_cannot_change_later_attestation",
+    "test_changed_selected_or_peer_source_keeps_stale_hold",
+    "test_new_candidate_invalidates_prior_human_choice",
+    "test_legacy_validate_no_decisions_keeps_status_only_shape",
+    "test_explicit_decisions_present_has_exact_internal_authority",
+    "test_explicit_decisions_missing_has_exact_absence_authority",
+    "test_legacy_validate_explicit_missing_keeps_empty_semantics",
+    "test_legacy_validate_human_explicit_input_keeps_status_only_shape",
+    "test_snapshot_symlink_directory_and_dangling_link_fail_read_only",
+    "test_late_input_substitution_cannot_replace_verified_snapshot_payload"
+  ],
+  "original_gold_ast_unchanged": true
+}

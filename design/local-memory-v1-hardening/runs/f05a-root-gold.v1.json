@@ -1,0 +1,20 @@
+{
+  "task_id": "lms-v1-00-hardening-2026-09-09-f05a",
+  "status": "fixed_before_true_red_and_product_edit",
+  "contract_sha256": "89960be4254752ba3ae387610359c3f6f8200cb57c3d7a9190398c723473e4df",
+  "ownership_addendum_sha256": "5cc85d11170e4068099ab31284807c5e10cfb4e804c37104379333fa688fb4bd",
+  "test_path": "tests/test_version_graph_validation_e2e.py",
+  "test_sha256": "d401950ee20a9d88e13f81bcb551ce3f05ef403e289e0ffa0364a9e93914a9b8",
+  "runner_sha256": "e708c2b8d80f77a61d94a4ba642a62f9ea3ef3562f8d62c997e8d5938b866c14",
+  "resolver_before_sha256": "c2b98254ec28a82e8cc7b5ef3f5e780739bcc1b6983ef2a9252609156d4b672f",
+  "bootstrap_before_sha256": "df720a40bb0f8f6123cb0f171b829ca1f4f26761f1e24878fa415b5ff70919a3",
+  "methods": [
+    "test_empty_resealed_graph_fails_before_reader_and_keeps_prior_generation",
+    "test_fabricated_active_choice_fails_before_reader_and_keeps_prior_generation",
+    "test_absent_inventory_candidate_fails_before_reader_and_keeps_prior_generation",
+    "test_changed_explicit_decision_snapshot_fails_before_reader"
+  ],
+  "expected": "Four actual resolver CLI FAIL results and exit1, before Reader/model/projector/review replacement, with unchanged original fixture bytes, prior CONFIG/index/review bytes. GateOutcome is raised immediately after real CLI regardless of result so downstream errors cannot count as gate rejection.",
+  "red_expectation": "Old resolver accepts all four: four assertion FAILs, not import/API/argparse ERRORs. Product edits wait for confirmed semantic RED.",
+  "safety": "Root read full reused app fixture, guard, supervisor and dispatcher before execution. One reviewed in-process Python3.14 worker, synthetic owned temp only, no network/process/model/GUI/production data. Source <=16KiB per fixture, injected graph <=64KiB and counted <=1MiB; 30seconds/1MiB log. Guard is not OS isolation/global resource guarantee."
+}

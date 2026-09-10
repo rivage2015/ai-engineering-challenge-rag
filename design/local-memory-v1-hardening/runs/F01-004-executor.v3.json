@@ -1,0 +1,233 @@
+{
+  "schema_version": "1.0",
+  "task_id": "lms-v1-00-hardening-2026-09-09-f01-f07",
+  "executor": "fix_version_lineage",
+  "status": "awaiting_separate_reaudit",
+  "same_request_repair_round": 2,
+  "maximum_repair_rounds": 2,
+  "responds_to": "design/local-memory-v1-hardening/runs/f01-f07-audit-report.v2.json",
+  "required_check": "F01F07-R04",
+  "previous_executor_record": "design/local-memory-v1-hardening/runs/F01-003-executor.v2.json",
+  "base_commit": "79a69260fb1a42efb3c0e2c0093ed6101470f2a1",
+  "product_acceptance": "not_evaluated",
+  "scope": {
+    "owned_source_and_test_files": [
+      "distribution/macos-local-memory/app/bootstrap.py",
+      "distribution/macos-local-memory/engine/build_local_semantic_index.py",
+      "distribution/macos-local-memory/engine/validate_adaptive_semantic_graph.py",
+      "distribution/macos-local-memory/tests/test_versioned_safe_index_e2e.py",
+      "distribution/macos-local-memory/tests/test_reader_generation_migration.py",
+      "tests/test_local_graph_index_schema.py"
+    ],
+    "owned_count": 6,
+    "changed_in_this_round": [
+      "Six successful _attest_lineage_context test mocks now wrap their exact original state under lineage_validation and explicitly return document_version_graph: null.",
+      "Parent-approved two one-line fixture adjustments canonicalize the TemporaryDirectory roots in full E2E and migration tests with Path.resolve()."
+    ],
+    "product_source_changed_in_this_round": false,
+    "fixture_ownership": "Parent approved the schema success mocks plus the two canonical temporary roots. No further expansion.",
+    "unchanged": [
+      "Version resolver semantics",
+      "F18 Validator mutation/publication behavior",
+      "F16 path-confinement boundary",
+      "Existing schema assertions and failure cases",
+      "User dirty build/docs files",
+      "All prior audit and execution records"
+    ],
+    "committed": false,
+    "production_state_changed": false
+  },
+  "source_hashes": {
+    "distribution/macos-local-memory/app/bootstrap.py": "0856989a86d2be19cb0761fee51e10da3aa7c8694ecde9c4e128d725c0d7081a",
+    "distribution/macos-local-memory/engine/build_local_semantic_index.py": "2bfaf8174e8249087d720e49070c9812ce9ecf93b21dd5276f057e145965dfb2",
+    "distribution/macos-local-memory/engine/validate_adaptive_semantic_graph.py": "1a3aff494b724882a600adc6978fda3e0f3955da6e2f11291180a92d7f898e1a",
+    "distribution/macos-local-memory/tests/test_versioned_safe_index_e2e.py": "c16cc5bfafe493ad4096eadbf84722c8d9f1d476dcb03bfc36bb26959983341b",
+    "distribution/macos-local-memory/tests/test_reader_generation_migration.py": "d9f96c971e3c9ea6fe03ccd7d26e23793e6f178fbf694e97cb0f992c0583c0dc",
+    "tests/test_local_graph_index_schema.py": "993771b3c3d3c7a83eeb70ecabc2947f45d421d0b9c5cc02625c8ab2bddcc83e"
+  },
+  "observed_shared_dependency_hashes": {
+    "distribution/macos-local-memory/engine/build_path_graph.py": "621746dc0d0ff0857db2c21844e7c042b9bf12debd47b7c145840d89479f8fdd",
+    "scripts/probe_intermediate_records.py": "db73270807c3e976fb51f38ff51cc6cd40dd7c0ef3c2d6954fc1f924acd8ab3d",
+    "distribution/macos-local-memory/engine/answer_local_memory.py": "33f2b25e9d434e00b216be162d3e60dd8d322409cb108d07e26e455f4a1f34b2",
+    "distribution/macos-local-memory/engine/answer_local_memory_v2.py": "8677d5d49c37e081ad2c2ab06bd9c4734280ef5d3e4b2941a1fe570061388e60"
+  },
+  "evidence_source_hashes": {
+    "design/local-memory-v1-hardening/runs/F01-004-schema-wrapper.v3.py": "011e3799bd50417ca801a2469cdaf441a2e4edb430f038b464309e2f32b8aa7e",
+    "design/local-memory-v1-hardening/runs/f01-f07-adversarial-test.v1.py": "c96796f678df4714ee6dde78c6e3228c1bece111f91e9f7fa5a63e651ec77d77"
+  },
+  "correction_to_v2_compatibility_claim": "The v2 statement that existing direct helper calls only exercised rejection was incomplete: six existing successful mocks are also consumers of the changed helper contract. The v2 audit correctly found five errors that prevented existing assertions from being reached. This round repairs those fixture consumers without changing their original state values or assertions.",
+  "assertion_preservation": {
+    "command": "AST comparison of current tests/test_local_graph_index_schema.py with git show HEAD:tests/test_local_graph_index_schema.py; normalize only the six _attest_lineage_context return_value wrapper dicts back to their lineage_validation expressions.",
+    "normalized_wrappers": 6,
+    "normalized_ast_equals_head": true,
+    "all_other_ast_nodes_unchanged": true,
+    "head_schema_sha256": "b538d8478d8a18433cc5397893445e1bef6ab005a37b7c1f8287bdf24152ee7a",
+    "result": "Existing incomplete-fan-in, relation-hash, strict-state, empty-lineage, relation/topology and other safety assertions are preserved and are reached in the complete green suite."
+  },
+  "integration_observation": {
+    "problem": "A first full E2E run after concurrent F16 hardening reported five errors because /var/folders TemporaryDirectory paths have a symlink ancestor; the newly strict Path Graph builder requires real directory components.",
+    "error": "OSError: root components must be real directories, not symlinks",
+    "cause_scope": "Shared F16 boundary plus synthetic fixture path alias; not a recurrence of the F01 version-binding regression.",
+    "resolution": "Only the E2E base and migration root fixture paths were resolved to their actual directory paths. F16 code and security policy were not changed by this executor.",
+    "stability": "Final full E2E and related regression results include before/after source-stability.json for all six owned files and four shared dependencies; all are unchanged. Final counterexample replay separately records unchanged before/after hashes of the four shared dependencies."
+  },
+  "tests": [
+    {
+      "phase": "RED-schema-contract",
+      "result": "artifacts/local-memory-v1-hardening/runs/f01-f07-repair2-schema-red-001/result.json",
+      "status": "failed",
+      "tests": 20,
+      "errors": 5,
+      "skips": 0,
+      "exit_code": 1,
+      "elapsed_seconds": 0.148069,
+      "log_sha256": "f1409fe1701c036b3979ab60eb755872b0ba2afdc28d946e0da75f03cb09e2de",
+      "reason": "KeyError lineage_validation from legacy success mocks."
+    },
+    {
+      "phase": "GREEN-schema-contract",
+      "result": "artifacts/local-memory-v1-hardening/runs/f01-f07-repair2-schema-green-001/result.json",
+      "status": "passed",
+      "tests": 20,
+      "skips": 0,
+      "expected_failures": 0,
+      "exit_code": 0,
+      "elapsed_seconds": 0.186842,
+      "log_sha256": "884fd55e37c4c4d3acc695c4c117c34376d0d4c3a9f7e96c556bc7c16b680b0b"
+    },
+    {
+      "phase": "FAILED-shared-F16-fixture-integration",
+      "result": "artifacts/local-memory-v1-hardening/runs/f01-f07-repair2-focused-green-001/result.json",
+      "status": "failed",
+      "tests": 15,
+      "errors": 5,
+      "skips": 0,
+      "exit_code": 1,
+      "elapsed_seconds": 1.264791,
+      "log_sha256": "f0b17f70a5e45f7b99cdd9aab253ec8efd984ce86a0cf42d09e3a96824979ee8",
+      "warning": "Run directory name is historical; this result is FAILED, not green."
+    },
+    {
+      "phase": "GREEN-final-full-E2E",
+      "result": "artifacts/local-memory-v1-hardening/runs/f01-f07-repair2-focused-green-002/result.json",
+      "status": "passed",
+      "tests": 15,
+      "skips": 0,
+      "expected_failures": 0,
+      "exit_code": 0,
+      "elapsed_seconds": 1.544587,
+      "log_sha256": "29c0bb3992313e60b5f390fbc2169a378f85ab8fe947b34872c4e9319b1d1738",
+      "stability": "artifacts/local-memory-v1-hardening/runs/f01-f07-repair2-focused-green-002/source-stability.json"
+    },
+    {
+      "phase": "GREEN-final-lineage-and-migration",
+      "result": "artifacts/local-memory-v1-hardening/runs/f01-f07-repair2-related-green-002/result.json",
+      "status": "passed",
+      "tests": 15,
+      "composition": "8 lineage + 7 migration",
+      "skips": 0,
+      "expected_failures": 0,
+      "exit_code": 0,
+      "elapsed_seconds": 0.49475,
+      "log_sha256": "4991e5c706eea6ccd335b949c4a33c5ec2e72a7e6fb85429b8a36e3575ec8394",
+      "stability": "artifacts/local-memory-v1-hardening/runs/f01-f07-repair2-related-green-002/source-stability.json"
+    },
+    {
+      "phase": "NOT-COUNTED-counterexample-runner-footer",
+      "result": "artifacts/local-memory-v1-hardening/runs/f01-f07-repair2-audit-replay-green-002/result.json",
+      "status": "no_tests",
+      "tests": null,
+      "exit_code": 0,
+      "elapsed_seconds": 0.29711,
+      "log_sha256": "018e4d7627e8720706f857e19ea8ebb203c6894fe0b2a65273e2a4efd04f1fc6",
+      "reason": "Immutable auditor script printed a diagnostic hash after unittest summary. The tightened supervisor did not accept a nonterminal unittest footer. The underlying two tests printed OK, but this supervisor outcome is not counted as PASS."
+    },
+    {
+      "phase": "GREEN-final-original-counterexamples",
+      "result": "artifacts/local-memory-v1-hardening/runs/f01-f07-repair2-audit-replay-green-003/result.json",
+      "status": "passed",
+      "tests": 2,
+      "skips": 0,
+      "expected_failures": 0,
+      "exit_code": 0,
+      "elapsed_seconds": 0.281675,
+      "log_sha256": "d498fcdbf1857654146ca72ee9d62f839dd6515f86906820d2dc60f035b8d5c7",
+      "method": "Load the unchanged v1 auditor module and run its two test_audit_* methods with the standard unittest runner, leaving the standard result footer last. Original counterexample code remains unchanged.",
+      "stability": "artifacts/local-memory-v1-hardening/runs/f01-f07-repair2-audit-replay-green-003/source-stability.json"
+    },
+    {
+      "phase": "DIAGNOSTIC-unsupported-python39-current",
+      "result": "artifacts/local-memory-v1-hardening/runs/f01-f07-repair2-schema-python39-green-001/result.json",
+      "status": "failed",
+      "tests": 20,
+      "errors": 1,
+      "skips": 0,
+      "exit_code": 1,
+      "elapsed_seconds": 0.142883,
+      "log_sha256": "b0459dae2bfd1198728f65a8e559ba1202f60b27a33258d8537298f285837f7e",
+      "reason": "19 tests succeeded; unchanged rollback test failed at SELECT COUNT after set_authorizer(None): sqlite3.DatabaseError: not authorized. This optional run is not acceptance."
+    },
+    {
+      "phase": "DIAGNOSTIC-unsupported-python39-HEAD-system",
+      "result": "artifacts/local-memory-v1-hardening/runs/f01-f07-repair2-python39-head-rollback-001/result.json",
+      "status": "failed",
+      "tests": 1,
+      "errors": 1,
+      "skips": 0,
+      "exit_code": 1,
+      "elapsed_seconds": 0.081121,
+      "log_sha256": "0712cee7687767ede191dee239c95f6571f9b6f67bc1567454950bffc9c0cc6c",
+      "reason": "Read-only HEAD projector source loaded into the same test; same error reproduced. Interpreter symlink was resolved to base system Python 3.9, so the next run repeats with the exact venv path."
+    },
+    {
+      "phase": "DIAGNOSTIC-unsupported-python39-HEAD-exact-venv",
+      "result": "artifacts/local-memory-v1-hardening/runs/f01-f07-repair2-python39-head-rollback-002/result.json",
+      "status": "failed",
+      "tests": 1,
+      "errors": 1,
+      "skips": 0,
+      "exit_code": 1,
+      "elapsed_seconds": 0.091664,
+      "log_sha256": "0712cee7687767ede191dee239c95f6571f9b6f67bc1567454950bffc9c0cc6c",
+      "head_projector_sha256": "49ab270eb98d2a522175a67b5515b2e419abf7a77f99b351188f064e6467d99c",
+      "reason": "Exact rag/.venv/bin/python also reproduced the same existing failure with HEAD projector. No Python 3.9 compatibility claim, cause-completion claim or product fix is made."
+    },
+    {
+      "phase": "diff-check",
+      "command": "git diff --check",
+      "exit_code": 0
+    }
+  ],
+  "mandatory_test_summary": {
+    "interpreter": "Python 3.14.6",
+    "passed_test_executions": 52,
+    "suites": [
+      20,
+      15,
+      15,
+      2
+    ],
+    "skips": 0,
+    "expected_failures": 0,
+    "executor_observation_only": true
+  },
+  "isolation": {
+    "timeout_seconds_per_suite": 30,
+    "combined_log_bytes_per_suite": 1048576,
+    "fixture_max_file_bytes": 1048576,
+    "preflight": "Complete schema20 source inspected: in-memory or temporary SQLite, synthetic records, trigger/authorizer/transaction tests; prompt-library build replaces embed locally; no real user source reads.",
+    "data": "Synthetic temporary source, app SUPPORT/CONFIG/STATE/decisions/index paths only.",
+    "process_and_network": "HTTPConnection.connect, OpenerDirector.open and Popen guards; fake embeddings and captured schema-shaped model responses through in-process CLI dispatcher. Outer supervisor launches only the specified test interpreter. The HEAD diagnostic performs read-only git show before test guards.",
+    "real_model_requests": 0,
+    "additional_downloads_or_permissions": false,
+    "keychain_or_gui": false
+  },
+  "limitations": [
+    "No self-approval. The v2 audit remains revise until an independent v3 audit evaluates this submission.",
+    "This round fixes fixture consumers only; it does not change or generalize the previously audited version-binding safety contract.",
+    "F18 mutation, broader filesystem races, version selection semantics and other hardening issues remain outside this issue.",
+    "Python 3.9 optional diagnostics demonstrate an existing unsupported-environment failure; they are not green and do not certify runtime compatibility.",
+    "No real-model semantic-quality, native HTTP/GUI, cross-document trust, complete migration, packaged app or V1.00 acceptance certification."
+  ],
+  "next_action": "Parent freezes this v3 record and six owned source hashes with current shared-dependency hashes, then obtains separate re-audit. This is repair round 2 of 2; any new required unresolved issue must be left blocked, not silently repaired in another round."
+}

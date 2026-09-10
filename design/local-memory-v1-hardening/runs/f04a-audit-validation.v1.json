@@ -1,0 +1,172 @@
+{
+  "schema_version": "1.0",
+  "task_id": "lms-v1-00-hardening-2026-09-09-f04a",
+  "audit_report": "design/local-memory-v1-hardening/runs/f04a-audit-report.v1.json",
+  "audit_repair_round": 0,
+  "maximum_repair_rounds": 2,
+  "status": "pass",
+  "independence_level": "same_model_separate_context",
+  "artifact_sha256": "9b20f4ca8a9d10b5a587b2b7537acefb37556e9b336be9453aeec5c4a7266b56",
+  "report_sha256": "989e882a4f33c0b042f61e598f7e865b368debab88ad7f92f3fd38e7fc89077d",
+  "before_after_equal": true,
+  "runs": {
+    "f04a-adversarial-001": {
+      "schema_version": "1.0",
+      "status": "passed",
+      "command": [
+        "/opt/homebrew/opt/python@3.14/bin/python3.14",
+        "-I",
+        "-B",
+        "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/design/local-memory-v1-hardening/runs/f04a-audit-run.v1.py",
+        "adversarial",
+        "f04a-adversarial-001",
+        "--worker"
+      ],
+      "cwd": "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ",
+      "started_at": "2026-09-08T20:32:19.521534+00:00",
+      "timeout_seconds": 30,
+      "max_log_bytes": 1048576,
+      "repository_import_root": "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ",
+      "safety_scope": "preflight-approved synthetic tests; not an OS sandbox",
+      "exit_code": 0,
+      "elapsed_seconds": 0.127278,
+      "tests_reported": 8,
+      "skipped_reported": 0,
+      "expected_failures_reported": 0,
+      "log_path": "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/design/local-memory-v1-hardening/runs/f04a-adversarial-001/unittest.log",
+      "log_bytes": 1561,
+      "log_sha256": "b488c6660c0f63ae840668c62eabf911655a1a1acc648a41aef37a131e5e207e",
+      "finished_at": "2026-09-08T20:32:19.649055+00:00"
+    },
+    "f04a-audit-resolver-001": {
+      "schema_version": "1.0",
+      "status": "passed",
+      "command": [
+        "/opt/homebrew/opt/python@3.14/bin/python3.14",
+        "-I",
+        "-B",
+        "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/design/local-memory-v1-hardening/runs/f04a-audit-run.v1.py",
+        "resolver",
+        "f04a-audit-resolver-001",
+        "--worker"
+      ],
+      "cwd": "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ",
+      "started_at": "2026-09-08T20:32:23.853822+00:00",
+      "timeout_seconds": 30,
+      "max_log_bytes": 1048576,
+      "repository_import_root": "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ",
+      "safety_scope": "preflight-approved synthetic tests; not an OS sandbox",
+      "exit_code": 0,
+      "elapsed_seconds": 0.269797,
+      "tests_reported": 17,
+      "skipped_reported": 0,
+      "expected_failures_reported": 0,
+      "log_path": "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/design/local-memory-v1-hardening/runs/f04a-audit-resolver-001/unittest.log",
+      "log_bytes": 2927,
+      "log_sha256": "a7920c00c629e9564c8bc35edec2f89ac97faaa5fd8cf1a9cd7f9de8581ca606",
+      "finished_at": "2026-09-08T20:32:24.124149+00:00"
+    },
+    "f04a-audit-e2e-001": {
+      "schema_version": "1.0",
+      "status": "passed",
+      "command": [
+        "/opt/homebrew/opt/python@3.14/bin/python3.14",
+        "-I",
+        "-B",
+        "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/design/local-memory-v1-hardening/runs/f04a-audit-run.v1.py",
+        "e2e",
+        "f04a-audit-e2e-001",
+        "--worker"
+      ],
+      "cwd": "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ",
+      "started_at": "2026-09-08T20:32:28.528408+00:00",
+      "timeout_seconds": 30,
+      "max_log_bytes": 1048576,
+      "repository_import_root": "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ",
+      "safety_scope": "preflight-approved synthetic tests; not an OS sandbox",
+      "exit_code": 0,
+      "elapsed_seconds": 1.771158,
+      "tests_reported": 15,
+      "skipped_reported": 0,
+      "expected_failures_reported": 0,
+      "log_path": "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/design/local-memory-v1-hardening/runs/f04a-audit-e2e-001/unittest.log",
+      "log_bytes": 2494,
+      "log_sha256": "04b4e5bc9bb9884a53257d5f087a176e2317be00c6bf1a8e1ee4c12bd3e9e839",
+      "finished_at": "2026-09-08T20:32:30.300117+00:00"
+    }
+  },
+  "ruby_structural_reference_hash_status_validator": {
+    "exit_code": 0,
+    "stdout": "VALID: audit report is structurally and referentially consistent"
+  },
+  "draft_2020_12_validator": {
+    "interpreter": "rag/.venv/bin/python (3.9.6); JSON validation only",
+    "exit_code": 0,
+    "stdout": "VALID: Draft2020-12 schema, task binding, unique check IDs, and artifact edge/basis references"
+  },
+  "baseline_resolver_hash_matches_executor_before": true,
+  "git_diff_check": {
+    "scope": "F04a resolver and existing test file",
+    "exit_code": 0
+  },
+  "source_checkpoint_files": [
+    "f04a-audit-hashes-before.v1.json",
+    "f04a-audit-hashes-after.v1.json"
+  ],
+  "source_identity_counts": {
+    "artifact_sources": 11,
+    "additional_shared_or_audit_sources": 13,
+    "producer_logs": 3
+  },
+  "test_composition": {
+    "existing_resolver_reader": 17,
+    "existing_stubbed_f01_wiring": 15,
+    "independent_acceptance_methods": 7,
+    "observed_open_scope_witness_methods": 1
+  },
+  "retained_diagnostic_attempts": [
+    {
+      "interpreter": "/opt/homebrew/opt/python@3.14/bin/python3.14",
+      "operation": "read-only Draft202012Validator availability check",
+      "exit_code": 1,
+      "error": "ModuleNotFoundError: No module named 'jsonschema'",
+      "counted_as_pass": false
+    },
+    {
+      "interpreter": "/usr/bin/python3",
+      "operation": "read-only Draft202012Validator availability check",
+      "exit_code": 1,
+      "error": "ModuleNotFoundError: No module named 'jsonschema'",
+      "counted_as_pass": false
+    }
+  ],
+  "preflight": {
+    "read": "Audit SKILL/reference/schema and validator; F04a contract/artifact/executor; full resolver/test/E2E test; full guarded wrapper/supervisor; Reader policy/import/build and runtime metadata dispatch",
+    "runtime_stubs": "Existing F01 dispatcher stubs VLM/OCR/Paddle/PDF metadata, password discovery, embedding and model answers before execution",
+    "scratch": "Audit wrapper changes only fixture root to repository-owned runs; own independent suite added",
+    "bounds": "30 seconds and 1 MiB logs per suite; inherited source-text cumulative 1 MiB guard; independent synthetic metadata fixtures below 1 MiB",
+    "limits": "Not an OS sandbox or RSS/all-derived-disk-budget certification"
+  },
+  "scope_limit_witness": {
+    "current": "現行/取扱_ver1_ver3.xlsx",
+    "peer": "取扱_ver4.xlsx",
+    "observed_status": "resolved",
+    "selected": "現行/取扱_ver1_ver3.xlsx",
+    "desired_full_F04_behavior": "not accepted or fixed by this slice",
+    "acceptance_claim": false
+  },
+  "not_claimed": [
+    "full F04",
+    "F02",
+    "F03",
+    "F05",
+    "F06",
+    "F19",
+    "answer-time freshness",
+    "real-model/OCR quality",
+    "package acceptance",
+    "Python 3.9 application compatibility"
+  ],
+  "meaning": "Ruby and Draft2020-12 validate shape, identities and references; the separate-context auditor supplies the bounded semantic judgment. Neither structural validation nor synthetic E2E establishes full product acceptance.",
+  "product_edits_by_auditor": false
+}

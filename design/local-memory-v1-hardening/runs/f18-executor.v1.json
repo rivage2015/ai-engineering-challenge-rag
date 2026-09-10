@@ -1,0 +1,63 @@
+{
+  "schema_version": "1.0",
+  "task_id": "lms-v1-00-hardening-2026-09-09-f18",
+  "status": "awaiting_separate_audit",
+  "audit_repair_round": 0,
+  "maximum_repair_rounds": 2,
+  "executor": "root; six caller compatibility files assisted by hardening_runner_auditor",
+  "goal": "Read-only independent lineage revalidation with explicit no-overwrite initialization in caller-owned fresh unpublished generations.",
+  "implementation": {
+    "validator_sha256": "49138ecc11bde5709f129e879cbc5140717dca716a8563ebafe77dda4e37187d",
+    "bootstrap_sha256": "df720a40bb0f8f6123cb0f171b829ca1f4f26761f1e24878fa415b5ff70919a3",
+    "changes": [
+      "Removed clear-on-entry and destructive error cleanup of existing artifacts.",
+      "Default independently derives canonical lineage payloads in memory; no-follow bounded regular-file reads compare exact stored payloads, rejecting missing/mismatched artifacts without repair.",
+      "Explicit initialize_lineage keyword/CLI flag creates no-replace links with directory FD anchoring; inode-checked cleanup targets only current-created files. It does not prove publication state, guarantee atomic pair publication or eliminate all races.",
+      "Bootstrap run_semantic_pipeline only adds initial-create flag; its two caller paths use separate new directories. Projector default validation and prior F01 explicit version binding are preserved.",
+      "Six legacy test files update 11 initial calls; deletion-on-failure expectations changed to byte/inode/mtime preservation, with all other safety assertions retained.",
+      "README explains the new explicit initialization and caller responsibility."
+    ]
+  },
+  "verification": {
+    "red": {
+      "run": "f18-001-red",
+      "methods": 2,
+      "failures": 4,
+      "meaning": "True before-fix deletion and overwrite failures; not passing tests."
+    },
+    "python314": {
+      "focused": 13,
+      "e2e": 15,
+      "lineage": 8,
+      "resolver": 17,
+      "migration": 7,
+      "skips": 0,
+      "expected_failures": 0
+    },
+    "python39": {
+      "security_partition_native_xlsx": 1,
+      "skips": 0,
+      "scope": "Existing mixed safe/held native XLSX fan-in, index and answer-evidence loading only; not Python3.9 app/query compatibility."
+    },
+    "syntax_and_git_diff_check": "PASS",
+    "shared_source_notes": "Post-F04a resolver semantics unchanged; initial test callers changed. Whole dirty file diffs include earlier accepted changes; f18-product-delta proves exact pre-F18 hashes."
+  },
+  "preflight": {
+    "fixture_source_text_bytes": "cumulatively <=1MiB through reviewed write guard; native XLSX fixture small",
+    "wall_seconds_per_suite": 30,
+    "log_bytes_per_suite": 1048576,
+    "models_network_worker_processes": "denied/stubbed",
+    "limits": "guards are not OS sandbox and do not certify RSS/all-derived-output disk usage; no actual personal data, production CONFIG/index, Keychain or GUI execution"
+  },
+  "preserved": [
+    "All earlier failure logs and immutable artifacts; 002/003 are earlier intermediate greens, not final test counts.",
+    "Existing user build/docs file hashes unchanged.",
+    "No commit, push, release, package build or production migration."
+  ],
+  "unverified": [
+    "Full package suite and embedded SmartArt runtime tests: compatibility edits statically reviewed only.",
+    "Global filesystem snapshot, arbitrary concurrent same-user writer, power loss/SIGKILL, every low-level cleanup failure.",
+    "F02-F06/F13/F14/F19, real models/OCR, all formats and complete V1 acceptance."
+  ],
+  "rollback": "Reverse only F18 product delta, caller delta, new tests and one README bullet; preserve prior F01/F16 and user changes. No production index rebuild performed. Existing Reader resource identity will indicate code change."
+}

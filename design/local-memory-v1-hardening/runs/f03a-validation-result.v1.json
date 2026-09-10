@@ -1,0 +1,335 @@
+{
+  "schema_version": "1.0",
+  "task_id": "lms-v1-00-hardening-2026-09-09-f03a",
+  "status": "pass_local_f03a",
+  "checked_at_utc": "2026-09-08T23:47:29.755940+00:00",
+  "artifact_sha256": "b5d7d0f487be6efafb6a1dca7f024ba303ed52ba791ed6cae9a9dc6e877dbd14",
+  "report_sha256": "9d518385314a85ca8b7be4f7a36d2558126828cb9db4d0f9eedab0d52d738e90",
+  "audit_evidence_sha256": "01d4b02c205b3ffbf69a7c2f203cfa450e0b4a7ec089f05f307040cc7b0ae58a",
+  "validator_sha256": "cac984822cf1ebd35e89d02f575ac09e906935c408dbf5a056e516cbd32df2c5",
+  "audit_repair_round": 0,
+  "source_count": 97,
+  "node_count": 5,
+  "edge_count": 4,
+  "strict_schema_and_all_references": "pass",
+  "source_hashes_and_protected_user_hashes": "pass",
+  "isolated_deltas": [
+    {
+      "source": "RESOLVER",
+      "before_sha256": "9a7443862c015ed768007ef5a7b21bd3bc197c9bb7a3d7ed2f7b39b33374359d",
+      "after_sha256": "c2b98254ec28a82e8cc7b5ef3f5e780739bcc1b6983ef2a9252609156d4b672f",
+      "inverse_matches": true
+    },
+    {
+      "source": "RESOLVER_TEST",
+      "before_sha256": "b7c323f48f10488ef2dc245dacc265ad0dd5b77ea37e50b9e4b32504bda7b293",
+      "after_sha256": "7600fef6fa1978c6f07042ce9418e20efa88b47d0cc523b1a647cb0a1ad35c9a",
+      "inverse_matches": true
+    },
+    {
+      "source": "PURE_CORRECTION1",
+      "before_sha256": "cba73b1f99a5fb5ce306e5e71f0aad0b44579ad109189d79e626e89d494d06ea",
+      "after_sha256": "aa7da7f0a308dec79a398678c18d41d246c26a514d6fc88dedcf1cba431100d3",
+      "inverse_matches": true
+    },
+    {
+      "source": "PURE_TEST",
+      "before_sha256": "aa7da7f0a308dec79a398678c18d41d246c26a514d6fc88dedcf1cba431100d3",
+      "after_sha256": "b4a9176f3f7bb723d701a548418be8647a5336dc7b88dd0707d03cfa70eb5b94",
+      "inverse_matches": true
+    }
+  ],
+  "readme_inverse": "pass",
+  "logs": [
+    {
+      "path": "design/local-memory-v1-hardening/runs/f03a-root-red-app-001/result.json",
+      "result_sha256": "7192035539c96c4c98fea3dfe7cbba22c48f8a2788a4d6933663245bd7a29224",
+      "log_sha256": "e973bccd148ceb12e38ec67c1caa5c6bfd67d7fd3ca01fe9d5c6bc5392e9c5f6",
+      "methods": 4,
+      "status": "failed"
+    },
+    {
+      "path": "design/local-memory-v1-hardening/runs/f03a-executor-red-pure-001/result.json",
+      "result_sha256": "90e1cb970b44b8c8267528b88fb2ad00fc0e175b345e521d0dde50aff6437cdb",
+      "log_sha256": "a73d384bf82713c25edc15c4ff2e6d3ac07652061b76c6f0f16f4c66224d6931",
+      "methods": 19,
+      "status": "failed"
+    },
+    {
+      "path": "design/local-memory-v1-hardening/runs/f03a-executor-green-pure-001/result.json",
+      "result_sha256": "455fcf3c9c67963157f10989e231306944a8646bc311eda938ba604fb55a5f7d",
+      "log_sha256": "afa02caa5be824ae97c5a2c064b55de66c1d0faac22007ea03f1422e6b590025",
+      "methods": 19,
+      "status": "failed"
+    },
+    {
+      "path": "design/local-memory-v1-hardening/runs/f03a-executor-corrected-red-pure-001/result.json",
+      "result_sha256": "27da3e12efbb7660c97bec2944232cc8e1c3cb87f1f2a32ef76076a30d0e84d4",
+      "log_sha256": "a73d384bf82713c25edc15c4ff2e6d3ac07652061b76c6f0f16f4c66224d6931",
+      "methods": 19,
+      "status": "failed"
+    },
+    {
+      "path": "design/local-memory-v1-hardening/runs/f03a-executor-green-pure-002/result.json",
+      "result_sha256": "4baf1b16a98c41a2f7cde1608eca7b75676f3df4e3083af284b9155f9b6a61c8",
+      "log_sha256": "fbc1f86a7d0ba91f306e86149283d76c6ebbf7d5f49f2c81944daed7b955be27",
+      "methods": 19,
+      "status": "failed"
+    },
+    {
+      "path": "design/local-memory-v1-hardening/runs/f03a-executor-corrected-red-pure-002/result.json",
+      "result_sha256": "4023e3ef384b65663830d571931b9911e0d7d46db59548a021e2fdf6b1e817a9",
+      "log_sha256": "a73d384bf82713c25edc15c4ff2e6d3ac07652061b76c6f0f16f4c66224d6931",
+      "methods": 19,
+      "status": "failed"
+    },
+    {
+      "path": "design/local-memory-v1-hardening/runs/f03a-executor-green-pure-003/result.json",
+      "result_sha256": "91f44cbf15b79c46dbbb9d406d06eedb753c755a11bea56bfb3183bde45c5ec6",
+      "log_sha256": "3fa8f03abf676276e1ca4a819c4696040ed750d3f3b0419722255874a7c40db5",
+      "methods": 19,
+      "status": "passed"
+    },
+    {
+      "path": "design/local-memory-v1-hardening/runs/f03a-executor-green-resolver-001/result.json",
+      "result_sha256": "c5fe6d20eee46250334f6d8d1875145aadb5fdf5b7ce0c53db9f6d6a99b0ae51",
+      "log_sha256": "3fe43249022af972f6ef85e259ec736f52609f8664e183d2ca93b8b22a42304f",
+      "methods": 20,
+      "status": "passed"
+    },
+    {
+      "path": "design/local-memory-v1-hardening/runs/f03a-executor-green-year-001/result.json",
+      "result_sha256": "04f56c24341aeb663100883e3039d0973934924735d317cb75aa67228811e87f",
+      "log_sha256": "f19a8437398b7e2fcd777782ee94328ac604649dbf35baefe5fa71c7bca2111b",
+      "methods": 11,
+      "status": "passed"
+    },
+    {
+      "path": "design/local-memory-v1-hardening/runs/f03a-root-green-app-001/result.json",
+      "result_sha256": "99a75c7912bfcf8fe6700a0ed88dd4f3f5ef66ccb5533c9c64b03d04a719f9d0",
+      "log_sha256": "df18df7c2c7bf49b6a41f90005737c76bf05045b9b878ec9022f49837b0e4343",
+      "methods": 4,
+      "status": "passed"
+    },
+    {
+      "path": "design/local-memory-v1-hardening/runs/f03a-root-green-e2e-001/result.json",
+      "result_sha256": "484c4a0b9bd029edf0d2dbea8318497df0b22ec8e31250be67f24f3bc1c45e90",
+      "log_sha256": "139c17095049f99d7b56b6b5257909c2f3ac944a94ef678c71ab084cd86b3d16",
+      "methods": 17,
+      "status": "passed"
+    },
+    {
+      "path": "design/local-memory-v1-hardening/runs/f03a-root-green-focused-001/result.json",
+      "result_sha256": "4a4246caec7013afaa012149ca583709171882030dff0c46073df92339866683",
+      "log_sha256": "d1660faf8b91ab44c0bb7eef4b4a02edb72e1cb98c5dd61bc7c125145cbb11ff",
+      "methods": 13,
+      "status": "passed"
+    },
+    {
+      "path": "design/local-memory-v1-hardening/runs/f03a-root-green-lineage-001/result.json",
+      "result_sha256": "9f1ab7873815969c3d97f722fa95a51c94f7da929db7ddca880602aa2f81ec62",
+      "log_sha256": "5e03c243fca1976e03f879d2dde3616edfa6b360a89abbf6512f5a716294286a",
+      "methods": 8,
+      "status": "passed"
+    },
+    {
+      "path": "design/local-memory-v1-hardening/runs/f03a-root-green-migration-001/result.json",
+      "result_sha256": "bd7d66349da7742723bb4dd14881ecbed37c286c88455f088d66af4d5ea08bbc",
+      "log_sha256": "235701fc7d4c1d6ebff1e20fda84d04708f792fc0337ba24d5c0a47c9b5a2ca9",
+      "methods": 7,
+      "status": "passed"
+    },
+    {
+      "path": "design/local-memory-v1-hardening/runs/f03a-root-green-security-001/result.json",
+      "result_sha256": "f3a5174a927fe422636655597770d34e87a2932f65d81854456f55b0939a05b7",
+      "log_sha256": "b621235893e38d4f83e462f99dd9611fd12cfac47de315ba1970b9e6395bb314",
+      "methods": 1,
+      "status": "passed"
+    },
+    {
+      "path": "design/local-memory-v1-hardening/runs/f03a-audit-pure-001/result.json",
+      "result_sha256": "ed1a7784ee65b64f048bf56663ed2ff9e621a3e1b49315e33c516214b1c9a183",
+      "log_sha256": "3fa8f03abf676276e1ca4a819c4696040ed750d3f3b0419722255874a7c40db5",
+      "methods": 19,
+      "status": "passed"
+    },
+    {
+      "path": "design/local-memory-v1-hardening/runs/f03a-audit-resolver-001/result.json",
+      "result_sha256": "f19dee7b63be9eee99c647ba4f25e160fc0ec7eb4e19ab6245e41265457ce2fe",
+      "log_sha256": "affe383cc234e034360411d8e4ae46b58d2c98602f7a1a383aee014d6ca35707",
+      "methods": 20,
+      "status": "passed"
+    },
+    {
+      "path": "design/local-memory-v1-hardening/runs/f03a-audit-year-001/result.json",
+      "result_sha256": "c7ae7cc6f25f462ecc6f419db69a3ac7898e0ba5e5dd5e5fc3e3544227f7cb87",
+      "log_sha256": "f19a8437398b7e2fcd777782ee94328ac604649dbf35baefe5fa71c7bca2111b",
+      "methods": 11,
+      "status": "passed"
+    },
+    {
+      "path": "design/local-memory-v1-hardening/runs/f03a-audit-app-001/result.json",
+      "result_sha256": "6fdedae725bb3eea5f8ad288a379193f975bed3e4cc3ceab62aa603202bf303c",
+      "log_sha256": "f4b7aa7a3bd5ae6f7079f67cd1bfa4b1692c61e41fd3d8d52d30fcd3c7a2cdf3",
+      "methods": 4,
+      "status": "passed"
+    },
+    {
+      "path": "design/local-memory-v1-hardening/runs/f03a-audit-e2e-001/result.json",
+      "result_sha256": "affb9a5f62e74b41c45b09fd5db96a4356b57b0769c74ae33b878c6d088bf145",
+      "log_sha256": "aeb32f24b269031af5fe93977337c91960185c8424464a7690892321922160e4",
+      "methods": 17,
+      "status": "passed"
+    },
+    {
+      "path": "design/local-memory-v1-hardening/runs/f03a-audit-focused-001/result.json",
+      "result_sha256": "0ea1edb5565c04de005feffe217fa534b0f38e7cebcd8e911e1dacf4d302c711",
+      "log_sha256": "6555da8a5057c1fe33a6b737a359daff6c5829019a0871a4a869d07a49b83bb6",
+      "methods": 13,
+      "status": "passed"
+    },
+    {
+      "path": "design/local-memory-v1-hardening/runs/f03a-audit-migration-001/result.json",
+      "result_sha256": "3b0c88ef9653a8287b4f38ee9933da5115c2bc81c0f84cb594e9e57865bd8380",
+      "log_sha256": "c7f99b14ffbc95a8c8ccf6067990a7e12064236a284430be020432fd5c221126",
+      "methods": 7,
+      "status": "passed"
+    },
+    {
+      "path": "design/local-memory-v1-hardening/runs/f03a-audit-holdout-001/result.json",
+      "result_sha256": "45e851e104970d80944ce9ffd14492d97041e4c2e143998edb5d360f9d677830",
+      "log_sha256": "cbdf6b3c2410bf9745c7ee224ef8f91327ae585f82a363f92d6e684922fb0e6b",
+      "methods": 9,
+      "status": "passed"
+    }
+  ],
+  "independent_methods": 100,
+  "scope": "F03a same-key unmarked candidate inclusion/mixed hold only. No whole F03/F05/HITL/freshness/product/model/package acceptance. Hash/schema consistency does not prove semantic truth.",
+  "ruby_validator": {
+    "exit_code": 0,
+    "output": "VALID: audit report is structurally and referentially consistent"
+  },
+  "supplemental_manifest_validation": {
+    "nested_manifest_items_verified": 67,
+    "manifest_result_metadata_verified": 15,
+    "audit_acceptance_control_collateral": 97,
+    "audit_residual_witnesses": 3,
+    "runs": [
+      {
+        "run_id": "f03a-executor-red-pure-001",
+        "status": "failed",
+        "methods": 19,
+        "failure_entries": 19,
+        "errors": 0
+      },
+      {
+        "run_id": "f03a-executor-green-pure-001",
+        "status": "failed",
+        "methods": 19,
+        "failure_entries": 2,
+        "errors": 0
+      },
+      {
+        "run_id": "f03a-executor-corrected-red-pure-001",
+        "status": "failed",
+        "methods": 19,
+        "failure_entries": 19,
+        "errors": 0
+      },
+      {
+        "run_id": "f03a-executor-green-pure-002",
+        "status": "failed",
+        "methods": 19,
+        "failure_entries": 1,
+        "errors": 0
+      },
+      {
+        "run_id": "f03a-executor-corrected-red-pure-002",
+        "status": "failed",
+        "methods": 19,
+        "failure_entries": 19,
+        "errors": 0
+      },
+      {
+        "run_id": "f03a-executor-green-pure-003",
+        "status": "passed",
+        "methods": 19,
+        "failure_entries": 0,
+        "errors": 0
+      },
+      {
+        "run_id": "f03a-executor-green-resolver-001",
+        "status": "passed",
+        "methods": 20,
+        "failure_entries": 0,
+        "errors": 0
+      },
+      {
+        "run_id": "f03a-executor-green-year-001",
+        "status": "passed",
+        "methods": 11,
+        "failure_entries": 0,
+        "errors": 0
+      },
+      {
+        "run_id": "f03a-root-red-app-001",
+        "status": "failed",
+        "methods": 4,
+        "failure_entries": 4,
+        "errors": 0
+      },
+      {
+        "run_id": "f03a-root-green-app-001",
+        "status": "passed",
+        "methods": 4,
+        "failure_entries": 0,
+        "errors": 0
+      },
+      {
+        "run_id": "f03a-root-green-e2e-001",
+        "status": "passed",
+        "methods": 17,
+        "failure_entries": 0,
+        "errors": 0
+      },
+      {
+        "run_id": "f03a-root-green-focused-001",
+        "status": "passed",
+        "methods": 13,
+        "failure_entries": 0,
+        "errors": 0
+      },
+      {
+        "run_id": "f03a-root-green-lineage-001",
+        "status": "passed",
+        "methods": 8,
+        "failure_entries": 0,
+        "errors": 0
+      },
+      {
+        "run_id": "f03a-root-green-migration-001",
+        "status": "passed",
+        "methods": 7,
+        "failure_entries": 0,
+        "errors": 0
+      },
+      {
+        "run_id": "f03a-root-green-security-001",
+        "status": "passed",
+        "methods": 1,
+        "failure_entries": 0,
+        "errors": 0
+      }
+    ]
+  },
+  "supplemental_checker_initial_failure": {
+    "exit_code": 1,
+    "output": "Traceback (most recent call last):\n  File \"<string>\", line 5, in <module>\n    rec=json.loads((root/r[\"result\"][\"path\"]).read_text()); log=(root/r[\"log\"][\"path\"]).read_text(); assert rec[\"status\"]==r[\"status\"] and rec[\"exit_code\"]==r[\"exit_code\"] and rec[\"tests_reported\"]==r[\"methods\"] and rec[\"skipped_reported\"]==r[\"skips\"]==0 and rec[\"duration_seconds\"]==r[\"seconds\"]; failed=re.search(r\"FAILED \\(([^\\n]+)\\)\\s*\\Z\",log); counts=dict(re.findall(r\"(failures|errors|skipped|expected failures)=(\\d+)\",failed.group(1))) if failed else {}; checks.append({\"run_id\":r[\"run_id\"],\"status\":r[\"status\"],\"methods\":r[\"methods\"],\"failure_entries\":int(counts.get(\"failures\",0)),\"errors\":int(counts.get(\"errors\",0))})\n                                                                                                                                                                                                                                                                   ~~~^^^^^^^^^^^^^^^^^^^^\nKeyError: 'duration_seconds'\n",
+    "note": "Parent read-only supplementary checker used duration_seconds instead of actual elapsed_seconds. No product or evidence edited; corrected checker rerun passed. Not a product failure or formal audit repair."
+  },
+  "test_gold_corrections": 2,
+  "independent_acceptance_control_collateral_methods": 97,
+  "independent_residual_witness_methods": 3,
+  "whole_v1_complete": false,
+  "source_freeze_released": true
+}

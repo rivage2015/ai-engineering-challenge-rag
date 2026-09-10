@@ -1,0 +1,36 @@
+test_notebook_embedded_image_preserves_cell_and_source_lineage (f11a_image_tests.LocalEmbeddedVisualPipelineTests.test_notebook_embedded_image_preserves_cell_and_source_lineage) ... ERROR
+test_notebook_referenced_markdown_attachment_is_visually_read (f11a_image_tests.LocalEmbeddedVisualPipelineTests.test_notebook_referenced_markdown_attachment_is_visually_read) ... ok
+test_notebook_code_data_uri_is_preserved_and_not_treated_as_displayed (f11a_image_tests.LocalEmbeddedVisualPipelineTests.test_notebook_code_data_uri_is_preserved_and_not_treated_as_displayed) ... ok
+F05b explicit fixture budget: {"explicit_test_bytes": 14472, "explicit_test_writes": 7, "max_source_fixture_bytes": 418, "source_fixture_count": 3}
+
+======================================================================
+ERROR: test_notebook_embedded_image_preserves_cell_and_source_lineage (f11a_image_tests.LocalEmbeddedVisualPipelineTests.test_notebook_embedded_image_preserves_cell_and_source_lineage)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/tests/test_local_embedded_visual_pipeline.py", line 584, in test_notebook_embedded_image_preserves_cell_and_source_lineage
+    self._assert_pipeline(
+    ~~~~~~~~~~~~~~~~~~~~~^
+        probe,
+        ^^^^^^
+    ...<6 lines>...
+        },
+        ^^
+    )
+    ^
+  File "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/tests/test_local_embedded_visual_pipeline.py", line 420, in _assert_pipeline
+    search_units.build(intermediate, search_output, 500)
+    ~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/scripts/build_search_units.py", line 963, in build
+    deriver.consume(evidence)
+    ~~~~~~~~~~~~~~~^^^^^^^^^^
+  File "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/scripts/build_search_units.py", line 818, in consume
+    notebook_evidence_state(evidence)
+    ~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^
+  File "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/scripts/probe_intermediate_records.py", line 2751, in notebook_evidence_state
+    raise ValueError("notebook_rebuild_required: textual Evidence lacks notebook_state")
+ValueError: notebook_rebuild_required: textual Evidence lacks notebook_state
+
+----------------------------------------------------------------------
+Ran 3 tests in 0.005s
+
+FAILED (errors=1)

@@ -1,0 +1,113 @@
+{
+  "schema_version": "1.0",
+  "audit_id": "lms-v1-00-f16-path-validator-audit-v1",
+  "task_id": "lms-v1-00-hardening-2026-09-09-f16-validator",
+  "artifact_hash": "a5cf6c28322b23a9b24dd51f75e0eac61e70b03d076123c9a87d2c9e881b7e1b",
+  "auditor_context": {
+    "independence_level": "same_model_separate_context",
+    "source_scope": [
+      "design/local-memory-v1-hardening/runs/f16-validator-graph-artifact.v1.json and its twelve hashed sources",
+      "Current validate_path_graph.py, shared build_path_graph.py, focused validator and builder tests, executor, followup contract and preflight were inspected directly. Bootstrap integration and affected migration/package/confinement callers also received a separate read-only same-model subagent review; no new external independence is claimed.",
+      "design/local-memory-v1-hardening/runs/f16-validator-legacy-diagnostic.v1.py and artifacts/local-memory-v1-hardening/runs/f16-validator-002-legacy-red/unittest.log",
+      "design/local-memory-v1-hardening/runs/f16-validator-adversarial-001.py, SHA-256 8b325d6eb85b31ef6ac74465a16e9e1d8c6c0af6d0f3bc431e82ffc35cf27cef",
+      "artifacts/local-memory-v1-hardening/runs/f16-validator-audit-001-py314/",
+      "artifacts/local-memory-v1-hardening/runs/f16-validator-audit-002-py39/",
+      "artifacts/local-memory-v1-hardening/runs/f16-validator-audit-003-builder/",
+      "artifacts/local-memory-v1-hardening/runs/f16-validator-audit-004-e2e/",
+      "artifacts/local-memory-v1-hardening/runs/f16-validator-audit-005-migration/",
+      "artifacts/local-memory-v1-hardening/runs/f16-validator-audit-006-e2e-parser73/",
+      "artifacts/local-memory-v1-hardening/runs/f16-validator-audit-007-migration-parser73/",
+      "artifacts/local-memory-v1-hardening/runs/f16-validator-audit-008-adversarial/",
+      "Each auditor run has immutable started/result records and a bounded log, with 30-second and 1048576-byte limits. Test sources were reviewed before execution; HTTP/Popen or synthetic application-dispatch guards remained active. Fixtures used owned tiny temporary files and canaries. No product source, actual configuration/index/model, personal document, network, GUI or credential operation was performed.",
+      "design/local-memory-v1-hardening/runs/f16-directory-hash-followup.v1.json was read as an additional disclosed residual. It is not silently incorporated as a new immutable source ID."
+    ]
+  },
+  "status": "pass",
+  "checks": [
+    {
+      "check_id": "PV-A01-external-source-authority",
+      "check_type": "safety",
+      "target_ids": ["AUTHORITY", "E_AUTH"],
+      "verdict": "pass",
+      "severity": "info",
+      "reason": "validate requires a caller-provided absolute source_root; missing or malformed authority fails without opening graph-selected source paths. The graph scope must exactly match that authority, and aliases are not silently resolved by the Validator. The observer rejects symlink roots/components without following them. The CLI requires --source-root. Independent focused runs on Python 3.14 and 3.9 passed the missing, wrong, relative and forged-scope authority checks under source-read guards, as well as alias rejection and real CLI parsing. Reads of the explicitly supplied graph/inventory input files are distinct from current-source traversal, as stated by the preflight contract.",
+      "evidence_ids": ["VALIDATOR", "OBSERVER", "TESTS", "PREFLIGHT", "BOOTSTRAP"],
+      "required_action": null
+    },
+    {
+      "check_id": "PV-A02-untrusted-input-preflight",
+      "check_type": "safety",
+      "target_ids": ["INPUTS", "E_INPUTS"],
+      "verdict": "pass",
+      "severity": "info",
+      "reason": "Canonical relative-path checks reject absolute, parent-traversal, empty, dot, NUL and normalized-away spellings. Duplicate inventory paths remain errors rather than being accepted after dictionary overwrite. Duplicate JSON object keys are rejected by the decoder. Inventory kinds, integer metadata, observed status, source-hash form, graph schema/integrity, graph path/reference consistency and source path/locator checks gate current-source observation. Independent focused malformed-input and unsafe-path cases passed. Two added auditor cases additionally verified a rehashed forged node source path and a duplicate graph JSON key are rejected while source descriptor reads are forbidden. Malformed input exceptions are reduced to exception-type diagnostics rather than source contents.",
+      "evidence_ids": ["VALIDATOR", "TESTS", "CONTRACT", "PREFLIGHT"],
+      "required_action": null
+    },
+    {
+      "check_id": "PV-A03-current-full-observation",
+      "check_type": "safety",
+      "target_ids": ["OBSERVATIONS", "E_AUTH", "E_INPUTS"],
+      "verdict": "pass",
+      "severity": "info",
+      "reason": "After input checks, current-source observation uses the shared descriptor-bound observer and independently compares the full observed path set with the submitted inventory. It does not reopen graph-provided full source paths. New files or empty directories, missing files, source-byte changes and observer failures cause FAIL. The independent focused suites passed leaf/intermediate symlink replacement, post-stat replacement and same-inode mutation schedules with applicable outside-canary guards. The 19-case builder regression also passed with the previously repaired active-ancestor invalidation and descriptor cleanup assertions retained. Observer reuse is explicitly not independent algorithmic enumeration.",
+      "evidence_ids": ["OBSERVER", "VALIDATOR", "TESTS", "BUILDER_TESTS"],
+      "required_action": null
+    },
+    {
+      "check_id": "PV-A04-node-source-binding",
+      "check_type": "evidence",
+      "target_ids": ["NODE_BINDING", "E_BINDING"],
+      "verdict": "pass",
+      "severity": "info",
+      "reason": "For the full current inventory, Validator compares kind, size, mtime, hash, read status and available birthtime; it separately checks each submitted node's source path/locator, type, raw source metadata and hash. Rehashing the enclosing JSON cannot bypass those current-observation comparisons. The recorded legacy diagnostic uses the old two-argument API and contains exactly two actual false-PASS failures: a newly added path and a forged node hash, plus one valid unchanged control. Its log hash 314a1825209f8dff656ae54e5fa491eff3d96d9da0b89f8a50941d809486cf4c matched executor evidence. The earlier missing-keyword baseline is not counted as multiple exploits. Current focused tests reject both defects. The auditor's additional same-size nested-file write with restored mtime failed specifically with current_source_sha256_changed and node_source_hash_mismatch, verifying full file-byte binding despite the separate root-digest residual.",
+      "evidence_ids": ["VALIDATOR", "TESTS", "EXECUTOR", "PREFLIGHT", "OBSERVER"],
+      "required_action": null
+    },
+    {
+      "check_id": "PV-A05-caller-and-generation-binding",
+      "check_type": "dependency",
+      "target_ids": ["GENERATION", "E_DRIFT", "REGRESSION"],
+      "verdict": "pass",
+      "severity": "info",
+      "reason": "Bootstrap passes the same selected source to the builder and to Validator's required --source-root argument; its existing run wrapper aborts the build on a failing Validator exit. The Reader resource contract now fingerprints actual Path builder and Validator bytes and sizes, and existing full contract comparison routes byte drift to reader_migration_required. The focused test checks both resource hashes against actual files, and migration tests add both Path code mutations while retaining prior assertions. The independent synthetic E2E and guarded migration/lineage suites each passed 15 cases, including a replay after the shared parser update. The two package callers were statically checked for explicit canonical roots and source-root arguments; their prior content/locator/security/original-byte assertions remain. Complete package/native execution was not performed.",
+      "evidence_ids": ["BOOTSTRAP", "MIGRATION", "TESTS", "PACKAGE_TESTS", "BUILDER_TESTS", "E2E", "RELATED_WRAPPER"],
+      "required_action": null
+    },
+    {
+      "check_id": "PV-A06-independent-runs-and-source-freeze",
+      "check_type": "evidence",
+      "target_ids": ["REGRESSION", "LIMITS"],
+      "verdict": "pass",
+      "severity": "info",
+      "reason": "The auditor independently completed focused 18-case suites on Python 3.14.6 and 3.9.6, the 19-case builder suite, 15-case synthetic E2E, 15-case guarded migration/lineage, and 3 additional adversarial cases. Every result was passed with zero skips/expected failures and exit 0; logs were below 3224 bytes and the longest supervised run was 1.593177 seconds. Runs 001 through 005 each had parser SHA-256 4429a50030143710786c0ee03a68f3d9243d555d121f832817a300824726a2c3 immediately before and after. After the independent parser task changed that dependency, runs 006 (E2E), 007 (migration) and 008 (adversarial) each had stable before/after SHA-256 73b9ad531d4e184b47636f0a7558e07cc44688d1499ddd666b8dc58610f830f7. No run spanned a detected parser change; 006/007 are the current integration replay. Their result hashes are 5a0423925c43b081d4b1bcbe158f2e622e75340f88670965bad339e7b4603ea6 and a1a5ceb9a67e2799a412c05c6a18c3dff41fa0e433183ba2fd2b283d50f9ba88; run 008 result hash is 533f937134bce26e5f1af48be7823d0c2e01e880157dd9843d7ea7c28b5b1614. Actual terminal log footers agreed with result counts, and all eight log hashes matched their metadata. All twelve required artifact-source hashes matched both the initial check and the post-run check. The dynamic parser hash is a separately recorded dependency, not an artifact-source freeze requirement or approval of F10.",
+      "evidence_ids": ["VALIDATOR", "OBSERVER", "BOOTSTRAP", "TESTS", "BUILDER_TESTS", "MIGRATION", "PACKAGE_TESTS", "E2E", "RELATED_WRAPPER", "CONTRACT", "PREFLIGHT", "EXECUTOR"],
+      "required_action": null
+    },
+    {
+      "check_id": "PV-A07-directory-root-digest-residual",
+      "check_type": "calculation",
+      "target_ids": ["OBSERVATIONS", "LIMITS"],
+      "verdict": "fail",
+      "severity": "warning",
+      "reason": "The shared directory_hashes routine has a preexisting ordering defect: '.' and a top-level directory have equal slash counts, so lexical ordering computes the root before that directory digest exists. A nested same-length file-hash change can therefore leave the root digest unchanged. The disclosed pure-record reproduction was read and the ordering is confirmed in source. This is a nonblocking residual for the submitted Validator boundary because current verification also checks the complete path set and every inventory/file node hash; the added nested same-size byte-change test with restored mtime independently failed those checks. Neither this report nor the artifact establishes complete Merkle-root semantics or an independent directory-hash algorithm.",
+      "evidence_ids": ["OBSERVER", "VALIDATOR", "CONTRACT", "EXECUTOR"],
+      "required_action": "Keep the disclosed directory-hash-order followup open. Separately add a bottom-up independent gold fixture and fix actual hierarchy-depth ordering after the current freeze; do not rely on the current root digest alone as complete tree-content attestation."
+    },
+    {
+      "check_id": "PV-A08-acceptance-limits",
+      "check_type": "intent",
+      "target_ids": ["LIMITS", "E_LIMITS"],
+      "verdict": "pass",
+      "severity": "info",
+      "reason": "This pass approves the frozen Path Validator's external source authority, descriptor-bound current path/file observations, submitted node source binding, explicit bootstrap caller and Path-code generation fingerprint integration. It does not certify a global atomic snapshot, freshness after final checks, whole-tree resource bounds, all graph descriptive/summary/edge-policy fields, complete Merkle-root behavior, independent observer algorithms, actual model quality, native packaging, full application Python 3.9 support or whole-product acceptance. No source change or automatic rebuild was made by the auditor. Later source changes require their own stable evidence and approval; the disclosed nonblocking digest followup remains open.",
+      "evidence_ids": ["CONTRACT", "PREFLIGHT", "EXECUTOR", "OBSERVER", "VALIDATOR"],
+      "required_action": null
+    }
+  ],
+  "summary": {
+    "blocking_failures": 0,
+    "unresolved_count": 0,
+    "next_action": "deliver"
+  }
+}

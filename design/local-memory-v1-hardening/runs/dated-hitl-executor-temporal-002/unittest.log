@@ -1,0 +1,32 @@
+{"mode": "temporal", "test_sha256": "6a9a877771117441b33cdb94f5bc4f459b067bf682c538dbade00593189c7154", "resolver_sha256": "b0e5a5b57ef57d1f3d2499a9ce619a3a30f4b40b67b4b3a27da173a7656c5615", "methods": ["test_compact_202_and_203_calendar_days", "test_dated_current_and_undated_current_both_hold", "test_existing_year_only_reason_and_version_cautions_remain", "test_fiscal_year_is_candidate_not_replacement", "test_fullwidth_calendar_candidates", "test_invalid_calendar_preserves_digits_without_partial_year", "test_japanese_full_days", "test_mixed_dated_numeric_versions_never_fall_through", "test_month_precision", "test_order_and_peer_change_keep_hold_and_change_bound_set", "test_other_numeric_identifiers_are_preserved", "test_reconstruction_includes_complete_dated_family_and_policy", "test_separated_days", "test_undated_current_and_numeric_controls_remain", "test_unknown_202_203_digit_runs_are_not_normalized_away", "test_unrelated_labels_directories_extensions_stay_separate"], "original_document_reads": false, "residual_not_acceptance": false}
+test_compact_202_and_203_calendar_days (dated_hitl_temporal.DatedTemporalCandidateTests.test_compact_202_and_203_calendar_days) ... ok
+test_dated_current_and_undated_current_both_hold (dated_hitl_temporal.DatedTemporalCandidateTests.test_dated_current_and_undated_current_both_hold) ... ok
+test_existing_year_only_reason_and_version_cautions_remain (dated_hitl_temporal.DatedTemporalCandidateTests.test_existing_year_only_reason_and_version_cautions_remain) ... ok
+test_fiscal_year_is_candidate_not_replacement (dated_hitl_temporal.DatedTemporalCandidateTests.test_fiscal_year_is_candidate_not_replacement) ... ok
+test_fullwidth_calendar_candidates (dated_hitl_temporal.DatedTemporalCandidateTests.test_fullwidth_calendar_candidates) ... ok
+test_invalid_calendar_preserves_digits_without_partial_year (dated_hitl_temporal.DatedTemporalCandidateTests.test_invalid_calendar_preserves_digits_without_partial_year) ... ok
+test_japanese_full_days (dated_hitl_temporal.DatedTemporalCandidateTests.test_japanese_full_days) ... ok
+test_mixed_dated_numeric_versions_never_fall_through (dated_hitl_temporal.DatedTemporalCandidateTests.test_mixed_dated_numeric_versions_never_fall_through) ... ok
+test_month_precision (dated_hitl_temporal.DatedTemporalCandidateTests.test_month_precision) ... ok
+test_order_and_peer_change_keep_hold_and_change_bound_set (dated_hitl_temporal.DatedTemporalCandidateTests.test_order_and_peer_change_keep_hold_and_change_bound_set) ... ok
+test_other_numeric_identifiers_are_preserved (dated_hitl_temporal.DatedTemporalCandidateTests.test_other_numeric_identifiers_are_preserved) ... ok
+test_reconstruction_includes_complete_dated_family_and_policy (dated_hitl_temporal.DatedTemporalCandidateTests.test_reconstruction_includes_complete_dated_family_and_policy) ... FAIL
+test_separated_days (dated_hitl_temporal.DatedTemporalCandidateTests.test_separated_days) ... ok
+test_undated_current_and_numeric_controls_remain (dated_hitl_temporal.DatedTemporalCandidateTests.test_undated_current_and_numeric_controls_remain) ... ok
+test_unknown_202_203_digit_runs_are_not_normalized_away (dated_hitl_temporal.DatedTemporalCandidateTests.test_unknown_202_203_digit_runs_are_not_normalized_away) ... ok
+test_unrelated_labels_directories_extensions_stay_separate (dated_hitl_temporal.DatedTemporalCandidateTests.test_unrelated_labels_directories_extensions_stay_separate) ... ok
+
+======================================================================
+FAIL: test_reconstruction_includes_complete_dated_family_and_policy (dated_hitl_temporal.DatedTemporalCandidateTests.test_reconstruction_includes_complete_dated_family_and_policy)
+----------------------------------------------------------------------
+AssertionError: '0.1.6' != '0.1.5'
+- 0.1.6
+?     ^
++ 0.1.5
+?     ^
+
+
+----------------------------------------------------------------------
+Ran 16 tests in 0.002s
+
+FAILED (failures=1)

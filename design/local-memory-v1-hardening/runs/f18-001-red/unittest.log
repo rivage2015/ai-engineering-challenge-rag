@@ -1,0 +1,47 @@
+test_early_validation_failure_preserves_existing_lineage (f18_target.ImmutableLineageValidationTests.test_early_validation_failure_preserves_existing_lineage) ... FAIL
+test_initial_publisher_never_overwrites_existing_artifacts (f18_target.ImmutableLineageValidationTests.test_initial_publisher_never_overwrites_existing_artifacts) ... 
+  test_initial_publisher_never_overwrites_existing_artifacts (f18_target.ImmutableLineageValidationTests.test_initial_publisher_never_overwrites_existing_artifacts) (existing=('semantic-lineage-relations.jsonl',)) ... FAIL
+  test_initial_publisher_never_overwrites_existing_artifacts (f18_target.ImmutableLineageValidationTests.test_initial_publisher_never_overwrites_existing_artifacts) (existing=('semantic-lineage-validation.json',)) ... FAIL
+  test_initial_publisher_never_overwrites_existing_artifacts (f18_target.ImmutableLineageValidationTests.test_initial_publisher_never_overwrites_existing_artifacts) (existing=('semantic-lineage-relations.jsonl', 'semantic-lineage-validation.json')) ... FAIL
+
+======================================================================
+FAIL: test_early_validation_failure_preserves_existing_lineage (f18_target.ImmutableLineageValidationTests.test_early_validation_failure_preserves_existing_lineage)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/tests/test_immutable_lineage_validation.py", line 52, in test_early_validation_failure_preserves_existing_lineage
+    self.assertEqual(before, self.snapshot())
+    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: {'ada[59 chars]0785), 'semantic-lineage-relations.jsonl': (b'[163 chars]615)} != {'ada[59 chars]0785)}
+Diff is 668 characters long. Set self.maxDiff to None to see it.
+
+======================================================================
+FAIL: test_initial_publisher_never_overwrites_existing_artifacts (f18_target.ImmutableLineageValidationTests.test_initial_publisher_never_overwrites_existing_artifacts) (existing=('semantic-lineage-relations.jsonl',))
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/tests/test_immutable_lineage_validation.py", line 62, in test_initial_publisher_never_overwrites_existing_artifacts
+    with self.assertRaises((FileExistsError, ValueError)):
+         ~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: (<class 'FileExistsError'>, <class 'ValueError'>) not raised
+
+======================================================================
+FAIL: test_initial_publisher_never_overwrites_existing_artifacts (f18_target.ImmutableLineageValidationTests.test_initial_publisher_never_overwrites_existing_artifacts) (existing=('semantic-lineage-validation.json',))
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/tests/test_immutable_lineage_validation.py", line 62, in test_initial_publisher_never_overwrites_existing_artifacts
+    with self.assertRaises((FileExistsError, ValueError)):
+         ~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: (<class 'FileExistsError'>, <class 'ValueError'>) not raised
+
+======================================================================
+FAIL: test_initial_publisher_never_overwrites_existing_artifacts (f18_target.ImmutableLineageValidationTests.test_initial_publisher_never_overwrites_existing_artifacts) (existing=('semantic-lineage-relations.jsonl', 'semantic-lineage-validation.json'))
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/tests/test_immutable_lineage_validation.py", line 62, in test_initial_publisher_never_overwrites_existing_artifacts
+    with self.assertRaises((FileExistsError, ValueError)):
+         ~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: (<class 'FileExistsError'>, <class 'ValueError'>) not raised
+
+----------------------------------------------------------------------
+Ran 2 tests in 0.017s
+
+FAILED (failures=4)

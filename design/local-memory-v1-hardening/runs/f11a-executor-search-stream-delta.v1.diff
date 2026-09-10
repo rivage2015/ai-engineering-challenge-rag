@@ -1,0 +1,48 @@
+--- design/local-memory-v1-hardening/runs/f11a-executor-before-search-stream.v1.py	2026-09-09 13:32:59
++++ scripts/validate_search_units_streaming.py	2026-09-09 14:22:37
+@@ -19,6 +19,7 @@
+     chart_search_unit_contract_errors,
+     provisional_visual_text_contract_errors,
+     reconstruct_image_packet,
++    notebook_search_unit_contract_errors,
+ )
+ 
+ 
+@@ -46,7 +47,7 @@
+     "is_header_candidate", "container_kind", "container_heading_text",
+     "container_heading_evidence_ids", "quality_tier", "agreement_types",
+     "provisional_marker", "bbox_coordinate_system", "reading_order_method",
+-    "row_band_count",
++    "row_band_count", "notebook_state",
+ }
+ PROVISIONAL_OCR_MARKER = "[暫定読取]"
+ PROVISIONAL_VISUAL_METHODS = {
+@@ -69,7 +70,7 @@
+     "notebook_embedded_image",
+ }
+ SEARCH_UNIT_BUILDER = "search-unit-builder"
+-SEARCH_UNIT_BUILDER_VERSION = "0.6.0"
++SEARCH_UNIT_BUILDER_VERSION = "0.7.0"
+ 
+ 
+ def canonical_digest(value: Any) -> str:
+@@ -493,6 +494,19 @@
+             errors.extend(
+                 chart_reconstruction_errors(item, label, connection)
+             )
++            notebook_sources = {}
++            notebook_documents = {}
++            for source_id in source_ids:
++                source_row = connection.execute("SELECT record_json FROM evidence WHERE id=?", (source_id,)).fetchone()
++                if source_row is None:
++                    continue
++                source_record = json.loads(source_row[0])
++                notebook_sources[source_id] = source_record
++                source_document_id = source_record.get("document_id")
++                document_row = connection.execute("SELECT record_json FROM documents WHERE id=?", (source_document_id,)).fetchone()
++                if document_row is not None:
++                    notebook_documents[source_document_id] = json.loads(document_row[0])
++            errors.extend(notebook_search_unit_contract_errors(item, label, notebook_sources, notebook_documents))
+             try:
+                 connection.execute(
+                     "INSERT INTO units VALUES (?, ?, ?, ?, ?, ?)",

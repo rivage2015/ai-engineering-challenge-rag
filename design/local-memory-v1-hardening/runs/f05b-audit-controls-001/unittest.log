@@ -1,0 +1,22 @@
+test_changed_missing_and_wrong_expected_snapshot_fail_readonly (f05b_audit_target.SnapshotControls.test_changed_missing_and_wrong_expected_snapshot_fail_readonly) ... ok
+test_empty_snapshot_digest_propagates_to_reader_validator_index_and_commands (f05b_audit_target.SnapshotControls.test_empty_snapshot_digest_propagates_to_reader_validator_index_and_commands) ... ok
+test_existing_snapshot_target_is_not_overwritten (f05b_audit_target.SnapshotControls.test_existing_snapshot_target_is_not_overwritten) ... ok
+test_full_inventory_literal_exclusions_and_selection_counts (f05b_audit_target.SnapshotControls.test_full_inventory_literal_exclusions_and_selection_counts) ... ok
+test_invalid_capacity_config_and_oversize_preserve_previous_publication (f05b_audit_target.SnapshotControls.test_invalid_capacity_config_and_oversize_preserve_previous_publication) ... ok
+test_model_ready_pass_uses_same_snapshot_descriptor (f05b_audit_target.SnapshotControls.test_model_ready_pass_uses_same_snapshot_descriptor) ... ok
+test_new_app_registration_rejects_removed_version_binding (f05b_audit_target.SnapshotControls.test_new_app_registration_rejects_removed_version_binding) ... ok
+test_new_registration_rejects_canary_without_inspecting_it (f05b_audit_target.SnapshotControls.test_new_registration_rejects_canary_without_inspecting_it) ... ok
+test_only_config_registered_hash_mismatch_rejected_before_snapshot_access (f05b_audit_target.SnapshotControls.test_only_config_registered_hash_mismatch_rejected_before_snapshot_access) ... ok
+test_resealed_manifest_order_duplicate_and_inventory_digest_rejected (f05b_audit_target.SnapshotControls.test_resealed_manifest_order_duplicate_and_inventory_digest_rejected) ... ok
+test_saved_generation_never_opens_shared_decisions_via_python_file_apis (f05b_audit_target.SnapshotControls.test_saved_generation_never_opens_shared_decisions_via_python_file_apis) ... ok
+test_selection_counter_and_limitation_forgery_rejected (f05b_audit_target.SnapshotControls.test_selection_counter_and_limitation_forgery_rejected) ... ok
+test_self_consistent_d1_producer_forgery_does_not_replace_registered_d0 (f05b_audit_target.SnapshotControls.test_self_consistent_d1_producer_forgery_does_not_replace_registered_d0) ... ok
+test_shared_change_corruption_and_removal_do_not_change_saved_generation (f05b_audit_target.SnapshotControls.test_shared_change_corruption_and_removal_do_not_change_saved_generation) ... ok
+test_state_authority_canary_is_not_touched_during_saved_registration_check (f05b_audit_target.SnapshotControls.test_state_authority_canary_is_not_touched_during_saved_registration_check) ... ok
+test_unregistered_contract_change_rejected_before_snapshot_access (f05b_audit_target.SnapshotControls.test_unregistered_contract_change_rejected_before_snapshot_access) ... ok
+F05b explicit fixture budget: {"explicit_test_bytes": 63304, "explicit_test_writes": 84, "max_source_fixture_bytes": 115, "source_fixture_count": 16}
+
+----------------------------------------------------------------------
+Ran 16 tests in 2.084s
+
+OK

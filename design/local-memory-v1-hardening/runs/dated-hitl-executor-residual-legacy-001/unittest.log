@@ -1,0 +1,7 @@
+{"mode": "legacy", "test_sha256": "6a9a877771117441b33cdb94f5bc4f459b067bf682c538dbade00593189c7154", "resolver_sha256": "11218cc2b5170ba59a69203bcc549a50dc6eb6f88e487d191fb55a76048973a8", "methods": ["test_matching_legacy_selection_still_is_not_new_use_approval"], "original_document_reads": false, "residual_not_acceptance": true}
+test_matching_legacy_selection_still_is_not_new_use_approval (dated_hitl_legacy.DatedLegacyDecisionResidualTests.test_matching_legacy_selection_still_is_not_new_use_approval) ... ok
+
+----------------------------------------------------------------------
+Ran 1 test in 0.000s
+
+OK

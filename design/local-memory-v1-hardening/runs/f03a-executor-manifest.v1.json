@@ -1,0 +1,485 @@
+{
+  "schema_version": "1.0",
+  "task_id": "lms-v1-00-hardening-2026-09-09-f03a",
+  "status": "executor_artifacts_ready_for_independent_audit_not_accepted",
+  "sources": [
+    {
+      "path": "distribution/macos-local-memory/engine/document_version_resolver.py",
+      "sha256": "c2b98254ec28a82e8cc7b5ef3f5e780739bcc1b6983ef2a9252609156d4b672f",
+      "bytes": 22678
+    },
+    {
+      "path": "distribution/macos-local-memory/tests/test_document_version_resolver.py",
+      "sha256": "7600fef6fa1978c6f07042ce9418e20efa88b47d0cc523b1a647cb0a1ad35c9a",
+      "bytes": 22360
+    },
+    {
+      "path": "tests/test_unmarked_version_candidates.py",
+      "sha256": "b4a9176f3f7bb723d701a548418be8647a5336dc7b88dd0707d03cfa70eb5b94",
+      "bytes": 18706
+    },
+    {
+      "path": "tests/test_unmarked_version_e2e.py",
+      "sha256": "146a69f210c47c8f36390238d68c5f37bbb955b3f6faa3729febe38f3c014105",
+      "bytes": 8660
+    },
+    {
+      "path": "distribution/macos-local-memory/tests/test_versioned_safe_index_e2e.py",
+      "sha256": "41540a858d17f8abb322c15353032ec4dd3099eac4e767090f7b9dbabfbcf64a",
+      "bytes": 28602
+    },
+    {
+      "path": "distribution/macos-local-memory/README.md",
+      "sha256": "03e4918d7db84b3455d8790b4be8d3af1608071a9cb7e8c9a3df60bb36a4e028",
+      "bytes": 34133
+    },
+    {
+      "path": "distribution/macos-local-memory/engine/build_adaptive_semantic_graph.py",
+      "sha256": "19b5c55c64959dc136cd4d6b2081151ed1e39560874fb083e9796edb8812adfa",
+      "bytes": 22834
+    },
+    {
+      "path": "distribution/macos-local-memory/engine/validate_adaptive_semantic_graph.py",
+      "sha256": "49138ecc11bde5709f129e879cbc5140717dca716a8563ebafe77dda4e37187d",
+      "bytes": 124554
+    },
+    {
+      "path": "distribution/macos-local-memory/engine/build_local_semantic_index.py",
+      "sha256": "2bfaf8174e8249087d720e49070c9812ce9ecf93b21dd5276f057e145965dfb2",
+      "bytes": 119685
+    },
+    {
+      "path": "distribution/macos-local-memory/app/bootstrap.py",
+      "sha256": "df720a40bb0f8f6123cb0f171b829ca1f4f26761f1e24878fa415b5ff70919a3",
+      "bytes": 164544
+    },
+    {
+      "path": "distribution/macos-local-memory/app/local_memory_server.py",
+      "sha256": "3acb859916ccb9fb1a1c26cc0ebfa511bea2d8114fa83103ace40183fa899ee6",
+      "bytes": 111432
+    },
+    {
+      "path": "tests/test_year_only_supersession.py",
+      "sha256": "70a1226cb30daa6692533d2c6f1fe270fe301a8f759c0db56a142acbc945b8c0",
+      "bytes": 11205
+    },
+    {
+      "path": "scripts/run_local_memory_hardening_tests.py",
+      "sha256": "6b3bde90b6ed649a82325f6b5ad9661756bef7b6e0303fa74c2d045fb26eb4a9",
+      "bytes": 9437
+    }
+  ],
+  "records": [
+    {
+      "path": "design/local-memory-v1-hardening/runs/f03a-task-contract.v1.md",
+      "sha256": "1a5244d9fd4c537aeaaec88f44d358e24f1b1d56441beaf4ec60fe2a34e07924",
+      "bytes": 6959
+    },
+    {
+      "path": "design/local-memory-v1-hardening/runs/f03a-next-contract.v1.md",
+      "sha256": "e6a95c15898184f7cc699b4a53f7bb16ab96b4ce591cefd4d123daeb61347263",
+      "bytes": 15442
+    },
+    {
+      "path": "design/local-memory-v1-hardening/runs/f03a-next-manifest.v1.json",
+      "sha256": "5d14ff05d6a75fc6ec7bd51e0128372d59022e1a3b791d1395b28545d74f7ff9",
+      "bytes": 6384
+    },
+    {
+      "path": "design/local-memory-v1-hardening/runs/f03a-executor-authorization.v1.json",
+      "sha256": "e8b5687d9f316fd7b03439e61e7f9df67f9b6619c560a15cd7856e04b377049e",
+      "bytes": 3847
+    },
+    {
+      "path": "design/local-memory-v1-hardening/runs/f03a-executor-gold.v1.json",
+      "sha256": "52add843c11e84860e99593547061f2ba46e9226c43423dbd9e00720deba4c2c",
+      "bytes": 1749
+    },
+    {
+      "path": "design/local-memory-v1-hardening/runs/f03a-executor-run.v1.py",
+      "sha256": "0665e6f623f3914db13d405dd5f08e495f7817bed6e60928944a947c41263573",
+      "bytes": 1649
+    },
+    {
+      "path": "design/local-memory-v1-hardening/runs/f03a-before-resolver.v1.py",
+      "sha256": "9a7443862c015ed768007ef5a7b21bd3bc197c9bb7a3d7ed2f7b39b33374359d",
+      "bytes": 21959
+    },
+    {
+      "path": "design/local-memory-v1-hardening/runs/f03a-before-resolver-tests.v1.py",
+      "sha256": "b7c323f48f10488ef2dc245dacc265ad0dd5b77ea37e50b9e4b32504bda7b293",
+      "bytes": 22360
+    },
+    {
+      "path": "design/local-memory-v1-hardening/runs/f03a-resolver-delta.v1.patch",
+      "sha256": "e80724027db2a87dd4f0c5fca21edff6d9541d8a9889cae10a057251f711609d",
+      "bytes": 3636
+    },
+    {
+      "path": "design/local-memory-v1-hardening/runs/f03a-resolver-tests-delta.v1.patch",
+      "sha256": "1aa9ab74be38488d4bcee64aecd7d5e0ec46a06a7637dec330263761501c6a32",
+      "bytes": 680
+    },
+    {
+      "path": "design/local-memory-v1-hardening/runs/f03a-executor-red-summary.v1.json",
+      "sha256": "68050242fb00ba1b44a47ed0a1489051327f91221e4065e215db842f91bb7de2",
+      "bytes": 1586
+    },
+    {
+      "path": "design/local-memory-v1-hardening/runs/f03a-test-gold-initial.v1.py",
+      "sha256": "cba73b1f99a5fb5ce306e5e71f0aad0b44579ad109189d79e626e89d494d06ea",
+      "bytes": 18709
+    },
+    {
+      "path": "design/local-memory-v1-hardening/runs/f03a-test-gold-correction.v1.json",
+      "sha256": "b5524ccc6cfaf98507ec5a554ddf32803a4103d4af85b5ea35afc78eb9fd9768",
+      "bytes": 2779
+    },
+    {
+      "path": "design/local-memory-v1-hardening/runs/f03a-test-gold-correction.v1.patch",
+      "sha256": "3934ceaeb9720ce26bedc52aa36f07421334858dc9c4085dbeccb09ce7dcb04e",
+      "bytes": 1129
+    },
+    {
+      "path": "design/local-memory-v1-hardening/runs/f03a-test-gold-correction1-snapshot.v1.py",
+      "sha256": "aa7da7f0a308dec79a398678c18d41d246c26a514d6fc88dedcf1cba431100d3",
+      "bytes": 18709
+    },
+    {
+      "path": "design/local-memory-v1-hardening/runs/f03a-test-gold-correction.v2.json",
+      "sha256": "af2bd83e1878500a3391d09daa8ffd127248e5b68f61aead2ab1fa7204e3213c",
+      "bytes": 2594
+    },
+    {
+      "path": "design/local-memory-v1-hardening/runs/f03a-test-gold-correction.v2.patch",
+      "sha256": "f62660962521cb5695c87cea31e07775f89df361e1c219fc940e45fb9d6fd06f",
+      "bytes": 614
+    },
+    {
+      "path": "design/local-memory-v1-hardening/runs/f03a-corrected-before-run.v1.py",
+      "sha256": "039ddc593e5cd75c3426748e9609670530039fcd9e29a458b80d78dbf872c662",
+      "bytes": 2263
+    },
+    {
+      "path": "design/local-memory-v1-hardening/runs/f03a-corrected-before-run.v2.py",
+      "sha256": "4d080ac64457981a7c4b7b20d56e215d0ae2ecc602f6172c709ca5a42da18e2c",
+      "bytes": 2263
+    },
+    {
+      "path": "design/local-memory-v1-hardening/runs/f03a-root-run.v1.py",
+      "sha256": "be70a3ffb3c8f55cfb44955e5ea8cdac21ac3cb22041937e2e753c9c14fd0559",
+      "bytes": 1770
+    },
+    {
+      "path": "design/local-memory-v1-hardening/runs/f03a-root-readme-delta.v1.json",
+      "sha256": "2cc3a4c4f314aa6fd09b2cfd4d172b128ca9114aa7da986a54edb53b79a892bb",
+      "bytes": 4425
+    },
+    {
+      "path": "design/local-memory-v1-hardening/runs/f03a-root-red-summary.v1.json",
+      "sha256": "8e74c3654cb693220f436e14d85471ae196b40e5107a39d7aa057e87be0216b0",
+      "bytes": 1378
+    },
+    {
+      "path": "design/local-memory-v1-hardening/runs/f03a-executor-summary.v1.json",
+      "sha256": "8a1f5a076eb8cc6126efbd6d7517b822a297c23710737c736f2fa72b2b6d30d5",
+      "bytes": 5933
+    },
+    {
+      "path": "design/local-memory-v1-hardening/runs/f04a-executor-run.v1.py",
+      "sha256": "7c6953d3e92c46ede699b81690a138fb50e74e51b79fc37d14f9fc44d6c4391b",
+      "bytes": 7818
+    }
+  ],
+  "test_runs": [
+    {
+      "run_id": "f03a-executor-red-pure-001",
+      "status": "failed",
+      "exit_code": 1,
+      "methods": 19,
+      "skips": 0,
+      "seconds": 0.061814,
+      "result": {
+        "path": "design/local-memory-v1-hardening/runs/f03a-executor-red-pure-001/result.json",
+        "sha256": "90e1cb970b44b8c8267528b88fb2ad00fc0e175b345e521d0dde50aff6437cdb",
+        "bytes": 1134
+      },
+      "log": {
+        "path": "design/local-memory-v1-hardening/runs/f03a-executor-red-pure-001/unittest.log",
+        "sha256": "a73d384bf82713c25edc15c4ff2e6d3ac07652061b76c6f0f16f4c66224d6931",
+        "bytes": 11794
+      },
+      "log_binding_verified": true
+    },
+    {
+      "run_id": "f03a-executor-green-pure-001",
+      "status": "failed",
+      "exit_code": 1,
+      "methods": 19,
+      "skips": 0,
+      "seconds": 0.061602,
+      "result": {
+        "path": "design/local-memory-v1-hardening/runs/f03a-executor-green-pure-001/result.json",
+        "sha256": "455fcf3c9c67963157f10989e231306944a8646bc311eda938ba604fb55a5f7d",
+        "bytes": 1135
+      },
+      "log": {
+        "path": "design/local-memory-v1-hardening/runs/f03a-executor-green-pure-001/unittest.log",
+        "sha256": "afa02caa5be824ae97c5a2c064b55de66c1d0faac22007ea03f1422e6b590025",
+        "bytes": 4222
+      },
+      "log_binding_verified": true
+    },
+    {
+      "run_id": "f03a-executor-corrected-red-pure-001",
+      "status": "failed",
+      "exit_code": 1,
+      "methods": 19,
+      "skips": 0,
+      "seconds": 0.052589,
+      "result": {
+        "path": "design/local-memory-v1-hardening/runs/f03a-executor-corrected-red-pure-001/result.json",
+        "sha256": "27da3e12efbb7660c97bec2944232cc8e1c3cb87f1f2a32ef76076a30d0e84d4",
+        "bytes": 1188
+      },
+      "log": {
+        "path": "design/local-memory-v1-hardening/runs/f03a-executor-corrected-red-pure-001/unittest.log",
+        "sha256": "a73d384bf82713c25edc15c4ff2e6d3ac07652061b76c6f0f16f4c66224d6931",
+        "bytes": 11794
+      },
+      "log_binding_verified": true
+    },
+    {
+      "run_id": "f03a-executor-green-pure-002",
+      "status": "failed",
+      "exit_code": 1,
+      "methods": 19,
+      "skips": 0,
+      "seconds": 0.045798,
+      "result": {
+        "path": "design/local-memory-v1-hardening/runs/f03a-executor-green-pure-002/result.json",
+        "sha256": "4baf1b16a98c41a2f7cde1608eca7b75676f3df4e3083af284b9155f9b6a61c8",
+        "bytes": 1135
+      },
+      "log": {
+        "path": "design/local-memory-v1-hardening/runs/f03a-executor-green-pure-002/unittest.log",
+        "sha256": "fbc1f86a7d0ba91f306e86149283d76c6ebbf7d5f49f2c81944daed7b955be27",
+        "bytes": 3884
+      },
+      "log_binding_verified": true
+    },
+    {
+      "run_id": "f03a-executor-corrected-red-pure-002",
+      "status": "failed",
+      "exit_code": 1,
+      "methods": 19,
+      "skips": 0,
+      "seconds": 0.061556,
+      "result": {
+        "path": "design/local-memory-v1-hardening/runs/f03a-executor-corrected-red-pure-002/result.json",
+        "sha256": "4023e3ef384b65663830d571931b9911e0d7d46db59548a021e2fdf6b1e817a9",
+        "bytes": 1188
+      },
+      "log": {
+        "path": "design/local-memory-v1-hardening/runs/f03a-executor-corrected-red-pure-002/unittest.log",
+        "sha256": "a73d384bf82713c25edc15c4ff2e6d3ac07652061b76c6f0f16f4c66224d6931",
+        "bytes": 11794
+      },
+      "log_binding_verified": true
+    },
+    {
+      "run_id": "f03a-executor-green-pure-003",
+      "status": "passed",
+      "exit_code": 0,
+      "methods": 19,
+      "skips": 0,
+      "seconds": 0.052914,
+      "result": {
+        "path": "design/local-memory-v1-hardening/runs/f03a-executor-green-pure-003/result.json",
+        "sha256": "91f44cbf15b79c46dbbb9d406d06eedb753c755a11bea56bfb3183bde45c5ec6",
+        "bytes": 1135
+      },
+      "log": {
+        "path": "design/local-memory-v1-hardening/runs/f03a-executor-green-pure-003/unittest.log",
+        "sha256": "3fa8f03abf676276e1ca4a819c4696040ed750d3f3b0419722255874a7c40db5",
+        "bytes": 3452
+      },
+      "log_binding_verified": true
+    },
+    {
+      "run_id": "f03a-executor-green-resolver-001",
+      "status": "passed",
+      "exit_code": 0,
+      "methods": 20,
+      "skips": 0,
+      "seconds": 0.278238,
+      "result": {
+        "path": "design/local-memory-v1-hardening/runs/f03a-executor-green-resolver-001/result.json",
+        "sha256": "c5fe6d20eee46250334f6d8d1875145aadb5fdf5b7ce0c53db9f6d6a99b0ae51",
+        "bytes": 1231
+      },
+      "log": {
+        "path": "design/local-memory-v1-hardening/runs/f03a-executor-green-resolver-001/unittest.log",
+        "sha256": "3fe43249022af972f6ef85e259ec736f52609f8664e183d2ca93b8b22a42304f",
+        "bytes": 3455
+      },
+      "log_binding_verified": true
+    },
+    {
+      "run_id": "f03a-executor-green-year-001",
+      "status": "passed",
+      "exit_code": 0,
+      "methods": 11,
+      "skips": 0,
+      "seconds": 0.051571,
+      "result": {
+        "path": "design/local-memory-v1-hardening/runs/f03a-executor-green-year-001/result.json",
+        "sha256": "04f56c24341aeb663100883e3039d0973934924735d317cb75aa67228811e87f",
+        "bytes": 1130
+      },
+      "log": {
+        "path": "design/local-memory-v1-hardening/runs/f03a-executor-green-year-001/unittest.log",
+        "sha256": "f19a8437398b7e2fcd777782ee94328ac604649dbf35baefe5fa71c7bca2111b",
+        "bytes": 1945
+      },
+      "log_binding_verified": true
+    },
+    {
+      "run_id": "f03a-root-red-app-001",
+      "status": "failed",
+      "exit_code": 1,
+      "methods": 4,
+      "skips": 0,
+      "seconds": 0.852392,
+      "result": {
+        "path": "design/local-memory-v1-hardening/runs/f03a-root-red-app-001/result.json",
+        "sha256": "7192035539c96c4c98fea3dfe7cbba22c48f8a2788a4d6933663245bd7a29224",
+        "bytes": 1209
+      },
+      "log": {
+        "path": "design/local-memory-v1-hardening/runs/f03a-root-red-app-001/unittest.log",
+        "sha256": "e973bccd148ceb12e38ec67c1caa5c6bfd67d7fd3ca01fe9d5c6bc5392e9c5f6",
+        "bytes": 6001
+      },
+      "log_binding_verified": true
+    },
+    {
+      "run_id": "f03a-root-green-app-001",
+      "status": "passed",
+      "exit_code": 0,
+      "methods": 4,
+      "skips": 0,
+      "seconds": 0.706643,
+      "result": {
+        "path": "design/local-memory-v1-hardening/runs/f03a-root-green-app-001/result.json",
+        "sha256": "99a75c7912bfcf8fe6700a0ed88dd4f3f5ef66ccb5533c9c64b03d04a719f9d0",
+        "bytes": 1212
+      },
+      "log": {
+        "path": "design/local-memory-v1-hardening/runs/f03a-root-green-app-001/unittest.log",
+        "sha256": "df18df7c2c7bf49b6a41f90005737c76bf05045b9b878ec9022f49837b0e4343",
+        "bytes": 846
+      },
+      "log_binding_verified": true
+    },
+    {
+      "run_id": "f03a-root-green-e2e-001",
+      "status": "passed",
+      "exit_code": 0,
+      "methods": 17,
+      "skips": 0,
+      "seconds": 1.855682,
+      "result": {
+        "path": "design/local-memory-v1-hardening/runs/f03a-root-green-e2e-001/result.json",
+        "sha256": "484c4a0b9bd029edf0d2dbea8318497df0b22ec8e31250be67f24f3bc1c45e90",
+        "bytes": 1214
+      },
+      "log": {
+        "path": "design/local-memory-v1-hardening/runs/f03a-root-green-e2e-001/unittest.log",
+        "sha256": "139c17095049f99d7b56b6b5257909c2f3ac944a94ef678c71ab084cd86b3d16",
+        "bytes": 2868
+      },
+      "log_binding_verified": true
+    },
+    {
+      "run_id": "f03a-root-green-focused-001",
+      "status": "passed",
+      "exit_code": 0,
+      "methods": 13,
+      "skips": 0,
+      "seconds": 0.500256,
+      "result": {
+        "path": "design/local-memory-v1-hardening/runs/f03a-root-green-focused-001/result.json",
+        "sha256": "4a4246caec7013afaa012149ca583709171882030dff0c46073df92339866683",
+        "bytes": 1226
+      },
+      "log": {
+        "path": "design/local-memory-v1-hardening/runs/f03a-root-green-focused-001/unittest.log",
+        "sha256": "d1660faf8b91ab44c0bb7eef4b4a02edb72e1cb98c5dd61bc7c125145cbb11ff",
+        "bytes": 2329
+      },
+      "log_binding_verified": true
+    },
+    {
+      "run_id": "f03a-root-green-lineage-001",
+      "status": "passed",
+      "exit_code": 0,
+      "methods": 8,
+      "skips": 0,
+      "seconds": 0.308667,
+      "result": {
+        "path": "design/local-memory-v1-hardening/runs/f03a-root-green-lineage-001/result.json",
+        "sha256": "9f1ab7873815969c3d97f722fa95a51c94f7da929db7ddca880602aa2f81ec62",
+        "bytes": 1225
+      },
+      "log": {
+        "path": "design/local-memory-v1-hardening/runs/f03a-root-green-lineage-001/unittest.log",
+        "sha256": "5e03c243fca1976e03f879d2dde3616edfa6b360a89abbf6512f5a716294286a",
+        "bytes": 1362
+      },
+      "log_binding_verified": true
+    },
+    {
+      "run_id": "f03a-root-green-migration-001",
+      "status": "passed",
+      "exit_code": 0,
+      "methods": 7,
+      "skips": 0,
+      "seconds": 0.467691,
+      "result": {
+        "path": "design/local-memory-v1-hardening/runs/f03a-root-green-migration-001/result.json",
+        "sha256": "bd7d66349da7742723bb4dd14881ecbed37c286c88455f088d66af4d5ea08bbc",
+        "bytes": 1231
+      },
+      "log": {
+        "path": "design/local-memory-v1-hardening/runs/f03a-root-green-migration-001/unittest.log",
+        "sha256": "235701fc7d4c1d6ebff1e20fda84d04708f792fc0337ba24d5c0a47c9b5a2ca9",
+        "bytes": 1277
+      },
+      "log_binding_verified": true
+    },
+    {
+      "run_id": "f03a-root-green-security-001",
+      "status": "passed",
+      "exit_code": 0,
+      "methods": 1,
+      "skips": 0,
+      "seconds": 0.858101,
+      "result": {
+        "path": "design/local-memory-v1-hardening/runs/f03a-root-green-security-001/result.json",
+        "sha256": "f3a5174a927fe422636655597770d34e87a2932f65d81854456f55b0939a05b7",
+        "bytes": 1286
+      },
+      "log": {
+        "path": "design/local-memory-v1-hardening/runs/f03a-root-green-security-001/unittest.log",
+        "sha256": "b621235893e38d4f83e462f99dd9611fd12cfac47de315ba1970b9e6395bb314",
+        "bytes": 253
+      },
+      "log_binding_verified": true
+    }
+  ],
+  "audit_repair_rounds_consumed": 0,
+  "test_correction_count": 2,
+  "git_diff_check": "PASS",
+  "test_count_interpretation": "Executor GREEN19 =17 acceptance/control+2 residual; year11=10 control+1 residual. Root runs separately owned; no independent audit or V1 acceptance claimed. Failed runs remain failed despite green in their run IDs."
+}

@@ -1,0 +1,35 @@
+--- distribution/macos-local-memory/tests/test_reader_generation_migration.py
++++ distribution/macos-local-memory/tests/test_reader_generation_migration.py
+@@ -53,6 +53,7 @@
+         self.bootstrap = load_bootstrap()
+         self.temporary = tempfile.TemporaryDirectory(prefix="reader-migration-")
+         self.root = Path(self.temporary.name).resolve()
++        self.bootstrap.DOCUMENT_VERSION_DECISIONS = self.root / "absent-shared-decisions.json"
+ 
+     def tearDown(self) -> None:
+         self.temporary.cleanup()
+@@ -108,9 +109,11 @@
+         resolver = load_module(
+             "migration_version_resolver", ENGINE / "document_version_resolver.py"
+         )
++        snapshot = self.bootstrap.capture_decision_snapshot(paths, self.bootstrap.DEFAULT_DECISION_SNAPSHOT_BYTES)
+         resolver.build(
+             paths / "path-source-inventory.jsonl",
+             paths / "document-version-graph.json",
++            Path(snapshot["path"]),
+         )
+         with (self.root / "semantic-pipeline.log").open("w", encoding="utf-8") as log:
+             self.bootstrap.run_semantic_pipeline(
+@@ -119,10 +122,12 @@
+                 semantic,
+                 security,
+                 log,
++                decision_snapshot=snapshot,
+             )
+         registration = self.bootstrap.write_reader_generation_contract(
+             semantic,
+             generation.name,
++            decision_snapshot=snapshot,
+         )
+         index = generation / "safe-answer-index.sqlite3"
+         index.write_bytes(b"current-index")

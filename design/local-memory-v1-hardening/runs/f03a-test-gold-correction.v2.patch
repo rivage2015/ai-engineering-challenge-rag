@@ -1,0 +1,10 @@
+--- design/local-memory-v1-hardening/runs/f03a-test-gold-correction1-snapshot.v1.py	2026-09-09 08:30:56
++++ tests/test_unmarked_version_candidates.py	2026-09-09 08:31:49
+@@ -258,7 +258,7 @@
+             changed = [dict(item) for item in records]
+             changed[index][field] = value
+             variants.append(changed)
+-        variants.extend([[*records, record("手順 copy(2).csv", "d")], records[:2]])
++        variants.extend([[*records, record("手順 copy.csv", "d")], records[:2]])
+         for changed in variants:
+             self.held(changed, build(changed, decision), "stale_human_decision")

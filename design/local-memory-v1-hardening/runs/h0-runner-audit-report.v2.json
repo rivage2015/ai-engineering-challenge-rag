@@ -1,0 +1,87 @@
+{
+  "schema_version": "1.0",
+  "audit_id": "lms-v1-00-h0-test-supervisor-audit-v2",
+  "task_id": "lms-v1-00-h0-test-supervisor",
+  "artifact_hash": "35ad11ad788ff21ab68cdddb7fec9c97652652af52590e23631004ef6fc28fd0",
+  "auditor_context": {
+    "independence_level": "same_model_separate_context",
+    "source_scope": [
+      "design/local-memory-v1-hardening/runs/h0-runner-graph-artifact.v2.json",
+      "scripts/run_local_memory_hardening_tests.py",
+      "tests/test_hardening_test_runner.py",
+      "artifacts/local-memory-v1-hardening/runs/014-runner-repair-green/result.json",
+      "artifacts/local-memory-v1-hardening/runs/014-runner-repair-green/unittest.log",
+      "artifacts/local-memory-v1-hardening/runs/015-h0-recovery-import-fixed/result.json",
+      "artifacts/local-memory-v1-hardening/runs/015-h0-recovery-import-fixed/unittest.log",
+      "Repair round 1 re-audit limited to v1 A01, A02, A06, retained record safeguards, and source identity. Auditor independently ran /opt/homebrew/bin/python3 -B tests/test_hardening_test_runner.py -v: 11 tests in 0.742 seconds, OK, process exit 0. No new counterexample, product edit, network, model invocation, or real-data test was performed."
+    ]
+  },
+  "status": "pass",
+  "checks": [
+    {
+      "check_id": "A01-result-classification",
+      "check_type": "calculation",
+      "target_ids": ["TRUTH", "E02"],
+      "verdict": "pass",
+      "severity": "info",
+      "reason": "terminal_summary now anchors a complete final unittest footer to the end of the combined log and derives count, outcome and details from the same match. passed requires positive test count, explicit OK, zero process exit, and no skips, expected failures, failures, errors, or unexpected successes. Missing or malformed terminal output cannot pass. The independently rerun tests verify prefixed false counts, prefixed skipped=0, final zero tests, skips, expected failures, trailing unrecognized output, nonzero exit, and an actual failing unittest.main(exit=False) process with exit code zero. All passed. Fabrication of a final OK by a malicious program remains explicitly outside the diagnostic contract.",
+      "evidence_ids": ["RUNNER", "TESTS", "RESULT"],
+      "required_action": null
+    },
+    {
+      "check_id": "A02-supervisor-termination",
+      "check_type": "safety",
+      "target_ids": ["BOUNDS", "DURABILITY"],
+      "verdict": "pass",
+      "severity": "info",
+      "reason": "SIGTERM and SIGHUP now enter the controlled interruption path while supervising the child. That path ignores repeated ordinary cancellation signals during cleanup, kills the process group created for this run, waits with a timeout, and writes interrupted.json including the received signal. A finally block restores prior signal handlers, and calls outside the main thread are rejected before reserving output. The independently rerun SIGTERM fixture confirmed child removal, an interrupted record and absence of result.json; the handler-restoration test also passed. SIGHUP uses the same reviewed handler path but was not separately sent during this audit. The source and artifact explicitly exclude SIGKILL, machine shutdown and descendants escaping the created group.",
+      "evidence_ids": ["RUNNER", "TESTS", "RESULT"],
+      "required_action": null
+    },
+    {
+      "check_id": "A06-cli-import-contract",
+      "check_type": "dependency",
+      "target_ids": ["RESULTS", "BOUNDS"],
+      "verdict": "pass",
+      "severity": "info",
+      "reason": "The runner now prepends the repository root to inherited PYTHONPATH and records repository_import_root in started and outcome metadata. Its direct-file CLI invocation therefore has an explicit repository import contract. The independent selftest importing tests.test_answer_graph_retrieval_policy passed. The hashed run 015 result and its actual log both show the four selected recovery cases passing with zero skips and the expected repository import root; this audit verified that recorded recovery evidence without rerunning the product suite.",
+      "evidence_ids": ["RUNNER", "TESTS", "RECOVERY_RESULT"],
+      "required_action": null
+    },
+    {
+      "check_id": "A03-bounds-and-record-preservation",
+      "check_type": "safety",
+      "target_ids": ["BOUNDS", "DURABILITY", "E01"],
+      "verdict": "pass",
+      "severity": "info",
+      "reason": "The repaired source retains fresh output-directory reservation, exclusive metadata and log creation, bounded log writes, nonblocking pipe reads, a monotonic timeout, and cleanup of its own newly created process group on timeout or output overflow. It additionally bounds poll_seconds and caps sleep by the remaining wall-time budget. The independent 11-test run reconfirmed timeout recording, output-limit recording and size, existing-run preservation, and result JSON agreement. These checks cover an internal supervisor for preflight-approved synthetic tests; they do not assert durable recovery from abrupt machine failure.",
+      "evidence_ids": ["RUNNER", "TESTS", "RESULT"],
+      "required_action": null
+    },
+    {
+      "check_id": "A04-source-and-result-provenance",
+      "check_type": "evidence",
+      "target_ids": ["RESULTS"],
+      "verdict": "pass",
+      "severity": "info",
+      "reason": "RUNNER SHA-256 6b3bde90b6ed649a82325f6b5ad9661756bef7b6e0303fa74c2d045fb26eb4a9, TESTS SHA-256 a00efe59208a0b4ec036a92a79d47168c910d5372493a2dfd15c3654a8d5f3c7, RESULT SHA-256 8aef1f3706895850e8401cdfae4a189f8ee0894d32289f9dc19bb178729d7720, and RECOVERY_RESULT SHA-256 ef4b11cc49bce66bf2db06a5f1f148357e9dc657923839a645368713e0dadc91 match the submitted artifact. Both referenced log hashes match their result metadata. The audit records the supplied historical run separately from the fresh independent 11-test result. Approval is limited to this artifact and these source hashes; source changes require a new artifact and audit.",
+      "evidence_ids": ["RUNNER", "TESTS", "RESULT", "RECOVERY_RESULT"],
+      "required_action": null
+    },
+    {
+      "check_id": "A05-scope-limits",
+      "check_type": "intent",
+      "target_ids": ["LIMITS"],
+      "verdict": "pass",
+      "severity": "info",
+      "reason": "The accepted scope remains internal supervision of preflight-approved synthetic unittest files. The source and artifact explicitly disclaim OS or network isolation, authentication of an adversarial test's printed footer, successful-run descendant guarantees, and recovery from SIGKILL or machine shutdown. This pass resolves the required v1 findings within that scope and is not product PASS certification or approval to run unreviewed tests.",
+      "evidence_ids": ["RUNNER"],
+      "required_action": null
+    }
+  ],
+  "summary": {
+    "blocking_failures": 0,
+    "unresolved_count": 0,
+    "next_action": "deliver"
+  }
+}

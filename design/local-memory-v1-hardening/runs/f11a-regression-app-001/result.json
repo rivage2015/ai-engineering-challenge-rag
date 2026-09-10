@@ -1,0 +1,29 @@
+{
+  "schema_version": "1.0",
+  "status": "failed",
+  "command": [
+    "/opt/homebrew/opt/python@3.14/bin/python3.14",
+    "-I",
+    "-B",
+    "-u",
+    "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/design/local-memory-v1-hardening/runs/f11a-regression-run.v1.py",
+    "app",
+    "f11a-regression-app-001",
+    "--worker"
+  ],
+  "cwd": "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ",
+  "started_at": "2026-09-09T06:28:44.809676+00:00",
+  "timeout_seconds": 30,
+  "max_log_bytes": 1048576,
+  "repository_import_root": "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ",
+  "safety_scope": "preflight-approved synthetic tests; not an OS sandbox",
+  "exit_code": 1,
+  "elapsed_seconds": 0.149866,
+  "tests_reported": 9,
+  "skipped_reported": 0,
+  "expected_failures_reported": 0,
+  "log_path": "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/design/local-memory-v1-hardening/runs/f11a-regression-app-001/unittest.log",
+  "log_bytes": 11734,
+  "log_sha256": "4650627a049baeb447cee09aa60286e32e920e58831972a8ec6eb84044abbc76",
+  "finished_at": "2026-09-09T06:28:44.959928+00:00"
+}

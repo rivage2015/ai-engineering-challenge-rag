@@ -1,0 +1,26 @@
+{
+  "schema_version": "1.0",
+  "task_id": "lms-v1-f05-next-preflight-2026-09-09",
+  "status": "three_gaps_reproduced_not_implementation_acceptance",
+  "product_changed": false,
+  "source_sha256": "c2b98254ec28a82e8cc7b5ef3f5e780739bcc1b6983ef2a9252609156d4b672f",
+  "scope": "Actual F03a resolver build and validate against two synthetic inventory records; no source-document content, Reader, app exploitation or production state.",
+  "observed": [
+    "Empty groups/nodes/edges and zero counts pass after graph self hash is recalculated.",
+    "A fabricated automatic active choice for a mixed held group passes with consistent projection/self hash.",
+    "An absent-path/source-hash candidate passes after candidate-set/projection/self hashes are recalculated."
+  ],
+  "test_methods": 3,
+  "skips": 0,
+  "elapsed_seconds": 0.13151,
+  "log_bytes": 576,
+  "hashes": {
+    "design/local-memory-v1-hardening/runs/f05-next-preflight.v1.md": "b8d67bba90c0341769d6b3ca7aa536bf363e989b9faf956d1acafc49321a6d9d",
+    "design/local-memory-v1-hardening/runs/f05-next-observe.v1.py": "62044f0c28000bae7e78f7d50e400144235be926de5ec444eceb7d7c2df1d2f2",
+    "design/local-memory-v1-hardening/runs/f05-next-run.v1.py": "89dd6ebc99cfc989a862e77920975202e8b373bed12c25feead98b7e477a1c0d",
+    "design/local-memory-v1-hardening/runs/f05-next-observation-001/result.json": "ba814fcb1c7aa4dac6346b2a93f14413e4fd4b1a9ea20e4ecd827c53af53e433",
+    "design/local-memory-v1-hardening/runs/f05-next-observation-001/unittest.log": "406e91c26328df82063a077439ecab72b451af10d0d783af660247236935e879"
+  },
+  "limits": "30s/1MiB supervised log; small owned synthetic inventory/graph files; existing Python IO guards. No OS isolation/resource certification.",
+  "next": "After F03a audit releases source freeze, define a fresh F05 candidate/source/decision validation contract. Independent reconstruction of stored graph membership is needed; Human decision authority cannot come from an untrusted graph-provided file path. Do not claim F05 fixed or increment formal-audit repair cycles for these observations."
+}

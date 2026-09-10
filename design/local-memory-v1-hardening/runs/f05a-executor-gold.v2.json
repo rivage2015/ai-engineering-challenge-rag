@@ -1,0 +1,17 @@
+{
+  "schema_version": "1.0",
+  "task_id": "lms-v1-00-hardening-2026-09-09-f05a",
+  "status": "additive_pre_audit_input_boundary_gold",
+  "original_gold_test_sha256": "85d67ee49f80d3a5492404e8ba885e40b7ed0e19a9c453e5e40da254c833e15b",
+  "new_gold_test_sha256": "33dc00f8c0cbe2bbf095c9236da32f74ea3ccc87a97f995b05005f999a8028ba",
+  "additive_delta_sha256": "81538919554f0c1ed6aba6250b61bb6188aad0256bc78833eea456e1b0f684ad",
+  "interim_resolver_sha256": "8fdf93d10cd0e4178c0942206bf14598688672d4b0fea795572a6e044aa882bf",
+  "original_23_methods_unchanged": true,
+  "added_methods": [
+    "test_validate_cli_missing_inputs_returns_structured_failure",
+    "test_rejects_overflow_numeric_in_unused_decision_metadata"
+  ],
+  "reason": "Root and executor pre-audit review identified CLI strict resolution outside structured failure handling and numeric overflow to nonfinite float despite parse_constant. Additive tiny fixtures strengthen the already contracted invalid-input behavior. Original RED and 23-test gold remain immutable; this is not an audit repair cycle or a changed expected outcome.",
+  "expected_review_red": "Missing CLI paths may currently raise FileNotFoundError (record as errors, not semantic RED); overflow with matching decision hash must be FAIL but currently may PASS. The original eight-method semantic RED remains the implementation gate evidence.",
+  "budgets_unchanged": true
+}

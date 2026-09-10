@@ -1,0 +1,28 @@
+{
+  "schema_version": "1.0",
+  "status": "passed",
+  "command": [
+    "/opt/homebrew/opt/python@3.14/bin/python3.14",
+    "-I",
+    "-B",
+    "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/design/local-memory-v1-hardening/runs/f05b-root-collateral-run.v1.py",
+    "focused",
+    "f05b-root-final-focused-001",
+    "--worker"
+  ],
+  "cwd": "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ",
+  "started_at": "2026-09-09T02:47:45.876143+00:00",
+  "timeout_seconds": 30,
+  "max_log_bytes": 1048576,
+  "repository_import_root": "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ",
+  "safety_scope": "preflight-approved synthetic tests; not an OS sandbox",
+  "exit_code": 0,
+  "elapsed_seconds": 0.544525,
+  "tests_reported": 13,
+  "skipped_reported": 0,
+  "expected_failures_reported": 0,
+  "log_path": "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/design/local-memory-v1-hardening/runs/f05b-root-final-focused-001/unittest.log",
+  "log_bytes": 2329,
+  "log_sha256": "b4aa05da9016afcf6e4b8a851fd195bafb96525f252cf724d0ee7d937409958c",
+  "finished_at": "2026-09-09T02:47:46.420950+00:00"
+}

@@ -1,0 +1,7 @@
+test_early_validation_failure_preserves_existing_lineage (f18_target.ImmutableLineageValidationTests.test_early_validation_failure_preserves_existing_lineage) ... ok
+test_initial_publisher_never_overwrites_existing_artifacts (f18_target.ImmutableLineageValidationTests.test_initial_publisher_never_overwrites_existing_artifacts) ... ok
+
+----------------------------------------------------------------------
+Ran 2 tests in 0.002s
+
+OK

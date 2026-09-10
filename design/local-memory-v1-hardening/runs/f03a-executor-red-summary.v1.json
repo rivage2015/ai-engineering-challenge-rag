@@ -1,0 +1,23 @@
+{
+  "schema_version": "1.0",
+  "task_id": "lms-v1-00-hardening-2026-09-09-f03a",
+  "status": "preimplementation_red_reproduced_not_acceptance",
+  "resolver_sha256": "9a7443862c015ed768007ef5a7b21bd3bc197c9bb7a3d7ed2f7b39b33374359d",
+  "frozen_test_sha256": "cba73b1f99a5fb5ce306e5e71f0aad0b44579ad109189d79e626e89d494d06ea",
+  "run": "design/local-memory-v1-hardening/runs/f03a-executor-red-pure-001/result.json",
+  "log": "design/local-memory-v1-hardening/runs/f03a-executor-red-pure-001/unittest.log",
+  "log_sha256": "a73d384bf82713c25edc15c4ff2e6d3ac07652061b76c6f0f16f4c66224d6931",
+  "exit_code": 1,
+  "methods_run": 19,
+  "required_acceptance_and_control_methods": 17,
+  "residual_witness_methods": 2,
+  "failure_entries_including_subtests": 19,
+  "errors": 0,
+  "skips": 0,
+  "elapsed_seconds": 0.061814,
+  "log_bytes": 11794,
+  "synthetic_fixture_bytes": 18462,
+  "observed_failures": "Signal-free candidates None; groups absent; later unmarked peer omitted and Human choice retained; mixed guard reason absent; metadata old. Existing all-marked and no-group controls and residual witnesses pass. Four-subtest methods account for failure entries exceeding failed method count.",
+  "parent_gate": "Root app RED four FAIL/zero ERROR saved before this run; parent explicitly released product implementation gate once pure RED and before snapshots were saved. No product edit occurred before both RED records.",
+  "next": "Implement only frozen task-authorized minimal resolver change and existing version identity assertion. Preserve all tests, gold and RED records unchanged."
+}

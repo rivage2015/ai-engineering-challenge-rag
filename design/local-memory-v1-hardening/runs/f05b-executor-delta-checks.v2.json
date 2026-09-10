@@ -1,0 +1,150 @@
+{
+  "schema_version": "1.0",
+  "status": "all_11_read_only_reverse_checks_passed",
+  "correction": "v1 three diff files accidentally trimmed trailing space-only context lines; v1 records retained. v2 copies retain exact diff bytes. Product/test sources unchanged by checks.",
+  "deltas": [
+    {
+      "id": "resolver",
+      "path": "distribution/macos-local-memory/engine/document_version_resolver.py",
+      "before": "design/local-memory-v1-hardening/runs/f05b-executor-before-resolver.v1.py",
+      "delta": "design/local-memory-v1-hardening/runs/f05b-executor-resolver-delta.v1.diff",
+      "reverse_check": {
+        "chunk_id": "a3d228",
+        "wall_time_seconds": 0.000003333,
+        "exit_code": 0,
+        "original_token_count": 0,
+        "output": ""
+      }
+    },
+    {
+      "id": "reader",
+      "path": "distribution/macos-local-memory/engine/build_adaptive_semantic_graph.py",
+      "before": "design/local-memory-v1-hardening/runs/f05b-executor-before-reader.v1.py",
+      "delta": "design/local-memory-v1-hardening/runs/f05b-executor-reader-delta.v1.diff",
+      "reverse_check": {
+        "chunk_id": "fa8ec0",
+        "wall_time_seconds": 0.00000275,
+        "exit_code": 0,
+        "original_token_count": 0,
+        "output": ""
+      }
+    },
+    {
+      "id": "validator",
+      "path": "distribution/macos-local-memory/engine/validate_adaptive_semantic_graph.py",
+      "before": "design/local-memory-v1-hardening/runs/f05b-executor-before-validator.v1.py",
+      "delta": "design/local-memory-v1-hardening/runs/f05b-executor-validator-delta.v2.diff",
+      "reverse_check": {
+        "chunk_id": "bf18de",
+        "wall_time_seconds": 0.0000025,
+        "exit_code": 0,
+        "original_token_count": 0,
+        "output": ""
+      }
+    },
+    {
+      "id": "projector",
+      "path": "distribution/macos-local-memory/engine/build_local_semantic_index.py",
+      "before": "design/local-memory-v1-hardening/runs/f05b-executor-before-projector.v1.py",
+      "delta": "design/local-memory-v1-hardening/runs/f05b-executor-projector-delta.v1.diff",
+      "reverse_check": {
+        "chunk_id": "6c435e",
+        "wall_time_seconds": 0.000006625,
+        "exit_code": 0,
+        "original_token_count": 0,
+        "output": ""
+      }
+    },
+    {
+      "id": "bootstrap",
+      "path": "distribution/macos-local-memory/app/bootstrap.py",
+      "before": "design/local-memory-v1-hardening/runs/f05b-executor-before-bootstrap.v1.py",
+      "delta": "design/local-memory-v1-hardening/runs/f05b-executor-bootstrap-delta.v1.diff",
+      "reverse_check": {
+        "chunk_id": "d23e6a",
+        "wall_time_seconds": 0.000003666,
+        "exit_code": 0,
+        "original_token_count": 0,
+        "output": ""
+      }
+    },
+    {
+      "id": "resolver-test",
+      "path": "distribution/macos-local-memory/tests/test_document_version_resolver.py",
+      "before": "design/local-memory-v1-hardening/runs/f05b-executor-before-resolver-test.v1.py",
+      "delta": "design/local-memory-v1-hardening/runs/f05b-executor-resolver-test-delta.v2.diff",
+      "reverse_check": {
+        "chunk_id": "587cb9",
+        "wall_time_seconds": 0.000002875,
+        "exit_code": 0,
+        "original_token_count": 0,
+        "output": ""
+      }
+    },
+    {
+      "id": "e2e-test",
+      "path": "distribution/macos-local-memory/tests/test_versioned_safe_index_e2e.py",
+      "before": "design/local-memory-v1-hardening/runs/f05b-executor-before-e2e-test.v1.py",
+      "delta": "design/local-memory-v1-hardening/runs/f05b-executor-e2e-test-delta.v1.diff",
+      "reverse_check": {
+        "chunk_id": "fb6144",
+        "wall_time_seconds": 0.000002459,
+        "exit_code": 0,
+        "original_token_count": 0,
+        "output": ""
+      }
+    },
+    {
+      "id": "migration-test",
+      "path": "distribution/macos-local-memory/tests/test_reader_generation_migration.py",
+      "before": "design/local-memory-v1-hardening/runs/f05b-executor-before-migration-test.v1.py",
+      "delta": "design/local-memory-v1-hardening/runs/f05b-executor-migration-test-delta.v1.diff",
+      "reverse_check": {
+        "chunk_id": "9b9086",
+        "wall_time_seconds": 0.000002875,
+        "exit_code": 0,
+        "original_token_count": 0,
+        "output": ""
+      }
+    },
+    {
+      "id": "lineage-test",
+      "path": "tests/test_immutable_lineage_validation.py",
+      "before": "design/local-memory-v1-hardening/runs/f05b-executor-before-lineage-test.v1.py",
+      "delta": "design/local-memory-v1-hardening/runs/f05b-executor-lineage-test-delta.v2.diff",
+      "reverse_check": {
+        "chunk_id": "dcd0e5",
+        "wall_time_seconds": 0.000002334,
+        "exit_code": 0,
+        "original_token_count": 0,
+        "output": ""
+      }
+    },
+    {
+      "id": "runtime-test",
+      "path": "distribution/macos-local-memory/tests/test_runtime_recovery.py",
+      "before": "design/local-memory-v1-hardening/runs/f05b-executor-before-runtime-test.v1.py",
+      "delta": "design/local-memory-v1-hardening/runs/f05b-executor-runtime-test-delta.v1.diff",
+      "reverse_check": {
+        "chunk_id": "54c86e",
+        "wall_time_seconds": 0.000004667,
+        "exit_code": 0,
+        "original_token_count": 0,
+        "output": ""
+      }
+    },
+    {
+      "id": "gate-test",
+      "path": "tests/test_version_graph_validation_e2e.py",
+      "before": "design/local-memory-v1-hardening/runs/f05b-executor-before-gate-test.v1.py",
+      "delta": "design/local-memory-v1-hardening/runs/f05b-executor-gate-test-delta.v1.diff",
+      "reverse_check": {
+        "chunk_id": "13892b",
+        "wall_time_seconds": 0.000002708,
+        "exit_code": 0,
+        "original_token_count": 0,
+        "output": ""
+      }
+    }
+  ]
+}

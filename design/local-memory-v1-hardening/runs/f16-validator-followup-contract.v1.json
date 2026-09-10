@@ -1,0 +1,29 @@
+{
+  "schema_version": "1.0",
+  "task_id": "lms-v1-00-hardening-2026-09-09-f16-validator",
+  "status": "planned_not_implemented",
+  "purpose": "Close the separate Path Validator source-read boundary after the descriptor-bound builder is audited; do not treat builder-only success as end-to-end safety.",
+  "observed_current_defects": [
+    "validate_path_graph.validate reads graph.source_universe.scope without an independent expected-root argument.",
+    "It uses root/relative lstat then pathname sha256_file reopen. Unsafe relative paths and intermediate symlinks can leave the selected root.",
+    "It only revisits supplied inventory paths, rather than independently enumerating the current path set; new paths are not discovered.",
+    "bootstrap Reader resource contract does not currently hash Path builder/validator code. No retrospective migration assurance is justified."
+  ],
+  "proposed_bounded_changes": [
+    "Require explicit caller source-root context for source verification; refuse missing/mismatched graph scope before reading any source paths. Update normal bootstrap invocation and directly affected synthetic tests.",
+    "Reject malformed, absolute, parent-traversal and noncanonical inventory paths before source IO. Preserve duplicates as errors, not last-wins dictionaries.",
+    "Use descriptor-bound no-follow source observation for current path/hash verification. If common low-level builder IO primitives are reused, state that code reuse is not independent algorithmic proof; keep independently asserted gold fixtures and separate graph/coverage checks.",
+    "Compare current complete path inventory to the submitted inventory and retain explicit failure on detected changes. Do not silently change, rehash or republish submitted graph artifacts.",
+    "Include Path builder/validator code in the Reader generation resource identity so explicit rebuild migration is signaled; preserve existing migration policy unless a separate F13 contract changes answer-time gating."
+  ],
+  "test_contract": {
+    "sources": "Only tiny temporary canonical roots and synthetic canaries outside each fixture root but inside the owned temporary directory.",
+    "cases": ["missing/wrong explicit root", "absolute and parent-traversal inventory", "leaf/intermediate symlink replacement", "same-inode/size mutation", "new/missing source paths", "duplicate inventory records", "valid root and graph accepted", "no original/graph/output mutation", "bootstrap integration and resource-identity drift"],
+    "wall_seconds_per_suite": 30,
+    "log_bytes": 1048576,
+    "fixture_bytes": 1048576,
+    "model_network_gui_credentials": "forbidden"
+  },
+  "dependencies": ["F16 builder source/audit freeze", "F01/F07 final audit freeze before editing shared bootstrap", "Assigned file ownership and fresh source hashes before implementation"],
+  "non_claims": ["No atomic global filesystem snapshot", "No actual source verification without explicit root authority", "No whole-tree CPU/memory/deadline certification", "No automatic rebuild or models/downloads", "No guaranteed answer-time freshness after validation"]
+}

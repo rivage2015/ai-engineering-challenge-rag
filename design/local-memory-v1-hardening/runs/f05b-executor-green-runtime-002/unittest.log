@@ -1,0 +1,9 @@
+test_build_switches_to_storage_copy_only_after_base_is_ready (f05b_target.RuntimeRecoveryTests.test_build_switches_to_storage_copy_only_after_base_is_ready) ... ok
+test_build_honors_storage_disable_change_during_registration (f05b_target.RuntimeRecoveryTests.test_build_honors_storage_disable_change_during_registration) ... ok
+test_clean_first_build_rebuilds_semantic_after_gemma_pull (f05b_target.RuntimeRecoveryTests.test_clean_first_build_rebuilds_semantic_after_gemma_pull) ... ok
+test_shadow_orchestrator_exception_does_not_abort_main_index (f05b_target.RuntimeRecoveryTests.test_shadow_orchestrator_exception_does_not_abort_main_index) ... ok
+
+----------------------------------------------------------------------
+Ran 4 tests in 0.184s
+
+OK

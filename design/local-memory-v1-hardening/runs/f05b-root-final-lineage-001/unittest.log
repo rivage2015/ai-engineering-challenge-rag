@@ -1,0 +1,13 @@
+test_binary_source_holds_the_whole_fan_in (f18_target.SemanticLineageRelationTests.test_binary_source_holds_the_whole_fan_in) ... ok
+test_cycle_guard_rejects_self_loop_and_multi_node_cycle (f18_target.SemanticLineageRelationTests.test_cycle_guard_rejects_self_loop_and_multi_node_cycle) ... ok
+test_derived_or_source_shards_hold_until_projection_anchor_exists (f18_target.SemanticLineageRelationTests.test_derived_or_source_shards_hold_until_projection_anchor_exists) ... ok
+test_full_validator_publishes_only_after_pass (f18_target.SemanticLineageRelationTests.test_full_validator_publishes_only_after_pass) ... ok
+test_native_section_contains_requires_real_heading_evidence (f18_target.SemanticLineageRelationTests.test_native_section_contains_requires_real_heading_evidence) ... ok
+test_tampered_binding_missing_and_cross_document_fail_closed (f18_target.SemanticLineageRelationTests.test_tampered_binding_missing_and_cross_document_fail_closed) ... ok
+test_unsharded_table_row_promotes_exact_stable_fan_in (f18_target.SemanticLineageRelationTests.test_unsharded_table_row_promotes_exact_stable_fan_in) ... ok
+test_validator_rejects_mixed_search_run_timestamps (f18_target.SemanticLineageRelationTests.test_validator_rejects_mixed_search_run_timestamps) ... ok
+
+----------------------------------------------------------------------
+Ran 8 tests in 0.125s
+
+OK

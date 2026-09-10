@@ -1,0 +1,19 @@
+{
+  "task_id": "local-memory-v1-f05b-snapshot-complete-selection",
+  "schema_check": {
+    "status": "strict_schema_references_and_summary_valid_not_semantic_verdict",
+    "artifact_sha256": "721db8b316bd22101ddcc9738d4006684eb50d9270af4a05e64c6b58af73b987",
+    "report_sha256": "97ced4820a4c5fd513aa329b2e465592011a6a15dcba269b6ba49da411eb3118",
+    "checker_sha256": "6d54c15febcff393937ef633c3b8ce60b30f53b01616b57024f1c60408d23f2f",
+    "schema_sha256": "2fd79cfbc8ab474c162d9b4ff7d8f05998d8646ae3f402d0da6b921c2a53877c",
+    "checks": 15,
+    "covered_nodes": 7,
+    "covered_edges": 5,
+    "exit_code": 0
+  },
+  "ruby_check": {
+    "exit_code": 0,
+    "stdout": "VALID: audit report is structurally and referentially consistent"
+  },
+  "scope": "Shape, hashes, references and summary checks only; not independent semantic acceptance."
+}

@@ -1,0 +1,86 @@
+{
+  "schema_version": "1.0",
+  "task_id": "lms-v1-00-hardening-2026-09-09-directory-hash-order",
+  "artifact_version": 1,
+  "audit_repair_round": 0,
+  "executor": "root",
+  "status": "ready_for_independent_audit",
+  "self_approved": false,
+  "changes": "directory_hashes sorts by actual hierarchy depth, treating root '.' as0 and other relative paths by number of components. Only the depth expression and2 comment lines change; current unreleased builder version remains0.3.0 and inventoryschema1.1.",
+  "before_source_sha256": "caa1c98d02190c18c4fad6cd354a812dc4b06d86d99768773b6169cd2b18d0db",
+  "after_source_sha256": "b29031b8a0ae594bda762795bb6bc79a7080ea8cfe0a147118accf374be94839",
+  "tests_sha256": "9b1735f527e5cfae22f309cafdcd8e2251800db6254e48f24fb9e5f509842821",
+  "runs": [
+    {
+      "id": "f16-dirhash-001-red",
+      "status": "failed",
+      "tests": 6,
+      "skips": 0,
+      "elapsed_seconds": 0.058931,
+      "result_path": "artifacts/local-memory-v1-hardening/runs/f16-dirhash-001-red/result.json",
+      "log_sha256": "235e24d3aea30c16fc16a68bdc0cf3de907e7303f5cf5ca1fd77f3218faa8ac3"
+    },
+    {
+      "id": "f16-dirhash-002-green",
+      "status": "passed",
+      "tests": 6,
+      "skips": 0,
+      "elapsed_seconds": 0.052592,
+      "result_path": "artifacts/local-memory-v1-hardening/runs/f16-dirhash-002-green/result.json",
+      "log_sha256": "0c0869d2ce86f007da3cb1d4dac63954e28e8ae36a1b379165b4e79bedf4d8b5"
+    },
+    {
+      "id": "f16-dirhash-003-builder",
+      "status": "passed",
+      "tests": 19,
+      "skips": 0,
+      "elapsed_seconds": 0.141228,
+      "result_path": "artifacts/local-memory-v1-hardening/runs/f16-dirhash-003-builder/result.json",
+      "log_sha256": "b3cab8e86cd08177cc6251f5823444fd52ecc33df4e9f706253fd43f8c338c59"
+    },
+    {
+      "id": "f16-dirhash-004-validator",
+      "status": "passed",
+      "tests": 18,
+      "skips": 0,
+      "elapsed_seconds": 0.173536,
+      "result_path": "artifacts/local-memory-v1-hardening/runs/f16-dirhash-004-validator/result.json",
+      "log_sha256": "62c72e156a377edf0e0d7016523284812997db433f4142278cc5cb6fad683609"
+    },
+    {
+      "id": "f16-dirhash-005-e2e",
+      "status": "passed",
+      "tests": 15,
+      "skips": 0,
+      "elapsed_seconds": 1.643183,
+      "result_path": "artifacts/local-memory-v1-hardening/runs/f16-dirhash-005-e2e/result.json",
+      "log_sha256": "c9e1b3173e056481152748a893edc2402c5a92aa6c9c30898f1b1242e7ab0ec5"
+    },
+    {
+      "id": "f16-dirhash-006-migration",
+      "status": "passed",
+      "tests": 15,
+      "skips": 0,
+      "elapsed_seconds": 0.49212,
+      "result_path": "artifacts/local-memory-v1-hardening/runs/f16-dirhash-006-migration/result.json",
+      "log_sha256": "962ce5ee52449f93d98c695b0942c7168bb177f8690460a066b59ae7bff55aef"
+    },
+    {
+      "id": "f16-dirhash-007-green39",
+      "status": "passed",
+      "tests": 6,
+      "skips": 0,
+      "elapsed_seconds": 0.047143,
+      "result_path": "artifacts/local-memory-v1-hardening/runs/f16-dirhash-007-green39/result.json",
+      "log_sha256": "1fd896d70fbf5fe3b550fb9233e49cd03fbaf100abc4699c285cc2f23ea132b2"
+    }
+  ],
+  "safety": "Inspected6 pure-record exact golds and reused accepted synthetic suites. All runs fresh30s/1MiB supervisor. No user originals/index/model/GUI/network/credentials; E2E/related wrappers keep synthetic runtime/modelguards.",
+  "limits": [
+    "No signedauthenticity, atomic filesystem snapshot, all resource budgets or fullgraph policy proof.",
+    "New rootdigests differ for graphs containing directories; code identity signals migration, no existing publishedgeneration changed.",
+    "Directory/source/Validator/function tests only; no realmodels/native GUI/package acceptance.",
+    "Previously completed F16 builder repair1 and Validator snapshot accepted separately. This is a new preexisting digest-correctness issue, not a relabeling of their requiredfailures."
+  ],
+  "rollback": "Reverse only actualdepth expression and2 explanatory comments plus6testfile ifrequired; keep descriptor/no-follow andexplicitRootValidator changes."
+}

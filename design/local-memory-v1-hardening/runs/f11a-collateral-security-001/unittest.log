@@ -1,0 +1,8 @@
+test_partial_exclusion_holds_mixed_fan_in_atomically (f18_target.SecurityGraphPartitionTests)
+Only complete safe fan-ins may reach the answer graph. ... ok
+F05b explicit fixture budget: {"explicit_test_bytes": 5370, "explicit_test_writes": 3, "max_source_fixture_bytes": 5033, "source_fixture_count": 1}
+
+----------------------------------------------------------------------
+Ran 1 test in 0.285s
+
+OK

@@ -1,0 +1,30 @@
+--- tests/test_version_graph_reconstruction.py
++++ tests/test_version_graph_reconstruction.py
+@@ -425,6 +425,27 @@
+                 self.assertEqual(expected, resolver.main())
+             self.assertEqual("PASS" if expected == 0 else "FAIL", json.loads(captured.getvalue())["status"])
+ 
++    def test_validate_cli_missing_inputs_returns_structured_failure(self):
++        self.fixture()
++        for graph_path, inventory_path in ((self.base / "missing-graph.json", self.inventory),
++                                           (self.graph_path, self.base / "missing-inventory.jsonl")):
++            argv = ["resolver", "validate", "--graph", str(graph_path), "--inventory", str(inventory_path)]
++            with self.subTest(argv=argv), mock.patch.object(sys, "argv", argv), contextlib.redirect_stdout(io.StringIO()) as captured:
++                self.assertEqual(1, resolver.main())
++                self.assertEqual("FAIL", json.loads(captured.getvalue())["status"])
+ 
++    def test_rejects_overflow_numeric_in_unused_decision_metadata(self):
++        graph = self.choose(self.fixture())
++        original = self.decisions.read_bytes()
++        for numeric in ("1e309", "-1e309"):
++            with self.subTest(numeric=numeric):
++                # An unused field still belongs to the strict parsed snapshot.
++                raw = original[:-1] + b',"overflow":' + numeric.encode("ascii") + b'}'
++                self.write(self.decisions, raw, 8192)
++                graph["source"]["decisions_sha256"] = hashlib.sha256(raw).hexdigest()
++                self.save(graph)
++                self.rejects(self.decisions)
++
++
+ if __name__ == "__main__":
+     unittest.main(verbosity=2)

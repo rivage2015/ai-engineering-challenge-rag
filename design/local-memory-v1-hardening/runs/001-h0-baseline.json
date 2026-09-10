@@ -1,0 +1,24 @@
+{
+  "phase": "H0",
+  "status": "partial_baseline",
+  "scope": "Focused existing synthetic tests; not full application acceptance",
+  "results": [
+    {
+      "command": "rag/.venv/bin/python -B -m unittest discover -s distribution/macos-local-memory/tests -p test_document_version_resolver.py -v",
+      "exit_code": 0,
+      "tests": 11,
+      "seconds_reported": 1.107,
+      "observations": "Existing assertions pass despite known F01/F07 gap. Reader build fingerprint may probe loopback Ollama metadata. No inference performed."
+    },
+    {
+      "chunk_id": "216f7b",
+      "wall_time_seconds": 0.000005,
+      "exit_code": 0,
+      "original_token_count": 81,
+      "output": "test_any_truncated_input_fails_before_index_publication (test_local_index_no_truncation.LocalIndexNoTruncationTests) ... ok\ntest_complete_inputs_are_accepted (test_local_index_no_truncation.LocalIndexNoTruncationTests) ... ok\n\n----------------------------------------------------------------------\nRan 2 tests in 0.000s\n\nOK\n",
+      "command": "rag/.venv/bin/python -B -m unittest discover -s tests -p test_local_index_no_truncation.py -v",
+      "tests": 2
+    }
+  ],
+  "next": "Keep future E2E inference and fingerprint metadata stubbed; add failing contract cases before product repair."
+}

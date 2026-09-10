@@ -1,0 +1,9 @@
+test_all_mixed_candidates_held_does_not_replace_prior_config_or_index (f03a_root_app_tests.UnmarkedVersionApplicationTests.test_all_mixed_candidates_held_does_not_replace_prior_config_or_index) ... ok
+test_full_set_human_choice_can_publish_unmarked_member (f03a_root_app_tests.UnmarkedVersionApplicationTests.test_full_set_human_choice_can_publish_unmarked_member) ... ok
+test_unmarked_addition_invalidates_prior_bound_marked_choice (f03a_root_app_tests.UnmarkedVersionApplicationTests.test_unmarked_addition_invalidates_prior_bound_marked_choice) ... ok
+test_year_and_unmarked_hold_without_suppressing_unrelated_contact (f03a_root_app_tests.UnmarkedVersionApplicationTests.test_year_and_unmarked_hold_without_suppressing_unrelated_contact) ... ok
+
+----------------------------------------------------------------------
+Ran 4 tests in 0.580s
+
+OK

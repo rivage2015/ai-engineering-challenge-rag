@@ -1,0 +1,44 @@
+{
+  "role": "same-model further separate-context static subreview",
+  "agent": "/root/f18_independent_audit/caller_readonly_review",
+  "status": "no F18 blocker found",
+  "scope": [
+    "BOOTSTRAP",
+    "PROJECTOR",
+    "CALLERS",
+    "CALLER_PATCH"
+  ],
+  "source_hashes_match": true,
+  "all_six_compatibility_before_and_after_hashes_match": true,
+  "method": "Independent reversal of the six-file patch in memory; no repository imports, tests or writes.",
+  "findings": [
+    "Bootstrap initialization follows mkdir(exist_ok=False), with separate initial and model-ready paths before publication.",
+    "Projector default validation propagates failure before saved-state use, graph transaction and final index replacement.",
+    "Exactly eleven initial-call flags; deletion expectations become preservation checks; all other assertions retain their semantics."
+  ],
+  "source_lines": {
+    "bootstrap": [
+      794,
+      2165,
+      3679,
+      3709
+    ],
+    "projector": [
+      860,
+      861,
+      865,
+      869,
+      1997,
+      2039,
+      2762
+    ],
+    "lineage_tests": [
+      593,
+      664
+    ]
+  },
+  "limits": [
+    "Unchanged ordinary path rereads after validation remain outside the F18 concurrency guarantee.",
+    "Static review only; not formal self-approval by executor."
+  ]
+}

@@ -1,0 +1,88 @@
+{
+  "status": "prepared_read_only_not_executed_not_repair_approval",
+  "scope": "NEW diagnosis, in-memory literal regression gold, byte-exact proposed index before snapshot; all eleven product sources unchanged",
+  "source_verification": "shasum of the ten frozen F11a products matches f11a-executor-coherent.v1.json; cmp of index and new before snapshot exited 0",
+  "tests_run": [],
+  "expected_before_result": "static prediction only: 9 methods, 4 semantic FAIL methods (8 failed subtest/assertion checks), 5 PASS, 0 ERROR/SKIP; missing API or TypeError is not semantic RED",
+  "required_next_gate": "Root full gold and runner read before any run; explicit scope addendum before three exact producer-version additions in index",
+  "files": [
+    {
+      "source_id": "diagnosis",
+      "path": "design/local-memory-v1-hardening/runs/f11a-app-regression-diagnosis.v1.md",
+      "sha256": "8895ea3630370bfb782c0c53c07ffe4346614982c532550ce8cfecaf13d6d440"
+    },
+    {
+      "source_id": "new-gold",
+      "path": "design/local-memory-v1-hardening/runs/f11a-app-regression-gold.v1.py",
+      "sha256": "55dc6665d9fbfc9bd6721898ea7be73606560f8a7d0e2fc61e9a05839c222296"
+    },
+    {
+      "source_id": "index-before",
+      "path": "design/local-memory-v1-hardening/runs/f11a-app-regression-before-index.v1.py",
+      "sha256": "95b44b327fb0e0c1e747c9d244b077950ebf5b61dd0a8bf56b33b1a6c0e163da"
+    },
+    {
+      "source_id": "index-current",
+      "path": "distribution/macos-local-memory/engine/build_local_semantic_index.py",
+      "sha256": "95b44b327fb0e0c1e747c9d244b077950ebf5b61dd0a8bf56b33b1a6c0e163da"
+    },
+    {
+      "source_id": "probe",
+      "path": "scripts/probe_intermediate_records.py",
+      "sha256": "5a3c443a76f02b198367c036017967a33a75f22ec0826091ab5c8b54a988baa4"
+    },
+    {
+      "source_id": "managed",
+      "path": "scripts/build_intermediate_records.py",
+      "sha256": "8d9dd31a7acba7d6b8f3e5a841b86565ea3e6e85d932fa08f77e3f3641ae59dd"
+    },
+    {
+      "source_id": "intermediate-native",
+      "path": "scripts/validate_intermediate_records.py",
+      "sha256": "1b64c531e061c2faabef0aa912fab66a006b925755c9c60872261fe5ee5f9c46"
+    },
+    {
+      "source_id": "intermediate-stream",
+      "path": "scripts/validate_intermediate_records_streaming.py",
+      "sha256": "db5d5e92518ce1c919dda2c796551adcb2646e2305a2c70b38df578ff9229199"
+    },
+    {
+      "source_id": "search-builder",
+      "path": "scripts/build_search_units.py",
+      "sha256": "08d768bcc772c8d16c82d973d7cb8b212a1ee4bb1d8469bec5063e3707e0167b"
+    },
+    {
+      "source_id": "search-native",
+      "path": "scripts/validate_search_units.py",
+      "sha256": "34b949755780e5699e549320730127af486f232c09dae724275ae36a855121f7"
+    },
+    {
+      "source_id": "search-stream",
+      "path": "scripts/validate_search_units_streaming.py",
+      "sha256": "cfdbfaedaf7557cb5f09c16f6be4020a32cd4fd6ea8d918858dab93d1a57173a"
+    },
+    {
+      "source_id": "evidence-schema",
+      "path": "schemas/evidence.schema.json",
+      "sha256": "030fea7251578e6a1c57934b595a457294ab7281c38e93779a097d3dca0a4899"
+    },
+    {
+      "source_id": "search-schema",
+      "path": "schemas/search-unit.schema.json",
+      "sha256": "b0bc29b9e9252bd35ac553ca428e679b8e664d8a353ff6d40d56e90c4375e776"
+    },
+    {
+      "source_id": "adaptive-validator",
+      "path": "distribution/macos-local-memory/engine/validate_adaptive_semantic_graph.py",
+      "sha256": "c2587b685d06a1e8d1ec006bb2577be47168a0c14b072a22b3a90878c30563e3"
+    }
+  ],
+  "runs": [],
+  "isolated_deltas": [],
+  "limitations": [
+    "Pure graph-side predicates/support validation only; root app gold remains source-bound pipeline control",
+    "Original F11a v1 errors/results/snapshots/gold retained immutable",
+    "Separate image regression not diagnosed here",
+    "F11b remains open"
+  ]
+}

@@ -1,0 +1,26 @@
+{
+  "schema_version": "1.0",
+  "status": "passed",
+  "command": [
+    "/opt/homebrew/opt/python@3.14/bin/python3.14",
+    "-I",
+    "-B",
+    "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/design/local-memory-v1-hardening/runs/f18-adversarial-holdouts.v1.py",
+    "--worker"
+  ],
+  "cwd": "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ",
+  "started_at": "2026-09-08T21:35:53.600815+00:00",
+  "timeout_seconds": 30,
+  "max_log_bytes": 1048576,
+  "repository_import_root": "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ",
+  "safety_scope": "preflight-approved synthetic tests; not an OS sandbox",
+  "exit_code": 0,
+  "elapsed_seconds": 0.30724,
+  "tests_reported": 8,
+  "skipped_reported": 0,
+  "expected_failures_reported": 0,
+  "log_path": "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/design/local-memory-v1-hardening/runs/f18-adversarial-001-holdouts/unittest.log",
+  "log_bytes": 1512,
+  "log_sha256": "29012c9225c5617613aebcdb8a0bcd5528fe152f5b838df9cc1aa1bb65704f10",
+  "finished_at": "2026-09-08T21:35:53.908517+00:00"
+}

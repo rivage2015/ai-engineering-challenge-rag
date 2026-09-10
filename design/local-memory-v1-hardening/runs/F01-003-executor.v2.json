@@ -1,0 +1,106 @@
+{
+  "schema_version": "1.0",
+  "task_id": "lms-v1-00-hardening-2026-09-09-f01-f07",
+  "executor": "fix_version_lineage",
+  "status": "awaiting_separate_reaudit",
+  "same_request_repair_round": 1,
+  "maximum_repair_rounds": 2,
+  "responds_to": "design/local-memory-v1-hardening/runs/f01-f07-audit-report.v1.json",
+  "required_check": "F01F07-A05",
+  "previous_executor_record": "design/local-memory-v1-hardening/runs/F01-002-executor.json",
+  "base_commit": "79a69260fb1a42efb3c0e2c0093ed6101470f2a1",
+  "product_acceptance": "not_evaluated",
+  "scope": {
+    "owned_source_and_test_files": [
+      "distribution/macos-local-memory/app/bootstrap.py",
+      "distribution/macos-local-memory/engine/build_local_semantic_index.py",
+      "distribution/macos-local-memory/engine/validate_adaptive_semantic_graph.py",
+      "distribution/macos-local-memory/tests/test_versioned_safe_index_e2e.py",
+      "distribution/macos-local-memory/tests/test_reader_generation_migration.py"
+    ],
+    "validator_scope_expansion": "Parent explicitly approved returning the verified local version binding in the Validator report, without changing F18 artifact mutation or version semantics.",
+    "changed_in_this_round": ["build_local_semantic_index.py", "validate_adaptive_semantic_graph.py", "test_versioned_safe_index_e2e.py"],
+    "unchanged": ["version selection semantics", "F18 lineage publication behavior", "user dirty build/docs files", "all prior audit and execution records"],
+    "committed": false,
+    "production_state_changed": false
+  },
+  "source_hashes": {
+    "distribution/macos-local-memory/app/bootstrap.py": "0856989a86d2be19cb0761fee51e10da3aa7c8694ecde9c4e128d725c0d7081a",
+    "distribution/macos-local-memory/engine/build_local_semantic_index.py": "2bfaf8174e8249087d720e49070c9812ce9ecf93b21dd5276f057e145965dfb2",
+    "distribution/macos-local-memory/engine/validate_adaptive_semantic_graph.py": "1a3aff494b724882a600adc6978fda3e0f3955da6e2f11291180a92d7f898e1a",
+    "distribution/macos-local-memory/tests/test_versioned_safe_index_e2e.py": "b0aa7aac97f068f8d795a190d7465ab13a84c1dc4ade5b29cc2589d822cc1f4d",
+    "distribution/macos-local-memory/tests/test_reader_generation_migration.py": "3ea1d0281b000a4c93ce51b62262cfd78eb348d8398bc73cf48eadb34c97d0ad"
+  },
+  "observed_shared_reader_hash": "db73270807c3e976fb51f38ff51cc6cd40dd7c0ef3c2d6954fc1f924acd8ab3d",
+  "repair": [
+    "Reader Validator returns a newly constructed document_version_graph value containing the explicit resolved input path and only the two hashes verified in that invocation. Legacy unversioned input returns explicit null. No later file reread and no unchecked extra producer keys enter this result.",
+    "_attest_lineage_context requires that field in the actual Validator report, detaches it, and returns it separately from the unchanged strict lineage validation state. The two internal caller paths unpack the wrapper; no public caller was found to consume the old helper success value.",
+    "Security attestation and graph projection forward the detached snapshot. SQLite metadata now uses graph_report.document_version_graph, removing the post-probe adaptive-reader-state.json reread.",
+    "A permanent test temporarily swaps producer state at the embedding-space probe after attestation, restores it before app publication, and requires published/current metadata to equal the original attested binding. A second test rejects an old PASS report that lacks an explicit version-binding field."
+  ],
+  "compatibility_inspection": [
+    "rg found two production _attest_lineage_context callers; both were updated. Existing test direct calls only exercised rejection.",
+    "Call sites of validate_adaptive_semantic_graph.validate inspect report status, counts or validation success. No strict complete-field comparison of the Reader return report was found in the searched source/tests. The strict semantic-lineage-validation.json fieldset and stored artifact shape are unchanged.",
+    "The report addition is additive. Legacy null was exercised in the full suite and repeated on Python 3.9. Unknown/missing binding attestation is not silently coerced to legacy null.",
+    "The full related lineage and Reader migration regressions were rerun through the guarded synthetic in-process CLI dispatcher."
+  ],
+  "tests": [
+    {
+      "phase": "RED-new-permanent-counterexample",
+      "result": "artifacts/local-memory-v1-hardening/runs/f01-f07-repair1-red-001/result.json",
+      "tests": 1, "skips": 0, "exit_code": 1,
+      "elapsed_seconds": 0.274495,
+      "log_sha256": "39856eeba0fa7aef4c587b8f9bbe0389551cee17f665d044f4cc7e1f20c64e68"
+    },
+    {
+      "phase": "GREEN-full-focused",
+      "result": "artifacts/local-memory-v1-hardening/runs/f01-f07-repair1-green-002/result.json",
+      "tests": 15, "skips": 0, "exit_code": 0,
+      "elapsed_seconds": 1.636621,
+      "log_sha256": "dc25f09c134a7b6f728104b7e99c13b7a9569cbbae5cca4efcaa464947788d64"
+    },
+    {
+      "phase": "GREEN-related-lineage-and-migration",
+      "command": "python3 -B design/local-memory-v1-hardening/runs/F01-003-regression-wrapper.py",
+      "result": "artifacts/local-memory-v1-hardening/runs/f01-f07-repair1-related-regression-001/result.json",
+      "tests": 15, "skips": 0, "exit_code": 0,
+      "elapsed_seconds": 0.519803,
+      "log_sha256": "95126e52ca3ada7529970f89ab307d0dc23e789ce9406eba1ec547d94c73e6ce"
+    },
+    {
+      "phase": "GREEN-replay-independent-v1-counterexamples",
+      "source": "design/local-memory-v1-hardening/runs/f01-f07-adversarial-test.v1.py",
+      "result": "artifacts/local-memory-v1-hardening/runs/f01-f07-repair1-audit-replay-001/result.json",
+      "tests": 2, "skips": 0, "exit_code": 0,
+      "elapsed_seconds": 0.310539,
+      "log_sha256": "ad0ca394f7861ef6b909501ebd8a9b91e075bc9e19eb8ebed65a9f25eb23a2c4"
+    },
+    {
+      "phase": "GREEN-python39-selected-compatibility",
+      "result": "artifacts/local-memory-v1-hardening/runs/f01-f07-repair1-python39-legacy-001/result.json",
+      "tests": 4, "skips": 0, "exit_code": 0,
+      "elapsed_seconds": 0.68265,
+      "log_sha256": "988264236e85cac62bf5ce25d7f417523e69310f6b94937fe5afc294c56825f9",
+      "selected": ["versioned index publication", "legacy unversioned publication", "post-attestation swap regression", "explicit version-attestation report required"]
+    },
+    {"phase": "diff-check", "command": "git diff --check", "exit_code": 0}
+  ],
+  "isolation": {
+    "timeout_seconds_per_suite": 30,
+    "combined_log_bytes_per_suite": 1048576,
+    "fixture_max_file_bytes": 1048576,
+    "data": "Synthetic TemporaryDirectory inputs and app generations only",
+    "process_and_network": "Existing HTTP/model/Popen guards and in-process production CLI dispatcher; outer test supervisor may launch only the specified Python test process",
+    "real_model_requests": 0,
+    "additional_downloads_or_permissions": false,
+    "keychain_or_gui": false
+  },
+  "limitations": [
+    "This addresses the demonstrated new metadata TOCTOU only; no claim of general filesystem race elimination or immutable published-state validation.",
+    "F18 and version-selection semantics remain open work as before.",
+    "Full application query tests use Python 3.14.6; four selected Python 3.9 build tests do not establish query compatibility.",
+    "No real-model semantic quality, transport/GUI, cross-document trust, packaged-app or V1.00 acceptance certification.",
+    "This executor replay does not replace separate re-audit; prior v1 revise remains preserved."
+  ],
+  "next_action": "Parent freezes v2 source manifest/artifact and sends for separate re-audit. Do not mark F01/F07 passed from this executor record alone."
+}

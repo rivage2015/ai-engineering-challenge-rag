@@ -1,0 +1,254 @@
+{
+  "task_id": "lms-v1-00-hardening-2026-09-09-f05a",
+  "status": "pass_local_f05a",
+  "checked_at_utc": "2026-09-09T02:00:44.084651+00:00",
+  "artifact_sha256": "7b7414f3e58a62b6eb34fc71534da11eec51c1dd58c316326ba03e9ab436bf61",
+  "report_sha256": "4863dcd2fcf580d476d4b2546e729660ae94f0a6a73e2cbb52c28a0e9ca7ed87",
+  "audit_evidence_sha256": "57b7aef7acda2f9805bda071b8fd21fabb6c29d9bfc714e9012d77b3d75802c9",
+  "validator_sha256": "3285547e4d93cd1516c5726ded94810233879662cb765de9ea5065b004c86566",
+  "audit_repair_round": 0,
+  "source_count": 115,
+  "node_count": 5,
+  "edge_count": 4,
+  "strict_schema_and_references": "pass",
+  "current_and_auditor_source_hashes": "pass",
+  "protected_user_hashes": "pass",
+  "inverse_deltas": [
+    {
+      "source": "RESOLVER",
+      "before_sha256": "c2b98254ec28a82e8cc7b5ef3f5e780739bcc1b6983ef2a9252609156d4b672f",
+      "after_sha256": "4ca6df75ced0c44e7da4364509311aad21f81601ba9d42b88efc1f6a9b157734"
+    },
+    {
+      "source": "RESOLVER_TEST",
+      "before_sha256": "7600fef6fa1978c6f07042ce9418e20efa88b47d0cc523b1a647cb0a1ad35c9a",
+      "after_sha256": "111b9ab6473145dbe0d43904219fb2355d9695e7e018798f1a75c5df11140d03"
+    },
+    {
+      "source": "PURE_TEST",
+      "before_sha256": "85d67ee49f80d3a5492404e8ba885e40b7ed0e19a9c453e5e40da254c833e15b",
+      "after_sha256": "33dc00f8c0cbe2bbf095c9236da32f74ea3ccc87a97f995b05005f999a8028ba"
+    },
+    {
+      "source": "distribution/macos-local-memory/app/bootstrap.py",
+      "before_sha256": "df720a40bb0f8f6123cb0f171b829ca1f4f26761f1e24878fa415b5ff70919a3",
+      "after_sha256": "cad0bfee06fbdf0af0319d6fed2d467310ef697e848a9b6d170eacf061f31b55"
+    },
+    {
+      "source": "tests/test_unmarked_version_candidates.py",
+      "before_sha256": "b4a9176f3f7bb723d701a548418be8647a5336dc7b88dd0707d03cfa70eb5b94",
+      "after_sha256": "7bf83e2823742cc1449fdd69890d780e8c8b8daf69911905ce6cb20af2ad1f29"
+    },
+    {
+      "source": "distribution/macos-local-memory/README.md",
+      "before_sha256": "03e4918d7db84b3455d8790b4be8d3af1608071a9cb7e8c9a3df60bb36a4e028",
+      "after_sha256": "2d2566607a500e0d195df5bb8f7bf1ee28ba78422ecc4bf24e396d4b090e4750"
+    }
+  ],
+  "logs": [
+    {
+      "path": "design/local-memory-v1-hardening/runs/f05a-executor-red-pure-001/result.json",
+      "result_sha256": "12ccd0fb76fa715102937090ee5bb1eacb45845802b5504c448678d727008e82",
+      "log_sha256": "9632269bfb28485a096876be403a575acdf7bdf8e01e1540f9ec98703287eaeb",
+      "methods": 8,
+      "status": "failed"
+    },
+    {
+      "path": "design/local-memory-v1-hardening/runs/f05a-executor-green-pure-001/result.json",
+      "result_sha256": "f233dfd4efbc8288b139477b9970b8cc2f2e716c5af7e841f43cdaac06e1e862",
+      "log_sha256": "b433a5af8d96cf6549904667f23024a2b48a5d78f73a428e40e70d3ae8abb6b5",
+      "methods": 23,
+      "status": "passed"
+    },
+    {
+      "path": "design/local-memory-v1-hardening/runs/f05a-executor-green-resolver-001/result.json",
+      "result_sha256": "d56605642e12949cec380b3bb4d0891597068f49172c6a748543fed91d46fa5a",
+      "log_sha256": "e3f02504b0dc5cc21945330298f2e1583af8f0197b42586fb02d12f2880fe5a7",
+      "methods": 20,
+      "status": "passed"
+    },
+    {
+      "path": "design/local-memory-v1-hardening/runs/f05a-executor-review-red-001/result.json",
+      "result_sha256": "719304ea0a712f0101674c9b6f22f8fe2928679f60040b19240fc0c6db3f1d3e",
+      "log_sha256": "9021b2c20081689e3af005f75f0be413e8032a5fdec5180ee77275e1ab4ffa1b",
+      "methods": 25,
+      "status": "failed"
+    },
+    {
+      "path": "design/local-memory-v1-hardening/runs/f05a-executor-green-pure-002/result.json",
+      "result_sha256": "f174ed2b06553de3bc969cc18706d3e8e7477d594e4774d57aaac980064a5778",
+      "log_sha256": "cc9590e2d7bff1bc9fe9bd22d7632ac7795fcc87a9e7c3aae6ebd92ddbc8dae8",
+      "methods": 25,
+      "status": "passed"
+    },
+    {
+      "path": "design/local-memory-v1-hardening/runs/f05a-executor-green-resolver-002/result.json",
+      "result_sha256": "c18d25124630bf42af38ee46c899ca4692dbd5fab2358c46329f8f87c3f63eaa",
+      "log_sha256": "614d3c7612bd42e6b9c722cf3f2b9c8c23256aa12f0b44c3e3bcadadf6332111",
+      "methods": 20,
+      "status": "passed"
+    },
+    {
+      "path": "design/local-memory-v1-hardening/runs/f05a-root-red-app-001/result.json",
+      "result_sha256": "5389d6dcb45ac8ae46a32ddede25286d9ad179edc1776a5e2a96e55573fb40ff",
+      "log_sha256": "12f99897f471392dbb375444e783664ba9a7896604c204523d5b1a83305ccaa4",
+      "methods": 4,
+      "status": "failed"
+    },
+    {
+      "path": "design/local-memory-v1-hardening/runs/f05a-root-green-app-001/result.json",
+      "result_sha256": "6f1b5a7866e3e7afca5d97ab1fb33e52e77c42c88046d965d588c18ceb0907c6",
+      "log_sha256": "b98bf7fd1e861f7bf08390d650071a10ee87d818f915b0a677b9f6de45e98cfc",
+      "methods": 4,
+      "status": "passed"
+    },
+    {
+      "path": "design/local-memory-v1-hardening/runs/f05a-root-green-e2e-001/result.json",
+      "result_sha256": "2cac03842e1e677ff52ccf00904d374ac65544d792bb0ea6fff06488de704ead",
+      "log_sha256": "b594ca799ad991abde38d6a21faee42702f7044521d80750a1046972ec71223d",
+      "methods": 17,
+      "status": "passed"
+    },
+    {
+      "path": "design/local-memory-v1-hardening/runs/f05a-root-green-unmarked-001/result.json",
+      "result_sha256": "64371667d0879bcfcb0fcfa71e2a8cb59d9f59c973826ac0a41bb93f58553fcd",
+      "log_sha256": "2de5f982518b79097cc50655fb197262316ed05b4c4c3bcc8e6a71f3f9e0b3df",
+      "methods": 4,
+      "status": "passed"
+    },
+    {
+      "path": "design/local-memory-v1-hardening/runs/f05a-root-green-focused-001/result.json",
+      "result_sha256": "9e5b7ffab8c858aa9d8e8cbcc355a1d935b71472866e3dafdb148a62e1bf45b1",
+      "log_sha256": "2552fc43557e366f8547f44acbdfd096280b534788dd29ffdb62ad88b21afc3d",
+      "methods": 13,
+      "status": "passed"
+    },
+    {
+      "path": "design/local-memory-v1-hardening/runs/f05a-root-green-lineage-001/result.json",
+      "result_sha256": "5b8b872c2355dbc7b4360e82f5e9f4a82bd6ebb458ead2de7bdacc9d8dd1f5e5",
+      "log_sha256": "d9da98f8f56b98b3c656320b75bdfcfb2eb4d7751a200ed36f66043975b6b2fd",
+      "methods": 8,
+      "status": "passed"
+    },
+    {
+      "path": "design/local-memory-v1-hardening/runs/f05a-root-green-migration-001/result.json",
+      "result_sha256": "dd5e544331a88962670e2ccd18ae0ba50eba0afd8b8a95fa1f52a3e7f106623f",
+      "log_sha256": "5880b826f813ae01ccbdeede01d42dface3828272391d69f68e994a84bd68661",
+      "methods": 7,
+      "status": "passed"
+    },
+    {
+      "path": "design/local-memory-v1-hardening/runs/f05a-root-green-security-001/result.json",
+      "result_sha256": "c8d7c38c9ab75bd5cbea448f7bd6054302495006186cde57049d65f3b8d808e8",
+      "log_sha256": "81ff274d0caf71da096a7abd22f8d5e442f45cf0484fa24707f8ad29f541c82e",
+      "methods": 1,
+      "status": "passed"
+    },
+    {
+      "path": "design/local-memory-v1-hardening/runs/f05a-root-green-unmarked-pure-001/result.json",
+      "result_sha256": "1aedecf01112b57640fba2e379dfc5e01d0bb7957df3024a26dd1efe62256ca4",
+      "log_sha256": "24fbb3db014ee66aa48d62cba70e30d03ff15ac3edee8ff18606b482ff9f362f",
+      "methods": 19,
+      "status": "passed"
+    },
+    {
+      "path": "design/local-memory-v1-hardening/runs/f05a-root-green-year-001/result.json",
+      "result_sha256": "f48d6a5a44271e442caedd7dbe7489167f7d503bb2afd39cbc5e573d638818b1",
+      "log_sha256": "80010e806237e3000015dfb5c2291b413e20d0c8ead2167f94eda2f74d0df703",
+      "methods": 11,
+      "status": "passed"
+    },
+    {
+      "path": "design/local-memory-v1-hardening/runs/f05a-audit-pure-001/result.json",
+      "result_sha256": "9fc09f5246e1fe912650ebc950fe863e5ecde1a5bdc6877114a279989ad43e35",
+      "log_sha256": "47f7d509512f1b3d280215d822f91bb5e78b2b9cacfc952942cc22789c1ea4bf",
+      "methods": 25,
+      "status": "passed"
+    },
+    {
+      "path": "design/local-memory-v1-hardening/runs/f05a-audit-resolver-001/result.json",
+      "result_sha256": "d3db21aac2973c56cdd8ae977dcf5d6c6c0873d6b1b986868a3a8e19ce997e8d",
+      "log_sha256": "f45734acdc5721365a72e4c97c26d8b944a762f690298c33e7a8c9fbab2a3473",
+      "methods": 20,
+      "status": "passed"
+    },
+    {
+      "path": "design/local-memory-v1-hardening/runs/f05a-audit-app-001/result.json",
+      "result_sha256": "633a2c1ee9901acf4f558b9c74cd8e23c49d4773dcb392205ab67d62070de2b5",
+      "log_sha256": "b24a2072baf43757d5b03bd3d2d4cf7fc52f29a3a3f7b6deca54976541ad020a",
+      "methods": 4,
+      "status": "passed"
+    },
+    {
+      "path": "design/local-memory-v1-hardening/runs/f05a-audit-e2e-001/result.json",
+      "result_sha256": "5b6479a01ef975adfd3229084b9d2ff63c46d245ecf807dc695e60812a2f8af4",
+      "log_sha256": "586146058de4204248273e8b616052f1288687c4120f9d1573e31865e70b67ff",
+      "methods": 17,
+      "status": "passed"
+    },
+    {
+      "path": "design/local-memory-v1-hardening/runs/f05a-audit-unmarked-001/result.json",
+      "result_sha256": "d9146cf64d1980cc2e409cc398b06d2765d7e553689be83ad714fe576efd531c",
+      "log_sha256": "af50a674bc90d3d199867cb76cb5927cdc72c3400cdece0aa36718143e2b067f",
+      "methods": 4,
+      "status": "passed"
+    },
+    {
+      "path": "design/local-memory-v1-hardening/runs/f05a-audit-unmarked-pure-001/result.json",
+      "result_sha256": "8eae91a1d282b7399fa169ba2eee3a99b101fc0cdad6588ce84e7732e13c2ace",
+      "log_sha256": "24fbb3db014ee66aa48d62cba70e30d03ff15ac3edee8ff18606b482ff9f362f",
+      "methods": 19,
+      "status": "passed"
+    },
+    {
+      "path": "design/local-memory-v1-hardening/runs/f05a-audit-year-001/result.json",
+      "result_sha256": "02da619bc54d3f36fe4f284b9d82129fcc8e19ebae55de169acc3ed07939fb76",
+      "log_sha256": "80010e806237e3000015dfb5c2291b413e20d0c8ead2167f94eda2f74d0df703",
+      "methods": 11,
+      "status": "passed"
+    },
+    {
+      "path": "design/local-memory-v1-hardening/runs/f05a-audit-holdout-001/result.json",
+      "result_sha256": "a091ff2af33d8fc60d96d977a936f7f93089a7ff3ff195f4774e6638a3048c46",
+      "log_sha256": "85df314b0e05117efd6002a7e3aa7a7fcfe94cbbd9f8df90a2a3b8c6b87b86bb",
+      "methods": 11,
+      "status": "passed"
+    }
+  ],
+  "independent_methods": 111,
+  "scope": "F05a explicit-input standalone resolver reconstruction and immediate bootstrap gate only. No downstream Reader/projector post-gate tamper closure, immutable decision snapshot, UI authenticity, global races, source freshness or whole F05/V1/release acceptance.",
+  "ruby_validation": {
+    "exit_code": 0,
+    "stdout": "VALID: audit report is structurally and referentially consistent\n"
+  },
+  "supplemental_audit_metadata": {
+    "status": "supplemental_audit_metadata_pass",
+    "residual_names": [
+      "ResidualWitnessTests.test_cross_key_moves_renames_and_suffix_changes_leave_old_group_omitted",
+      "ResidualWitnessTests.test_year_kanji_parent_is_not_silently_normalized_more_broadly",
+      "CurrentMarkerResidualWitnessTests.test_current_marker_year_residual_is_observable"
+    ],
+    "acceptance_control_regression_methods": 108,
+    "residual_witness_methods": 3,
+    "independent_runs": 8,
+    "additional_audit_artifacts": 37,
+    "audit_metadata_revision": 1
+  },
+  "parent_history_check": {
+    "path": "design/local-memory-v1-hardening/runs/f05a-parent-history-result.v1.json",
+    "sha256": "9e2aff4b28d8b88f4adf56654720698860c7d1943b9fb2ab4bbdca414e2df7fa",
+    "original_pure_methods_unchanged": 23,
+    "additive_methods": 2,
+    "executor_manifest_items": 37
+  },
+  "artifact_reproduction": {
+    "status": "exact_artifact_reproduction_pass",
+    "sha256": "7b7414f3e58a62b6eb34fc71534da11eec51c1dd58c316326ba03e9ab436bf61",
+    "sources": 115
+  },
+  "parent_reproduction_history": "design/local-memory-v1-hardening/runs/f05a-parent-reproduction-attempts.v1.json: first read-only runpy relative-path assertion failed; absolute path invocation reproduced exact artifact bytes. Frozen code unchanged.",
+  "audit_metadata_history": "Auditor original v1 retained; v2 corrects one residual test class label. No test result or product change; formal repair0. Executor original inverse-check summary corrected in v2, all failed checks retained.",
+  "git_diff_check": "pass",
+  "acceptance": "F05a scoped implementation accepted after separate-context audit and parent deterministic checks. Freeze may be released for a separately contracted next change; this artifact remains a historical exact-source snapshot.",
+  "next": "F05b snapshot/explicit authority/full Reader manifest contracts and true RED, using saved preflights; no F05b implementation yet. Original full V1 gates remain unfulfilled."
+}

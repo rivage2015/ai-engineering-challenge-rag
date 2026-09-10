@@ -1,0 +1,424 @@
+test_rejects_empty_resealed_graph (f05a_pure.DocumentVersionGraphValidationTests.test_rejects_empty_resealed_graph) ... FAIL
+test_rejects_omitted_unmarked_candidate (f05a_pure.DocumentVersionGraphValidationTests.test_rejects_omitted_unmarked_candidate) ... FAIL
+test_rejects_absent_inventory_candidate (f05a_pure.DocumentVersionGraphValidationTests.test_rejects_absent_inventory_candidate) ... FAIL
+test_rejects_resealed_candidate_field_changes (f05a_pure.DocumentVersionGraphValidationTests.test_rejects_resealed_candidate_field_changes) ... 
+  test_rejects_resealed_candidate_field_changes (f05a_pure.DocumentVersionGraphValidationTests.test_rejects_resealed_candidate_field_changes) (field='source_sha256') ... FAIL
+  test_rejects_resealed_candidate_field_changes (f05a_pure.DocumentVersionGraphValidationTests.test_rejects_resealed_candidate_field_changes) (field='size_bytes') ... FAIL
+  test_rejects_resealed_candidate_field_changes (f05a_pure.DocumentVersionGraphValidationTests.test_rejects_resealed_candidate_field_changes) (field='mtime_ns') ... FAIL
+  test_rejects_resealed_candidate_field_changes (f05a_pure.DocumentVersionGraphValidationTests.test_rejects_resealed_candidate_field_changes) (field='birthtime_ns') ... FAIL
+  test_rejects_resealed_candidate_field_changes (f05a_pure.DocumentVersionGraphValidationTests.test_rejects_resealed_candidate_field_changes) (field='explicit_years') ... FAIL
+  test_rejects_resealed_candidate_field_changes (f05a_pure.DocumentVersionGraphValidationTests.test_rejects_resealed_candidate_field_changes) (field='explicit_versions') ... FAIL
+  test_rejects_resealed_candidate_field_changes (f05a_pure.DocumentVersionGraphValidationTests.test_rejects_resealed_candidate_field_changes) (field='current_markers') ... FAIL
+  test_rejects_resealed_candidate_field_changes (f05a_pure.DocumentVersionGraphValidationTests.test_rejects_resealed_candidate_field_changes) (field='historical_markers') ... FAIL
+  test_rejects_resealed_candidate_field_changes (f05a_pure.DocumentVersionGraphValidationTests.test_rejects_resealed_candidate_field_changes) (field='draft_markers') ... FAIL
+test_rejects_duplicated_or_reassigned_candidate (f05a_pure.DocumentVersionGraphValidationTests.test_rejects_duplicated_or_reassigned_candidate) ... 
+  test_rejects_duplicated_or_reassigned_candidate (f05a_pure.DocumentVersionGraphValidationTests.test_rejects_duplicated_or_reassigned_candidate) (mode='reassign') ... FAIL
+  test_rejects_duplicated_or_reassigned_candidate (f05a_pure.DocumentVersionGraphValidationTests.test_rejects_duplicated_or_reassigned_candidate) (mode='extra_candidate') ... FAIL
+test_rejects_fabricated_automatic_selection (f05a_pure.DocumentVersionGraphValidationTests.test_rejects_fabricated_automatic_selection) ... FAIL
+test_rejects_embedded_human_authority_without_reading_graph_path (f05a_pure.DocumentVersionGraphValidationTests.test_rejects_embedded_human_authority_without_reading_graph_path) ... FAIL
+test_rejects_resealed_redundant_semantic_changes (f05a_pure.DocumentVersionGraphValidationTests.test_rejects_resealed_redundant_semantic_changes) ... 
+  test_rejects_resealed_redundant_semantic_changes (f05a_pure.DocumentVersionGraphValidationTests.test_rejects_resealed_redundant_semantic_changes) (label='policy') ... FAIL
+  test_rejects_resealed_redundant_semantic_changes (f05a_pure.DocumentVersionGraphValidationTests.test_rejects_resealed_redundant_semantic_changes) (label='count') ... FAIL
+  test_rejects_resealed_redundant_semantic_changes (f05a_pure.DocumentVersionGraphValidationTests.test_rejects_resealed_redundant_semantic_changes) (label='bool_count') ... FAIL
+  test_rejects_resealed_redundant_semantic_changes (f05a_pure.DocumentVersionGraphValidationTests.test_rejects_resealed_redundant_semantic_changes) (label='reason') ... FAIL
+  test_rejects_resealed_redundant_semantic_changes (f05a_pure.DocumentVersionGraphValidationTests.test_rejects_resealed_redundant_semantic_changes) (label='conflict') ... FAIL
+  test_rejects_resealed_redundant_semantic_changes (f05a_pure.DocumentVersionGraphValidationTests.test_rejects_resealed_redundant_semantic_changes) (label='disposition') ... FAIL
+  test_rejects_resealed_redundant_semantic_changes (f05a_pure.DocumentVersionGraphValidationTests.test_rejects_resealed_redundant_semantic_changes) (label='node') ... FAIL
+  test_rejects_resealed_redundant_semantic_changes (f05a_pure.DocumentVersionGraphValidationTests.test_rejects_resealed_redundant_semantic_changes) (label='edge') ... FAIL
+  test_rejects_resealed_redundant_semantic_changes (f05a_pure.DocumentVersionGraphValidationTests.test_rejects_resealed_redundant_semantic_changes) (label='extra_edge') ... FAIL
+  test_rejects_resealed_redundant_semantic_changes (f05a_pure.DocumentVersionGraphValidationTests.test_rejects_resealed_redundant_semantic_changes) (label='ordering') ... FAIL
+
+======================================================================
+FAIL: test_rejects_empty_resealed_graph (f05a_pure.DocumentVersionGraphValidationTests.test_rejects_empty_resealed_graph)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/tests/test_version_graph_reconstruction.py", line 151, in test_rejects_empty_resealed_graph
+    self.rejects()
+    ~~~~~~~~~~~~^^
+  File "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/tests/test_version_graph_reconstruction.py", line 124, in rejects
+    self.assertEqual("FAIL", report["status"], report)
+    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: 'FAIL' != 'PASS'
+- FAIL
++ PASS
+ : {'status': 'PASS', 'errors': []}
+
+======================================================================
+FAIL: test_rejects_omitted_unmarked_candidate (f05a_pure.DocumentVersionGraphValidationTests.test_rejects_omitted_unmarked_candidate)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/tests/test_version_graph_reconstruction.py", line 159, in test_rejects_omitted_unmarked_candidate
+    self.rejects()
+    ~~~~~~~~~~~~^^
+  File "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/tests/test_version_graph_reconstruction.py", line 124, in rejects
+    self.assertEqual("FAIL", report["status"], report)
+    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: 'FAIL' != 'PASS'
+- FAIL
++ PASS
+ : {'status': 'PASS', 'errors': []}
+
+======================================================================
+FAIL: test_rejects_absent_inventory_candidate (f05a_pure.DocumentVersionGraphValidationTests.test_rejects_absent_inventory_candidate)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/tests/test_version_graph_reconstruction.py", line 165, in test_rejects_absent_inventory_candidate
+    self.rejects()
+    ~~~~~~~~~~~~^^
+  File "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/tests/test_version_graph_reconstruction.py", line 124, in rejects
+    self.assertEqual("FAIL", report["status"], report)
+    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: 'FAIL' != 'PASS'
+- FAIL
++ PASS
+ : {'status': 'PASS', 'errors': []}
+
+======================================================================
+FAIL: test_rejects_resealed_candidate_field_changes (f05a_pure.DocumentVersionGraphValidationTests.test_rejects_resealed_candidate_field_changes) (field='source_sha256')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/tests/test_version_graph_reconstruction.py", line 177, in test_rejects_resealed_candidate_field_changes
+    self.rejects()
+    ~~~~~~~~~~~~^^
+  File "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/tests/test_version_graph_reconstruction.py", line 124, in rejects
+    self.assertEqual("FAIL", report["status"], report)
+    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: 'FAIL' != 'PASS'
+- FAIL
++ PASS
+ : {'status': 'PASS', 'errors': []}
+
+======================================================================
+FAIL: test_rejects_resealed_candidate_field_changes (f05a_pure.DocumentVersionGraphValidationTests.test_rejects_resealed_candidate_field_changes) (field='size_bytes')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/tests/test_version_graph_reconstruction.py", line 177, in test_rejects_resealed_candidate_field_changes
+    self.rejects()
+    ~~~~~~~~~~~~^^
+  File "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/tests/test_version_graph_reconstruction.py", line 124, in rejects
+    self.assertEqual("FAIL", report["status"], report)
+    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: 'FAIL' != 'PASS'
+- FAIL
++ PASS
+ : {'status': 'PASS', 'errors': []}
+
+======================================================================
+FAIL: test_rejects_resealed_candidate_field_changes (f05a_pure.DocumentVersionGraphValidationTests.test_rejects_resealed_candidate_field_changes) (field='mtime_ns')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/tests/test_version_graph_reconstruction.py", line 177, in test_rejects_resealed_candidate_field_changes
+    self.rejects()
+    ~~~~~~~~~~~~^^
+  File "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/tests/test_version_graph_reconstruction.py", line 124, in rejects
+    self.assertEqual("FAIL", report["status"], report)
+    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: 'FAIL' != 'PASS'
+- FAIL
++ PASS
+ : {'status': 'PASS', 'errors': []}
+
+======================================================================
+FAIL: test_rejects_resealed_candidate_field_changes (f05a_pure.DocumentVersionGraphValidationTests.test_rejects_resealed_candidate_field_changes) (field='birthtime_ns')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/tests/test_version_graph_reconstruction.py", line 177, in test_rejects_resealed_candidate_field_changes
+    self.rejects()
+    ~~~~~~~~~~~~^^
+  File "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/tests/test_version_graph_reconstruction.py", line 124, in rejects
+    self.assertEqual("FAIL", report["status"], report)
+    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: 'FAIL' != 'PASS'
+- FAIL
++ PASS
+ : {'status': 'PASS', 'errors': []}
+
+======================================================================
+FAIL: test_rejects_resealed_candidate_field_changes (f05a_pure.DocumentVersionGraphValidationTests.test_rejects_resealed_candidate_field_changes) (field='explicit_years')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/tests/test_version_graph_reconstruction.py", line 177, in test_rejects_resealed_candidate_field_changes
+    self.rejects()
+    ~~~~~~~~~~~~^^
+  File "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/tests/test_version_graph_reconstruction.py", line 124, in rejects
+    self.assertEqual("FAIL", report["status"], report)
+    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: 'FAIL' != 'PASS'
+- FAIL
++ PASS
+ : {'status': 'PASS', 'errors': []}
+
+======================================================================
+FAIL: test_rejects_resealed_candidate_field_changes (f05a_pure.DocumentVersionGraphValidationTests.test_rejects_resealed_candidate_field_changes) (field='explicit_versions')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/tests/test_version_graph_reconstruction.py", line 177, in test_rejects_resealed_candidate_field_changes
+    self.rejects()
+    ~~~~~~~~~~~~^^
+  File "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/tests/test_version_graph_reconstruction.py", line 124, in rejects
+    self.assertEqual("FAIL", report["status"], report)
+    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: 'FAIL' != 'PASS'
+- FAIL
++ PASS
+ : {'status': 'PASS', 'errors': []}
+
+======================================================================
+FAIL: test_rejects_resealed_candidate_field_changes (f05a_pure.DocumentVersionGraphValidationTests.test_rejects_resealed_candidate_field_changes) (field='current_markers')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/tests/test_version_graph_reconstruction.py", line 177, in test_rejects_resealed_candidate_field_changes
+    self.rejects()
+    ~~~~~~~~~~~~^^
+  File "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/tests/test_version_graph_reconstruction.py", line 124, in rejects
+    self.assertEqual("FAIL", report["status"], report)
+    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: 'FAIL' != 'PASS'
+- FAIL
++ PASS
+ : {'status': 'PASS', 'errors': []}
+
+======================================================================
+FAIL: test_rejects_resealed_candidate_field_changes (f05a_pure.DocumentVersionGraphValidationTests.test_rejects_resealed_candidate_field_changes) (field='historical_markers')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/tests/test_version_graph_reconstruction.py", line 177, in test_rejects_resealed_candidate_field_changes
+    self.rejects()
+    ~~~~~~~~~~~~^^
+  File "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/tests/test_version_graph_reconstruction.py", line 124, in rejects
+    self.assertEqual("FAIL", report["status"], report)
+    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: 'FAIL' != 'PASS'
+- FAIL
++ PASS
+ : {'status': 'PASS', 'errors': []}
+
+======================================================================
+FAIL: test_rejects_resealed_candidate_field_changes (f05a_pure.DocumentVersionGraphValidationTests.test_rejects_resealed_candidate_field_changes) (field='draft_markers')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/tests/test_version_graph_reconstruction.py", line 177, in test_rejects_resealed_candidate_field_changes
+    self.rejects()
+    ~~~~~~~~~~~~^^
+  File "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/tests/test_version_graph_reconstruction.py", line 124, in rejects
+    self.assertEqual("FAIL", report["status"], report)
+    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: 'FAIL' != 'PASS'
+- FAIL
++ PASS
+ : {'status': 'PASS', 'errors': []}
+
+======================================================================
+FAIL: test_rejects_duplicated_or_reassigned_candidate (f05a_pure.DocumentVersionGraphValidationTests.test_rejects_duplicated_or_reassigned_candidate) (mode='reassign')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/tests/test_version_graph_reconstruction.py", line 196, in test_rejects_duplicated_or_reassigned_candidate
+    self.rejects()
+    ~~~~~~~~~~~~^^
+  File "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/tests/test_version_graph_reconstruction.py", line 124, in rejects
+    self.assertEqual("FAIL", report["status"], report)
+    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: 'FAIL' != 'PASS'
+- FAIL
++ PASS
+ : {'status': 'PASS', 'errors': []}
+
+======================================================================
+FAIL: test_rejects_duplicated_or_reassigned_candidate (f05a_pure.DocumentVersionGraphValidationTests.test_rejects_duplicated_or_reassigned_candidate) (mode='extra_candidate')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/tests/test_version_graph_reconstruction.py", line 196, in test_rejects_duplicated_or_reassigned_candidate
+    self.rejects()
+    ~~~~~~~~~~~~^^
+  File "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/tests/test_version_graph_reconstruction.py", line 124, in rejects
+    self.assertEqual("FAIL", report["status"], report)
+    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: 'FAIL' != 'PASS'
+- FAIL
++ PASS
+ : {'status': 'PASS', 'errors': []}
+
+======================================================================
+FAIL: test_rejects_fabricated_automatic_selection (f05a_pure.DocumentVersionGraphValidationTests.test_rejects_fabricated_automatic_selection)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/tests/test_version_graph_reconstruction.py", line 202, in test_rejects_fabricated_automatic_selection
+    self.rejects()
+    ~~~~~~~~~~~~^^
+  File "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/tests/test_version_graph_reconstruction.py", line 124, in rejects
+    self.assertEqual("FAIL", report["status"], report)
+    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: 'FAIL' != 'PASS'
+- FAIL
++ PASS
+ : {'status': 'PASS', 'errors': []}
+
+======================================================================
+FAIL: test_rejects_embedded_human_authority_without_reading_graph_path (f05a_pure.DocumentVersionGraphValidationTests.test_rejects_embedded_human_authority_without_reading_graph_path)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/tests/test_version_graph_reconstruction.py", line 216, in test_rejects_embedded_human_authority_without_reading_graph_path
+    self.rejects()
+    ~~~~~~~~~~~~^^
+  File "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/tests/test_version_graph_reconstruction.py", line 124, in rejects
+    self.assertEqual("FAIL", report["status"], report)
+    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: 'FAIL' != 'PASS'
+- FAIL
++ PASS
+ : {'status': 'PASS', 'errors': []}
+
+======================================================================
+FAIL: test_rejects_resealed_redundant_semantic_changes (f05a_pure.DocumentVersionGraphValidationTests.test_rejects_resealed_redundant_semantic_changes) (label='policy')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/tests/test_version_graph_reconstruction.py", line 237, in test_rejects_resealed_redundant_semantic_changes
+    self.rejects()
+    ~~~~~~~~~~~~^^
+  File "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/tests/test_version_graph_reconstruction.py", line 124, in rejects
+    self.assertEqual("FAIL", report["status"], report)
+    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: 'FAIL' != 'PASS'
+- FAIL
++ PASS
+ : {'status': 'PASS', 'errors': []}
+
+======================================================================
+FAIL: test_rejects_resealed_redundant_semantic_changes (f05a_pure.DocumentVersionGraphValidationTests.test_rejects_resealed_redundant_semantic_changes) (label='count')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/tests/test_version_graph_reconstruction.py", line 237, in test_rejects_resealed_redundant_semantic_changes
+    self.rejects()
+    ~~~~~~~~~~~~^^
+  File "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/tests/test_version_graph_reconstruction.py", line 124, in rejects
+    self.assertEqual("FAIL", report["status"], report)
+    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: 'FAIL' != 'PASS'
+- FAIL
++ PASS
+ : {'status': 'PASS', 'errors': []}
+
+======================================================================
+FAIL: test_rejects_resealed_redundant_semantic_changes (f05a_pure.DocumentVersionGraphValidationTests.test_rejects_resealed_redundant_semantic_changes) (label='bool_count')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/tests/test_version_graph_reconstruction.py", line 237, in test_rejects_resealed_redundant_semantic_changes
+    self.rejects()
+    ~~~~~~~~~~~~^^
+  File "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/tests/test_version_graph_reconstruction.py", line 124, in rejects
+    self.assertEqual("FAIL", report["status"], report)
+    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: 'FAIL' != 'PASS'
+- FAIL
++ PASS
+ : {'status': 'PASS', 'errors': []}
+
+======================================================================
+FAIL: test_rejects_resealed_redundant_semantic_changes (f05a_pure.DocumentVersionGraphValidationTests.test_rejects_resealed_redundant_semantic_changes) (label='reason')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/tests/test_version_graph_reconstruction.py", line 237, in test_rejects_resealed_redundant_semantic_changes
+    self.rejects()
+    ~~~~~~~~~~~~^^
+  File "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/tests/test_version_graph_reconstruction.py", line 124, in rejects
+    self.assertEqual("FAIL", report["status"], report)
+    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: 'FAIL' != 'PASS'
+- FAIL
++ PASS
+ : {'status': 'PASS', 'errors': []}
+
+======================================================================
+FAIL: test_rejects_resealed_redundant_semantic_changes (f05a_pure.DocumentVersionGraphValidationTests.test_rejects_resealed_redundant_semantic_changes) (label='conflict')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/tests/test_version_graph_reconstruction.py", line 237, in test_rejects_resealed_redundant_semantic_changes
+    self.rejects()
+    ~~~~~~~~~~~~^^
+  File "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/tests/test_version_graph_reconstruction.py", line 124, in rejects
+    self.assertEqual("FAIL", report["status"], report)
+    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: 'FAIL' != 'PASS'
+- FAIL
++ PASS
+ : {'status': 'PASS', 'errors': []}
+
+======================================================================
+FAIL: test_rejects_resealed_redundant_semantic_changes (f05a_pure.DocumentVersionGraphValidationTests.test_rejects_resealed_redundant_semantic_changes) (label='disposition')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/tests/test_version_graph_reconstruction.py", line 237, in test_rejects_resealed_redundant_semantic_changes
+    self.rejects()
+    ~~~~~~~~~~~~^^
+  File "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/tests/test_version_graph_reconstruction.py", line 124, in rejects
+    self.assertEqual("FAIL", report["status"], report)
+    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: 'FAIL' != 'PASS'
+- FAIL
++ PASS
+ : {'status': 'PASS', 'errors': []}
+
+======================================================================
+FAIL: test_rejects_resealed_redundant_semantic_changes (f05a_pure.DocumentVersionGraphValidationTests.test_rejects_resealed_redundant_semantic_changes) (label='node')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/tests/test_version_graph_reconstruction.py", line 237, in test_rejects_resealed_redundant_semantic_changes
+    self.rejects()
+    ~~~~~~~~~~~~^^
+  File "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/tests/test_version_graph_reconstruction.py", line 124, in rejects
+    self.assertEqual("FAIL", report["status"], report)
+    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: 'FAIL' != 'PASS'
+- FAIL
++ PASS
+ : {'status': 'PASS', 'errors': []}
+
+======================================================================
+FAIL: test_rejects_resealed_redundant_semantic_changes (f05a_pure.DocumentVersionGraphValidationTests.test_rejects_resealed_redundant_semantic_changes) (label='edge')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/tests/test_version_graph_reconstruction.py", line 237, in test_rejects_resealed_redundant_semantic_changes
+    self.rejects()
+    ~~~~~~~~~~~~^^
+  File "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/tests/test_version_graph_reconstruction.py", line 124, in rejects
+    self.assertEqual("FAIL", report["status"], report)
+    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: 'FAIL' != 'PASS'
+- FAIL
++ PASS
+ : {'status': 'PASS', 'errors': []}
+
+======================================================================
+FAIL: test_rejects_resealed_redundant_semantic_changes (f05a_pure.DocumentVersionGraphValidationTests.test_rejects_resealed_redundant_semantic_changes) (label='extra_edge')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/tests/test_version_graph_reconstruction.py", line 237, in test_rejects_resealed_redundant_semantic_changes
+    self.rejects()
+    ~~~~~~~~~~~~^^
+  File "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/tests/test_version_graph_reconstruction.py", line 124, in rejects
+    self.assertEqual("FAIL", report["status"], report)
+    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: 'FAIL' != 'PASS'
+- FAIL
++ PASS
+ : {'status': 'PASS', 'errors': []}
+
+======================================================================
+FAIL: test_rejects_resealed_redundant_semantic_changes (f05a_pure.DocumentVersionGraphValidationTests.test_rejects_resealed_redundant_semantic_changes) (label='ordering')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/tests/test_version_graph_reconstruction.py", line 237, in test_rejects_resealed_redundant_semantic_changes
+    self.rejects()
+    ~~~~~~~~~~~~^^
+  File "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/tests/test_version_graph_reconstruction.py", line 124, in rejects
+    self.assertEqual("FAIL", report["status"], report)
+    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: 'FAIL' != 'PASS'
+- FAIL
++ PASS
+ : {'status': 'PASS', 'errors': []}
+
+----------------------------------------------------------------------
+Ran 8 tests in 0.021s
+
+FAILED (failures=26)

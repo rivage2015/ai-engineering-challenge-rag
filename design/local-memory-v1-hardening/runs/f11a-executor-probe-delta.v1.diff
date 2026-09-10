@@ -1,0 +1,405 @@
+--- design/local-memory-v1-hardening/runs/f11a-executor-before-probe.v1.py	2026-09-09 13:32:58
++++ scripts/probe_intermediate_records.py	2026-09-09 14:19:58
+@@ -14,6 +14,7 @@
+ import hashlib
+ import io
+ import json
++import math
+ import mimetypes
+ import os
+ import posixpath
+@@ -38,7 +39,7 @@
+ 
+ SCHEMA_VERSION = "0.1"
+ EXTRACTOR = "intermediate-record-probe"
+-EXTRACTOR_VERSION = "0.7.1"
++EXTRACTOR_VERSION = "0.8.0"
+ FORMULA_CACHED_VALUE_STATUS = "stored_in_file_not_recalculated"
+ 
+ PLAIN_TEXT_SUFFIXES = {
+@@ -69,6 +70,10 @@
+ CODE_SUFFIXES = {".py", ".toml", ".yaml", ".yml", ".sql", ".sh", ".command"}
+ DIRECT_TEXT_SUFFIXES = PLAIN_TEXT_SUFFIXES | {".csv", ".tsv", ".json", ".xml", ".ipynb"}
+ MAX_DIRECT_TEXT_BYTES = 64 * 1024 * 1024
++MAX_NOTEBOOK_METADATA_BYTES = 8 * 1024 * 1024
++MAX_NOTEBOOK_JSON_TOKENS = 100_000
++MAX_NOTEBOOK_JSON_DEPTH = 64
++MAX_NOTEBOOK_NUMBER_CHARS = 256
+ STREAM_TEXT_READ_CHARS = 64 * 1024
+ MAX_STREAM_TEXT_READ_BLOCKS = 4096
+ TEXT_ENCODING_SNIFF_BYTES = 64 * 1024
+@@ -2518,8 +2523,312 @@
+ 
+ def nfc_path(path: Path) -> str:
+     return unicodedata.normalize("NFC", path.as_posix())
++
++
++class NotebookMetadataResourceLimit(ValueError):
++    """The declared metadata budget, not malformed JSON, stopped attestation."""
++
++
++def read_notebook_bytes(path: Path) -> bytes:
++    with path.open("rb") as handle:
++        raw = handle.read(MAX_NOTEBOOK_METADATA_BYTES + 1)
++    if len(raw) > MAX_NOTEBOOK_METADATA_BYTES:
++        raise NotebookMetadataResourceLimit("notebook_metadata_resource_limit: bytes")
++    return raw
++
++
++def _notebook_json_budget(text: str) -> None:
++    """Bound lexical work before json.loads; never materialize a token list."""
++    position = tokens = depth = 0
++    while position < len(text):
++        char = text[position]
++        if char.isspace() or char in ",:":
++            position += 1
++            continue
++        if char in "}]":
++            depth -= 1
++            position += 1
++            continue
++        tokens += 1
++        if tokens > MAX_NOTEBOOK_JSON_TOKENS:
++            raise NotebookMetadataResourceLimit("notebook_metadata_resource_limit: tokens")
++        if char in "[{":
++            depth += 1
++            if depth > MAX_NOTEBOOK_JSON_DEPTH:
++                raise NotebookMetadataResourceLimit("notebook_metadata_resource_limit: depth")
++            position += 1
++        elif char == '"':
++            position += 1
++            while position < len(text):
++                char = text[position]
++                position += 1
++                if char == "\\":
++                    position += 1
++                elif char == '"':
++                    break
++        else:
++            start = position
++            numeric = char in "-0123456789"
++            while position < len(text) and not text[position].isspace() and text[position] not in ",:[]{}\"":
++                position += 1
++                if numeric and position - start > MAX_NOTEBOOK_NUMBER_CHARS:
++                    raise NotebookMetadataResourceLimit("notebook_metadata_resource_limit: number")
++            if position == start:
++                position += 1
+ 
+ 
++def _notebook_count(value: dict[str, Any], key: str) -> dict[str, Any]:
++    if key not in value:
++        return {"present": False}
++    count = value[key]
++    if count is not None and (type(count) is not int or count < 0):
++        raise ValueError(f"notebook invalid {key}: {type(count).__name__} {repr(count)[:128]}")
++    return {"present": True, "value": count}
++
++
++def _notebook_text(value: Any) -> str:
++    if isinstance(value, str):
++        return value
++    if isinstance(value, list) and all(isinstance(part, str) for part in value):
++        return "".join(value)
++    raise ValueError("notebook text must be a string or an array of strings")
++
++
++def parse_notebook_bytes(raw: bytes) -> tuple[dict[str, Any], str, dict[str, dict[str, Any]], bool]:
++    """Project metadata from one bounded snapshot; no source body attestation."""
++    encoding = detect_text_encoding(raw)
++    if encoding == "utf-8-replacement":
++        raise ValueError("notebook invalid text encoding")
++    try:
++        text = raw.decode(encoding, errors="strict")
++    except UnicodeError as exc:
++        raise ValueError("notebook invalid text encoding") from exc
++    _notebook_json_budget(text)
++
++    def pairs(items):
++        result = {}
++        for key, value in items:
++            if key in result:
++                raise ValueError("notebook duplicate JSON key")
++            result[key] = value
++        return result
++
++    def constant(_value):
++        raise ValueError("notebook nonfinite JSON constant")
++
++    def number(value):
++        result = float(value)
++        if not math.isfinite(result):
++            raise ValueError("notebook nonfinite JSON number")
++        return result
++
++    try:
++        notebook = json.loads(text, object_pairs_hook=pairs, parse_constant=constant, parse_float=number)
++    except (ValueError, RecursionError, OverflowError) as exc:
++        raise ValueError(f"notebook invalid JSON: {str(exc)[:256]}") from exc
++    if not isinstance(notebook, dict) or not isinstance(notebook.get("cells"), list):
++        raise ValueError("notebook requires an object with a cells array")
++    states: dict[str, dict[str, Any]] = {}
++    missing_count = False
++    for cell_index, cell in enumerate(notebook["cells"], 1):
++        if not isinstance(cell, dict) or cell.get("cell_type") not in ("code", "markdown", "raw"):
++            raise ValueError("notebook invalid cell shape/type")
++        _notebook_text(cell.get("source", []))
++        count = _notebook_count(cell, "execution_count")
++        missing_count |= cell["cell_type"] == "code" and not count["present"]
++        pointer = f"/cells/{cell_index - 1}"
++        common = {
++            "version": "1.0", "cell_index": cell_index, "cell_type": cell["cell_type"],
++            "content_origin": "cell_source", "source_json_pointer": pointer,
++            "reader_execution": "not_executed", "cell_execution_count": count,
++        }
++        states[pointer] = common
++        outputs = cell.get("outputs", [])
++        if not isinstance(outputs, list):
++            raise ValueError("notebook outputs must be an array")
++        for output_index, output in enumerate(outputs, 1):
++            if not isinstance(output, dict) or not isinstance(output.get("data", {}), dict):
++                raise ValueError("notebook invalid output shape")
++            output_count = _notebook_count(output, "execution_count")
++            output_type = output.get("output_type")
++            missing_count |= output_type == "execute_result" and not output_count["present"]
++            text_output = _notebook_text(output.get("text", ""))
++            plain = _notebook_text(output.get("data", {}).get("text/plain", ""))
++            if not (text_output or plain):
++                continue  # Image/error/display-update content is not this slice.
++            if output_type not in ("stream", "display_data", "execute_result"):
++                raise ValueError("notebook unsupported textual output type")
++            output_pointer = f"{pointer}/outputs/{output_index - 1}"
++            states[output_pointer] = {
++                **common, "content_origin": "saved_output", "source_json_pointer": output_pointer,
++                "output_index": output_index, "output_type": output_type,
++                "output_execution_count": output_count, "output_freshness": "unverified",
++            }
++    return notebook, encoding, states, missing_count
++
++
++def validate_notebook_state(state: Any) -> dict[str, Any]:
++    common = {"version", "cell_index", "cell_type", "content_origin", "source_json_pointer",
++              "reader_execution", "cell_execution_count"}
++    output = {"output_index", "output_type", "output_execution_count", "output_freshness"}
++    if not isinstance(state, dict):
++        raise ValueError("notebook_state must be an object")
++    origin = state.get("content_origin")
++    expected_keys = common | output if origin == "saved_output" else common
++    if set(state) != expected_keys or origin not in ("cell_source", "saved_output"):
++        raise ValueError("notebook_state fields/origin mismatch")
++    index = state["cell_index"]
++    if type(index) is not int or index < 1 or state["cell_type"] not in ("code", "markdown", "raw"):
++        raise ValueError("notebook_state cell type/index mismatch")
++    if state["version"] != "1.0" or state["reader_execution"] != "not_executed":
++        raise ValueError("notebook_state version/reader_execution mismatch")
++    for key in ("cell_execution_count", "output_execution_count"):
++        if key not in state:
++            continue
++        presence = state[key]
++        if not isinstance(presence, dict) or type(presence.get("present")) is not bool:
++            raise ValueError("notebook_state count presence mismatch")
++        if set(presence) != ({"present", "value"} if presence["present"] else {"present"}):
++            raise ValueError("notebook_state count presence fields mismatch")
++        if presence["present"]:
++            _notebook_count({"execution_count": presence["value"]}, "execution_count")
++    pointer = f"/cells/{index - 1}"
++    if origin == "saved_output":
++        output_index = state["output_index"]
++        if type(output_index) is not int or output_index < 1:
++            raise ValueError("notebook_state output index mismatch")
++        if state["output_type"] not in ("stream", "display_data", "execute_result") or state["output_freshness"] != "unverified":
++            raise ValueError("notebook_state output type/freshness mismatch")
++        pointer += f"/outputs/{output_index - 1}"
++    if state["source_json_pointer"] != pointer:
++        raise ValueError("notebook_state pointer mismatch")
++    return state
++
++
++def is_notebook_document(document: dict[str, Any]) -> bool:
++    source = document.get("source", {})
++    relative = source.get("relative_path", "")
++    notebook = isinstance(relative, str) and PurePosixPath(relative).suffix.lower() == ".ipynb"
++    extension = source.get("extension", "")
++    if notebook != (isinstance(extension, str) and extension.lower() == "ipynb"):
++        raise ValueError("notebook source extension disagrees with relative path")
++    return notebook
++
++
++def notebook_evidence_state(
++    evidence: dict[str, Any], document: dict[str, Any] | None = None, *, allow_unparsed: bool = False,
++) -> dict[str, Any] | None:
++    native = evidence.get("native_properties", {})
++    if not isinstance(native, dict):
++        raise ValueError("notebook native_properties must be an object")
++    state = native.get("notebook_state")
++    kind = evidence.get("evidence_type")
++    location = evidence.get("location", {})
++    if not isinstance(kind, str) or not isinstance(location, dict):
++        raise ValueError("notebook Evidence role/location shape mismatch")
++    notebook = is_notebook_document(document) if document is not None else (
++        kind == "notebook_cell" or "notebook_cell_index" in location
++    )
++    textual = kind in {"notebook_cell", "text_block"}
++    if state is not None:
++        validate_notebook_state(state)
++        if not notebook or not textual:
++            raise ValueError("notebook_state injected onto unrelated Evidence")
++    elif "notebook_state" in native:
++        raise ValueError("notebook_state must not be null")
++    if not notebook:
++        if kind == "notebook_cell" or "notebook_cell_index" in location:
++            raise ValueError("notebook Evidence contradicts its Document")
++        return None
++    if not textual:
++        if kind not in {"image", "ocr_line", "chart"} and "raw_text" in evidence.get("content", {}):
++            raise ValueError("notebook unsupported textual Evidence role")
++        return None
++    if state is None:
++        if (allow_unparsed and kind == "text_block" and "notebook_cell_index" not in location
++                and native.get("source_structure_status") == "unresolved"):
++            return None
++        raise ValueError("notebook_rebuild_required: textual Evidence lacks notebook_state")
++    cell = state["cell_index"]
++    expected_location = {"notebook_cell_index": cell, "locator_text": f"cell={cell}"}
++    ordinal = cell
++    expected_kind = "notebook_cell"
++    if state["content_origin"] == "saved_output":
++        ordinal = state["output_index"]
++        expected_kind = "text_block"
++        expected_location.update(object_index=ordinal, locator_text=f"cell={cell};output={ordinal}")
++    if (kind != expected_kind or type(evidence.get("ordinal")) is not int or evidence["ordinal"] != ordinal
++            or canonical_json(location) != canonical_json(expected_location)):
++        raise ValueError("notebook_state role/location/ordinal mismatch")
++    return state
++
++
++def notebook_document_binding(document: dict[str, Any], evidence: Any, source_root: Path | None) -> dict[str, Any]:
++    """Check one Document at a time; retain no cross-call source/path cache."""
++    notebook = is_notebook_document(document)
++    result = {"documents": int(notebook), "checked_evidence": 0, "unchecked_evidence": 0, "reason_codes": []}
++    reasons: set[str] = set()
++    expected = None
++    incomplete = document.get("extraction", {}).get("status") in {"partial", "failed"}
++    if notebook:
++        if incomplete:
++            reasons.add("notebook_extraction_incomplete")
++        if source_root is None:
++            reasons.add("source_root_missing")
++        else:
++            source = document["source"]
++            root = source_root.resolve()
++            path = (root / source["relative_path"]).resolve()
++            try:
++                path.relative_to(root)
++                if not path.is_file():
++                    raise ValueError("notebook source file is missing")
++                raw = read_notebook_bytes(path)
++                if hashlib.sha256(raw).hexdigest() != source.get("sha256") or len(raw) != source.get("size_bytes"):
++                    raise ValueError("notebook source size or hash mismatch")
++                parsed, encoding, expected, missing = parse_notebook_bytes(raw)
++                del raw, parsed, encoding
++                if missing:
++                    reasons.add("notebook_execution_count_missing")
++            except NotebookMetadataResourceLimit:
++                reasons.add("notebook_metadata_resource_limit")
++            except OSError as exc:
++                raise ValueError(f"notebook source read failed: {str(exc)[:256]}") from exc
++    for item in evidence:
++        state = notebook_evidence_state(item, document, allow_unparsed=incomplete and expected is None)
++        if not notebook or item.get("evidence_type") not in {"notebook_cell", "text_block"}:
++            continue
++        if state is None:
++            reasons.add("notebook_state_unparsed")
++        if expected is not None and state is not None:
++            if canonical_json(expected.get(state["source_json_pointer"])) != canonical_json(state):
++                raise ValueError("notebook_state differs from original source metadata")
++            result["checked_evidence"] += 1
++        else:
++            result["unchecked_evidence"] += 1
++    if notebook and not result["checked_evidence"]:
++        reasons.add("no_textual_records_checked")
++    result["reason_codes"] = sorted(reasons)
++    return result
++
++
++def notebook_binding_report(counts: dict[str, int], bindings: Any) -> dict[str, Any]:
++    total = {"documents": 0, "checked_evidence": 0, "unchecked_evidence": 0}
++    reasons: set[str] = set()
++    for binding in bindings:
++        for key in total:
++            total[key] += binding[key]
++        reasons.update(binding["reason_codes"])
++    return {
++        "status": "UNVERIFIED" if reasons else "PASS", "counts": counts,
++        "notebook_metadata_binding": {
++            "status": "unverified" if reasons else "verified" if total["documents"] else "not_applicable",
++            **total, "reason_codes": sorted(reasons),
++            "scope": {"raw_text_binding": "not_verified", "complete_membership": "not_verified", "output_freshness": "not_verified"},
++        },
++    }
++
++
+ class DeferredVisualStoreError(RuntimeError):
+     """The private per-document visual spool violated its integrity contract."""
+ 
+@@ -2581,9 +2890,9 @@
+             raise ValueError(f"input is outside --root: {resolved}") from exc
+         return nfc_path(relative)
+ 
+-    def add_document(self, path: Path, parser: str) -> dict[str, Any]:
++    def add_document(self, path: Path, parser: str, *, source_snapshot: bytes | None = None) -> dict[str, Any]:
+         rel = self.relative_path(path)
+-        source_sha = digest_file(path)
++        source_sha = digest_file(path) if source_snapshot is None else hashlib.sha256(source_snapshot).hexdigest()
+         doc_id = stable_id("doc", {"relative_path": rel, "source_sha256": source_sha})
+         stat = path.stat()
+         if self.diagnostic:
+@@ -2604,7 +2913,7 @@
+                 "file_name": unicodedata.normalize("NFC", path.name),
+                 "extension": path.suffix.lower().lstrip("."),
+                 "media_type": mimetypes.guess_type(path.name)[0] or "application/octet-stream",
+-                "size_bytes": stat.st_size,
++                "size_bytes": stat.st_size if source_snapshot is None else len(source_snapshot),
+                 "sha256": source_sha,
+                 "modified_at": datetime.fromtimestamp(stat.st_mtime, timezone.utc).isoformat(),
+             },
+@@ -6584,9 +6893,17 @@
+             self.mark_partial(doc, "input required replacement characters during decoding")
+ 
+     def extract_notebook(self, path: Path) -> None:
+-        text_value, encoding = read_text(path)
+-        notebook = json.loads(text_value)
+-        doc = self.add_document(path, "nbformat-json")
++        try:
++            source_snapshot = read_notebook_bytes(path)
++            notebook, encoding, notebook_states, missing_count = parse_notebook_bytes(source_snapshot)
++        except NotebookMetadataResourceLimit:
++            self.extract_large_text(path)
++            self.mark_partial(self._current_document, "notebook_metadata_resource_limit: retained unparsed raw text")
++            return
++        doc = self.add_document(path, "nbformat-json", source_snapshot=source_snapshot)
++        del source_snapshot
++        if missing_count:
++            doc["extraction"]["warnings"].append("notebook_execution_count_missing: saved execution count absent; metadata binding remains unverified")
+         doc_id = doc["document_id"]
+         image_count = 0
+ 
+@@ -6752,7 +7069,8 @@
+                     {"notebook_cell_index": cell_index, "locator_text": f"cell={cell_index}"},
+                     content(raw_text=source_text),
+                     ordinal=cell_index,
+-                    native_properties={"cell_type": cell.get("cell_type"), "encoding": encoding},
++                    native_properties={"cell_type": cell.get("cell_type"), "encoding": encoding,
++                                       "notebook_state": notebook_states[f"/cells/{cell_index - 1}"]},
+                 )
+                 self.contain_document(doc_id, ev["evidence_id"])
+             output_index = 0
+@@ -6773,7 +7091,8 @@
+                          "locator_text": f"cell={cell_index};output={output_index}"},
+                         content(raw_text=str(text_output)),
+                         ordinal=output_index,
+-                        native_properties={"output_type": output.get("output_type")},
++                        native_properties={"output_type": output.get("output_type"),
++                                           "notebook_state": notebook_states[f"/cells/{cell_index - 1}/outputs/{output_index - 1}"]},
+                     )
+                     self.contain_document(doc_id, ev["evidence_id"])
+                 for mime_type, payload in data.items():

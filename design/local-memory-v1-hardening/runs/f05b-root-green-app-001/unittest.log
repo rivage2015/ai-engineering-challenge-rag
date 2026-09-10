@@ -1,0 +1,12 @@
+test_new_app_generation_materializes_empty_decision_snapshot (f05b_target.DecisionSnapshotApplicationTests.test_new_app_generation_materializes_empty_decision_snapshot) ... ok
+test_projector_rejects_omitted_authority_before_index_changes (f05b_target.DecisionSnapshotApplicationTests.test_projector_rejects_omitted_authority_before_index_changes) ... ok
+test_reader_rejects_omitted_authority_before_source_entry (f05b_target.DecisionSnapshotApplicationTests.test_reader_rejects_omitted_authority_before_source_entry) ... ok
+test_reader_rejects_resealed_active_after_initial_gate (f05b_target.DecisionSnapshotApplicationTests.test_reader_rejects_resealed_active_after_initial_gate) ... ok
+test_validator_rejects_coherent_eligible_contact_omission (f05b_target.DecisionSnapshotApplicationTests.test_validator_rejects_coherent_eligible_contact_omission) ... ok
+test_validator_rejects_omitted_authority (f05b_target.DecisionSnapshotApplicationTests.test_validator_rejects_omitted_authority) ... ok
+F05b explicit fixture budget: {"explicit_test_bytes": 4551, "explicit_test_writes": 20, "max_source_fixture_bytes": 64, "source_fixture_count": 6}
+
+----------------------------------------------------------------------
+Ran 6 tests in 0.868s
+
+OK

@@ -1,0 +1,53 @@
+{
+  "schema_version": "1.0",
+  "task_id": "lms-v1-00-hardening-2026-09-09-f03a",
+  "status": "implementation_frozen_artifacts_ready_not_independently_accepted",
+  "contract": "design/local-memory-v1-hardening/runs/f03a-task-contract.v1.md",
+  "implementation": [
+    "Valid signal-free documents now produce the existing candidate field shape; has_version_signal separates eligibility from signal presence.",
+    "Existing exact family_key groups all eligible same-key peers, but singleton and all-unmarked families stay ungrouped.",
+    "Mixed marked/unmarked automatic groups are fully held before current/year/version logic with unmarked_candidate_requires_human_review.",
+    "Human/stale decision logic, candidate-set hash fields, family/group identity, existing all-marked F02a/F04a rules and graph projection remain unchanged.",
+    "Resolver0.1.3 and policy metadata disclose new candidate scope and hold. Existing resolver test changes exactly one version-identity assertion."
+  ],
+  "owned_final_hashes": {
+    "distribution/macos-local-memory/engine/document_version_resolver.py": "c2b98254ec28a82e8cc7b5ef3f5e780739bcc1b6983ef2a9252609156d4b672f",
+    "distribution/macos-local-memory/tests/test_document_version_resolver.py": "7600fef6fa1978c6f07042ce9418e20efa88b47d0cc523b1a647cb0a1ad35c9a",
+    "tests/test_unmarked_version_candidates.py": "b4a9176f3f7bb723d701a548418be8647a5336dc7b88dd0707d03cfa70eb5b94"
+  },
+  "executor_green_runs": [
+    {"run": "f03a-executor-green-pure-003", "methods": 19, "acceptance_and_control": 17, "residual_witnesses": 2, "skips": 0, "seconds": 0.052914},
+    {"run": "f03a-executor-green-resolver-001", "methods": 20, "skips": 0, "seconds": 0.278238},
+    {"run": "f03a-executor-green-year-001", "methods": 11, "acceptance_and_control": 10, "residual_witnesses": 1, "skips": 0, "seconds": 0.051571}
+  ],
+  "parent_green_runs": "Parent-owned app4, existing E2E17, focused13, lineage8, migration7 (Python3.14), native-XLSX security1 (Python3.9 only) all passed, zero skips. Current result/log byte hashes verified and included in the manifest; these are not new independent-audit evidence or a full app Python3.9 claim.",
+  "red_and_fixture_corrections": {
+    "audit_repair_rounds_consumed": 0,
+    "parent_authorized_test_corrections": 2,
+    "original_red": "f03a-executor-red-pure-001:19 methods/19 FAIL entries including subtests,0 ERROR/skip; unchanged original source9a744386. Parent app RED4 also preceded product edits.",
+    "postfix_failure1": "f03a-executor-green-pure-001:2 FAIL; original _copy fixtures were outside unchanged family_key because underscore is a word character.",
+    "correction1": "Parent authorized only spaces replacing underscores in two fixture strings. Original test cba73b1f... retained as f03a-test-gold-initial.v1.py; original gold, delta, RED and failed run immutable.",
+    "postfix_failure2": "f03a-executor-green-pure-002:1 FAIL; copy(2) trailing-boundary behavior removes copy but leaves2. Correction1 test aa7da7f0... retained as f03a-test-gold-correction1-snapshot.v1.py.",
+    "correction2": "After parent independently checked exact family keys, authorized one literal string to 手順 copy.csv. No assertion, method count or product code changed; _copy and numbered-copy relationships recorded as residual boundaries.",
+    "corrected_red": "f03a-executor-corrected-red-pure-001 and002 each truly failed19 entries against hash-verified saved BEFORE resolver bytes in memory. These are retrospective corrected-gold RED runs, not claims they chronologically preceded implementation. Both logs match original RED bytes because all relevant assertions fail before distinguishing the corrected peer spelling.",
+    "final_gold": "b4a9176f... test19 passes against frozen product; final suite source remains frozen. No further fixture edits without independent review."
+  },
+  "limits_and_checks": {
+    "wall_seconds_per_run": 30,
+    "log_and_fixture_limit_bytes": 1048576,
+    "final_pure_cumulative_fixture_bytes": 32312,
+    "final_pure_log_bytes": 3452,
+    "worker_side_effects": "Pure tests: in-memory adapters and post-import IO denial. Existing resolver suite: reviewed F04a synthetic guard, in-process CLI/model stubs. No real source/model/network/GUI/CONFIG/index/credential use, no worker subprocess launches. Python guard is not OS isolation.",
+    "git_diff_check": "PASS (exit0); no commit/push/staging/reset",
+    "product_boundaries": "Reader builder, adaptive Validator, projector, bootstrap, server, existing app E2E and frozen year-only tests match before hashes. README/new app test are parent-owned changes, included at current hashes."
+  },
+  "remaining_limitations": [
+    "Candidate grouping is not proof of identity, supersession or annual/revision intent; independent annual retention and richer Human choices remain open.",
+    "Cross-extension, meaningful-parent/stem moves/renames, numbered-copy/underscore normalization, all-unmarked relations and dissolved groups remain exact-family-boundary residuals. Do not interpret ungrouped as verified independent.",
+    "All-marked current/year and multi-signal F04 semantics remain; F05 independent inventory reconstruction of forged graphs is not fixed.",
+    "HITL generation/root binding, correction/none/both/hold UI, review publication/lease, and answer-time source freshness remain F06/F19/F13.",
+    "No real model, GUI, packaged app, all formats, performance/resource or full V1.00 acceptance."
+  ],
+  "rollback": "Saved before hashes and exact isolated two-file deltas only; recheck current bytes before any authorized inverse operation. Preserve prior F02a/F04a/F18/user changes, new regression gold and all history. No rollback performed; no whole-file git checkout/reset or old-generation freshness claim.",
+  "next_action": "Parent owns formal artifact/schema/reference checks and independent auditor dispatch. Hold source freeze; do not self-approve."
+}

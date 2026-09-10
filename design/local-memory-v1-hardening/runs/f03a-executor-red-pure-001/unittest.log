@@ -1,0 +1,139 @@
+{"task_id": "lms-v1-00-hardening-2026-09-09-f03a", "resolver_sha256": "9a7443862c015ed768007ef5a7b21bd3bc197c9bb7a3d7ed2f7b39b33374359d", "source_bytes": 21959, "fixture_bytes_cumulative": 18462, "required_acceptance_and_control_methods": 17, "residual_witness_methods": 2, "runtime_guard": "deny filesystem/network/process after reviewed preload; in-memory IO adapters; not OS isolation"}
+test_all_marked_supported_controls_keep_exact_reasons (__main__.UnmarkedCandidateTests.test_all_marked_supported_controls_keep_exact_reasons) ... ok
+test_all_unmarked_singleton_and_separate_families_stay_ungrouped (__main__.UnmarkedCandidateTests.test_all_unmarked_singleton_and_separate_families_stay_ungrouped) ... ok
+test_current_historical_and_draft_cannot_demote_unmarked (__main__.UnmarkedCandidateTests.test_current_historical_and_draft_cannot_demote_unmarked) ... 
+  test_current_historical_and_draft_cannot_demote_unmarked (__main__.UnmarkedCandidateTests.test_current_historical_and_draft_cannot_demote_unmarked) (marked='現行/手順.csv') ... FAIL
+  test_current_historical_and_draft_cannot_demote_unmarked (__main__.UnmarkedCandidateTests.test_current_historical_and_draft_cannot_demote_unmarked) (marked='旧版/手順.csv') ... FAIL
+  test_current_historical_and_draft_cannot_demote_unmarked (__main__.UnmarkedCandidateTests.test_current_historical_and_draft_cannot_demote_unmarked) (marked='手順_下書き.csv') ... FAIL
+  test_current_historical_and_draft_cannot_demote_unmarked (__main__.UnmarkedCandidateTests.test_current_historical_and_draft_cannot_demote_unmarked) (marked='current/手順.csv') ... FAIL
+test_existing_all_marked_candidate_hash_shape_is_unchanged (__main__.UnmarkedCandidateTests.test_existing_all_marked_candidate_hash_shape_is_unchanged) ... ok
+test_existing_invalid_record_filters_stay_closed (__main__.UnmarkedCandidateTests.test_existing_invalid_record_filters_stay_closed) ... ok
+test_full_set_human_can_choose_marked_or_unmarked (__main__.UnmarkedCandidateTests.test_full_set_human_can_choose_marked_or_unmarked) ... FAIL
+test_later_unmarked_addition_stales_previously_all_marked_choice (__main__.UnmarkedCandidateTests.test_later_unmarked_addition_stales_previously_all_marked_choice) ... FAIL
+test_mixed_choice_stales_changes_additions_and_removals_in_formed_family (__main__.UnmarkedCandidateTests.test_mixed_choice_stales_changes_additions_and_removals_in_formed_family) ... FAIL
+test_mixed_guard_precedes_existing_current_conflicts (__main__.UnmarkedCandidateTests.test_mixed_guard_precedes_existing_current_conflicts) ... FAIL
+test_numeric_and_unmarked_are_held (__main__.UnmarkedCandidateTests.test_numeric_and_unmarked_are_held) ... FAIL
+test_resolver_identity_and_policy_disclose_new_guard (__main__.UnmarkedCandidateTests.test_resolver_identity_and_policy_disclose_new_guard) ... FAIL
+test_same_family_marked_to_unmarked_rename_stales_choice (__main__.UnmarkedCandidateTests.test_same_family_marked_to_unmarked_rename_stales_choice) ... FAIL
+test_three_member_permutations_preserve_full_projection_and_hash (__main__.UnmarkedCandidateTests.test_three_member_permutations_preserve_full_projection_and_hash) ... FAIL
+test_unmarked_candidate_keeps_existing_shape (__main__.UnmarkedCandidateTests.test_unmarked_candidate_keeps_existing_shape) ... FAIL
+test_unrelated_addition_does_not_stale_valid_mixed_choice (__main__.UnmarkedCandidateTests.test_unrelated_addition_does_not_stale_valid_mixed_choice) ... FAIL
+test_unrelated_unmarked_peers_are_not_absorbed_into_mixed_group (__main__.UnmarkedCandidateTests.test_unrelated_unmarked_peers_are_not_absorbed_into_mixed_group) ... FAIL
+test_year_and_unmarked_are_held_without_annual_inference (__main__.UnmarkedCandidateTests.test_year_and_unmarked_are_held_without_annual_inference) ... 
+  test_year_and_unmarked_are_held_without_annual_inference (__main__.UnmarkedCandidateTests.test_year_and_unmarked_are_held_without_annual_inference) (paths=('業務内容2024.xlsx', '業務内容.xlsx')) ... FAIL
+  test_year_and_unmarked_are_held_without_annual_inference (__main__.UnmarkedCandidateTests.test_year_and_unmarked_are_held_without_annual_inference) (paths=('記録/実績2024.csv', '記録/実績.csv')) ... FAIL
+  test_year_and_unmarked_are_held_without_annual_inference (__main__.UnmarkedCandidateTests.test_year_and_unmarked_are_held_without_annual_inference) (paths=('Reports/Memo2023.csv', 'Reports/Memo.csv')) ... FAIL
+  test_year_and_unmarked_are_held_without_annual_inference (__main__.UnmarkedCandidateTests.test_year_and_unmarked_are_held_without_annual_inference) (paths=('2024/業務内容.xlsx', '業務内容.xlsx')) ... FAIL
+test_cross_key_moves_renames_and_suffix_changes_leave_old_group_omitted (__main__.ResidualWitnessTests.test_cross_key_moves_renames_and_suffix_changes_leave_old_group_omitted) ... ok
+test_year_kanji_parent_is_not_silently_normalized_more_broadly (__main__.ResidualWitnessTests.test_year_kanji_parent_is_not_silently_normalized_more_broadly) ... ok
+
+======================================================================
+FAIL: test_current_historical_and_draft_cannot_demote_unmarked (__main__.UnmarkedCandidateTests.test_current_historical_and_draft_cannot_demote_unmarked) (marked='現行/手順.csv')
+----------------------------------------------------------------------
+AssertionError: 1 != 0
+
+======================================================================
+FAIL: test_current_historical_and_draft_cannot_demote_unmarked (__main__.UnmarkedCandidateTests.test_current_historical_and_draft_cannot_demote_unmarked) (marked='旧版/手順.csv')
+----------------------------------------------------------------------
+AssertionError: 1 != 0
+
+======================================================================
+FAIL: test_current_historical_and_draft_cannot_demote_unmarked (__main__.UnmarkedCandidateTests.test_current_historical_and_draft_cannot_demote_unmarked) (marked='手順_下書き.csv')
+----------------------------------------------------------------------
+AssertionError: 1 != 0
+
+======================================================================
+FAIL: test_current_historical_and_draft_cannot_demote_unmarked (__main__.UnmarkedCandidateTests.test_current_historical_and_draft_cannot_demote_unmarked) (marked='current/手順.csv')
+----------------------------------------------------------------------
+AssertionError: 1 != 0
+
+======================================================================
+FAIL: test_full_set_human_can_choose_marked_or_unmarked (__main__.UnmarkedCandidateTests.test_full_set_human_can_choose_marked_or_unmarked)
+----------------------------------------------------------------------
+AssertionError: 1 != 0
+
+======================================================================
+FAIL: test_later_unmarked_addition_stales_previously_all_marked_choice (__main__.UnmarkedCandidateTests.test_later_unmarked_addition_stales_previously_all_marked_choice)
+----------------------------------------------------------------------
+AssertionError: 'needs_human_review' != 'resolved'
+- needs_human_review
++ resolved
+
+
+======================================================================
+FAIL: test_mixed_choice_stales_changes_additions_and_removals_in_formed_family (__main__.UnmarkedCandidateTests.test_mixed_choice_stales_changes_additions_and_removals_in_formed_family)
+----------------------------------------------------------------------
+AssertionError: 1 != 0
+
+======================================================================
+FAIL: test_mixed_guard_precedes_existing_current_conflicts (__main__.UnmarkedCandidateTests.test_mixed_guard_precedes_existing_current_conflicts)
+----------------------------------------------------------------------
+AssertionError: 'unmarked_candidate_requires_human_review' != 'current_marker_conflicts_with_latest_version'
+- unmarked_candidate_requires_human_review
++ current_marker_conflicts_with_latest_version
+
+
+======================================================================
+FAIL: test_numeric_and_unmarked_are_held (__main__.UnmarkedCandidateTests.test_numeric_and_unmarked_are_held)
+----------------------------------------------------------------------
+AssertionError: 1 != 0
+
+======================================================================
+FAIL: test_resolver_identity_and_policy_disclose_new_guard (__main__.UnmarkedCandidateTests.test_resolver_identity_and_policy_disclose_new_guard)
+----------------------------------------------------------------------
+AssertionError: '0.1.3' != '0.1.2'
+- 0.1.3
+?     ^
++ 0.1.2
+?     ^
+
+
+======================================================================
+FAIL: test_same_family_marked_to_unmarked_rename_stales_choice (__main__.UnmarkedCandidateTests.test_same_family_marked_to_unmarked_rename_stales_choice)
+----------------------------------------------------------------------
+AssertionError: 1 != 0
+
+======================================================================
+FAIL: test_three_member_permutations_preserve_full_projection_and_hash (__main__.UnmarkedCandidateTests.test_three_member_permutations_preserve_full_projection_and_hash)
+----------------------------------------------------------------------
+AssertionError: 1 != 0
+
+======================================================================
+FAIL: test_unmarked_candidate_keeps_existing_shape (__main__.UnmarkedCandidateTests.test_unmarked_candidate_keeps_existing_shape)
+----------------------------------------------------------------------
+AssertionError: unexpectedly None
+
+======================================================================
+FAIL: test_unrelated_addition_does_not_stale_valid_mixed_choice (__main__.UnmarkedCandidateTests.test_unrelated_addition_does_not_stale_valid_mixed_choice)
+----------------------------------------------------------------------
+AssertionError: 1 != 0
+
+======================================================================
+FAIL: test_unrelated_unmarked_peers_are_not_absorbed_into_mixed_group (__main__.UnmarkedCandidateTests.test_unrelated_unmarked_peers_are_not_absorbed_into_mixed_group)
+----------------------------------------------------------------------
+AssertionError: 1 != 0
+
+======================================================================
+FAIL: test_year_and_unmarked_are_held_without_annual_inference (__main__.UnmarkedCandidateTests.test_year_and_unmarked_are_held_without_annual_inference) (paths=('業務内容2024.xlsx', '業務内容.xlsx'))
+----------------------------------------------------------------------
+AssertionError: 1 != 0
+
+======================================================================
+FAIL: test_year_and_unmarked_are_held_without_annual_inference (__main__.UnmarkedCandidateTests.test_year_and_unmarked_are_held_without_annual_inference) (paths=('記録/実績2024.csv', '記録/実績.csv'))
+----------------------------------------------------------------------
+AssertionError: 1 != 0
+
+======================================================================
+FAIL: test_year_and_unmarked_are_held_without_annual_inference (__main__.UnmarkedCandidateTests.test_year_and_unmarked_are_held_without_annual_inference) (paths=('Reports/Memo2023.csv', 'Reports/Memo.csv'))
+----------------------------------------------------------------------
+AssertionError: 1 != 0
+
+======================================================================
+FAIL: test_year_and_unmarked_are_held_without_annual_inference (__main__.UnmarkedCandidateTests.test_year_and_unmarked_are_held_without_annual_inference) (paths=('2024/業務内容.xlsx', '業務内容.xlsx'))
+----------------------------------------------------------------------
+AssertionError: 1 != 0
+
+----------------------------------------------------------------------
+Ran 19 tests in 0.002s
+
+FAILED (failures=19)

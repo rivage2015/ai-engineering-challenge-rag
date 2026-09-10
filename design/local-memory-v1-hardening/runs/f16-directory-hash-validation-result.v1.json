@@ -1,0 +1,16 @@
+{
+  "schema_version": "1.0",
+  "task_id": "lms-v1-00-hardening-2026-09-09-directory-hash-order",
+  "artifact": "f16-directory-hash-graph-artifact.v1.json",
+  "report": "f16-directory-hash-audit-report.v1.json",
+  "actual_artifact_sha256": "264ad131bfbcd2ba1c36824f5b6ccfc5834d7bf312c4e4f38f5b359b28524371",
+  "ruby_structural_referential_validator": "PASS",
+  "draft202012_schema_task_hash": "PASS",
+  "all_eleven_current_source_hashes": "PASS",
+  "audit_status": "pass",
+  "repair_round": 0,
+  "clarification": "The6 focused tests are4 exact literal canonical-JSON/hashlib golds plus2 property tests (propagation/order invariance), not6 exact fixed-value golds. Prior immutable wording is clarified here, not silently rewritten.",
+  "independent_tests": "6 focused on each3.14/3.9,19 builder,18 Validator,15 E2E,15 migration/lineage and1 independent multi-branch Unicode holdout; zero skips. Sharedresolver a1780dc5... andparser73b9ad53... were stable in each replay.",
+  "limits": "Bottom-up directory digest correctness only, not authenticity/global snapshot/resources/allpolicy/models/package acceptance. LaterF04a resolver changes are outside these completed integration snapshots.",
+  "next_action": "Accept the scoped one-line depth repair, preserve original failure and earlier audit snapshots; source freeze released. Existing generations are not automatically rebuilt."
+}

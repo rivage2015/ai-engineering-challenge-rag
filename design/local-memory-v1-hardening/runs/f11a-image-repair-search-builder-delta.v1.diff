@@ -1,0 +1,58 @@
+--- design/local-memory-v1-hardening/runs/f11a-image-repair-before-search-builder.v1.py	2026-09-09 16:02:55
++++ scripts/build_search_units.py	2026-09-09 16:06:50
+@@ -274,11 +274,20 @@
+         generated_at: str,
+         emit: Callable[[dict[str, Any]], None],
+         target_chars: int,
++        *,
++        parent_lookup: Callable[[str], dict[str, Any] | None] | None = None,
++        document: dict[str, Any] | None = None,
+     ) -> None:
+         self.document_id = document_id
+         self.generated_at = generated_at
+         self.emit = emit
+         self.target_chars = target_chars
++        self.document = document
++        # Only Notebook image records survive flush_image for deferred VLM
++        # children. Never retain the whole Evidence stream or image bytes.
++        self._notebook_images: dict[str, dict[str, Any]] = {}
++        self._external_parent_lookup = parent_lookup
++        self.parent_lookup = parent_lookup if parent_lookup is not None else self._notebook_images.get
+         self.paragraphs: list[dict[str, Any]] = []
+         self.heading: dict[str, Any] | None = None
+         self.current_row_key: tuple[Any, ...] | None = None
+@@ -753,7 +762,9 @@
+         unit_type: str,
+         context: dict[str, Any] | None = None,
+     ) -> None:
+-        notebook_state = notebook_evidence_state(evidence)
++        notebook_state = notebook_evidence_state(
++            evidence, self.document, parent_lookup=self.parent_lookup,
++        )
+         if notebook_state is not None:
+             context = {**(context or {}), "notebook_state": json.loads(canonical_json(notebook_state))}
+         value = display_value(evidence)
+@@ -815,8 +826,14 @@
+         ))
+ 
+     def consume(self, evidence: dict[str, Any]) -> None:
+-        notebook_evidence_state(evidence)
++        notebook_evidence_state(evidence, self.document, parent_lookup=self.parent_lookup)
+         evidence_type = evidence.get("evidence_type")
++        if (self._external_parent_lookup is None and evidence_type == "image"
++                and "notebook_cell_index" in evidence.get("location", {})):
++            evidence_id = evidence["evidence_id"]
++            if evidence_id in self._notebook_images:
++                raise ValueError("notebook duplicate parent image Evidence ID")
++            self._notebook_images[evidence_id] = json.loads(canonical_json(evidence))
+         if evidence_type != "ocr_line":
+             self.flush_image()
+         if evidence_type in {"heading", "paragraph"}:
+@@ -892,6 +909,7 @@
+         self.flush_row()
+         self.flush_slide()
+         self.flush_image()
++        self._notebook_images.clear()
+         return self.counts
+ 
+ 

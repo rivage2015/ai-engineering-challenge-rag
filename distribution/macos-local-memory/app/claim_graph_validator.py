@@ -727,6 +727,115 @@ def validate_record_lookup_binding(
             })
 
 
+def validate_ordered_section_binding(
+    record: dict,
+    graph: dict,
+    failures: list[dict],
+) -> None:
+    """Bind an ordered-section claim to its verified heading -> value path."""
+    artifact = record.get("question_evidence_graph")
+    validation = record.get("question_evidence_graph_validation")
+    if not isinstance(artifact, dict) or not isinstance(validation, dict):
+        return
+    intent = artifact.get("intent")
+    if not isinstance(intent, dict) or intent.get("operation") != "ordered_section_lookup":
+        return
+    if artifact.get("status") != "ready" or validation.get("status") != "pass":
+        failures.append({
+            "code": "ordered_section_graph_not_verified",
+            "detail": "順序付きセクションGraphが検証済みではありません。",
+        })
+        return
+    body = {
+        key: value for key, value in artifact.items()
+        if key not in {"artifact_hash", "artifact_id"}
+    }
+    expected_hash = stable_hash(body)
+    if (
+        artifact.get("artifact_hash") != expected_hash
+        or artifact.get("artifact_id") != f"qeg_{expected_hash[:24]}"
+    ):
+        failures.append({
+            "code": "ordered_section_graph_hash_mismatch",
+            "detail": "順序付きセクションGraphのhashが一致しません。",
+        })
+        return
+    selection = artifact.get("selection")
+    if not isinstance(selection, dict):
+        failures.append({
+            "code": "ordered_section_selection_missing",
+            "detail": "検証済みの選択値がありません。",
+        })
+        return
+    expected_value = selection.get("value")
+    value_evidence_id = selection.get("value_evidence_id")
+    if not isinstance(expected_value, str) or not expected_value.strip():
+        failures.append({
+            "code": "ordered_section_value_missing",
+            "detail": "検証済みの発話値がありません。",
+        })
+        return
+    if not isinstance(value_evidence_id, str) or not value_evidence_id:
+        failures.append({
+            "code": "ordered_section_value_evidence_missing",
+            "detail": "発話値のEvidence IDがありません。",
+        })
+        return
+    stored_binding = artifact.get("stored_graph_binding")
+    record_index = record.get("index") if isinstance(record.get("index"), dict) else {}
+    if not isinstance(stored_binding, dict):
+        failures.append({
+            "code": "ordered_section_stored_graph_binding_missing",
+            "detail": "発話値が保存済みGraphのTraversalへ接続されていません。",
+        })
+        return
+    binding_body = {
+        key: value for key, value in stored_binding.items()
+        if key != "traversal_sha256"
+    }
+    if stored_binding.get("traversal_sha256") != stable_hash(binding_body):
+        failures.append({
+            "code": "ordered_section_stored_graph_hash_mismatch",
+            "detail": "保存済みGraph Traversalのhashが一致しません。",
+        })
+    if stored_binding.get("graph_sha256") != record_index.get("graph_sha256"):
+        failures.append({
+            "code": "ordered_section_graph_snapshot_mismatch",
+            "detail": "質問Graphと回答記録が異なる保存済みGraphを参照しています。",
+        })
+    required_ids = {str(value) for value in stored_binding.get("required_evidence_ids", [])}
+    if value_evidence_id not in required_ids:
+        failures.append({
+            "code": "ordered_section_value_outside_traversal",
+            "detail": "発話Evidenceが検証済みTraversalに含まれていません。",
+        })
+    claims = [
+        claim for claim in graph.get("claims", [])
+        if isinstance(claim, dict)
+    ]
+    if len(claims) != 1:
+        failures.append({
+            "code": "ordered_section_claim_cardinality_invalid",
+            "detail": "順序付き発話照会は一つの主張だけを返す必要があります。",
+        })
+        return
+    claim = claims[0]
+    if not record_lookup_value_matches(claim.get("value"), expected_value):
+        failures.append({
+            "code": "ordered_section_value_mismatch",
+            "claim_id": str(claim.get("claim_id", "")),
+            "detail": "主張値が検証済みの最初の発話値と一致しません。",
+        })
+    if value_evidence_id not in {
+        str(value) for value in claim.get("evidence_ids", [])
+    }:
+        failures.append({
+            "code": "ordered_section_evidence_escape",
+            "claim_id": str(claim.get("claim_id", "")),
+            "detail": "主張が検証済みの発話Evidenceを参照していません。",
+        })
+
+
 def build_claim_graph(record: dict, packets: list[dict], contract: dict | None = None) -> dict:
     contract = contract or build_question_contract(
         record.get("query", ""),
@@ -999,6 +1108,7 @@ def validate_claim_graph(record: dict, packets: list[dict], contract: dict, grap
     validate_record_lookup_binding(
         graph, lookup_bindings, failures,
     )
+    validate_ordered_section_binding(record, graph, failures)
     validate_question_graph_binding(record, contract, graph, packet_map, failures, warnings)
 
     status = "blocked" if failures else "pass"

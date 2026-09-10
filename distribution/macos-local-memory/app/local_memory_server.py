@@ -24,7 +24,7 @@ import urllib.parse
 import urllib.request
 import unicodedata
 from contextlib import contextmanager
-from datetime import date
+from datetime import date, datetime
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
@@ -58,6 +58,8 @@ STARTUP_RECOVERY_ACTIVE_STATUSES = {
 }
 UI_CSRF_FIELD = "_local_memory_csrf"
 MAX_FORM_BYTES = 64 * 1024
+REVIEW_TICKET_TTL_SECONDS = 30 * 60
+MAX_REVIEW_TICKETS = 256
 
 
 def _server_build_id() -> str:
@@ -362,15 +364,35 @@ def _local_ui_post_is_authorized(
 ) -> bool:
     expected = getattr(server, "ui_csrf_token", "")
     supplied_values = form.get(UI_CSRF_FIELD, [])
+    token_is_current = (
+        isinstance(expected, str)
+        and bool(expected)
+        and isinstance(supplied_values, list)
+        and len(supplied_values) == 1
+        and isinstance(supplied_values[0], str)
+        and hmac.compare_digest(supplied_values[0], expected)
+    )
+    if token_is_current:
+        return _local_ui_request_context_is_same_origin(server, headers)
     if (
-        not isinstance(expected, str)
-        or not expected
-        or not isinstance(supplied_values, list)
+        not isinstance(supplied_values, list)
         or len(supplied_values) != 1
         or not isinstance(supplied_values[0], str)
-        or not hmac.compare_digest(supplied_values[0], expected)
+        or not supplied_values[0]
     ):
         return False
+    # Chromium can restore a no-store page from its back/forward cache after
+    # this local server has restarted.  The form token is then stale even
+    # though the navigation is demonstrably from this exact loopback origin.
+    # Do not relax cross-site requests or token-less requests: the exception
+    # requires every browser Fetch Metadata signal for a same-origin HTML form.
+    return _local_ui_post_is_strict_same_origin_navigation(server, headers)
+
+
+def _local_ui_request_context_is_same_origin(
+    server: object,
+    headers: object,
+) -> bool:
     authorities = _local_http_authorities(server)
     origin = getattr(headers, "get", lambda *_args: None)("Origin")
     if isinstance(origin, str) and origin:
@@ -388,6 +410,53 @@ def _local_ui_post_is_authorized(
     ):
         return False
     return True
+
+
+def _local_ui_post_is_strict_same_origin_navigation(
+    server: object,
+    headers: object,
+) -> bool:
+    authorities = _local_http_authorities(server)
+    origins = {f"http://{authority}" for authority in authorities}
+    get = getattr(headers, "get", lambda *_args: None)
+    origin = get("Origin")
+    referer = get("Referer")
+    content_type = get("Content-Type")
+    return (
+        isinstance(origin, str)
+        and origin.strip().lower() in origins
+        and isinstance(referer, str)
+        and any(
+            referer.strip().lower().startswith(expected + "/")
+            for expected in origins
+        )
+        and get("Sec-Fetch-Site") == "same-origin"
+        and get("Sec-Fetch-Mode") == "navigate"
+        and get("Sec-Fetch-Dest") == "document"
+        and isinstance(content_type, str)
+        and content_type.lower().split(";", 1)[0].strip()
+        == "application/x-www-form-urlencoded"
+    )
+
+
+def _local_ui_post_has_stale_csrf(
+    server: object,
+    headers: object,
+    form: dict[str, list[str]],
+) -> bool:
+    """Recognize an expired local form without accepting its request."""
+    expected = getattr(server, "ui_csrf_token", "")
+    supplied_values = form.get(UI_CSRF_FIELD, [])
+    return (
+        isinstance(expected, str)
+        and bool(expected)
+        and isinstance(supplied_values, list)
+        and len(supplied_values) == 1
+        and isinstance(supplied_values[0], str)
+        and bool(supplied_values[0])
+        and not hmac.compare_digest(supplied_values[0], expected)
+        and _local_ui_request_context_is_same_origin(server, headers)
+    )
 
 
 def _begin_active_work() -> bool:
@@ -643,7 +712,7 @@ def security_exclusion_notice() -> str:
     )
 
 
-def document_version_review_notice(csrf_field: str) -> str:
+def document_version_review_notice(csrf_field: str, ticket_issuer=None) -> str:
     """Render unresolved version families without exposing document content."""
     path = bootstrap.DOCUMENT_VERSION_REVIEW
     if not path.is_file() or path.is_symlink():
@@ -686,6 +755,54 @@ def document_version_review_notice(csrf_field: str) -> str:
         if not choices:
             continue
         reason = html.escape(str(group.get("reason_code", "ambiguous")))
+        ticket = ticket_issuer(group) if ticket_issuer is not None else ""
+        # The trusted reconstructed context classifies all temporal signals,
+        # including invalid/unknown 202/203-shaped tokens.  A ticket therefore
+        # selects the full consent flow even when no valid year was extracted.
+        dated = bool(ticket) or any(
+            item.get("explicit_years")
+            for item in candidates
+            if isinstance(item, dict)
+        )
+        if dated and not ticket:
+            candidate_list = "".join(
+                "<li>" + html.escape(str(item.get("relative_path", "不明"))) + "</li>"
+                for item in candidates if isinstance(item, dict)
+            )
+            cards.append(
+                f'<p class="warn"><b>どれを現在使う資料にしますか？</b><br>'
+                f'判定保留: {reason}<br>確認票を作れないため、選択は保留しました。</p>'
+                f'<ul>{candidate_list}</ul>'
+            )
+            continue
+        if dated:
+            hidden = (
+                f'<input type="hidden" name="review_ticket" value="{html.escape(ticket, quote=True)}">'
+                '<input type="hidden" name="relation" value="same_work_revisions">'
+            )
+            cards.append(
+                '<form method="post" action="/document-version-decision">'
+                f'{csrf_field}{hidden}'
+                f'<p><b>1. これらは同じ業務の改訂版ですか？</b><br>'
+                f'<span class="small">判定保留: {reason}</span></p>'
+                '<p><b>2. 現在有効な資料を1つ選んでください</b></p>'
+                + "".join(choices)
+                + '<p><label><input type="checkbox" name="current_confirmed" value="yes" required> '
+                'この資料が現在の業務に有効だと確認しました</label></p>'
+                '<p><b>3. この内容を取り込み、検索と回答に使ってよいですか？</b><br>'
+                '<label><input type="checkbox" name="use_approved" value="yes" required> はい、使ってかまいません</label></p>'
+                '<button>確認を保存して索引を再構築</button></form>'
+                '<p class="small">同じ業務ではない場合や、今は判断できない場合は、回答に使わず保留します。</p>'
+                '<form method="post" action="/document-version-decision">'
+                f'{csrf_field}<input type="hidden" name="review_ticket" value="{html.escape(ticket, quote=True)}">'
+                '<input type="hidden" name="relation" value="independent_records">'
+                '<button class="secondary">別々の年次記録として保留</button></form>'
+                '<form method="post" action="/document-version-decision">'
+                f'{csrf_field}<input type="hidden" name="review_ticket" value="{html.escape(ticket, quote=True)}">'
+                '<input type="hidden" name="relation" value="defer">'
+                '<button class="secondary">今は判断しない</button></form>'
+            )
+            continue
         cards.append(
             '<form method="post" action="/document-version-decision">'
             f'{csrf_field}<input type="hidden" name="group_id" '
@@ -704,7 +821,33 @@ def document_version_review_notice(csrf_field: str) -> str:
     )
 
 
-def home(message: str = "", csrf_token: str = "") -> bytes:
+def unread_document_notice(report: object) -> str:
+    """Render reader diagnostics as escaped text, not trusted answer content."""
+    if not isinstance(report, dict) or not isinstance(report.get("items"), list):
+        return '<p class="warn">読めなかったファイル・場所の詳細記録はありません。</p>'
+    cards = []
+    labels = {"partial": "一部を読めませんでした。",
+              "failed": "読み取りに失敗しました。",
+              "deferred": "読み取りを完了できませんでした。"}
+    for item in report["items"][:100]:
+        if not isinstance(item, dict) or item.get("status") not in labels:
+            continue
+        cards.append(
+            '<div class="warn"><b>' + labels[item["status"]] + '</b><br>'
+            + 'ファイル：' + html.escape(str(item.get("file", "不明"))[:2000]) + '<br>'
+            + '場所：' + html.escape(str(item.get("location") or "特定できませんでした")[:2000]) + '<br>'
+            + 'Readerの記録：' + html.escape(str(item.get("reason") or "理由を特定できませんでした")[:4000])
+            + '</div>'
+        )
+    omitted = report.get("omitted", 0)
+    if type(omitted) is int and omitted > 0:
+        cards.append(f'<p class="warn">ほか{omitted}件あります。表示は先頭100件です。</p>')
+    if not cards:
+        return '<p class="small">文書単位の読取失敗記録はありません。全領域を読めた保証ではありません。</p>'
+    return '<section class="card"><h2>読めなかった資料</h2>' + ''.join(cards) + '</section>'
+
+
+def home(message: str = "", csrf_token: str = "", review_ticket_issuer=None) -> bytes:
     diagnosis = bootstrap.diagnose()
     current = state()
     ready = diagnosis["index_ready"] and current.get("phase") in {"ready", "ready_with_limits"}
@@ -726,6 +869,7 @@ def home(message: str = "", csrf_token: str = "") -> bytes:
     elif current["phase"] == "ready_with_limits":
         limitations = html.escape(json.dumps(current.get("reader_limitations", {}), ensure_ascii=False, sort_keys=True))
         setup = f'<p class="warn">{html.escape(current["message"])}<br><span class="small">{limitations}</span></p>'
+        setup += unread_document_notice(current.get("unread_document_notices"))
     else:
         setup = '<p class="ok">準備完了。曖昧な記憶のまま質問できます。</p>'
     ask = "" if not ready else f"""
@@ -761,7 +905,7 @@ def home(message: str = "", csrf_token: str = "") -> bytes:
     <div class="metric">メモリ<b>{diagnosis['memory_gb'] or '?'} GB</b></div><div class="metric">空き容量<b>{diagnosis['free_gb']} GB</b></div>
     <div class="metric">チップ<b>{html.escape(diagnosis['architecture'])}</b></div><div class="metric">Ollama<b>{'起動中' if diagnosis['ollama_online'] else '停止中/未導入'}</b></div></div>
     <p class="small">検索対象: {html.escape(diagnosis['source_root'] or '未選択')}<br>モデル: {html.escape(models)}</p>{answer_path_notice}{setup}</section>{ask}
-    {document_version_review_notice(csrf_field)}
+    {document_version_review_notice(csrf_field, review_ticket_issuer)}
     {security_exclusion_notice()}
     <section class="card"><details><summary>プライバシーと制限</summary><p class="small">質問・回答・索引は <code>~/Library/Application Support/LocalMemorySearch</code> に保存されます。通常利用中のAI処理は127.0.0.1のOllamaのみです。初回のOllama導入・モデル取得にはインターネットが必要です。画像、スキャンPDF、対応する埋め込み画像はローカルOCRで位置付き文字を読みます。Gemmaによる座標なし文字起こしと、図・表・写真の意味観測は <code>[暫定読取]</code> として検索にだけ使い、それ単独で確定回答や確定グラフを作りません。音声・動画は未対応です。</p></details></section>
     """, refresh=refresh)
@@ -782,6 +926,114 @@ def build_worker() -> None:
     finally:
         _end_active_work()
         BUILD_LOCK.release()
+
+
+def review_ticket_issuer(server):
+    """Create opaque, in-memory tickets bound to the active review revision."""
+    try:
+        context = bootstrap.current_document_version_review_context()
+    except Exception:
+        return lambda _group: ""
+    dated_ids = set(context["dated_group_ids"])
+
+    def issue(group: dict) -> str:
+        group_id = group.get("group_id")
+        if group_id not in dated_ids or group_id not in context["family_keys"]:
+            return ""
+        revision = {
+            **context["base_revision"],
+            "candidate_set_sha256": group.get("candidate_set_sha256"),
+        }
+        now = time.monotonic()
+        with server.review_ticket_lock:
+            server.review_tickets = {
+                key: value for key, value in server.review_tickets.items()
+                if value["expires_at"] > now
+            }
+            while len(server.review_tickets) >= MAX_REVIEW_TICKETS:
+                oldest = min(server.review_tickets, key=lambda key: server.review_tickets[key]["expires_at"])
+                del server.review_tickets[oldest]
+            token = secrets.token_urlsafe(32)
+            server.review_tickets[token] = {
+                "expires_at": now + REVIEW_TICKET_TTL_SECONDS,
+                "group_id": group_id,
+                "family_key": context["family_keys"][group_id],
+                "revision": revision,
+            }
+        return token
+
+    return issue
+
+
+def consume_review_ticket(server, token: str) -> dict:
+    with server.review_ticket_lock:
+        ticket = server.review_tickets.pop(token, None)
+    if not isinstance(ticket, dict) or ticket.get("expires_at", 0) <= time.monotonic():
+        raise ValueError("dated_consent_review_ticket_invalid")
+    return ticket
+
+
+def save_dated_review_submission(server, form: dict[str, list[str]]) -> bool:
+    """Re-attest current source/revision, then save one consent with CAS."""
+    token = str(form.get("review_ticket", [""])[0]).strip()
+    ticket = consume_review_ticket(server, token)
+    context = bootstrap.current_document_version_review_context(validate_source=True)
+    group = next(
+        (item for item in context["graph"].get("groups", [])
+         if item.get("group_id") == ticket["group_id"]),
+        None,
+    )
+    if group is None or context["family_keys"].get(ticket["group_id"]) != ticket["family_key"]:
+        raise ValueError("dated_consent_display_stale")
+    current_revision = {
+        **context["base_revision"],
+        "candidate_set_sha256": group.get("candidate_set_sha256"),
+    }
+    relation = str(form.get("relation", [""])[0]).strip()
+    selected_path = str(form.get("selected_relative_path", [""])[0]).strip()
+    selected = next(
+        (item for item in group.get("candidates", [])
+         if item.get("relative_path") == selected_path),
+        None,
+    )
+    if relation == "same_work_revisions":
+        selected_hash = selected.get("source_sha256") if isinstance(selected, dict) else None
+        current_confirmed = form.get("current_confirmed", [""])[0] == "yes"
+        use_approved = form.get("use_approved", [""])[0] == "yes"
+    elif relation in {"independent_records", "defer"}:
+        selected_path = None
+        selected_hash = None
+        current_confirmed = False
+        use_approved = False
+    else:
+        raise ValueError("dated_consent_invalid")
+    resolver = bootstrap._decision_resolver()
+    record = resolver.prepare_dated_consent(
+        ticket["family_key"],
+        group["candidates"],
+        {
+            "relation": relation,
+            "selected_relative_path": selected_path,
+            "selected_source_sha256": selected_hash,
+            "current_applicability_confirmed": current_confirmed,
+            "allow_ingest_index_answer": use_approved,
+        },
+        displayed_revision=ticket["revision"],
+        current_revision=current_revision,
+        actor="local-ui-human",
+        decided_at=datetime.now().astimezone().isoformat(timespec="seconds"),
+    )
+    resolver.record_dated_consent_cas(
+        bootstrap.DOCUMENT_VERSION_DECISIONS,
+        record,
+        ticket["revision"]["decisions_sha256"],
+        bootstrap.MAX_DECISION_SNAPSHOT_BYTES,
+    )
+    return (
+        relation == "same_work_revisions"
+        and current_confirmed
+        and use_approved
+    )
 
 
 def unload_ollama_model(model: str, timeout: int = 60) -> dict:
@@ -2356,9 +2608,24 @@ def answer_source_notice(record: dict) -> tuple[str, str, str]:
     )
 
 
-def answer_query(query: str) -> dict:
+def answer_query(
+    query: str,
+    *,
+    expected_active_revision: dict | None = None,
+) -> dict:
     pipeline_started = time.perf_counter()
-    config = bootstrap.load_json(bootstrap.CONFIG)
+    if expected_active_revision is None:
+        # Non-HTTP callers retained for the bounded pipeline test harness.
+        # Handler.do_POST always supplies the captured revision identity.
+        config = bootstrap.load_json(bootstrap.CONFIG)
+    else:
+        config_exists, config = bootstrap.load_config_snapshot()
+        if not config_exists:
+            raise RuntimeError("answer_configuration_missing")
+        if not bootstrap.answer_config_matches_revision(
+            config, expected_active_revision
+        ):
+            raise RuntimeError("answer_revision_changed_before_query")
     index = Path(config["index_path"])
     bootstrap.start_ollama()
     log = bootstrap.SUPPORT / "logs" / "answers.jsonl"
@@ -2620,7 +2887,10 @@ class Handler(BaseHTTPRequestHandler):
                 "</section>"
             ), 503)
             return
-        self.send(home(csrf_token=self.server.ui_csrf_token))
+        self.send(home(
+            csrf_token=self.server.ui_csrf_token,
+            review_ticket_issuer=review_ticket_issuer(self.server),
+        ))
 
     def do_POST(self) -> None:
         if not _local_request_host_is_valid(self.server, self.headers):
@@ -2678,6 +2948,20 @@ class Handler(BaseHTTPRequestHandler):
             self.headers,
             form,
         ):
+            if _local_ui_post_has_stale_csrf(
+                self.server,
+                self.headers,
+                form,
+            ):
+                self.send(page(
+                    '<a class="button secondary" href="/">← 最新の画面に戻る</a>'
+                    '<section class="card"><h1>質問画面が更新されました</h1>'
+                    '<p>アプリの更新または再起動により、開いていた画面の'
+                    '安全トークンが失効しました。質問はまだ検索に送られていません。</p>'
+                    '<p>最新の画面に戻り、もう一度質問を入力してください。</p>'
+                    '</section>'
+                ), 403)
+                return
             self.send_json({"status": "forbidden"}, 403)
             return
         if self.path == "/build":
@@ -2696,6 +2980,22 @@ class Handler(BaseHTTPRequestHandler):
                     "索引作成中のため、資料版の選択を保留しました。",
                     self.server.ui_csrf_token,
                 ), 409)
+                return
+            if str(form.get("review_ticket", [""])[0]).strip():
+                try:
+                    should_rebuild = save_dated_review_submission(self.server, form)
+                except Exception:
+                    self.send(home(
+                        "資料または判断状態が表示後に変わったため、保存しませんでした。もう一度確認してください。",
+                        self.server.ui_csrf_token,
+                    ), 409)
+                    return
+                if should_rebuild:
+                    threading.Thread(target=build_worker, daemon=True).start()
+                    message = "確認を保存し、索引の再構築を開始しました。"
+                else:
+                    message = "判断を保留しました。これらの資料は回答に使いません。"
+                self.send(home(message, self.server.ui_csrf_token))
                 return
             group_id = str(form.get("group_id", [""])[0]).strip()
             selected = str(form.get("selected_relative_path", [""])[0]).strip()
@@ -2739,6 +3039,15 @@ class Handler(BaseHTTPRequestHandler):
                     self.server.ui_csrf_token,
                 ), 409)
                 return
+            decision_current, _decision_reason, answer_revision = (
+                bootstrap.active_answer_revision_identity()
+            )
+            if not decision_current or answer_revision is None:
+                self.send(home(
+                    "資料の判断が更新され、対応する索引がまだ完成していないため、回答を保留しました。",
+                    self.server.ui_csrf_token,
+                ), 409)
+                return
             query = str(form.get("query", [""])[0]).strip()
             if not query:
                 self.send(home(
@@ -2750,7 +3059,23 @@ class Handler(BaseHTTPRequestHandler):
                 self.send_json({"status": "shutting_down"}, 503)
                 return
             try:
-                record = answer_query(query)
+                record = answer_query(
+                    query,
+                    expected_active_revision=answer_revision,
+                )
+                decision_current, _decision_reason, final_revision = (
+                    bootstrap.active_answer_revision_identity()
+                )
+                if (
+                    not decision_current
+                    or final_revision is None
+                    or final_revision != answer_revision
+                ):
+                    self.send(home(
+                        "回答作成中に資料の判断が変わったため、作成済みの回答を表示しませんでした。",
+                        self.server.ui_csrf_token,
+                    ), 409)
+                    return
                 answer = record["answer"]
                 audit = record.get("independent_final_audit", {})
                 semantic_candidate = semantic_graph_candidate_notice(record)
@@ -2762,6 +3087,18 @@ class Handler(BaseHTTPRequestHandler):
                     isinstance(promotion, dict)
                     and promotion.get("decision") == "PROMOTE"
                     and promotion.get("used_for_answers") is True
+                )
+                graph_route = record.get("graph_route")
+                question_graph_used = (
+                    isinstance(graph_route, dict)
+                    and graph_route.get("used") is True
+                )
+                answer_route = (
+                    "意味グラフ"
+                    if graph_promoted else
+                    "質問グラフ（構造検索）"
+                    if question_graph_used else
+                    "従来検索"
                 )
                 edge_audit = record.get(SEMANTIC_GRAPH_EDGE_AUDIT_KEY, {})
                 audit_label = (
@@ -2777,7 +3114,7 @@ class Handler(BaseHTTPRequestHandler):
                 )
                 self.send(page(f"""
                 <a class="button secondary" href="/">← 戻る</a><div class="eyebrow">AUDITED ANSWER</div><h1>{html.escape(query)}</h1>
-                <section class="card"><div class="answer">{html.escape(str(answer.get('answer','')))}</div><p class="small">回答モード: {html.escape(str(answer.get('answer_mode','')))}<br>回答経路: {'意味グラフ' if graph_promoted else '従来検索'}<br>{audit_label}</p></section>
+                <section class="card"><div class="answer">{html.escape(str(answer.get('answer','')))}</div><p class="small">回答モード: {html.escape(str(answer.get('answer_mode','')))}<br>回答経路: {html.escape(answer_route)}<br>{audit_label}</p></section>
                 <section class="card"><h2>{html.escape(source_heading)}</h2><ul>{sources}</ul><p class="small">{html.escape(source_note)}</p></section>
                 {semantic_candidate}
                 {security_exclusion_notice()}
@@ -2811,6 +3148,8 @@ def main() -> int:
         server.instance_id = secrets.token_hex(16)
         server.shutdown_token = secrets.token_urlsafe(32)
         server.ui_csrf_token = secrets.token_urlsafe(32)
+        server.review_ticket_lock = threading.Lock()
+        server.review_tickets = {}
         server.startup_state = "recovering"
         if not _begin_active_work():
             raise RuntimeError("server_startup_shutdown_already_requested")

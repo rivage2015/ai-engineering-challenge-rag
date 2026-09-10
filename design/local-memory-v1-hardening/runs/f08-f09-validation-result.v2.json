@@ -1,0 +1,15 @@
+{
+  "schema_version": "1.0",
+  "task_id": "lms-v1-00-hardening-2026-09-09-f08-f09",
+  "artifact": "f08-f09-graph-artifact.v2.json",
+  "report": "f08-f09-audit-report.v2.json",
+  "structural_referential_ruby_validator": "PASS",
+  "draft_2020_12_schema": "PASS",
+  "actual_artifact_sha256": "d7f8c8184dd8f87aeb142a6c53c609a2b0c068e002607b77db5a2b99a9dce14d",
+  "task_id_source_hashes_graph_endpoints": "PASS",
+  "audit_status": "pass",
+  "audit_repair_round": 1,
+  "orchestrator_action": "Accept scoped F08/F09 XML mixed-content and duplicate-key repair with encoding-boundary regression fixed; not a V1 product acceptance.",
+  "verified_at_utc": "2026-09-08 19:04:00 UTC",
+  "remaining_limits": ["Actual model/OCR/application/packaged acceptance unrun", "Broad resource/encoding/nonfinite JSON support unproven", "Derived XML locator changes require rebuilding affected artifacts"]
+}

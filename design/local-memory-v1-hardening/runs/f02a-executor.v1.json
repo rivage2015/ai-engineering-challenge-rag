@@ -1,0 +1,213 @@
+{
+  "schema_version": "1.0",
+  "task_id": "lms-v1-00-hardening-2026-09-09-f02a-implementation",
+  "parent_task_id": "lms-v1-00-hardening-2026-09-09-f02a",
+  "status": "implemented_awaiting_separate_audit",
+  "created_at_utc": "2026-09-08 21:50:51 UTC",
+  "audit_repair_round": 0,
+  "self_approved": false,
+  "contract": "design/local-memory-v1-hardening/runs/f02a-implementation-contract.v1.json",
+  "change": "The final successful all-dated-family year branch now holds the complete family with no selected path and no active_version edge. It returns year_order_does_not_establish_supersession and does not fall through to numeric-version ordering. Earlier tie/draft/historical holds, explicit current/F04a and human/stale decision precedence are unchanged. Resolver version is 0.1.2 and policy metadata explicitly rejects year order as supersession proof.",
+  "owned_changes": [
+    {
+      "path": "distribution/macos-local-memory/engine/document_version_resolver.py",
+      "before_sha256": "f42db568267befe8a041d036242795599544ba6a46236866a643b91d4f93811b",
+      "after_sha256": "9a7443862c015ed768007ef5a7b21bd3bc197c9bb7a3d7ed2f7b39b33374359d",
+      "delta": "design/local-memory-v1-hardening/runs/f02a-resolver-delta.v1.patch"
+    },
+    {
+      "path": "distribution/macos-local-memory/tests/test_document_version_resolver.py",
+      "before_sha256": "b42fa5abafe2175ca29b26efe9a10d2626aca2d2321087f4bc798961fdf7116c",
+      "after_sha256": "b7c323f48f10488ef2dc245dacc265ad0dd5b77ea37e50b9e4b32504bda7b293",
+      "delta": "design/local-memory-v1-hardening/runs/f02a-resolver-tests-delta.v1.patch"
+    },
+    {
+      "path": "distribution/macos-local-memory/tests/test_versioned_safe_index_e2e.py",
+      "before_sha256": "03d5dc06b47548c09a8f38348a5cbd0c8f29efbdd1a4565083ea6b660f8db771",
+      "after_sha256": "41540a858d17f8abb322c15353032ec4dd3099eac4e767090f7b9dbabfbcf64a",
+      "delta": "design/local-memory-v1-hardening/runs/f02a-e2e-tests-delta.v1.patch"
+    }
+  ],
+  "test_changes": "Normal successful active-only Reader and successful bob query/final-audit fixtures now use year-free ver1/ver2. Year-only Reader policy, Reader and application cases separately assert full hold, no historical/active promotion, retained unrelated contact and binding/source hashes. All-held rebuild verifies unchanged previous CONFIG/index bytes and no index-projector call. Existing F18 initialize_lineage=True and --initialize-lineage are preserved. Hash-tamper fixture uses version labels so its tamper remains an actual status change.",
+  "frozen_inputs_preserved": {
+    "pure_tests_sha256": "70a1226cb30daa6692533d2c6f1fe270fe301a8f759c0db56a142acbc945b8c0",
+    "preimplementation_contract_sha256": "96d9a257256b8c9524eb611dc6ac154a4aa0d8b9e6d2dcd2eec8b769ac07580e",
+    "red_result_sha256": "18744e4627be6ff298314f1fb1ede4ee26ecc257bf01c1ef82f9ea05cbd97bce",
+    "note": "Before snapshots and raw failed RED remain unchanged. Frozen test still prints its original preimplementation_red phase label; the new run result, actual source hash and terminal OK establish this as GREEN replay."
+  },
+  "untouched_product_dependencies": [
+    {
+      "path": "distribution/macos-local-memory/engine/build_adaptive_semantic_graph.py",
+      "sha256": "19b5c55c64959dc136cd4d6b2081151ed1e39560874fb083e9796edb8812adfa"
+    },
+    {
+      "path": "distribution/macos-local-memory/engine/validate_adaptive_semantic_graph.py",
+      "sha256": "49138ecc11bde5709f129e879cbc5140717dca716a8563ebafe77dda4e37187d"
+    },
+    {
+      "path": "distribution/macos-local-memory/engine/build_local_semantic_index.py",
+      "sha256": "2bfaf8174e8249087d720e49070c9812ce9ecf93b21dd5276f057e145965dfb2"
+    }
+  ],
+  "root_owned_documentation": {
+    "path": "distribution/macos-local-memory/README.md",
+    "current_sha256": "aa088a5b6ac8e2d83398d6adba8e36864d18808415cc002f03fe246b7e630c0b",
+    "clarification": "design/local-memory-v1-hardening/runs/f02a-readme-clarification.v1.json",
+    "clarification_sha256": "aabdd66dc37bc344102d6487f7eb049baca27f54602a659706ca21aaf88d94f3",
+    "scope": "Root changed only documentation compatibility. Executor inspected the current paragraph and did not edit README."
+  },
+  "runs": [
+    {
+      "id": "f02a-red-001",
+      "owner": "executor",
+      "result_path": "design/local-memory-v1-hardening/runs/f02a-red-001/result.json",
+      "status": "failed",
+      "exit_code": 1,
+      "tests_reported": 11,
+      "skips": 0,
+      "expected_failures": 0,
+      "elapsed_seconds": 0.054378,
+      "log_path": "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/design/local-memory-v1-hardening/runs/f02a-red-001/unittest.log",
+      "log_bytes": 3750,
+      "log_sha256": "9b01a46b4b24b5dbb60a213e012f682b5c99acc3faf632ec7245a61626b2ec82"
+    },
+    {
+      "id": "f02a-green-pure-001",
+      "owner": "executor",
+      "result_path": "design/local-memory-v1-hardening/runs/f02a-green-pure-001/result.json",
+      "status": "passed",
+      "exit_code": 0,
+      "tests_reported": 11,
+      "skips": 0,
+      "expected_failures": 0,
+      "elapsed_seconds": 0.058189,
+      "log_path": "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/design/local-memory-v1-hardening/runs/f02a-green-pure-001/unittest.log",
+      "log_bytes": 1945,
+      "log_sha256": "b2974789ebb8ac01827cceaf328a979b65000061b70bf78a4fdb332ba033c8a9"
+    },
+    {
+      "id": "f02a-green-resolver-001",
+      "owner": "executor",
+      "result_path": "design/local-memory-v1-hardening/runs/f02a-green-resolver-001/result.json",
+      "status": "passed",
+      "exit_code": 0,
+      "tests_reported": 20,
+      "skips": 0,
+      "expected_failures": 0,
+      "elapsed_seconds": 0.301116,
+      "log_path": "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/design/local-memory-v1-hardening/runs/f02a-green-resolver-001/unittest.log",
+      "log_bytes": 3455,
+      "log_sha256": "4c212951f4c253eb7ad38befa7f6ce71af4e293f993d75705d0887667e7149bd"
+    },
+    {
+      "id": "f02a-green-e2e-001",
+      "owner": "executor",
+      "result_path": "design/local-memory-v1-hardening/runs/f02a-green-e2e-001/result.json",
+      "status": "failed",
+      "exit_code": 1,
+      "tests_reported": 17,
+      "skips": 0,
+      "expected_failures": 0,
+      "elapsed_seconds": 1.898149,
+      "log_path": "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/design/local-memory-v1-hardening/runs/f02a-green-e2e-001/unittest.log",
+      "log_bytes": 6465,
+      "log_sha256": "950c7b4cd77ded3ac9362f81bc963690980b9091294858ffb7139d6a3a8f17c6"
+    },
+    {
+      "id": "f02a-green-e2e-002",
+      "owner": "executor",
+      "result_path": "design/local-memory-v1-hardening/runs/f02a-green-e2e-002/result.json",
+      "status": "passed",
+      "exit_code": 0,
+      "tests_reported": 17,
+      "skips": 0,
+      "expected_failures": 0,
+      "elapsed_seconds": 1.899203,
+      "log_path": "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/design/local-memory-v1-hardening/runs/f02a-green-e2e-002/unittest.log",
+      "log_bytes": 2868,
+      "log_sha256": "0fe43c335b76663b7465f930cc7d8d952c2f3d560d8cb799ed2a4668090fd157"
+    },
+    {
+      "id": "f02a-parent-001-focused",
+      "owner": "root",
+      "result_path": "design/local-memory-v1-hardening/runs/f02a-parent-001-focused/result.json",
+      "status": "passed",
+      "exit_code": 0,
+      "tests_reported": 13,
+      "skips": 0,
+      "expected_failures": 0,
+      "elapsed_seconds": 0.530369,
+      "log_path": "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/design/local-memory-v1-hardening/runs/f02a-parent-001-focused/unittest.log",
+      "log_bytes": 2329,
+      "log_sha256": "65f273dcc1f0cf415857085c7a67f42fa3ca6e056c490e5ff5c5f56cff25af4b"
+    },
+    {
+      "id": "f02a-parent-002-migration",
+      "owner": "root",
+      "result_path": "design/local-memory-v1-hardening/runs/f02a-parent-002-migration/result.json",
+      "status": "passed",
+      "exit_code": 0,
+      "tests_reported": 7,
+      "skips": 0,
+      "expected_failures": 0,
+      "elapsed_seconds": 0.490774,
+      "log_path": "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/design/local-memory-v1-hardening/runs/f02a-parent-002-migration/unittest.log",
+      "log_bytes": 1277,
+      "log_sha256": "63b1f0fc8bbff68b76ad842af66f64c022602f394ebcf2e580fb1f3d8f1c42b6"
+    },
+    {
+      "id": "f02a-parent-003-lineage",
+      "owner": "root",
+      "result_path": "design/local-memory-v1-hardening/runs/f02a-parent-003-lineage/result.json",
+      "status": "passed",
+      "exit_code": 0,
+      "tests_reported": 8,
+      "skips": 0,
+      "expected_failures": 0,
+      "elapsed_seconds": 0.310515,
+      "log_path": "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/design/local-memory-v1-hardening/runs/f02a-parent-003-lineage/unittest.log",
+      "log_bytes": 1362,
+      "log_sha256": "0d8a3a335b18f603c639d1212b8433d09130da2a91f9c0b24ce05dd2b864e32f"
+    },
+    {
+      "id": "f02a-parent-004-security",
+      "owner": "root",
+      "result_path": "design/local-memory-v1-hardening/runs/f02a-parent-004-security/result.json",
+      "status": "passed",
+      "exit_code": 0,
+      "tests_reported": 1,
+      "skips": 0,
+      "expected_failures": 0,
+      "elapsed_seconds": 0.91543,
+      "log_path": "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/design/local-memory-v1-hardening/runs/f02a-parent-004-security/unittest.log",
+      "log_bytes": 253,
+      "log_sha256": "e622fea7399641df7eef2f68d120833cd5aadbfc4a52f8443ffff27c5fae35f8"
+    }
+  ],
+  "result_interpretation": {
+    "pure_green": "11 executions: 10 required behaviors/unchanged controls, plus 1 current-marker residual witness; the witness is not annual-retention acceptance.",
+    "resolver_reader_green": "20 methods including existing F04a, human/stale, normal Reader and new held cases; zero failures/errors/skips.",
+    "app_e2e_green": "17 methods; successful answer/final-audit retained, annual-held and all-held prior-generation protection checked; zero failures/errors/skips.",
+    "root_collateral": "13 immutable-lineage focused + 7 migration + 8 lineage on Python 3.14, and 1 native-XLSX/security method on Python 3.9. These are root executions, not executor independent audit or full Python 3.9 application acceptance."
+  },
+  "executor_test_correction": {
+    "failed_run": "f02a-green-e2e-001",
+    "actual": "16 successful methods, one new test ERROR because real Reader main() converts ValueError into SystemExit('ValueError:adaptive_reader_no_supported_files').",
+    "before_e2e_sha256": "7a261420b44e37bd6d8fb728a016c0417316cb49a67c4e0c662179136644ad86",
+    "initial_delta": "design/local-memory-v1-hardening/runs/f02a-e2e-tests-initial-delta.v1.patch",
+    "correction": "Only new all-held test exception type/message expectation changed to actual CLI boundary; no product change or expectation of successful publication.",
+    "green_run": "f02a-green-e2e-002",
+    "audit_repair_rounds_consumed": 0
+  },
+  "verification_scope": "Python test workers use reviewed code/runtime and fresh small synthetic roots. Real worker network/process launches and model probes are denied/stubbed; source writes <=1 MiB, logs <=1 MiB, each supervised run <=30 seconds. No OS-isolation or total-RSS/disk certification. git diff --check returned zero for the three changed files.",
+  "limits": [
+    "F02a only. Confirmed independent annual records cannot yet both be retained as answer-eligible through current single-selection HITL; all-held safety stop is not normal annual workflow support.",
+    "Current-marker-across-years and multiple-token signals remain residual; filename words are not classifiers.",
+    "F03 candidate completeness, F05 independent graph partition, F06/F19 review/generation/revision and F13 temporal freshness remain open.",
+    "Preserving previous public CONFIG/index bytes after failed rebuild does not attest those old sources as current after synthetic renames. Shared pending review may already point to a different generation; F06 remains open.",
+    "All-held test uses real CLI main in an in-process dispatcher, so SystemExit is observed; no physical process-spawn/bootstrap subprocess recovery acceptance is claimed.",
+    "No real data/model/OCR, GUI, package, whole-format, broad resource, release, commit or push work."
+  ],
+  "next_action": "Keep the three final hashes frozen. Root creates the formal Graph Artifact and dispatches a separate-context audit; only root-directed repairs may edit sources. Preserve initial failure, immutable RED, current logs and source snapshots.",
+  "rollback": "Apply only inverse isolated deltas after verifying matching hashes; never reset F18/other changes or source data. Rebuild unpublished generations and do not label old-policy artifacts current automatically."
+}

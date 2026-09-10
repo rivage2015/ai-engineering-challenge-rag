@@ -1,0 +1,352 @@
+test_ambiguous_graph_question_is_not_promoted_by_mock_model (f04a_isolated.VersionedSafeIndexE2E) ... ERROR
+test_application_build_query_and_final_audit (f04a_isolated.VersionedSafeIndexE2E) ... ERROR
+test_failed_rebuild_retains_previous_published_generation (f04a_isolated.VersionedSafeIndexE2E) ... ERROR
+test_human_choice_rebuild_and_source_change_remain_version_bound (f04a_isolated.VersionedSafeIndexE2E) ... ERROR
+test_legacy_reader_rejects_unexpected_explicit_version_graph (f04a_isolated.VersionedSafeIndexE2E) ... ERROR
+test_legacy_unversioned_reader_remains_explicitly_supported (f04a_isolated.VersionedSafeIndexE2E) ... ERROR
+test_lineage_context_rejects_unknown_keys_and_null_version (f04a_isolated.VersionedSafeIndexE2E) ... ok
+test_lineage_context_requires_explicit_version_attestation_result (f04a_isolated.VersionedSafeIndexE2E) ... ok
+test_missing_version_graph_is_rejected (f04a_isolated.VersionedSafeIndexE2E) ... ERROR
+test_post_attestation_state_swap_cannot_change_published_binding (f04a_isolated.VersionedSafeIndexE2E)
+A transient producer-state swap must not become trusted metadata. ... ERROR
+test_registration_detects_changed_version_artifact (f04a_isolated.VersionedSafeIndexE2E) ... ERROR
+test_resolver_code_change_invalidates_reader_registration (f04a_isolated.VersionedSafeIndexE2E) ... ERROR
+test_versioned_build_publishes_safe_index (f04a_isolated.VersionedSafeIndexE2E) ... ERROR
+test_versioned_reader_omission_never_replaces_existing_index (f04a_isolated.VersionedSafeIndexE2E) ... ERROR
+test_wrong_version_graph_is_rejected (f04a_isolated.VersionedSafeIndexE2E) ... ERROR
+
+======================================================================
+ERROR: test_ambiguous_graph_question_is_not_promoted_by_mock_model (f04a_isolated.VersionedSafeIndexE2E)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/distribution/macos-local-memory/tests/test_versioned_safe_index_e2e.py", line 402, in test_ambiguous_graph_question_is_not_promoted_by_mock_model
+    result = self.application_query("業務内容のownerを教えてください")
+  File "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/distribution/macos-local-memory/tests/test_versioned_safe_index_e2e.py", line 382, in application_query
+    self.bootstrap.build_index()
+  File "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/distribution/macos-local-memory/app/bootstrap.py", line 192, in serialized
+    return function(*args, **kwargs)
+  File "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/distribution/macos-local-memory/app/bootstrap.py", line 3658, in build_index
+    run([sys.executable, str(ENGINE / "build_path_graph.py"), str(source), "--output-dir", str(paths)], log)
+  File "/Library/Developer/CommandLineTools/Library/Frameworks/Python3.framework/Versions/3.9/lib/python3.9/unittest/mock.py", line 1093, in __call__
+    return self._mock_call(*args, **kwargs)
+  File "/Library/Developer/CommandLineTools/Library/Frameworks/Python3.framework/Versions/3.9/lib/python3.9/unittest/mock.py", line 1097, in _mock_call
+    return self._execute_mock_call(*args, **kwargs)
+  File "/Library/Developer/CommandLineTools/Library/Frameworks/Python3.framework/Versions/3.9/lib/python3.9/unittest/mock.py", line 1158, in _execute_mock_call
+    result = effect(*args, **kwargs)
+  File "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/distribution/macos-local-memory/tests/test_versioned_safe_index_e2e.py", line 149, in run_cli
+    result = module.main()
+  File "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/distribution/macos-local-memory/engine/build_path_graph.py", line 667, in main
+    entries, errors = enumerate_entries(root)
+  File "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/distribution/macos-local-memory/engine/build_path_graph.py", line 217, in enumerate_entries
+    with _root_descriptors(root) as bindings:
+  File "/Library/Developer/CommandLineTools/Library/Frameworks/Python3.framework/Versions/3.9/lib/python3.9/contextlib.py", line 117, in __enter__
+    return next(self.gen)
+  File "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/distribution/macos-local-memory/engine/build_path_graph.py", line 84, in _root_descriptors
+    raise OSError("descriptor-bound no-follow filesystem operations are unavailable")
+OSError: descriptor-bound no-follow filesystem operations are unavailable
+
+======================================================================
+ERROR: test_application_build_query_and_final_audit (f04a_isolated.VersionedSafeIndexE2E)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/distribution/macos-local-memory/tests/test_versioned_safe_index_e2e.py", line 392, in test_application_build_query_and_final_audit
+    result = self.application_query("業務内容に書かれた語句を教えてください")
+  File "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/distribution/macos-local-memory/tests/test_versioned_safe_index_e2e.py", line 382, in application_query
+    self.bootstrap.build_index()
+  File "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/distribution/macos-local-memory/app/bootstrap.py", line 192, in serialized
+    return function(*args, **kwargs)
+  File "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/distribution/macos-local-memory/app/bootstrap.py", line 3658, in build_index
+    run([sys.executable, str(ENGINE / "build_path_graph.py"), str(source), "--output-dir", str(paths)], log)
+  File "/Library/Developer/CommandLineTools/Library/Frameworks/Python3.framework/Versions/3.9/lib/python3.9/unittest/mock.py", line 1093, in __call__
+    return self._mock_call(*args, **kwargs)
+  File "/Library/Developer/CommandLineTools/Library/Frameworks/Python3.framework/Versions/3.9/lib/python3.9/unittest/mock.py", line 1097, in _mock_call
+    return self._execute_mock_call(*args, **kwargs)
+  File "/Library/Developer/CommandLineTools/Library/Frameworks/Python3.framework/Versions/3.9/lib/python3.9/unittest/mock.py", line 1158, in _execute_mock_call
+    result = effect(*args, **kwargs)
+  File "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/distribution/macos-local-memory/tests/test_versioned_safe_index_e2e.py", line 149, in run_cli
+    result = module.main()
+  File "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/distribution/macos-local-memory/engine/build_path_graph.py", line 667, in main
+    entries, errors = enumerate_entries(root)
+  File "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/distribution/macos-local-memory/engine/build_path_graph.py", line 217, in enumerate_entries
+    with _root_descriptors(root) as bindings:
+  File "/Library/Developer/CommandLineTools/Library/Frameworks/Python3.framework/Versions/3.9/lib/python3.9/contextlib.py", line 117, in __enter__
+    return next(self.gen)
+  File "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/distribution/macos-local-memory/engine/build_path_graph.py", line 84, in _root_descriptors
+    raise OSError("descriptor-bound no-follow filesystem operations are unavailable")
+OSError: descriptor-bound no-follow filesystem operations are unavailable
+
+======================================================================
+ERROR: test_failed_rebuild_retains_previous_published_generation (f04a_isolated.VersionedSafeIndexE2E)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/distribution/macos-local-memory/tests/test_versioned_safe_index_e2e.py", line 365, in test_failed_rebuild_retains_previous_published_generation
+    self.bootstrap.build_index()
+  File "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/distribution/macos-local-memory/app/bootstrap.py", line 192, in serialized
+    return function(*args, **kwargs)
+  File "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/distribution/macos-local-memory/app/bootstrap.py", line 3658, in build_index
+    run([sys.executable, str(ENGINE / "build_path_graph.py"), str(source), "--output-dir", str(paths)], log)
+  File "/Library/Developer/CommandLineTools/Library/Frameworks/Python3.framework/Versions/3.9/lib/python3.9/unittest/mock.py", line 1093, in __call__
+    return self._mock_call(*args, **kwargs)
+  File "/Library/Developer/CommandLineTools/Library/Frameworks/Python3.framework/Versions/3.9/lib/python3.9/unittest/mock.py", line 1097, in _mock_call
+    return self._execute_mock_call(*args, **kwargs)
+  File "/Library/Developer/CommandLineTools/Library/Frameworks/Python3.framework/Versions/3.9/lib/python3.9/unittest/mock.py", line 1158, in _execute_mock_call
+    result = effect(*args, **kwargs)
+  File "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/distribution/macos-local-memory/tests/test_versioned_safe_index_e2e.py", line 149, in run_cli
+    result = module.main()
+  File "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/distribution/macos-local-memory/engine/build_path_graph.py", line 667, in main
+    entries, errors = enumerate_entries(root)
+  File "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/distribution/macos-local-memory/engine/build_path_graph.py", line 217, in enumerate_entries
+    with _root_descriptors(root) as bindings:
+  File "/Library/Developer/CommandLineTools/Library/Frameworks/Python3.framework/Versions/3.9/lib/python3.9/contextlib.py", line 117, in __enter__
+    return next(self.gen)
+  File "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/distribution/macos-local-memory/engine/build_path_graph.py", line 84, in _root_descriptors
+    raise OSError("descriptor-bound no-follow filesystem operations are unavailable")
+OSError: descriptor-bound no-follow filesystem operations are unavailable
+
+======================================================================
+ERROR: test_human_choice_rebuild_and_source_change_remain_version_bound (f04a_isolated.VersionedSafeIndexE2E)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/distribution/macos-local-memory/tests/test_versioned_safe_index_e2e.py", line 337, in test_human_choice_rebuild_and_source_change_remain_version_bound
+    self.bootstrap.build_index()
+  File "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/distribution/macos-local-memory/app/bootstrap.py", line 192, in serialized
+    return function(*args, **kwargs)
+  File "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/distribution/macos-local-memory/app/bootstrap.py", line 3658, in build_index
+    run([sys.executable, str(ENGINE / "build_path_graph.py"), str(source), "--output-dir", str(paths)], log)
+  File "/Library/Developer/CommandLineTools/Library/Frameworks/Python3.framework/Versions/3.9/lib/python3.9/unittest/mock.py", line 1093, in __call__
+    return self._mock_call(*args, **kwargs)
+  File "/Library/Developer/CommandLineTools/Library/Frameworks/Python3.framework/Versions/3.9/lib/python3.9/unittest/mock.py", line 1097, in _mock_call
+    return self._execute_mock_call(*args, **kwargs)
+  File "/Library/Developer/CommandLineTools/Library/Frameworks/Python3.framework/Versions/3.9/lib/python3.9/unittest/mock.py", line 1158, in _execute_mock_call
+    result = effect(*args, **kwargs)
+  File "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/distribution/macos-local-memory/tests/test_versioned_safe_index_e2e.py", line 149, in run_cli
+    result = module.main()
+  File "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/distribution/macos-local-memory/engine/build_path_graph.py", line 667, in main
+    entries, errors = enumerate_entries(root)
+  File "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/distribution/macos-local-memory/engine/build_path_graph.py", line 217, in enumerate_entries
+    with _root_descriptors(root) as bindings:
+  File "/Library/Developer/CommandLineTools/Library/Frameworks/Python3.framework/Versions/3.9/lib/python3.9/contextlib.py", line 117, in __enter__
+    return next(self.gen)
+  File "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/distribution/macos-local-memory/engine/build_path_graph.py", line 84, in _root_descriptors
+    raise OSError("descriptor-bound no-follow filesystem operations are unavailable")
+OSError: descriptor-bound no-follow filesystem operations are unavailable
+
+======================================================================
+ERROR: test_legacy_reader_rejects_unexpected_explicit_version_graph (f04a_isolated.VersionedSafeIndexE2E)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/distribution/macos-local-memory/tests/test_versioned_safe_index_e2e.py", line 314, in test_legacy_reader_rejects_unexpected_explicit_version_graph
+    args, output, _semantic, graph = self.unpublished_reader(versioned=False)
+  File "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/distribution/macos-local-memory/tests/test_versioned_safe_index_e2e.py", line 188, in unpublished_reader
+    self.run_cli([sys.executable, str(ENGINE / "build_path_graph.py"), str(self.source), "--output-dir", str(paths)])
+  File "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/distribution/macos-local-memory/tests/test_versioned_safe_index_e2e.py", line 149, in run_cli
+    result = module.main()
+  File "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/distribution/macos-local-memory/engine/build_path_graph.py", line 667, in main
+    entries, errors = enumerate_entries(root)
+  File "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/distribution/macos-local-memory/engine/build_path_graph.py", line 217, in enumerate_entries
+    with _root_descriptors(root) as bindings:
+  File "/Library/Developer/CommandLineTools/Library/Frameworks/Python3.framework/Versions/3.9/lib/python3.9/contextlib.py", line 117, in __enter__
+    return next(self.gen)
+  File "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/distribution/macos-local-memory/engine/build_path_graph.py", line 84, in _root_descriptors
+    raise OSError("descriptor-bound no-follow filesystem operations are unavailable")
+OSError: descriptor-bound no-follow filesystem operations are unavailable
+
+======================================================================
+ERROR: test_legacy_unversioned_reader_remains_explicitly_supported (f04a_isolated.VersionedSafeIndexE2E)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/distribution/macos-local-memory/tests/test_versioned_safe_index_e2e.py", line 208, in test_legacy_unversioned_reader_remains_explicitly_supported
+    args, output, semantic, _graph = self.unpublished_reader(versioned=False)
+  File "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/distribution/macos-local-memory/tests/test_versioned_safe_index_e2e.py", line 188, in unpublished_reader
+    self.run_cli([sys.executable, str(ENGINE / "build_path_graph.py"), str(self.source), "--output-dir", str(paths)])
+  File "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/distribution/macos-local-memory/tests/test_versioned_safe_index_e2e.py", line 149, in run_cli
+    result = module.main()
+  File "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/distribution/macos-local-memory/engine/build_path_graph.py", line 667, in main
+    entries, errors = enumerate_entries(root)
+  File "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/distribution/macos-local-memory/engine/build_path_graph.py", line 217, in enumerate_entries
+    with _root_descriptors(root) as bindings:
+  File "/Library/Developer/CommandLineTools/Library/Frameworks/Python3.framework/Versions/3.9/lib/python3.9/contextlib.py", line 117, in __enter__
+    return next(self.gen)
+  File "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/distribution/macos-local-memory/engine/build_path_graph.py", line 84, in _root_descriptors
+    raise OSError("descriptor-bound no-follow filesystem operations are unavailable")
+OSError: descriptor-bound no-follow filesystem operations are unavailable
+
+======================================================================
+ERROR: test_missing_version_graph_is_rejected (f04a_isolated.VersionedSafeIndexE2E)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/distribution/macos-local-memory/tests/test_versioned_safe_index_e2e.py", line 238, in test_missing_version_graph_is_rejected
+    args, output, _semantic, graph = self.unpublished_reader()
+  File "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/distribution/macos-local-memory/tests/test_versioned_safe_index_e2e.py", line 188, in unpublished_reader
+    self.run_cli([sys.executable, str(ENGINE / "build_path_graph.py"), str(self.source), "--output-dir", str(paths)])
+  File "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/distribution/macos-local-memory/tests/test_versioned_safe_index_e2e.py", line 149, in run_cli
+    result = module.main()
+  File "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/distribution/macos-local-memory/engine/build_path_graph.py", line 667, in main
+    entries, errors = enumerate_entries(root)
+  File "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/distribution/macos-local-memory/engine/build_path_graph.py", line 217, in enumerate_entries
+    with _root_descriptors(root) as bindings:
+  File "/Library/Developer/CommandLineTools/Library/Frameworks/Python3.framework/Versions/3.9/lib/python3.9/contextlib.py", line 117, in __enter__
+    return next(self.gen)
+  File "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/distribution/macos-local-memory/engine/build_path_graph.py", line 84, in _root_descriptors
+    raise OSError("descriptor-bound no-follow filesystem operations are unavailable")
+OSError: descriptor-bound no-follow filesystem operations are unavailable
+
+======================================================================
+ERROR: test_post_attestation_state_swap_cannot_change_published_binding (f04a_isolated.VersionedSafeIndexE2E)
+A transient producer-state swap must not become trusted metadata.
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/distribution/macos-local-memory/tests/test_versioned_safe_index_e2e.py", line 287, in test_post_attestation_state_swap_cannot_change_published_binding
+    self.bootstrap.build_index()
+  File "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/distribution/macos-local-memory/app/bootstrap.py", line 192, in serialized
+    return function(*args, **kwargs)
+  File "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/distribution/macos-local-memory/app/bootstrap.py", line 3658, in build_index
+    run([sys.executable, str(ENGINE / "build_path_graph.py"), str(source), "--output-dir", str(paths)], log)
+  File "/Library/Developer/CommandLineTools/Library/Frameworks/Python3.framework/Versions/3.9/lib/python3.9/unittest/mock.py", line 1093, in __call__
+    return self._mock_call(*args, **kwargs)
+  File "/Library/Developer/CommandLineTools/Library/Frameworks/Python3.framework/Versions/3.9/lib/python3.9/unittest/mock.py", line 1097, in _mock_call
+    return self._execute_mock_call(*args, **kwargs)
+  File "/Library/Developer/CommandLineTools/Library/Frameworks/Python3.framework/Versions/3.9/lib/python3.9/unittest/mock.py", line 1158, in _execute_mock_call
+    result = effect(*args, **kwargs)
+  File "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/distribution/macos-local-memory/tests/test_versioned_safe_index_e2e.py", line 277, in restore_before_app_publication
+    return self.run_cli(command, log)
+  File "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/distribution/macos-local-memory/tests/test_versioned_safe_index_e2e.py", line 149, in run_cli
+    result = module.main()
+  File "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/distribution/macos-local-memory/engine/build_path_graph.py", line 667, in main
+    entries, errors = enumerate_entries(root)
+  File "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/distribution/macos-local-memory/engine/build_path_graph.py", line 217, in enumerate_entries
+    with _root_descriptors(root) as bindings:
+  File "/Library/Developer/CommandLineTools/Library/Frameworks/Python3.framework/Versions/3.9/lib/python3.9/contextlib.py", line 117, in __enter__
+    return next(self.gen)
+  File "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/distribution/macos-local-memory/engine/build_path_graph.py", line 84, in _root_descriptors
+    raise OSError("descriptor-bound no-follow filesystem operations are unavailable")
+OSError: descriptor-bound no-follow filesystem operations are unavailable
+
+======================================================================
+ERROR: test_registration_detects_changed_version_artifact (f04a_isolated.VersionedSafeIndexE2E)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/distribution/macos-local-memory/tests/test_versioned_safe_index_e2e.py", line 245, in test_registration_detects_changed_version_artifact
+    self.bootstrap.build_index()
+  File "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/distribution/macos-local-memory/app/bootstrap.py", line 192, in serialized
+    return function(*args, **kwargs)
+  File "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/distribution/macos-local-memory/app/bootstrap.py", line 3658, in build_index
+    run([sys.executable, str(ENGINE / "build_path_graph.py"), str(source), "--output-dir", str(paths)], log)
+  File "/Library/Developer/CommandLineTools/Library/Frameworks/Python3.framework/Versions/3.9/lib/python3.9/unittest/mock.py", line 1093, in __call__
+    return self._mock_call(*args, **kwargs)
+  File "/Library/Developer/CommandLineTools/Library/Frameworks/Python3.framework/Versions/3.9/lib/python3.9/unittest/mock.py", line 1097, in _mock_call
+    return self._execute_mock_call(*args, **kwargs)
+  File "/Library/Developer/CommandLineTools/Library/Frameworks/Python3.framework/Versions/3.9/lib/python3.9/unittest/mock.py", line 1158, in _execute_mock_call
+    result = effect(*args, **kwargs)
+  File "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/distribution/macos-local-memory/tests/test_versioned_safe_index_e2e.py", line 149, in run_cli
+    result = module.main()
+  File "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/distribution/macos-local-memory/engine/build_path_graph.py", line 667, in main
+    entries, errors = enumerate_entries(root)
+  File "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/distribution/macos-local-memory/engine/build_path_graph.py", line 217, in enumerate_entries
+    with _root_descriptors(root) as bindings:
+  File "/Library/Developer/CommandLineTools/Library/Frameworks/Python3.framework/Versions/3.9/lib/python3.9/contextlib.py", line 117, in __enter__
+    return next(self.gen)
+  File "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/distribution/macos-local-memory/engine/build_path_graph.py", line 84, in _root_descriptors
+    raise OSError("descriptor-bound no-follow filesystem operations are unavailable")
+OSError: descriptor-bound no-follow filesystem operations are unavailable
+
+======================================================================
+ERROR: test_resolver_code_change_invalidates_reader_registration (f04a_isolated.VersionedSafeIndexE2E)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/distribution/macos-local-memory/tests/test_versioned_safe_index_e2e.py", line 323, in test_resolver_code_change_invalidates_reader_registration
+    self.bootstrap.build_index()
+  File "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/distribution/macos-local-memory/app/bootstrap.py", line 192, in serialized
+    return function(*args, **kwargs)
+  File "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/distribution/macos-local-memory/app/bootstrap.py", line 3658, in build_index
+    run([sys.executable, str(ENGINE / "build_path_graph.py"), str(source), "--output-dir", str(paths)], log)
+  File "/Library/Developer/CommandLineTools/Library/Frameworks/Python3.framework/Versions/3.9/lib/python3.9/unittest/mock.py", line 1093, in __call__
+    return self._mock_call(*args, **kwargs)
+  File "/Library/Developer/CommandLineTools/Library/Frameworks/Python3.framework/Versions/3.9/lib/python3.9/unittest/mock.py", line 1097, in _mock_call
+    return self._execute_mock_call(*args, **kwargs)
+  File "/Library/Developer/CommandLineTools/Library/Frameworks/Python3.framework/Versions/3.9/lib/python3.9/unittest/mock.py", line 1158, in _execute_mock_call
+    result = effect(*args, **kwargs)
+  File "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/distribution/macos-local-memory/tests/test_versioned_safe_index_e2e.py", line 149, in run_cli
+    result = module.main()
+  File "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/distribution/macos-local-memory/engine/build_path_graph.py", line 667, in main
+    entries, errors = enumerate_entries(root)
+  File "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/distribution/macos-local-memory/engine/build_path_graph.py", line 217, in enumerate_entries
+    with _root_descriptors(root) as bindings:
+  File "/Library/Developer/CommandLineTools/Library/Frameworks/Python3.framework/Versions/3.9/lib/python3.9/contextlib.py", line 117, in __enter__
+    return next(self.gen)
+  File "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/distribution/macos-local-memory/engine/build_path_graph.py", line 84, in _root_descriptors
+    raise OSError("descriptor-bound no-follow filesystem operations are unavailable")
+OSError: descriptor-bound no-follow filesystem operations are unavailable
+
+======================================================================
+ERROR: test_versioned_build_publishes_safe_index (f04a_isolated.VersionedSafeIndexE2E)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/distribution/macos-local-memory/tests/test_versioned_safe_index_e2e.py", line 167, in test_versioned_build_publishes_safe_index
+    self.bootstrap.build_index()
+  File "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/distribution/macos-local-memory/app/bootstrap.py", line 192, in serialized
+    return function(*args, **kwargs)
+  File "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/distribution/macos-local-memory/app/bootstrap.py", line 3658, in build_index
+    run([sys.executable, str(ENGINE / "build_path_graph.py"), str(source), "--output-dir", str(paths)], log)
+  File "/Library/Developer/CommandLineTools/Library/Frameworks/Python3.framework/Versions/3.9/lib/python3.9/unittest/mock.py", line 1093, in __call__
+    return self._mock_call(*args, **kwargs)
+  File "/Library/Developer/CommandLineTools/Library/Frameworks/Python3.framework/Versions/3.9/lib/python3.9/unittest/mock.py", line 1097, in _mock_call
+    return self._execute_mock_call(*args, **kwargs)
+  File "/Library/Developer/CommandLineTools/Library/Frameworks/Python3.framework/Versions/3.9/lib/python3.9/unittest/mock.py", line 1158, in _execute_mock_call
+    result = effect(*args, **kwargs)
+  File "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/distribution/macos-local-memory/tests/test_versioned_safe_index_e2e.py", line 149, in run_cli
+    result = module.main()
+  File "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/distribution/macos-local-memory/engine/build_path_graph.py", line 667, in main
+    entries, errors = enumerate_entries(root)
+  File "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/distribution/macos-local-memory/engine/build_path_graph.py", line 217, in enumerate_entries
+    with _root_descriptors(root) as bindings:
+  File "/Library/Developer/CommandLineTools/Library/Frameworks/Python3.framework/Versions/3.9/lib/python3.9/contextlib.py", line 117, in __enter__
+    return next(self.gen)
+  File "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/distribution/macos-local-memory/engine/build_path_graph.py", line 84, in _root_descriptors
+    raise OSError("descriptor-bound no-follow filesystem operations are unavailable")
+OSError: descriptor-bound no-follow filesystem operations are unavailable
+
+======================================================================
+ERROR: test_versioned_reader_omission_never_replaces_existing_index (f04a_isolated.VersionedSafeIndexE2E)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/distribution/macos-local-memory/tests/test_versioned_safe_index_e2e.py", line 219, in test_versioned_reader_omission_never_replaces_existing_index
+    args, output, _semantic, _graph = self.unpublished_reader()
+  File "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/distribution/macos-local-memory/tests/test_versioned_safe_index_e2e.py", line 188, in unpublished_reader
+    self.run_cli([sys.executable, str(ENGINE / "build_path_graph.py"), str(self.source), "--output-dir", str(paths)])
+  File "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/distribution/macos-local-memory/tests/test_versioned_safe_index_e2e.py", line 149, in run_cli
+    result = module.main()
+  File "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/distribution/macos-local-memory/engine/build_path_graph.py", line 667, in main
+    entries, errors = enumerate_entries(root)
+  File "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/distribution/macos-local-memory/engine/build_path_graph.py", line 217, in enumerate_entries
+    with _root_descriptors(root) as bindings:
+  File "/Library/Developer/CommandLineTools/Library/Frameworks/Python3.framework/Versions/3.9/lib/python3.9/contextlib.py", line 117, in __enter__
+    return next(self.gen)
+  File "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/distribution/macos-local-memory/engine/build_path_graph.py", line 84, in _root_descriptors
+    raise OSError("descriptor-bound no-follow filesystem operations are unavailable")
+OSError: descriptor-bound no-follow filesystem operations are unavailable
+
+======================================================================
+ERROR: test_wrong_version_graph_is_rejected (f04a_isolated.VersionedSafeIndexE2E)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/distribution/macos-local-memory/tests/test_versioned_safe_index_e2e.py", line 226, in test_wrong_version_graph_is_rejected
+    args, output, _semantic, graph = self.unpublished_reader()
+  File "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/distribution/macos-local-memory/tests/test_versioned_safe_index_e2e.py", line 188, in unpublished_reader
+    self.run_cli([sys.executable, str(ENGINE / "build_path_graph.py"), str(self.source), "--output-dir", str(paths)])
+  File "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/distribution/macos-local-memory/tests/test_versioned_safe_index_e2e.py", line 149, in run_cli
+    result = module.main()
+  File "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/distribution/macos-local-memory/engine/build_path_graph.py", line 667, in main
+    entries, errors = enumerate_entries(root)
+  File "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/distribution/macos-local-memory/engine/build_path_graph.py", line 217, in enumerate_entries
+    with _root_descriptors(root) as bindings:
+  File "/Library/Developer/CommandLineTools/Library/Frameworks/Python3.framework/Versions/3.9/lib/python3.9/contextlib.py", line 117, in __enter__
+    return next(self.gen)
+  File "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/distribution/macos-local-memory/engine/build_path_graph.py", line 84, in _root_descriptors
+    raise OSError("descriptor-bound no-follow filesystem operations are unavailable")
+OSError: descriptor-bound no-follow filesystem operations are unavailable
+
+----------------------------------------------------------------------
+Ran 15 tests in 0.202s
+
+FAILED (errors=13)

@@ -1,0 +1,78 @@
+{
+  "schema_version": "1.0",
+  "scope": "Independent literal log-parser controls; no product imports or test runs. Expected values are not derived from parser output. Frozen before generator v3 implementation.",
+  "cases": [
+    {
+      "name": "three_single_line_passes",
+      "log": "test_alpha (fixture.Controls) ... ok\ntest_beta (fixture.Controls) ... ok\ntest_gamma (fixture.Controls) ... ok\n\n----------------------------------------------------------------------\nRan 3 tests in 0.001s\n\nOK\n",
+      "methods": ["test_alpha", "test_beta", "test_gamma"],
+      "expected": {"methods": ["test_alpha", "test_beta", "test_gamma"], "outcomes": ["ok", "ok", "ok"], "tests": 3, "terminal": "OK", "failures": 0, "errors": 0, "skips": 0, "expected_failures": 0, "unexpected_successes": 0}
+    },
+    {
+      "name": "security_docstring_is_not_another_method",
+      "log": "test_atomic_hold (fixture.SecurityControls)\nOnly complete safe fan-ins may reach the answer graph. ... ok\nF05b explicit fixture budget: {\"explicit_test_bytes\": 21, \"explicit_test_writes\": 1, \"max_source_fixture_bytes\": 21, \"source_fixture_count\": 1}\n\n----------------------------------------------------------------------\nRan 1 test in 0.002s\n\nOK\n",
+      "methods": ["test_atomic_hold"],
+      "expected": {"methods": ["test_atomic_hold"], "outcomes": ["ok"], "tests": 1, "terminal": "OK", "failures": 0, "errors": 0, "skips": 0, "expected_failures": 0, "unexpected_successes": 0}
+    },
+    {
+      "name": "concatenated_subtest_progress_four_not_ten",
+      "log": "test_alpha (fixture.Controls) ... test_beta (fixture.Controls) ... FAIL\ntest_gamma (fixture.Controls) ... test_delta (fixture.Controls) ... \n======================================================================\nFAIL: test_alpha (fixture.Controls) (path='first')\n----------------------------------------------------------------------\nTraceback (most recent call last):\nAssertionError: deliberately omitted\n\n----------------------------------------------------------------------\nRan 4 tests in 0.003s\n\nFAILED (failures=10)\n",
+      "methods": ["test_alpha", "test_beta", "test_gamma", "test_delta"],
+      "expected": {"methods": ["test_alpha", "test_beta", "test_gamma", "test_delta"], "outcomes": [null, "FAIL", null, null], "tests": 4, "terminal": "FAILED", "failures": 10, "errors": 0, "skips": 0, "expected_failures": 0, "unexpected_successes": 0}
+    },
+    {
+      "name": "one_error_two_passes_with_repeated_traceback_method",
+      "log": "test_old_version (fixture.LineageControls) ... ERROR\ntest_native (fixture.LineageControls) ... ok\ntest_current (fixture.LineageControls) ... ok\n\n======================================================================\nERROR: test_old_version (fixture.LineageControls)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"literal.py\", line 1, in test_old_version\nValueError: exact_error:literal_id\n\n----------------------------------------------------------------------\nRan 3 tests in 0.004s\n\nFAILED (errors=1)\n",
+      "methods": ["test_old_version", "test_native", "test_current"],
+      "expected": {"methods": ["test_old_version", "test_native", "test_current"], "outcomes": ["ERROR", "ok", "ok"], "tests": 3, "terminal": "FAILED", "failures": 0, "errors": 1, "skips": 0, "expected_failures": 0, "unexpected_successes": 0}
+    },
+    {
+      "name": "mixed_subtest_failure_error_counts_are_not_method_counts",
+      "log": "test_positive (fixture.Controls) ... ERROR\ntest_attack (fixture.Controls) ... FAIL\ntest_boundary (fixture.Controls) ... FAIL\n\n======================================================================\nERROR: test_positive (fixture.Controls)\n----------------------------------------------------------------------\nValueError: positive baseline failed\n\n----------------------------------------------------------------------\nRan 3 tests in 0.005s\n\nFAILED (failures=2, errors=7)\n",
+      "methods": ["test_positive", "test_attack", "test_boundary"],
+      "expected": {"methods": ["test_positive", "test_attack", "test_boundary"], "outcomes": ["ERROR", "FAIL", "FAIL"], "tests": 3, "terminal": "FAILED", "failures": 2, "errors": 7, "skips": 0, "expected_failures": 0, "unexpected_successes": 0}
+    },
+    {
+      "name": "missing_expected_method_rejected",
+      "log": "test_alpha (fixture.Controls) ... ok\n\n----------------------------------------------------------------------\nRan 1 test in 0.001s\n\nOK\n",
+      "methods": ["test_alpha", "test_beta"],
+      "error": "selected method mismatch"
+    },
+    {
+      "name": "duplicate_progress_header_rejected",
+      "log": "test_alpha (fixture.Controls) ... ok\ntest_alpha (fixture.Controls) ... ok\n\n----------------------------------------------------------------------\nRan 2 tests in 0.001s\n\nOK\n",
+      "methods": ["test_alpha", "test_beta"],
+      "error": "duplicate progress method"
+    },
+    {
+      "name": "method_order_mismatch_rejected",
+      "log": "test_beta (fixture.Controls) ... ok\ntest_alpha (fixture.Controls) ... ok\n\n----------------------------------------------------------------------\nRan 2 tests in 0.001s\n\nOK\n",
+      "methods": ["test_alpha", "test_beta"],
+      "error": "selected method mismatch"
+    },
+    {
+      "name": "footer_count_mismatch_rejected",
+      "log": "test_alpha (fixture.Controls) ... ok\n\n----------------------------------------------------------------------\nRan 2 tests in 0.001s\n\nOK\n",
+      "methods": ["test_alpha"],
+      "error": "method/footer count mismatch"
+    },
+    {
+      "name": "unknown_progress_outcome_rejected",
+      "log": "test_alpha (fixture.Controls) ... MAYBE\n\n----------------------------------------------------------------------\nRan 1 test in 0.001s\n\nOK\n",
+      "methods": ["test_alpha"],
+      "error": "invalid method progress tail"
+    },
+    {
+      "name": "trailing_footer_text_rejected",
+      "log": "test_alpha (fixture.Controls) ... ok\n\n----------------------------------------------------------------------\nRan 1 test in 0.001s\n\nOK\nextra unverified text\n",
+      "methods": ["test_alpha"],
+      "error": "invalid terminal footer"
+    },
+    {
+      "name": "ok_with_error_progress_rejected",
+      "log": "test_alpha (fixture.Controls) ... ERROR\n\n----------------------------------------------------------------------\nRan 1 test in 0.001s\n\nOK\n",
+      "methods": ["test_alpha"],
+      "error": "OK progress inconsistent"
+    }
+  ]
+}

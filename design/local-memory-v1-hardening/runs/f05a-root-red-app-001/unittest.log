@@ -1,0 +1,69 @@
+test_absent_inventory_candidate_fails_before_reader_and_keeps_prior_generation (f05a_target.VersionGraphApplicationGateTests.test_absent_inventory_candidate_fails_before_reader_and_keeps_prior_generation) ... FAIL
+test_changed_explicit_decision_snapshot_fails_before_reader (f05a_target.VersionGraphApplicationGateTests.test_changed_explicit_decision_snapshot_fails_before_reader) ... FAIL
+test_empty_resealed_graph_fails_before_reader_and_keeps_prior_generation (f05a_target.VersionGraphApplicationGateTests.test_empty_resealed_graph_fails_before_reader_and_keeps_prior_generation) ... FAIL
+test_fabricated_active_choice_fails_before_reader_and_keeps_prior_generation (f05a_target.VersionGraphApplicationGateTests.test_fabricated_active_choice_fails_before_reader_and_keeps_prior_generation) ... FAIL
+
+======================================================================
+FAIL: test_absent_inventory_candidate_fails_before_reader_and_keeps_prior_generation (f05a_target.VersionGraphApplicationGateTests.test_absent_inventory_candidate_fails_before_reader_and_keeps_prior_generation)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/tests/test_version_graph_validation_e2e.py", line 146, in test_absent_inventory_candidate_fails_before_reader_and_keeps_prior_generation
+    self.assert_gate_rejects(mutate)
+    ~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^
+  File "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/tests/test_version_graph_validation_e2e.py", line 107, in assert_gate_rejects
+    self.assertEqual("FAIL", stop.exception.result["status"], stop.exception.result)
+    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: 'FAIL' != 'PASS'
+- FAIL
++ PASS
+ : {'status': 'PASS', 'errors': []}
+
+======================================================================
+FAIL: test_changed_explicit_decision_snapshot_fails_before_reader (f05a_target.VersionGraphApplicationGateTests.test_changed_explicit_decision_snapshot_fails_before_reader)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/tests/test_version_graph_validation_e2e.py", line 160, in test_changed_explicit_decision_snapshot_fails_before_reader
+    self.assert_gate_rejects(mutate)
+    ~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^
+  File "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/tests/test_version_graph_validation_e2e.py", line 107, in assert_gate_rejects
+    self.assertEqual("FAIL", stop.exception.result["status"], stop.exception.result)
+    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: 'FAIL' != 'PASS'
+- FAIL
++ PASS
+ : {'status': 'PASS', 'errors': []}
+
+======================================================================
+FAIL: test_empty_resealed_graph_fails_before_reader_and_keeps_prior_generation (f05a_target.VersionGraphApplicationGateTests.test_empty_resealed_graph_fails_before_reader_and_keeps_prior_generation)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/tests/test_version_graph_validation_e2e.py", line 121, in test_empty_resealed_graph_fails_before_reader_and_keeps_prior_generation
+    self.assert_gate_rejects(mutate)
+    ~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^
+  File "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/tests/test_version_graph_validation_e2e.py", line 107, in assert_gate_rejects
+    self.assertEqual("FAIL", stop.exception.result["status"], stop.exception.result)
+    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: 'FAIL' != 'PASS'
+- FAIL
++ PASS
+ : {'status': 'PASS', 'errors': []}
+
+======================================================================
+FAIL: test_fabricated_active_choice_fails_before_reader_and_keeps_prior_generation (f05a_target.VersionGraphApplicationGateTests.test_fabricated_active_choice_fails_before_reader_and_keeps_prior_generation)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/tests/test_version_graph_validation_e2e.py", line 136, in test_fabricated_active_choice_fails_before_reader_and_keeps_prior_generation
+    self.assert_gate_rejects(mutate)
+    ~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^
+  File "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/tests/test_version_graph_validation_e2e.py", line 107, in assert_gate_rejects
+    self.assertEqual("FAIL", stop.exception.result["status"], stop.exception.result)
+    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: 'FAIL' != 'PASS'
+- FAIL
++ PASS
+ : {'status': 'PASS', 'errors': []}
+
+----------------------------------------------------------------------
+Ran 4 tests in 0.487s
+
+FAILED (failures=4)

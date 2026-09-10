@@ -1,0 +1,59 @@
+{
+  "schema_version": "1.0",
+  "task_id": "lms-v1-00-hardening-2026-09-09-f16",
+  "artifact_version": 2,
+  "audit_repair_round": 1,
+  "executor": "root",
+  "status": "ready_for_independent_audit",
+  "self_approved": false,
+  "scope": "F16 builder immediate invalidation repair only; Path Validator and generation fingerprint unchanged.",
+  "reproduction": "A real temporary holder ancestor above the selected source root is renamed, replaced with an empty directory, observed through actual no-follow stat, then restored before the next check. After c.txt has been hashed, the transient ancestor inode mismatch is detected in the file's verify_active call. Old code records the error and clears c.txt only; previously hashed a.txt/b.txt stay observed. No fake stat objects or forged OS metadata are used.",
+  "repair": "One invalidate_tree helper clears every emitted read_status/sha256 immediately. Both top-loop and post-file active-tree checks call it and end traversal on error. Independent file read errors retain the existing per-file handling.",
+  "runs": [
+    {
+      "id": "f16-repair1-001-red",
+      "status": "failed",
+      "tests": 1,
+      "skips": 0,
+      "reason": "The required all-prior-hashes-unresolved assertion fails; exact trace/log retained.",
+      "result_sha256": "bf1ffedb782f39036458c4866ee71f859fc73a8da94b9f228ea69243851d499e",
+      "log_sha256": "c7a133e17a53ed5c68b09f44e829a5934710ac6773966b137c4ddc145f005d0b"
+    },
+    {
+      "id": "f16-repair1-002-green314",
+      "status": "passed",
+      "tests": 19,
+      "skips": 0,
+      "interpreter": "Python3.14.6",
+      "elapsed_seconds": 0.115687,
+      "result_sha256": "33afc977c49151cb4adc97d36efd6ecaa92fac0c8f04f7389deb043d469311e0",
+      "log_sha256": "b3cab8e86cd08177cc6251f5823444fd52ecc33df4e9f706253fd43f8c338c59"
+    },
+    {
+      "id": "f16-repair1-003-green39",
+      "status": "passed",
+      "tests": 19,
+      "skips": 0,
+      "interpreter": "Python3.9.6",
+      "elapsed_seconds": 0.086871,
+      "result_sha256": "c3bb673eea0488db2aff93aac25b181d3d0666438508842cb068cef27b8f360f",
+      "log_sha256": "16c32eaeda43794808c3d2d67eab51afac5526c500bef74ab9bf9bb8f41d245e"
+    }
+  ],
+  "test_safety": "Inspected existing tiny synthetic suite and new fixture. Each run supervised at30 seconds/1MiB logs. Sources under owned TemporaryDirectory only; no model/network/GUI/Keychain/personal roots. Existing CLI test is in-process. Temporary rename/rmdir applies only to this test's created empty replacement and is restored in finally.",
+  "source_hashes": {
+    "distribution/macos-local-memory/engine/build_path_graph.py": "caa1c98d02190c18c4fad6cd354a812dc4b06d86d99768773b6169cd2b18d0db",
+    "tests/test_path_graph_confinement.py": "0ac4c52be1d56df049e8875b65971f1e5a8c4ae018317e342699f057c9d073cf",
+    "artifacts/local-memory-v1-hardening/runs/f16-repair1-001-red/result.json": "bf1ffedb782f39036458c4866ee71f859fc73a8da94b9f228ea69243851d499e",
+    "artifacts/local-memory-v1-hardening/runs/f16-repair1-002-green314/result.json": "33afc977c49151cb4adc97d36efd6ecaa92fac0c8f04f7389deb043d469311e0",
+    "artifacts/local-memory-v1-hardening/runs/f16-repair1-003-green39/result.json": "c3bb673eea0488db2aff93aac25b181d3d0666438508842cb068cef27b8f360f"
+  },
+  "limitations": [
+    "No global filesystem snapshot or whole-tree resource bound.",
+    "No changes to separate Path Validator source authority or current-path checking yet.",
+    "No retrospective Reader generation invalidation guarantee.",
+    "Independent v1 auditor ran no dynamic tests due a reported scratch-file tool stall; this parent RED does not retroactively change that report.",
+    "No whole-product, actual model, packaging or old-index acceptance."
+  ],
+  "rollback": "Reverse only immediate invalidate_tree helper/call changes and its added method if needed; preserve original F16 builder rewrite and other owners' changes."
+}

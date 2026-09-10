@@ -1,0 +1,26 @@
+--- tests/test_decision_snapshot_attestation.py
++++ tests/test_decision_snapshot_attestation.py
+@@ -400,6 +400,23 @@
+         self.human_snapshot()
+         self.assertEqual({"status": "PASS", "errors": []}, resolver.validate(self.graph_path, self.inventory, self.snapshot))
+ 
++    def test_snapshot_symlink_directory_and_dangling_link_fail_read_only(self):
++        self.empty_snapshot()
++        raw = self.snapshot.read_bytes()
++        expected = sha(raw)
++        for kind in ("symlink", "directory", "dangling"):
++            with self.subTest(kind=kind):
++                path = self.base / kind
++                if kind == "directory":
++                    path.mkdir()
++                else:
++                    path.symlink_to(self.snapshot if kind == "symlink" else self.base / "absent")
++                before = path.lstat()
++                self.failure(resolver.attest(self.graph_path, self.inventory, decision_mode="snapshot",
++                                             decisions_path=path, expected_decisions_sha256=expected))
++                self.assertEqual(before, path.lstat())
++                self.assertEqual(raw, self.snapshot.read_bytes())
+ 
++
+ if __name__ == "__main__":
+     unittest.main(verbosity=2)

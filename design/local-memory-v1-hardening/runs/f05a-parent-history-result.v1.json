@@ -1,0 +1,35 @@
+{
+  "task_id": "lms-v1-00-hardening-2026-09-09-f05a",
+  "status": "history_integrity_pass_not_formal_acceptance",
+  "artifact_sha256": "7b7414f3e58a62b6eb34fc71534da11eec51c1dd58c316326ba03e9ab436bf61",
+  "validator_sha256": "ca43236a28270266debeddc21829878bcbcf7d6450cd7a98294b94cff52fd1c7",
+  "frozen_sources": 115,
+  "executor_manifest_files": 37,
+  "original_pure_gold_methods": 23,
+  "unchanged_original_methods": 23,
+  "additive_methods": 2,
+  "app_gold_methods": 4,
+  "failure_history": [
+    {
+      "run": "f05a-root-red-app-001",
+      "methods": 4,
+      "failures": 4,
+      "errors": 0,
+      "result_sha256": "5389d6dcb45ac8ae46a32ddede25286d9ad179edc1776a5e2a96e55573fb40ff"
+    },
+    {
+      "run": "f05a-executor-red-pure-001",
+      "methods": 8,
+      "failures": 26,
+      "errors": 0,
+      "result_sha256": "12ccd0fb76fa715102937090ee5bb1eacb45845802b5504c448678d727008e82"
+    },
+    {
+      "run": "f05a-executor-review-red-001",
+      "methods": 25,
+      "failures": 2,
+      "errors": 2,
+      "result_sha256": "719304ea0a712f0101674c9b6f22f8fe2928679f60040b19240fc0c6db3f1d3e"
+    }
+  ]
+}

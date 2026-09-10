@@ -1,0 +1,133 @@
+{
+  "schema_version": "1.0",
+  "task_id": "lms-v1-00-hardening-2026-09-09-f01-f07",
+  "artifact_version": 2,
+  "task_contract": {
+    "requested": "Repair explicit version-graph propagation into source-bound safe-index lineage validation, maintain legacy unversioned behavior and enforce full app build/publication/query wiring via synthetic integration tests.",
+    "review_scope": "F01/F07 connection and generation identity only; version selection meaning F02-F06, destructive validator F18, actual model quality and packaging excluded.",
+    "forbidden": [
+      "product edits by auditor",
+      "real model/network/personal data",
+      "unbounded tests"
+    ],
+    "max_repair_cycles": 2,
+    "role_separation": "same_model_separate_context"
+  },
+  "nodes": [
+    {
+      "id": "F01",
+      "text": "Explicit version graph flows from app invocation into source-bound Reader validator; absence/mismatch cannot silently pass.",
+      "basis": [
+        "BOOTSTRAP",
+        "PROJECTOR",
+        "VALIDATOR"
+      ]
+    },
+    {
+      "id": "BINDING",
+      "text": "Verified version binding is detached from the actual Validator result and forwarded through graph/security attestation to metadata, with no later producer-state reread; registration hashes fixed generation artifact/code.",
+      "basis": [
+        "BOOTSTRAP",
+        "PROJECTOR"
+      ]
+    },
+    {
+      "id": "LEGACY",
+      "text": "Unversioned three-field lineage contexts remain supported without inferring producer paths.",
+      "basis": [
+        "PROJECTOR",
+        "TESTS"
+      ]
+    },
+    {
+      "id": "F07",
+      "text": "Fifteen synthetic E2E tests traverse real build/publication/query/final gates, with finite fixture model/runtime responses; post-attestation source-state swap cannot change published version metadata.",
+      "basis": [
+        "TESTS",
+        "EXECUTOR"
+      ]
+    },
+    {
+      "id": "FAILURE",
+      "text": "Missing/wrong binding or failed new build leaves previous published config/index unchanged; human selection followed by source change is held.",
+      "basis": [
+        "TESTS",
+        "EXECUTOR"
+      ]
+    },
+    {
+      "id": "LIMITS",
+      "text": "This does not approve annual-document version policy, immutable lineage validator behavior, real model/GUI/packaging, or V1 final acceptance.",
+      "basis": [
+        "EXECUTOR"
+      ]
+    }
+  ],
+  "edges": [
+    {
+      "id": "E01",
+      "source": "F01",
+      "target": "BINDING",
+      "relation": "validates_binding_before_publication",
+      "basis": [
+        "PROJECTOR",
+        "BOOTSTRAP"
+      ]
+    },
+    {
+      "id": "E02",
+      "source": "F07",
+      "target": "FAILURE",
+      "relation": "tests_failure_and_human_selection_paths",
+      "basis": [
+        "TESTS"
+      ]
+    }
+  ],
+  "sources": [
+    {
+      "id": "BOOTSTRAP",
+      "path": "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/distribution/macos-local-memory/app/bootstrap.py",
+      "sha256": "0856989a86d2be19cb0761fee51e10da3aa7c8694ecde9c4e128d725c0d7081a"
+    },
+    {
+      "id": "PROJECTOR",
+      "path": "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/distribution/macos-local-memory/engine/build_local_semantic_index.py",
+      "sha256": "2bfaf8174e8249087d720e49070c9812ce9ecf93b21dd5276f057e145965dfb2"
+    },
+    {
+      "id": "TESTS",
+      "path": "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/distribution/macos-local-memory/tests/test_versioned_safe_index_e2e.py",
+      "sha256": "b0aa7aac97f068f8d795a190d7465ab13a84c1dc4ade5b29cc2589d822cc1f4d"
+    },
+    {
+      "id": "MIGRATION",
+      "path": "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/distribution/macos-local-memory/tests/test_reader_generation_migration.py",
+      "sha256": "3ea1d0281b000a4c93ce51b62262cfd78eb348d8398bc73cf48eadb34c97d0ad"
+    },
+    {
+      "id": "VALIDATOR",
+      "path": "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/distribution/macos-local-memory/engine/validate_adaptive_semantic_graph.py",
+      "sha256": "1a3aff494b724882a600adc6978fda3e0f3955da6e2f11291180a92d7f898e1a"
+    },
+    {
+      "id": "RESOLVER",
+      "path": "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/distribution/macos-local-memory/engine/document_version_resolver.py",
+      "sha256": "a1780dc59d23b0c3b5423ca3264841d9261facbaf7dba0701b139049543d0e1b"
+    },
+    {
+      "id": "EXECUTOR",
+      "path": "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/design/local-memory-v1-hardening/runs/F01-003-executor.v2.json",
+      "sha256": "91764b6821f3b9f3801a96a03c99bdb48b9597a7dd4b5cb1fe0ead6411729a0a"
+    }
+  ],
+  "patch_snapshot": "diff --git a/distribution/macos-local-memory/app/bootstrap.py b/distribution/macos-local-memory/app/bootstrap.py\nindex f125094..1de4d44 100644\n--- a/distribution/macos-local-memory/app/bootstrap.py\n+++ b/distribution/macos-local-memory/app/bootstrap.py\n@@ -357,6 +357,12 @@ def _current_reader_resource_contract() -> dict[str, object]:\n         \"adaptive_validator\": _reader_file_identity(\n             ENGINE / \"validate_adaptive_semantic_graph.py\"\n         ),\n+        \"document_version_resolver\": _reader_file_identity(\n+            ENGINE / \"document_version_resolver.py\"\n+        ),\n+        \"safe_index_projector\": _reader_file_identity(\n+            ENGINE / \"build_local_semantic_index.py\"\n+        ),\n         \"adapter\": _reader_file_identity(\n             tools / \"adapt_layer1_to_local_memory.py\"\n         ),\n@@ -465,6 +471,30 @@ def _reader_generation_contract_body(semantic: Path) -> dict[str, object]:\n             semantic, adaptive_state, \"evidence\"\n         ),\n     }\n+    version_binding = adaptive_state.get(\"document_version_graph\")\n+    if version_binding is not None:\n+        # App generations have a fixed version-artifact location. Do not read\n+        # an arbitrary producer-provided path when checking a registration.\n+        version_path = semantic.parent / \"01-path\" / \"document-version-graph.json\"\n+        if (\n+            not isinstance(version_binding, dict)\n+            or version_binding.get(\"path\") != str(version_path)\n+        ):\n+            raise ValueError(\"reader_contract_version_graph_path_mismatch\")\n+        version_value = _required_reader_json(version_path)\n+        version_identity = _reader_file_identity(version_path)\n+        if version_binding.get(\"sha256\") != version_identity[\"sha256\"]:\n+            raise ValueError(\"reader_contract_version_graph_hash_mismatch\")\n+        version_core = {\n+            key: value for key, value in version_value.items()\n+            if key != \"graph_sha256\"\n+        }\n+        if (\n+            version_binding.get(\"graph_sha256\") != version_value.get(\"graph_sha256\")\n+            or version_value.get(\"graph_sha256\") != _canonical_json_sha256(version_core)\n+        ):\n+            raise ValueError(\"reader_contract_version_graph_identity_mismatch\")\n+        artifacts[\"document_version_graph\"] = version_identity\n \n     intermediate = _required_reader_json(\n         semantic / \"layer1-intermediate/build-state.json\"\n@@ -3689,6 +3719,7 @@ def build_index() -> None:\n                 \"--security-state\", str(security / \"content-security-state.json\"),\n                 \"--source-root\", str(source),\n                 \"--source-inventory\", str(paths / \"path-source-inventory.jsonl\"),\n+                \"--version-graph\", str(paths / \"document-version-graph.json\"),\n                 \"--index-purpose\", \"safe_answer\", \"--model\", config[\"embedding_model\"],\n                 \"--output\", str(index),\n             ], log)\ndiff --git a/distribution/macos-local-memory/engine/build_local_semantic_index.py b/distribution/macos-local-memory/engine/build_local_semantic_index.py\nindex 9b50055..026a954 100755\n--- a/distribution/macos-local-memory/engine/build_local_semantic_index.py\n+++ b/distribution/macos-local-memory/engine/build_local_semantic_index.py\n@@ -81,6 +81,7 @@ LINEAGE_PROPERTY_FIELDS = {\n     \"derived_evidence_sha256\",\n }\n LINEAGE_CONTEXT_FIELDS = {\"output_dir\", \"source_root\", \"inventory\"}\n+VERSIONED_LINEAGE_CONTEXT_FIELDS = LINEAGE_CONTEXT_FIELDS | {\"version_graph\"}\n LINEAGE_STATE_FIELDS = {\n     \"schema_version\", \"validator\", \"validator_version\", \"status\",\n     \"question_independent\", \"generated_at\", \"inputs\", \"output\", \"coverage\",\n@@ -837,21 +838,31 @@ def _attest_lineage_context(\n     context: dict | None,\n ) -> dict:\n     \"\"\"Re-run the source-bound validator; never trust a caller-issued PASS JSON.\"\"\"\n-    if not isinstance(context, dict) or set(context) != LINEAGE_CONTEXT_FIELDS:\n+    if not isinstance(context, dict) or set(context) not in (\n+        LINEAGE_CONTEXT_FIELDS, VERSIONED_LINEAGE_CONTEXT_FIELDS,\n+    ):\n         raise ValueError(\"graph_lineage_validation_context_required\")\n     try:\n         output_dir = Path(context[\"output_dir\"]).resolve(strict=True)\n         source_root = Path(context[\"source_root\"]).resolve(strict=True)\n         inventory = Path(context[\"inventory\"]).resolve(strict=True)\n+        # A legacy context is deliberately unversioned. Never infer a path\n+        # from Reader producer metadata to turn a missing binding into PASS.\n+        version_graph = (\n+            Path(context[\"version_graph\"]).resolve(strict=True)\n+            if \"version_graph\" in context else None\n+        )\n     except (TypeError, OSError) as exc:\n         raise ValueError(\"graph_lineage_validation_context_invalid\") from exc\n     if not output_dir.is_dir() or output_dir.is_symlink():\n         raise ValueError(\"graph_lineage_output_directory_invalid\")\n \n     validator = _load_lineage_validator()\n-    report = validator.validate(output_dir, source_root, inventory)\n+    report = validator.validate(output_dir, source_root, inventory, version_graph)\n     if report.get(\"status\") != \"PASS\":\n         raise ValueError(\"graph_lineage_independent_validation_failed\")\n+    if \"document_version_graph\" not in report:\n+        raise ValueError(\"graph_lineage_version_attestation_missing\")\n \n     state_path = output_dir / validator.LINEAGE_VALIDATION_FILE\n     relation_path = output_dir / validator.LINEAGE_RELATIONS_FILE\n@@ -949,7 +960,12 @@ def _attest_lineage_context(\n         raise ValueError(\"graph_lineage_attestation_output_path_invalid\")\n     if output.get(\"sha256\") != sha256_file(relation_path):\n         raise ValueError(\"graph_lineage_attestation_output_hash_mismatch\")\n-    return state\n+    return {\n+        \"lineage_validation\": state,\n+        \"document_version_graph\": json.loads(\n+            canonical_json(report[\"document_version_graph\"])\n+        ),\n+    }\n \n \n def _partition_security_graph(\n@@ -1234,7 +1250,9 @@ def _attest_security_context(\n         or set(security_context) != SECURITY_CONTEXT_FIELDS\n     ):\n         raise ValueError(\"graph_security_validation_context_required\")\n-    if not isinstance(lineage_context, dict) or set(lineage_context) != LINEAGE_CONTEXT_FIELDS:\n+    if not isinstance(lineage_context, dict) or set(lineage_context) not in (\n+        LINEAGE_CONTEXT_FIELDS, VERSIONED_LINEAGE_CONTEXT_FIELDS,\n+    ):\n         raise ValueError(\"graph_security_lineage_context_required\")\n     try:\n         output_dir = Path(lineage_context[\"output_dir\"]).resolve(strict=True)\n@@ -1250,9 +1268,10 @@ def _attest_security_context(\n     full_evidence = _read_jsonl_records(\n         output_dir / \"semantic-evidence.jsonl\"\n     )\n-    lineage_state = _attest_lineage_context(\n+    lineage_attestation = _attest_lineage_context(\n         full_documents, full_evidence, relations, lineage_context,\n     )\n+    lineage_state = lineage_attestation[\"lineage_validation\"]\n     supplied_documents = _records_by_id(documents, \"document_id\", \"document\")\n     full_document_by_id = _records_by_id(\n         full_documents, \"document_id\", \"document\",\n@@ -1330,6 +1349,7 @@ def _attest_security_context(\n         \"relations\": filtered_relations,\n         \"source_relations\": relations,\n         \"lineage_validation\": lineage_state,\n+        \"document_version_graph\": lineage_attestation[\"document_version_graph\"],\n         \"partition\": partition,\n     }\n \n@@ -1971,6 +1991,7 @@ def project_verified_structural_graph(\n     metadata.\n     \"\"\"\n     lineage_validation = None\n+    version_binding = None\n     security_partition = None\n     security_source_relations = None\n     if security_context is not None:\n@@ -1986,6 +2007,7 @@ def project_verified_structural_graph(\n         relations = attested[\"relations\"]\n         security_source_relations = attested[\"source_relations\"]\n         lineage_validation = attested[\"lineage_validation\"]\n+        version_binding = attested[\"document_version_graph\"]\n         security_partition = attested[\"partition\"]\n     else:\n         has_verified_lineage = any(\n@@ -2003,9 +2025,11 @@ def project_verified_structural_graph(\n             or has_context_bound_structural\n             or lineage_context is not None\n         ):\n-            lineage_validation = _attest_lineage_context(\n+            lineage_attestation = _attest_lineage_context(\n                 documents, evidence_records, relations, lineage_context,\n             )\n+            lineage_validation = lineage_attestation[\"lineage_validation\"]\n+            version_binding = lineage_attestation[\"document_version_graph\"]\n     connection.execute(\"PRAGMA foreign_keys=ON\")\n     if connection.execute(\"PRAGMA foreign_keys\").fetchone()[0] != 1:\n         raise ValueError(\"graph_projection_foreign_keys_disabled\")\n@@ -2037,7 +2061,7 @@ def project_verified_structural_graph(\n             finally:\n                 connection.execute(f\"RELEASE {savepoint}\")\n         raise\n-    return report\n+    return {**report, \"document_version_graph\": version_binding}\n \n \n def _project_verified_structural_graph_in_transaction(\n@@ -2433,10 +2457,16 @@ def main() -> int:\n     parser.add_argument(\"--index-purpose\", required=True, choices=(\"safe_answer\", \"prompt_library\"))\n     parser.add_argument(\"--source-root\")\n     parser.add_argument(\"--source-inventory\")\n+    parser.add_argument(\n+        \"--version-graph\",\n+        help=\"Explicit version graph bound to this Reader generation\",\n+    )\n     parser.add_argument(\"--model\", default=\"embeddinggemma:latest\")\n     parser.add_argument(\"--batch-size\", type=int, default=8)\n     parser.add_argument(\"--timeout\", type=int, default=180)\n     args = parser.parse_args()\n+    if args.version_graph and args.index_purpose != \"safe_answer\":\n+        raise SystemExit(\"version_graph_requires_safe_answer_index\")\n     if args.batch_size < 1 or args.batch_size > 64:\n         raise SystemExit(\"batch-size must be between 1 and 64\")\n \n@@ -2504,6 +2534,10 @@ def main() -> int:\n             },\n             \"security\": {\"gate_dir\": security_dir},\n         }\n+        if args.version_graph:\n+            graph_context[\"lineage\"][\"version_graph\"] = Path(\n+                args.version_graph\n+            ).resolve(strict=True)\n     document_paths = {item[\"document_id\"]: item[\"source\"][\"relative_path\"] for item in documents}\n     if len(document_paths) != len(documents):\n         raise SystemExit(\"Document IDs must be unique\")\n@@ -2655,7 +2689,11 @@ def main() -> int:\n             ),\n         }\n         if graph_report is not None:\n+            # Keep the validator's detached snapshot across the model probe.\n+            # A subsequent producer-state read is not an attestation.\n+            version_binding = graph_report[\"document_version_graph\"]\n             metadata.update({\n+                \"document_version_graph\": version_binding,\n                 \"graph_status\": GRAPH_READY_STATUS,\n                 \"graph_retrieval_enabled\": True,\n                 \"graph_node_count\": graph_report[\"node_count\"],\ndiff --git a/distribution/macos-local-memory/engine/validate_adaptive_semantic_graph.py b/distribution/macos-local-memory/engine/validate_adaptive_semantic_graph.py\nindex d35750b..f23dee2 100644\n--- a/distribution/macos-local-memory/engine/validate_adaptive_semantic_graph.py\n+++ b/distribution/macos-local-memory/engine/validate_adaptive_semantic_graph.py\n@@ -2985,6 +2985,17 @@ def validate(\n     _publish_lineage_artifacts(output, relations, validation_state)\n     return {\n         \"status\": \"PASS\",\n+        # Return only the binding actually checked in this invocation. Build\n+        # a detached value from the explicit resolved input and checked hashes,\n+        # not a later producer-state reread (or unchecked extra producer keys).\n+        \"document_version_graph\": (\n+            {\n+                \"path\": str(version_graph),\n+                \"sha256\": version_binding[\"sha256\"],\n+                \"graph_sha256\": version_binding[\"graph_sha256\"],\n+            }\n+            if version_graph is not None else None\n+        ),\n         \"build_status\": state[\"status\"],\n         \"documents\": len(documents),\n         \"evidence\": len(evidence),\ndiff --git a/distribution/macos-local-memory/tests/test_reader_generation_migration.py b/distribution/macos-local-memory/tests/test_reader_generation_migration.py\nindex c64df35..0460d7f 100644\n--- a/distribution/macos-local-memory/tests/test_reader_generation_migration.py\n+++ b/distribution/macos-local-memory/tests/test_reader_generation_migration.py\n@@ -103,6 +103,15 @@ class ReaderGenerationMigrationTests(unittest.TestCase):\n             text=True,\n         )\n         self.assertEqual(process.returncode, 0, process.stderr)\n+        # Current app Readers are version-bound, including when the tiny\n+        # fixture has no competing versions. Mirror the production build.\n+        resolver = load_module(\n+            \"migration_version_resolver\", ENGINE / \"document_version_resolver.py\"\n+        )\n+        resolver.build(\n+            paths / \"path-source-inventory.jsonl\",\n+            paths / \"document-version-graph.json\",\n+        )\n         with (self.root / \"semantic-pipeline.log\").open(\"w\", encoding=\"utf-8\") as log:\n             self.bootstrap.run_semantic_pipeline(\n                 source,\n",
+  "unverified_points": [
+    "Shared F08/F09 parser is now scoped audit PASS at db73270807c3e976fb51f38ff51cc6cd40dd7c0ef3c2d6954fc1f924acd8ab3d.",
+    "Shared answer engines have separate F15 framing edits under audit. Parent run012 rechecks current combined integration; real model quality still untested.",
+    "F02-F06 and F18 remain unchanged/excluded. No general concurrency or same-UID security guarantee."
+  ],
+  "proposed_output": "Independent audit of scoped F01/F07 implementation; report mandatory counterexamples before any acceptance.",
+  "audit_repair_round": 1,
+  "repair_response": "F01F07-A05: source-bound Validator returns detached checked binding (legacy null), forwards it through graph report into metadata; missing explicit attestation fails closed. No F18 semantic/artifact mutation change."
+}

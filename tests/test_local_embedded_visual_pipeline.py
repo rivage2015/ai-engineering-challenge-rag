@@ -1178,7 +1178,7 @@ class LocalEmbeddedVisualPipelineTests(unittest.TestCase):
             self.source_root, inventory, adaptive_output, SCRIPTS
         )
         validation = adaptive_validator.validate(
-            adaptive_output, self.source_root, inventory
+            adaptive_output, self.source_root, inventory, initialize_lineage=True,
         )
         adaptive_relations_path = (
             adaptive_output / "layer1-intermediate" / "relations.jsonl"

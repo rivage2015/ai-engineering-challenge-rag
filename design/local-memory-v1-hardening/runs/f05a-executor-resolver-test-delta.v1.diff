@@ -1,0 +1,11 @@
+--- distribution/macos-local-memory/tests/test_document_version_resolver.py
++++ distribution/macos-local-memory/tests/test_document_version_resolver.py
+@@ -75,7 +75,7 @@
+             [item["disposition"] for item in group["candidates"]],
+         )
+         self.assertFalse(any(edge["edge_type"] == "active_version" for edge in result["edges"]))
+-        self.assertEqual("0.1.3", result["resolver_version"])
++        self.assertEqual("0.1.4", result["resolver_version"])
+         self.assertIs(False, result["policy"]["year_order_establishes_supersession"])
+         self.assertEqual("PASS", resolver.validate(graph, inventory)["status"])
+ 

@@ -1,0 +1,213 @@
+{
+  "schema_version": "1.0",
+  "task_id": "lms-v1-00-hardening-2026-09-09-f10",
+  "artifact_version": 1,
+  "task_contract": {
+    "requested": "Repair F10 XLSX standard-library fallback workbook/worksheet source binding, without inferred sheetN.xml fallback or forged sheet-to-cell mapping.",
+    "review_scope": "Scoped source-binding implementation acceptance only. Preserve valid workbook order/names/members, partial-state truth, atomic failure, and earlier XML/JSON repairs. No full XLSX or product acceptance.",
+    "forbidden": [
+      "real personal sources",
+      "real model/network/OCR/Keychain calls",
+      "unrelated product edits by auditor",
+      "self-approval",
+      "silently treating fixture failures or skips as PASS"
+    ],
+    "max_repair_cycles": 2,
+    "role_separation": "same_model_separate_context"
+  },
+  "goal": "Require explicit source-bound package->workbook->direct sheet->worksheet links before extracting fallback cell Evidence; keep valid neighbors and auditable failures.",
+  "nodes": [
+    {
+      "id": "ROOT_BINDING",
+      "text": "Package root must bind exactly one internal officeDocument relationship to the expected workbook part.",
+      "basis": [
+        "PARSER",
+        "TESTS"
+      ]
+    },
+    {
+      "id": "SHEET_BINDING",
+      "text": "Only direct canonical sheets with unique explicit name/id/relationship/worksheet target resolve. Wrong/missing/fake/external/type/duplicate bindings fail before fan-out Evidence.",
+      "basis": [
+        "PARSER",
+        "TESTS"
+      ]
+    },
+    {
+      "id": "CELL_PATH",
+      "text": "Only direct canonical worksheet/sheetData/row/c cells are projected; raw nested extension and foreign cell lookalikes are not treated as cells.",
+      "basis": [
+        "PARSER",
+        "TESTS"
+      ]
+    },
+    {
+      "id": "VALID_NEIGHBOR",
+      "text": "Failed bindings retain failed Document and zero Evidence/Relation/SearchUnit/adapter Evidence; a good workbook and text neighbor survive with original hashes unchanged.",
+      "basis": [
+        "BUILDER",
+        "SEARCH",
+        "ADAPTER",
+        "TESTS"
+      ]
+    },
+    {
+      "id": "COMPAT",
+      "text": "Valid order/strict namespace, exact numeric lexemes, saved formula zero/not-recalculated metadata and optional dependency fallback dispatch remain covered; fallback still partial.",
+      "basis": [
+        "TESTS",
+        "GREEN",
+        "LEGACY_TESTS",
+        "LEGACY_GREEN"
+      ]
+    },
+    {
+      "id": "REGRESSION_STATUS",
+      "text": "17 F10 permanent methods, 17 prior F08/F09 methods, and 2 isolated original XLSX methods pass without skips. Original minimal fixture failure is recorded and corrected only by adding its missing package relationship.",
+      "basis": [
+        "GREEN",
+        "REGRESSION",
+        "LEGACY_RED",
+        "LEGACY_GREEN",
+        "LEGACY_WRAPPER"
+      ]
+    },
+    {
+      "id": "LIMITS",
+      "text": "Remaining package/cell-feature parsing, native openpyxl, large resources, safe index/answer and whole product remain unverified; scoped test outcome must not be broadened.",
+      "basis": [
+        "EXECUTOR"
+      ]
+    }
+  ],
+  "edges": [
+    {
+      "id": "E_ROOT_SHEET",
+      "source": "ROOT_BINDING",
+      "target": "SHEET_BINDING",
+      "relation": "anchors_workbook_fan_out",
+      "basis": [
+        "PARSER"
+      ]
+    },
+    {
+      "id": "E_SHEET_CELL",
+      "source": "SHEET_BINDING",
+      "target": "CELL_PATH",
+      "relation": "must_validate_before_projection",
+      "basis": [
+        "PARSER",
+        "TESTS"
+      ]
+    },
+    {
+      "id": "E_BINDING_ROLLBACK",
+      "source": "SHEET_BINDING",
+      "target": "VALID_NEIGHBOR",
+      "relation": "failed_source_must_not_publish_evidence",
+      "basis": [
+        "BUILDER",
+        "TESTS"
+      ]
+    },
+    {
+      "id": "E_COMPAT_TEST",
+      "source": "COMPAT",
+      "target": "REGRESSION_STATUS",
+      "relation": "requires_passing_scoped_regressions",
+      "basis": [
+        "GREEN",
+        "LEGACY_GREEN"
+      ]
+    },
+    {
+      "id": "E_LIMIT",
+      "source": "REGRESSION_STATUS",
+      "target": "LIMITS",
+      "relation": "does_not_establish_universal_support",
+      "basis": [
+        "EXECUTOR"
+      ]
+    }
+  ],
+  "sources": [
+    {
+      "id": "PARSER",
+      "path": "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/scripts/probe_intermediate_records.py",
+      "sha256": "b36632a6acfdcf11491495a18fd6becdf0ce683bbcb7a55f96ba0eaa23c74a94"
+    },
+    {
+      "id": "TESTS",
+      "path": "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/tests/test_xlsx_fallback_binding_hardening.py",
+      "sha256": "9e13fe8b2c532c9923c08a4a868e568e3251e5386def300fb9768ff2147a4daf"
+    },
+    {
+      "id": "LEGACY_TESTS",
+      "path": "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/tests/test_layer1_pipeline.py",
+      "sha256": "63619ca448d88352beca3ee8e4679b25f762b3a12298398603c33f03f9f7255e"
+    },
+    {
+      "id": "BUILDER",
+      "path": "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/scripts/build_intermediate_records.py",
+      "sha256": "7312ebdffc7221ef989195afd03bdbbe34f945582cb25b9020d64b19316bdabe"
+    },
+    {
+      "id": "SEARCH",
+      "path": "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/scripts/build_search_units.py",
+      "sha256": "a14ffa6f5c4b04fd63ed3b95ba8b6892ca5c11f1cee050b323861c009c6eaaa1"
+    },
+    {
+      "id": "ADAPTER",
+      "path": "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/scripts/adapt_layer1_to_local_memory.py",
+      "sha256": "0ef2f634966e9be671628889b82e13baf8b57d14a6b649d7ffaee981279f9214"
+    },
+    {
+      "id": "GENERIC_REGRESSION",
+      "path": "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/tests/test_generic_structured_reader_hardening.py",
+      "sha256": "d1aa3c26a729be1896cdea8998e60e4785c715fb26a69be46172fb5dd1facda2"
+    },
+    {
+      "id": "RED",
+      "path": "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/artifacts/local-memory-v1-hardening/runs/f10-002-red-corrected-fixture/result.json",
+      "sha256": "76d197a5bd87523e4a6bc5edb75b93bdbab7606bc9cb6d98393abb16cd1d74ba"
+    },
+    {
+      "id": "GREEN",
+      "path": "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/artifacts/local-memory-v1-hardening/runs/f10-006-green-final/result.json",
+      "sha256": "c190e4e0874771392144c3c987ac022af5196a4c843d484e1dbff219d91a800f"
+    },
+    {
+      "id": "REGRESSION",
+      "path": "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/artifacts/local-memory-v1-hardening/runs/f10-005-f08-f09-regression/result.json",
+      "sha256": "446b6233f49fc14f1370f7aadc28227f60a02b4cb0e7b40d9a34315c5892fb7e"
+    },
+    {
+      "id": "LEGACY_RED",
+      "path": "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/artifacts/local-memory-v1-hardening/runs/f10-007-legacy-fixture-diagnostic/result.json",
+      "sha256": "6dafb3c9c7683e7814265f020d739320556a4985da4af77578189381cfbedc6f"
+    },
+    {
+      "id": "LEGACY_GREEN",
+      "path": "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/artifacts/local-memory-v1-hardening/runs/f10-008-legacy-fixture-repaired/result.json",
+      "sha256": "7ca62e0dcd630c398e0da626bbb99cb38a0ba0d75093b49a12d2c36d12fded6f"
+    },
+    {
+      "id": "LEGACY_WRAPPER",
+      "path": "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/design/local-memory-v1-hardening/runs/f10-legacy-fixture-check.v2.py",
+      "sha256": "f136c2858c73dde790ad9c1fb985415c64bed198577886c39bfc8bbaf6893cc1"
+    },
+    {
+      "id": "EXECUTOR",
+      "path": "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/design/local-memory-v1-hardening/runs/f10-executor.v1.json",
+      "sha256": "d3dc4d46fdd8f394e42fdb2a7ef280c6847277cb94b6fc3d62d2d06b191a0a51"
+    }
+  ],
+  "parser_patch_snapshot": "diff --git a/scripts/probe_intermediate_records.py b/scripts/probe_intermediate_records.py\nindex 899ab97..5d2747a 100644\n--- a/scripts/probe_intermediate_records.py\n+++ b/scripts/probe_intermediate_records.py\n@@ -3986,6 +4001,7 @@ class Probe:\n             source,\n             required_members=frozenset({\n                 \"[Content_Types].xml\",\n+                \"_rels/.rels\",\n                 \"xl/workbook.xml\",\n                 \"xl/_rels/workbook.xml.rels\",\n             }),\n@@ -4002,9 +4018,6 @@ class Probe:\n         def child(element: ElementTree.Element, local_name: str) -> ElementTree.Element | None:\n             return next((item for item in element if item.tag.endswith(\"}\" + local_name) or item.tag == local_name), None)\n \n-        def attr_by_local_name(element: ElementTree.Element, local_name: str) -> str | None:\n-            return next((value for key, value in element.attrib.items() if key == local_name or key.endswith(\"}\" + local_name)), None)\n-\n         def numeric(raw: str) -> Any:\n             # Python floats would round the OOXML decimal lexeme. Preserve\n             # decimal/scientific values verbatim; arbitrary-size integers are\n@@ -4054,8 +4067,33 @@ class Probe:\n             source.seek(0)\n         with zipfile.ZipFile(source) as archive:\n             names = set(archive.namelist())\n-            if \"xl/workbook.xml\" not in names:\n-                raise ValueError(\"XLSX package has no xl/workbook.xml\")\n+            # Attest the entire workbook -> worksheet fan-out before emitting\n+            # any Evidence. A guessed sheetN.xml is not a source relationship.\n+            relationships = _ooxml_relationships(archive)\n+            _require_ooxml_office_document_binding(\n+                archive, relationships, \"xl/workbook.xml\"\n+            )\n+            workbook_root = _ooxml_xml_root(\n+                archive, \"xl/workbook.xml\",\n+                namespaces=OOXML_SPREADSHEET_NAMESPACES,\n+                local_names={\"workbook\"},\n+            )\n+            sheet_lists = _direct_xml_children(\n+                workbook_root, OOXML_SPREADSHEET_NAMESPACES, \"sheets\"\n+            )\n+            if len(sheet_lists) != 1:\n+                raise ValueError(\"ooxml_sheet_list_invalid\")\n+            sheets = _direct_xml_children(\n+                sheet_lists[0], OOXML_SPREADSHEET_NAMESPACES, \"sheet\"\n+            )\n+            if not sheets or len(sheets) != len(sheet_lists[0]):\n+                raise ValueError(\"ooxml_sheet_list_invalid\")\n+            # This shared resolver checks the qualified relationship id,\n+            # relationship Type/mode, unique sheet id/name/target, and the\n+            # target's exact worksheet root. Its insertion order is workbook\n+            # order, independent of ZIP, relationship or member-name order.\n+            sheet_names, _drawing_sheets = _xlsx_sheet_context(archive, relationships)\n+            sheet_parts = {name: member for member, name in sheet_names.items()}\n \n             shared: list[str] = []\n             if \"xl/sharedStrings.xml\" in names:\n@@ -4078,38 +4116,26 @@ class Probe:\n                     if item.tag.endswith(\"}cellXfs\") or item.tag == \"cellXfs\":\n                         cell_formats = [dict(node.attrib) for node in item if node.tag.endswith(\"}xf\") or node.tag == \"xf\"]\n \n-            relationships: dict[str, str] = {}\n-            rels_name = \"xl/_rels/workbook.xml.rels\"\n-            if rels_name in names:\n-                rels_root = ElementTree.fromstring(archive.read(rels_name))\n-                for relation in rels_root:\n-                    identifier = relation.attrib.get(\"Id\")\n-                    target = relation.attrib.get(\"Target\")\n-                    if not identifier or not target or relation.attrib.get(\"TargetMode\") == \"External\":\n-                        continue\n-                    member = posixpath.normpath(\n-                        target.lstrip(\"/\") if target.startswith(\"/\")\n-                        else posixpath.join(\"xl\", target)\n-                    )\n-                    if member.startswith(\"xl/\") and \"..\" not in PurePosixPath(member).parts:\n-                        relationships[identifier] = member\n-\n-            workbook_root = ElementTree.fromstring(archive.read(\"xl/workbook.xml\"))\n-            sheets = [\n-                item for item in workbook_root.iter()\n-                if item.tag.endswith(\"}sheet\") or item.tag == \"sheet\"\n-            ]\n             for sheet_index, sheet in enumerate(sheets, 1):\n-                title = sheet.attrib.get(\"name\") or f\"Sheet{sheet_index}\"\n-                relation_id = attr_by_local_name(sheet, \"id\")\n-                member = relationships.get(relation_id or \"\", f\"xl/worksheets/sheet{sheet_index}.xml\")\n-                if member not in names:\n-                    self.mark_partial(doc, f\"worksheet OOXML part unavailable for sheet index {sheet_index}\")\n-                    continue\n-                sheet_root = ElementTree.fromstring(archive.read(member))\n+                title = sheet.attrib[\"name\"]\n+                member = sheet_parts[title]\n+                sheet_root = _ooxml_xml_root(\n+                    archive, member, namespaces=OOXML_SPREADSHEET_NAMESPACES,\n+                    local_names={\"worksheet\"},\n+                )\n+                data_parts = _direct_xml_children(\n+                    sheet_root, OOXML_SPREADSHEET_NAMESPACES, \"sheetData\"\n+                )\n+                if len(data_parts) != 1:\n+                    raise ValueError(\"ooxml_worksheet_data_invalid\")\n                 cells = [\n-                    item for item in sheet_root.iter()\n-                    if item.tag.endswith(\"}c\") or item.tag == \"c\"\n+                    cell\n+                    for row in _direct_xml_children(\n+                        data_parts[0], OOXML_SPREADSHEET_NAMESPACES, \"row\"\n+                    )\n+                    for cell in _direct_xml_children(\n+                        row, OOXML_SPREADSHEET_NAMESPACES, \"c\"\n+                    )\n                 ]\n                 row_numbers: list[int] = []\n                 column_numbers: list[int] = []\n",
+  "unverified_points": [
+    "Full XLSX/OPC/schema correctness is not claimed; cell payload/sharedStrings/styles/defined names keep existing boundaries.",
+    "No safe SQLite/answer/package build/UI/model/full class setup tested in this subtask.",
+    "A fallback rejects chartsheet/non-worksheet bindings rather than guessing another member."
+  ],
+  "proposed_output": "Independent audit pass/revise/blocked for this scoped F10 implementation; executor does not approve its own result.",
+  "audit_repair_round": 0
+}

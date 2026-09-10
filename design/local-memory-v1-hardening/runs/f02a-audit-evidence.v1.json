@@ -1,0 +1,175 @@
+{
+  "schema_version": "1.0",
+  "task_id": "lms-v1-00-hardening-2026-09-09-f02a",
+  "audit_id": "lms-v1-00-hardening-2026-09-09-f02a-audit-round0",
+  "artifact_path": "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/design/local-memory-v1-hardening/runs/f02a-graph-artifact.v1.json",
+  "artifact_sha256": "ea9a5c9616ef181fa8c75c5fd383ca536deabd4514c2b9e78c3d9d8d542f9ff8",
+  "independence_level": "same_model_separate_context",
+  "status": "local_pass_evidence_for_parent_validation",
+  "auditor_executed_methods": 63,
+  "acceptance_control_executions": 60,
+  "residual_witness_executions_not_acceptance": 3,
+  "required_skips": 0,
+  "expected_failures": 0,
+  "audit_repairs_used": 0,
+  "run_results": [
+    {
+      "run_id": "f02a-audit-holdouts-001",
+      "result_sha256": "17a2063b8b5f475c24e3b02ac6994b10e5328801548614ed12f3c9237cf39705",
+      "log_sha256": "7e5e5a076b49824dd7159603fde3eed733f410d7d9e1b6fdf3f44cf668efeabd",
+      "log_bytes": 2891,
+      "tests_reported": 15,
+      "status": "passed",
+      "elapsed_seconds": 0.595721
+    },
+    {
+      "run_id": "f02a-audit-replay-001-pure",
+      "result_sha256": "a2396ec48cae49980d9e163b1b84909d8a7f2fb3abd0d9312f5de8d9e409a66d",
+      "log_sha256": "b2974789ebb8ac01827cceaf328a979b65000061b70bf78a4fdb332ba033c8a9",
+      "log_bytes": 1945,
+      "tests_reported": 11,
+      "status": "passed",
+      "elapsed_seconds": 0.06164
+    },
+    {
+      "run_id": "f02a-audit-replay-002-resolver",
+      "result_sha256": "eb4a45cd5f8ce3bdef745a7a656a26baf7cde452ef8ce571f4505a1188eb368f",
+      "log_sha256": "ff53d5ef8d6f41096c67a1cad5bb93dda48e1a04357fee6b4d25a862154f4af4",
+      "log_bytes": 3455,
+      "tests_reported": 20,
+      "status": "passed",
+      "elapsed_seconds": 0.274965
+    },
+    {
+      "run_id": "f02a-audit-replay-003-e2e",
+      "result_sha256": "e9b7c4d8b27e0018f66113e22620f7d395b7d1d25cc1fb53db4c5959f7eaa7ba",
+      "log_sha256": "8a86089cf62c7d2235b4134fab72a14ef1095cfa5d87edf8467797f3dedb78fc",
+      "log_bytes": 2868,
+      "tests_reported": 17,
+      "status": "passed",
+      "elapsed_seconds": 1.909685
+    }
+  ],
+  "formal_artifact_source_count": 52,
+  "all_formal_sources_match_before_after": true,
+  "run_input_snapshot_count": 16,
+  "all_run_inputs_unchanged": true,
+  "artifact_result_log_pairs_checked": 9,
+  "artifact_failed_runs_preserved": [
+    "RED",
+    "E2E_INITIAL_FAILED"
+  ],
+  "resolver_changed_functions": [
+    "automatic_selection",
+    "build"
+  ],
+  "other_resolver_functions_ast_unchanged": true,
+  "artifacts": [
+    {
+      "path": "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/design/local-memory-v1-hardening/runs/f02a-audit-before.v1.json",
+      "sha256": "dd531c27081abe4aa048f13edb5a4b25350f5bcb76bf7e8064d81dc3c2e2f50a",
+      "bytes": 3443
+    },
+    {
+      "path": "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/design/local-memory-v1-hardening/runs/f02a-audit-after.v1.json",
+      "sha256": "af36ea746d5c1763e9085e09e6af18eed1dc8d92f645fcac7d1fcace5fcd4dcc",
+      "bytes": 5103
+    },
+    {
+      "path": "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/design/local-memory-v1-hardening/runs/f02a-audit-artifact-before.v1.json",
+      "sha256": "311009ebdced1247e30f248ed070904dad1f9f24ddc2476dd7ef3b6454757351",
+      "bytes": 20852
+    },
+    {
+      "path": "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/design/local-memory-v1-hardening/runs/f02a-audit-artifact-after.v1.json",
+      "sha256": "92926b885ffce9b070f71ddfe23a7b68cc8a89f796a31821a48dac8463577f15",
+      "bytes": 19151
+    },
+    {
+      "path": "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/design/local-memory-v1-hardening/runs/f02a-adversarial-holdouts.v1.py",
+      "sha256": "d8a40066b528070d9a10bdebb88ea44d5be2a8e4efeea5c8a80d09b57a7d1fee",
+      "bytes": 16823
+    },
+    {
+      "path": "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/design/local-memory-v1-hardening/runs/f02a-audit-replay.v1.py",
+      "sha256": "a8407ce54ab0077a9e709315c2a15951f9280c5e9b0597400a5305483a919368",
+      "bytes": 1578
+    },
+    {
+      "path": "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/design/local-memory-v1-hardening/runs/f02a-audit-holdouts-001/started.json",
+      "sha256": "7abf940cf29ea93927ce9fbb71f66aef945040de46d0da45d372371ed5cd3ba8",
+      "bytes": 740
+    },
+    {
+      "path": "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/design/local-memory-v1-hardening/runs/f02a-audit-holdouts-001/result.json",
+      "sha256": "17a2063b8b5f475c24e3b02ac6994b10e5328801548614ed12f3c9237cf39705",
+      "bytes": 1205
+    },
+    {
+      "path": "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/design/local-memory-v1-hardening/runs/f02a-audit-holdouts-001/unittest.log",
+      "sha256": "7e5e5a076b49824dd7159603fde3eed733f410d7d9e1b6fdf3f44cf668efeabd",
+      "bytes": 2891
+    },
+    {
+      "path": "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/design/local-memory-v1-hardening/runs/f02a-audit-replay-001-pure/started.json",
+      "sha256": "b8bfd3c8e5bcaef06cee6deda22999970f8da953914eec9ba6c7c505aca0359f",
+      "bytes": 660
+    },
+    {
+      "path": "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/design/local-memory-v1-hardening/runs/f02a-audit-replay-001-pure/result.json",
+      "sha256": "a2396ec48cae49980d9e163b1b84909d8a7f2fb3abd0d9312f5de8d9e409a66d",
+      "bytes": 1127
+    },
+    {
+      "path": "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/design/local-memory-v1-hardening/runs/f02a-audit-replay-001-pure/unittest.log",
+      "sha256": "b2974789ebb8ac01827cceaf328a979b65000061b70bf78a4fdb332ba033c8a9",
+      "bytes": 1945
+    },
+    {
+      "path": "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/design/local-memory-v1-hardening/runs/f02a-audit-replay-002-resolver/started.json",
+      "sha256": "2d92cf9c9ec20230211fe116811a7eb1219386d207e67840aa37e85cb6773da8",
+      "bytes": 755
+    },
+    {
+      "path": "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/design/local-memory-v1-hardening/runs/f02a-audit-replay-002-resolver/result.json",
+      "sha256": "eb4a45cd5f8ce3bdef745a7a656a26baf7cde452ef8ce571f4505a1188eb368f",
+      "bytes": 1227
+    },
+    {
+      "path": "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/design/local-memory-v1-hardening/runs/f02a-audit-replay-002-resolver/unittest.log",
+      "sha256": "ff53d5ef8d6f41096c67a1cad5bb93dda48e1a04357fee6b4d25a862154f4af4",
+      "bytes": 3455
+    },
+    {
+      "path": "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/design/local-memory-v1-hardening/runs/f02a-audit-replay-003-e2e/started.json",
+      "sha256": "a73e195a3777f7d4cd7d29db9dd871b63f1f263ea53cf395bfa7597392cd94e5",
+      "bytes": 745
+    },
+    {
+      "path": "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/design/local-memory-v1-hardening/runs/f02a-audit-replay-003-e2e/result.json",
+      "sha256": "e9b7c4d8b27e0018f66113e22620f7d395b7d1d25cc1fb53db4c5959f7eaa7ba",
+      "bytes": 1212
+    },
+    {
+      "path": "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/design/local-memory-v1-hardening/runs/f02a-audit-replay-003-e2e/unittest.log",
+      "sha256": "8a86089cf62c7d2235b4134fab72a14ef1095cfa5d87edf8467797f3dedb78fc",
+      "bytes": 2868
+    }
+  ],
+  "verification_sequence": "Critical source freeze and 16-input before snapshot preceded independent runs. The root formal artifact was produced afterward; all 52 artifact source hashes were then verified before and after formal review. The immutable holdout source hash is included in the formal artifact.",
+  "execution_limits": {
+    "per_run_seconds": 30,
+    "per_run_log_bytes": 1048576,
+    "cumulative_guarded_source_write_bytes": 1048576,
+    "native_model_network_process_denied_or_stubbed": true,
+    "not_os_sandbox_certification": true
+  },
+  "limits": [
+    "Local F02a acceptance only; complete hold is not independent annual-record availability.",
+    "Current marker across years and unsignalled candidate discovery remain observed residuals.",
+    "F02 entirety, F03, remaining F04, F05, F06/F19, F13 and whole-product acceptance remain open.",
+    "No personal-data, real-model, native GUI, package, commit, push, release or broad resource acceptance.",
+    "Existing parent collateral logs were verified; auditor replay counts exclude those runs.",
+    "Formal report structural/task/hash/reference validation is the parent Validator step."
+  ]
+}

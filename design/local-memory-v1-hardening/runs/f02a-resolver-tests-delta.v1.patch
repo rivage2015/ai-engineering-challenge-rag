@@ -1,0 +1,179 @@
+--- design/local-memory-v1-hardening/runs/f02a-before-resolver-tests.v1.py	2026-09-09 06:44:28
++++ distribution/macos-local-memory/tests/test_document_version_resolver.py	2026-09-09 06:46:01
+@@ -55,19 +55,28 @@
+         result = resolver.build(inventory, graph, decisions)
+         return root, inventory, graph, result
+ 
+-    def test_unique_latest_explicit_year_is_selected(self) -> None:
++    def test_year_order_does_not_establish_supersession(self) -> None:
+         _, inventory, graph, result = self.build([
+             inventory_record("DAWN/業務内容2024.xlsx", "a"),
+             inventory_record("DAWN/業務内容2025.xlsx", "b"),
+         ])
+-        self.assertEqual({"groups": 1, "resolved": 1, "needs_human_review": 0}, result["counts"])
++        self.assertEqual({"groups": 1, "resolved": 0, "needs_human_review": 1}, result["counts"])
+         group = result["groups"][0]
+-        self.assertEqual("DAWN/業務内容2025.xlsx", group["selected_relative_path"])
+-        self.assertEqual("unique_latest_explicit_year", group["reason_code"])
++        self.assertEqual("needs_human_review", group["status"])
++        self.assertIsNone(group["selected_relative_path"])
++        self.assertIsNone(group["resolution_basis"])
++        self.assertEqual("year_order_does_not_establish_supersession", group["reason_code"])
+         self.assertEqual(
+-            ["historical", "active"],
++            {"DAWN/業務内容2024.xlsx", "DAWN/業務内容2025.xlsx"},
++            set(group["conflicts"]),
++        )
++        self.assertEqual(
++            ["needs_human_review", "needs_human_review"],
+             [item["disposition"] for item in group["candidates"]],
+         )
++        self.assertFalse(any(edge["edge_type"] == "active_version" for edge in result["edges"]))
++        self.assertEqual("0.1.2", result["resolver_version"])
++        self.assertIs(False, result["policy"]["year_order_establishes_supersession"])
+         self.assertEqual("PASS", resolver.validate(graph, inventory)["status"])
+ 
+     def test_year_directories_and_lifecycle_directories_share_a_family(self) -> None:
+@@ -95,6 +104,17 @@
+         ])
+         self.assertEqual("needs_human_review", result["groups"][0]["status"])
+         self.assertEqual("latest_year_is_draft", result["groups"][0]["reason_code"])
++
++    def test_latest_historical_requires_human_review(self) -> None:
++        _, _, _, result = self.build([
++            inventory_record("DAWN/業務内容2024.xlsx", "a"),
++            inventory_record("DAWN/旧資料/業務内容2025.xlsx", "b"),
++        ])
++        group = result["groups"][0]
++        self.assertEqual("needs_human_review", group["status"])
++        self.assertEqual("latest_year_marked_historical", group["reason_code"])
++        self.assertIsNone(group["selected_relative_path"])
++        self.assertFalse(any(edge["edge_type"] == "active_version" for edge in result["edges"]))
+ 
+     def test_unique_current_folder_can_resolve_without_dates(self) -> None:
+         _, _, _, result = self.build([
+@@ -228,8 +248,8 @@
+ 
+     def test_graph_hash_tampering_fails_validation(self) -> None:
+         _, inventory, graph, _ = self.build([
+-            inventory_record("DAWN/業務内容2024.xlsx", "a"),
+-            inventory_record("DAWN/業務内容2025.xlsx", "b"),
++            inventory_record("DAWN/業務内容_ver1.xlsx", "a"),
++            inventory_record("DAWN/業務内容_ver2.xlsx", "b"),
+         ])
+         value = json.loads(graph.read_text(encoding="utf-8"))
+         value["groups"][0]["status"] = "needs_human_review"
+@@ -240,23 +260,39 @@
+ 
+     def test_answer_policy_keeps_active_and_holds_other_candidates(self) -> None:
+         _, _, graph, result = self.build([
+-            inventory_record("DAWN/業務内容2024.xlsx", "a"),
+-            inventory_record("DAWN/業務内容2025.xlsx", "b"),
++            inventory_record("DAWN/業務内容_ver1.xlsx", "a"),
++            inventory_record("DAWN/業務内容_ver2.xlsx", "b"),
+         ])
+         selected = [
+-            inventory_record("DAWN/業務内容2024.xlsx", "a"),
+-            inventory_record("DAWN/業務内容2025.xlsx", "b"),
++            inventory_record("DAWN/業務内容_ver1.xlsx", "a"),
++            inventory_record("DAWN/業務内容_ver2.xlsx", "b"),
+             inventory_record("DAWN/連絡先.txt", "c"),
+         ]
+         eligible, counts, binding = builder.apply_document_version_policy(selected, graph)
+         self.assertEqual(
+-            ["DAWN/業務内容2025.xlsx", "DAWN/連絡先.txt"],
++            ["DAWN/業務内容_ver2.xlsx", "DAWN/連絡先.txt"],
+             [item["relative_path"] for item in eligible],
+         )
+         self.assertEqual(1, counts["version_historical"])
+         self.assertEqual(1, counts["version_active"])
++        self.assertEqual(1, counts["version_ungrouped"])
++        self.assertEqual(result["graph_sha256"], binding["graph_sha256"])
++
++    def test_answer_policy_holds_year_candidates_and_keeps_unrelated_source(self) -> None:
++        records = [
++            inventory_record("実績2024.csv", "a"),
++            inventory_record("実績2025.csv", "b"),
++        ]
++        _, _, graph, result = self.build(records)
++        contact = inventory_record("連絡先.txt", "c")
++        eligible, counts, binding = builder.apply_document_version_policy([*records, contact], graph)
++        self.assertEqual([contact], eligible)
++        self.assertEqual(2, counts["version_needs_human_review"])
++        self.assertEqual(0, counts.get("version_historical", 0))
++        self.assertEqual(0, counts.get("version_active", 0))
+         self.assertEqual(1, counts["version_ungrouped"])
+         self.assertEqual(result["graph_sha256"], binding["graph_sha256"])
++        self.assertFalse(any(edge["edge_type"] == "active_version" for edge in result["edges"]))
+ 
+     def test_tampered_graph_cannot_record_human_decision(self) -> None:
+         root, _, graph, result = self.build([
+@@ -279,8 +315,8 @@
+         source = root / "source"
+         source.mkdir()
+         files = {
+-            "業務内容2024.csv": "task,owner\nold,alice\n",
+-            "業務内容2025.csv": "task,owner\ncurrent,bob\n",
++            "業務内容_ver1.csv": "task,owner\nold,alice\n",
++            "業務内容_ver2.csv": "task,owner\ncurrent,bob\n",
+             "連絡先.txt": "contact: front desk\n",
+         }
+         records = []
+@@ -306,7 +342,7 @@
+         result = builder.build(source, inventory, output, tools, graph)
+         manifest = json.loads((output / "layer1-input-manifest.json").read_text(encoding="utf-8"))
+         self.assertEqual(
+-            ["業務内容2025.csv", "連絡先.txt"],
++            ["業務内容_ver2.csv", "連絡先.txt"],
+             sorted(manifest["paths"]),
+         )
+         self.assertEqual(1, result["limitations"]["historical_version_files_held"])
+@@ -317,6 +353,48 @@
+             )["status"],
+         )
+ 
++    def test_reader_holds_year_candidates_and_keeps_unrelated_source(self) -> None:
++        temporary = tempfile.TemporaryDirectory()
++        self.addCleanup(temporary.cleanup)
++        root = Path(temporary.name)
++        source = root / "source"
++        source.mkdir()
++        files = {
++            "実績2024.csv": "period,value\n2024,10\n",
++            "実績2025.csv": "period,value\n2025,20\n",
++            "連絡先.txt": "contact: front desk\n",
++        }
++        self.assertLessEqual(sum(len(text.encode("utf-8")) for text in files.values()), 1048576)
++        records = []
++        original_hashes = {}
++        for relative, content in files.items():
++            path = source / relative
++            path.write_text(content, encoding="utf-8")
++            metadata = path.stat()
++            original_hashes[relative] = resolver.sha256_file(path)
++            records.append({
++                "relative_path": relative, "kind": "file", "size_bytes": metadata.st_size,
++                "mtime_ns": metadata.st_mtime_ns,
++                "birthtime_ns": getattr(metadata, "st_birthtime_ns", None),
++                "sha256": original_hashes[relative], "read_status": "observed",
++            })
++        inventory = root / "inventory.jsonl"
++        write_inventory(inventory, records)
++        graph = root / "document-version-graph.json"
++        version = resolver.build(inventory, graph)
++        self.assertEqual("needs_human_review", version["groups"][0]["status"])
++        self.assertFalse(any(edge["edge_type"] == "active_version" for edge in version["edges"]))
++        output = root / "semantic"
++        result = builder.build(source, inventory, output, builder.default_tools_dir(), graph)
++        manifest = json.loads((output / "layer1-input-manifest.json").read_text(encoding="utf-8"))
++        self.assertEqual(["連絡先.txt"], manifest["paths"])
++        self.assertEqual(0, result["limitations"]["historical_version_files_held"])
++        self.assertEqual(2, result["limitations"]["version_files_needing_human_review"])
++        self.assertEqual("PASS", validator.validate(
++            output, source, inventory, graph, initialize_lineage=True,
++        )["status"])
++        self.assertEqual(original_hashes, {relative: resolver.sha256_file(source / relative) for relative in files})
++
+     def test_reader_holds_current_version_conflict_and_keeps_unrelated_source(self) -> None:
+         temporary = tempfile.TemporaryDirectory()
+         self.addCleanup(temporary.cleanup)

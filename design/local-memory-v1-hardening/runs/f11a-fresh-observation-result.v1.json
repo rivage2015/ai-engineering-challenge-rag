@@ -1,0 +1,23 @@
+{
+  "task_id": "lms-v1-f11a-fresh-preflight-2026-09-09",
+  "status": "gap_reconfirmed_not_product_acceptance",
+  "product_changed": false,
+  "run_result": "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/design/local-memory-v1-hardening/runs/f11a-binding-observation-002/result.json",
+  "run_result_sha256": "a6db9baf0dfa79e11239e73d8c249b6373799a86eb877363cbed3723cd473118",
+  "log_sha256": "1190e207734d5a017250fe2643a5f6ed155e4a3712f8503fb48d20506750abc3",
+  "observations": 2,
+  "validator_calls": 6,
+  "skips": 0,
+  "source_sha256": {
+    "scripts/probe_intermediate_records.py": "73b9ad531d4e184b47636f0a7558e07cc44688d1499ddd666b8dc58610f830f7",
+    "scripts/validate_intermediate_records.py": "0fc6f8bb42fae82ae0bec3b84ca319907bc2436aa58a1d59426f9ea525d4ab69",
+    "scripts/validate_intermediate_records_streaming.py": "d998ec20f3511583603fbf4199160c47772c98f65e53e2274a23dc1f0a6e7f9f",
+    "schemas/evidence.schema.json": "81db1ba15565b890fa885806d013854380267ec37d578b1bf7997fd86cac5bc5",
+    "schemas/document.schema.json": "0c7d441fda25c39378fa7cf1014c12e4de0817ca65b33eba95df4b9da4f10d1c",
+    "schemas/relation.schema.json": "00a1e9848a53b7f195bb8b1037f386ff5e1d4080d32c0e550a85c786d50b2b1a",
+    "scripts/build_intermediate_records.py": "7312ebdffc7221ef989195afd03bdbbe34f945582cb25b9020d64b19316bdabe",
+    "scripts/build_search_units.py": "a14ffa6f5c4b04fd63ed3b95ba8b6892ca5c11f1cee050b323861c009c6eaaa1",
+    "distribution/macos-local-memory/engine/validate_adaptive_semantic_graph.py": "17c5de11a6f8f958ea5d1db447840f5653128ef24314fad193a610f824c5a106"
+  },
+  "scope": "Missing and invented unsupported candidate notebook_state remain accepted by current source_root validators. No proof of current app answer injection and no F11 implementation acceptance."
+}

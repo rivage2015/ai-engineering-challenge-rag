@@ -20,8 +20,8 @@ from decimal import Decimal, InvalidOperation
 from typing import Any, Iterable, Mapping
 
 
-GRAPH_VERSION = "1.3"
-VALIDATOR_VERSION = "1.3"
+GRAPH_VERSION = "1.4"
+VALIDATOR_VERSION = "1.4"
 STORED_GRAPH_BINDING_VERSION = "1.0"
 PROVISIONAL_MARKER = "[暫定読取]"
 COUNT_SURFACES = (
@@ -29,6 +29,18 @@ COUNT_SURFACES = (
 )
 STRONG_COUNT_SURFACES = (
     "何回", "回数", "何枠", "枠数", "何件", "件数", "総数",
+)
+ORDERED_FIRST_SURFACE = re.compile(r"(?:一番\s*)?最初|先頭")
+ORDERED_SPEECH_SURFACE = re.compile(
+    r"声\s*(?:がけ|かけ|掛け)|挨拶|ごあいさつ|発話|セリフ|何と言"
+)
+ORDERED_STEP_SURFACE = re.compile(r"挨拶|あいさつ|声\s*(?:がけ|かけ|掛け)")
+ORDERED_CONTENT_HEADER_SURFACE = re.compile(
+    r"スクリプト|発話|セリフ|声\s*(?:がけ|かけ|掛け)|内容|案内文|応答"
+)
+SENSITIVE_VALUE_SURFACE = re.compile(
+    r"(?im)(?:^|\n)\s*(?:pass(?:word)?|pwd|パスワード|secret|"
+    r"api[ _-]?key|access[ _-]?token)\s*[:=：]\s*\S+"
 )
 GENERIC_QUERY_TERMS = (
     "何回", "回数", "何枠", "枠数", "何件", "件数", "総数", "合計", "です", "ます",
@@ -1206,6 +1218,240 @@ def _question_scope(question: str) -> dict[str, Any]:
         "year": int(match.group("year")) if match else None,
         "month": int(match.group("month")) if match else None,
     }
+
+
+def _ordered_sheet_surface(sheet_name: str) -> str:
+    """Reduce a worksheet title to the business surface users mention."""
+    value = unicodedata.normalize("NFKC", sheet_name)
+    value = re.sub(r"[\s_\-]*(?:\(英語\)|（英語）|english)\s*$", "", value, flags=re.I)
+    value = re.sub(r"(?:スクリプト|スク)\s*$", "", value)
+    return value.strip()
+
+
+def _ordered_section_requested(question: str, records: list[dict[str, Any]]) -> bool:
+    """Recognize a relation-and-order lookup without hard-coding a workbook."""
+    if not ORDERED_FIRST_SURFACE.search(question) or not ORDERED_SPEECH_SURFACE.search(question):
+        return False
+    normalized_question = normalize(question)
+    return any(
+        isinstance(record["locator"].get("sheet_name"), str)
+        and len(normalize(_ordered_sheet_surface(record["locator"]["sheet_name"]))) >= 2
+        and normalize(_ordered_sheet_surface(record["locator"]["sheet_name"])) in normalized_question
+        for record in records
+    )
+
+
+def _spreadsheet_cell_position(locator: Mapping[str, Any]) -> tuple[str, int] | None:
+    match = CELL_COORDINATE.fullmatch(str(locator.get("cell", "")).strip())
+    if match is None:
+        return None
+    return match.group("column").upper(), int(match.group("row"))
+
+
+def _ordered_section_candidates(
+    question: str, records: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """Find heading -> first numbered speech step -> value from native sheet structure.
+
+    The value is selected from a cell in the row immediately after an explicit
+    ``1.`` speech/greeting heading.  Column headers decide which cell contains
+    script text; adjacency alone is never enough.  Credential-bearing cells
+    are excluded from answer candidates.
+    """
+    normalized_question = normalize(question)
+    english_requested = bool(re.search(r"英語|english", question, re.I))
+    tables: dict[tuple[str, str, str], list[dict[str, Any]]] = {}
+    for record in records:
+        sheet_name = record["locator"].get("sheet_name")
+        if not isinstance(sheet_name, str):
+            continue
+        if not english_requested and re.search(r"英語|english", sheet_name, re.I):
+            continue
+        surface = normalize(_ordered_sheet_surface(sheet_name))
+        if len(surface) < 2 or surface not in normalized_question:
+            continue
+        tables.setdefault(
+            (record["document_id"], record["relative_path"], sheet_name), []
+        ).append(record)
+
+    candidates = []
+    for (document_id, relative_path, sheet_name), table_records in sorted(tables.items()):
+        cells: dict[tuple[str, int], list[dict[str, Any]]] = {}
+        row_units: dict[int, list[dict[str, Any]]] = {}
+        for record in table_records:
+            position = _spreadsheet_cell_position(record["locator"])
+            if position is not None:
+                cells.setdefault(position, []).append(record)
+            row_index = record["locator"].get("row_index")
+            if isinstance(row_index, int) and "cell" not in record["locator"]:
+                row_units.setdefault(row_index, []).append(record)
+
+        heading_rows = []
+        for row_index, row_records in row_units.items():
+            matches = [
+                record for record in row_records
+                if re.search(r"(?:^|[:：]\s*)1\s*[.．、)]\s*", _canonical_text(record["text"]))
+                and ORDERED_STEP_SURFACE.search(_canonical_text(record["text"]))
+            ]
+            if matches:
+                heading_rows.append((row_index, sorted(matches, key=lambda item: item["evidence_id"])[0]))
+        if len(heading_rows) != 1:
+            continue
+        heading_row, heading_record = heading_rows[0]
+        value_row = heading_row + 1
+
+        header_score_by_column: dict[str, int] = {}
+        for (column, row_index), values in cells.items():
+            if row_index >= value_row:
+                continue
+            if any(ORDERED_CONTENT_HEADER_SURFACE.search(_canonical_text(item["text"])) for item in values):
+                header_score_by_column[column] = max(header_score_by_column.get(column, 0), row_index)
+        if not header_score_by_column:
+            continue
+        nearest_header = max(header_score_by_column.values())
+        content_columns = sorted(
+            column for column, row_index in header_score_by_column.items()
+            if row_index == nearest_header
+        )
+
+        values = []
+        for column in content_columns:
+            for record in cells.get((column, value_row), []):
+                raw_value = _decode_json_string_literal(record["text"])
+                value = re.sub(r"\s+", " ", raw_value).strip()
+                if (
+                    not value
+                    or PROVISIONAL_MARKER in value
+                    or SENSITIVE_VALUE_SURFACE.search(value)
+                    or re.fullmatch(r"https?://\S+", value, re.I)
+                ):
+                    continue
+                values.append((column, value, record))
+        distinct_values = {(column, value) for column, value, _record in values}
+        if len(distinct_values) != 1:
+            continue
+        column, value = next(iter(distinct_values))
+        value_records = sorted(
+            [record for item_column, item_value, record in values if (item_column, item_value) == (column, value)],
+            key=lambda item: item["evidence_id"],
+        )
+        candidates.append({
+            "document_id": document_id,
+            "relative_path": relative_path,
+            "sheet_name": sheet_name,
+            "heading_row": heading_row,
+            "value_row": value_row,
+            "column": column,
+            "heading_record": heading_record,
+            "value_record": value_records[0],
+            "value": value,
+        })
+    return candidates
+
+
+def _build_ordered_section_graph(
+    base: dict[str, Any], question: str, records: list[dict[str, Any]],
+    stored_traversal: Mapping[str, Any] | None,
+) -> dict[str, Any]:
+    """Build a fail-closed question overlay for an ordered section lookup."""
+    if stored_traversal is None:
+        return _finish({
+            **base, "status": "hold", "reason": "stored_graph_required",
+            "audit": [{
+                "check": "stored_graph_binding", "status": "fail",
+                "details": "ordered_section_lookup requires a validated stored Graph",
+            }],
+        })
+    candidates = _ordered_section_candidates(question, records)
+    if not candidates:
+        return _finish({
+            **base, "status": "hold", "reason": "ordered_section_path_not_found",
+            "audit": [{"check": "ordered_section_path", "status": "fail", "details": []}],
+        })
+    signatures = {
+        (
+            item["document_id"], item["relative_path"], item["sheet_name"],
+            item["heading_row"], item["value_row"], item["column"], item["value"],
+        )
+        for item in candidates
+    }
+    if len(signatures) != 1:
+        return _finish({
+            **base, "status": "hold", "reason": "ordered_section_candidate_ambiguous",
+            "audit": [{
+                "check": "ordered_section_candidate_uniqueness", "status": "fail",
+                "details": sorted(map(str, signatures))[:8],
+            }],
+        })
+    candidate = sorted(
+        candidates,
+        key=lambda item: (
+            item["relative_path"], item["sheet_name"], item["heading_row"],
+            item["column"], item["value_record"]["evidence_id"],
+        ),
+    )[0]
+    heading_id = candidate["heading_record"]["evidence_id"]
+    value_id = candidate["value_record"]["evidence_id"]
+    required_ids = [heading_id, value_id]
+    stored_binding = _stored_graph_binding(stored_traversal, required_ids)
+    question_node = "node_question"
+    section_node = "node_section_" + stable_hash(candidate["sheet_name"])[:16]
+    step_node = "node_step_" + stable_hash(heading_id)[:16]
+    value_node = "node_value_" + stable_hash(value_id)[:16]
+    nodes = [
+        {"node_id": question_node, "node_type": "question", "value_sha256": base["query_sha256"]},
+        {"node_id": section_node, "node_type": "section", "value": candidate["sheet_name"]},
+        {
+            "node_id": step_node, "node_type": "ordered_step", "ordinal": 1,
+            "evidence_id": heading_id, "value": _canonical_text(candidate["heading_record"]["text"]),
+        },
+        {
+            "node_id": value_node, "node_type": "value", "evidence_id": value_id,
+            "value_sha256": candidate["value_record"]["observed_sha256"],
+        },
+    ]
+    edges = [
+        {
+            "edge_id": "edge_requires_section", "source": question_node,
+            "predicate": "requires_section", "target": section_node,
+            "basis": {"kind": "explicit", "rule": "question_names_matching_sheet_surface"},
+        },
+        {
+            "edge_id": "edge_first_step", "source": section_node,
+            "predicate": "first_numbered_speech_step", "target": step_node,
+            "basis": {"kind": "explicit", "rule": "sheet_contains_unique_numbered_one_speech_heading"},
+        },
+        {
+            "edge_id": "edge_step_value", "source": step_node,
+            "predicate": "has_script_text", "target": value_node,
+            "basis": {"kind": "inference", "rule": "next_row_cell_under_explicit_script_column"},
+        },
+    ]
+    return _finish({
+        **base,
+        "status": "ready",
+        "reason": "ordered_section_path_verified",
+        "nodes": nodes,
+        "edges": edges,
+        "primary_path": [question_node, section_node, step_node, value_node],
+        "selected_evidence_ids": required_ids,
+        "selection": {
+            "value": candidate["value"],
+            "value_evidence_id": value_id,
+            "heading_evidence_id": heading_id,
+            "relative_path": candidate["relative_path"],
+            "sheet_name": candidate["sheet_name"],
+            "heading_row": candidate["heading_row"],
+            "value_cell": f"{candidate['column']}{candidate['value_row']}",
+        },
+        "stored_graph_binding": stored_binding,
+        "audit": [
+            {"check": "question_section_binding", "status": "pass", "details": candidate["sheet_name"]},
+            {"check": "first_step_binding", "status": "pass", "details": heading_id},
+            {"check": "script_column_binding", "status": "pass", "details": f"{candidate['column']}{candidate['value_row']}"},
+            {"check": "credential_exclusion", "status": "pass", "details": value_id},
+        ],
+    })
 
 
 def _scope_matches(path: str, scope: Mapping[str, Any]) -> bool:
@@ -4264,10 +4510,23 @@ def build_question_evidence_graph(
             question=question,
         )
     )
+    ordered_section_requested = (
+        record_plan is None and _ordered_section_requested(question, records)
+    )
+    ordered_surfaces = (
+        [
+            match.group(0)
+            for pattern in (ORDERED_FIRST_SURFACE, ORDERED_SPEECH_SURFACE)
+            for match in [pattern.search(question)]
+            if match is not None
+        ]
+        if ordered_section_requested else []
+    )
     applicable = count_applicable and record_plan is None
     operation = (
         "aggregate_count" if applicable
         else "record_lookup" if record_plan is not None
+        else "ordered_section_lookup" if ordered_section_requested
         else "unknown"
     )
     temporal_context = None
@@ -4284,9 +4543,11 @@ def build_question_evidence_graph(
             if applicable
             else {"container": "record", "value_type": "field_map", "unit": None}
             if record_plan is not None
+            else {"container": "scalar", "value_type": "string", "unit": None}
+            if ordered_section_requested
             else {"container": "unknown", "value_type": "unknown", "unit": None}
         ),
-        "explicit_surfaces": surfaces,
+        "explicit_surfaces": surfaces + ordered_surfaces,
         "time_scope": scope,
     }
     if record_plan is not None:
@@ -4320,7 +4581,7 @@ def build_question_evidence_graph(
     }
     if record_plan is not None:
         base["branches"] = []
-    if not applicable and record_plan is None:
+    if not applicable and record_plan is None and not ordered_section_requested:
         return _finish(base)
     if record_plan is not None:
         if temporal_error is not None:
@@ -4544,6 +4805,11 @@ def build_question_evidence_graph(
             record_plan,
             question_plan,
             temporal_context,
+        )
+
+    if ordered_section_requested:
+        return _build_ordered_section_graph(
+            base, question, records, stored_traversal,
         )
 
     candidates = _candidate_rows(records, question, scope)
@@ -5131,15 +5397,17 @@ def validate_question_evidence_graph(
             })
 
     binding = artifact.get("stored_graph_binding")
-    binding_required = operation in {"aggregate_count", "record_lookup"}
+    binding_required = operation in {
+        "aggregate_count", "record_lookup", "ordered_section_lookup",
+    }
     if (
         artifact.get("status") == "ready"
-        and operation == "record_lookup"
+        and operation in {"record_lookup", "ordered_section_lookup"}
         and not isinstance(binding, Mapping)
     ):
         failures.append({
             "code": "stored_graph_binding_missing",
-            "detail": "Record lookup overlay is not bound to the stored Graph.",
+            "detail": f"{operation} overlay is not bound to the stored Graph.",
         })
     if source_graph is not None and binding_required:
         if not isinstance(binding, Mapping):

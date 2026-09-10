@@ -1,0 +1,76 @@
+{
+  "schema_version": "1.0",
+  "task_id": "lms-v1-00-hardening-2026-09-09-f02a-implementation",
+  "created_at_utc": "2026-09-08 21:42:23 UTC",
+  "status": "frozen_before_implementation",
+  "authorization": "Root accepted local F18 through f18-validation-result.v1.json, released its source freeze, and explicitly assigned bounded F02a implementation. No F02 entirety, commit, push, publication or self approval.",
+  "immutable_inputs": [
+    "design/local-memory-v1-hardening/runs/f02a-task-contract.v1.json",
+    "design/local-memory-v1-hardening/runs/f02a-red-result.v1.json",
+    "design/local-memory-v1-hardening/runs/f02a-red-001",
+    "tests/test_year_only_supersession.py"
+  ],
+  "owned_targets": [
+    {
+      "path": "distribution/macos-local-memory/engine/document_version_resolver.py",
+      "before_sha256": "f42db568267befe8a041d036242795599544ba6a46236866a643b91d4f93811b",
+      "snapshot": "design/local-memory-v1-hardening/runs/f02a-before-resolver.v1.py"
+    },
+    {
+      "path": "distribution/macos-local-memory/tests/test_document_version_resolver.py",
+      "before_sha256": "b42fa5abafe2175ca29b26efe9a10d2626aca2d2321087f4bc798961fdf7116c",
+      "snapshot": "design/local-memory-v1-hardening/runs/f02a-before-resolver-tests.v1.py"
+    },
+    {
+      "path": "distribution/macos-local-memory/tests/test_versioned_safe_index_e2e.py",
+      "before_sha256": "03d5dc06b47548c09a8f38348a5cbd0c8f29efbdd1a4565083ea6b660f8db771",
+      "snapshot": "design/local-memory-v1-hardening/runs/f02a-before-e2e-tests.v1.py"
+    }
+  ],
+  "frozen_new_test_sha256": "70a1226cb30daa6692533d2c6f1fe270fe301a8f759c0db56a142acbc945b8c0",
+  "other_allowed_writes": "New design/local-memory-v1-hardening/runs/f02a-* implementation records and owned synthetic test outputs only.",
+  "forbidden_edits": "Builder, Validator, projector, bootstrap, server, personal data, other agents changes, frozen RED or contract records, and frozen new tests/test_year_only_supersession.py.",
+  "exact_product_change": {
+    "function": "automatic_selection",
+    "before_anchor": 241,
+    "before_reason": "unique_latest_explicit_year",
+    "after_selected": null,
+    "after_reason": "year_order_does_not_establish_supersession",
+    "after_conflicts": "all candidate relative paths",
+    "no_fallthrough": true,
+    "earlier_year_tie_draft_historical_holds_retained": true,
+    "current_marker_f04a_human_stale_precedence_retained": true,
+    "resolver_version_after": "0.1.2",
+    "metadata": "Describe current-marker selection, all-dated-family hold, and otherwise numeric-version selection accurately; year order is not supersession proof. Candidate, group, decisions and schema versions unchanged."
+  },
+  "test_changes": [
+    "Replace old year-only successful-selection gold with full held/group/edge/count assertions.",
+    "Use year-free ver1/ver2 in normal Reader policy, Reader active-only and hash-tamper fixtures; keep actual tampering effective after year hold changes.",
+    "Add separate latest-historical hold, year-held Reader policy and full Reader cases; preserve F18 initialize_lineage=True calls.",
+    "Use year-free ver1/ver2 in standard app E2E seed and corresponding path gold while preserving successful bob answer and final-audit assertions and --initialize-lineage.",
+    "Add annual-held app E2E retaining unrelated contact with version binding and unchanged sources.",
+    "Add all-held rebuild failure preserving previous public CONFIG and index hash, with only synthetic fixture names moved to create the all-held input."
+  ],
+  "acceptance": {
+    "frozen_pure_tests": "11 methods execute without failures/errors/skips; only 10 are required behavior and unchanged controls. CurrentMarkerResidualWitnessTests is a remaining-gap observation, never annual acceptance.",
+    "resolver_reader_suite": "Planned 20 methods, zero failures/errors/skips under reviewed in-process CLI dispatcher and runtime guards.",
+    "app_stub_e2e_suite": "Planned 17 methods, zero failures/errors/skips; real source-bound Evidence and binding checks with model stubs, no real-model quality claim.",
+    "regression_properties": "F04a single numeric conflicts, numeric-version successful path, human/stale decisions, year draft/tie/history holds, source hashes, F18 initialize flags, old-public-generation protection, and frozen records remain intact.",
+    "raw_failed_red_preserved": true,
+    "new_test_runs_only": true,
+    "independent_audit_required_before_acceptance": true
+  },
+  "execution_budget": {
+    "per_focused_run_seconds": 30,
+    "log_bytes": 1048576,
+    "synthetic_source_bytes": 1048576,
+    "parallel_heavy_models": 0,
+    "guards": "Reuse fully read f04a-executor-run.v1.py worker (also used by accepted F18), without changing it; supervisor alone spawns a bounded test worker. Worker denies real network/process and confines IO to reviewed code/runtime and fresh synthetic roots.",
+    "not_an_os_sandbox_certification": true
+  },
+  "audit_repair_rounds_used": 0,
+  "maximum_audit_repair_rounds": 2,
+  "handoff": "Save isolated per-file deltas, before/after/source hashes, result/log bindings, summary and limitations. Root manages checkpoints and a fresh separate-context audit.",
+  "rollback": "Reverse only these isolated F02a deltas with before source snapshots and exact hashes; do not git reset or overwrite F18/other changes. Rebuild only unpublished generations; old policy indexes do not become verified current by rollback.",
+  "remaining": "F02 independent annual retention and HITL, F03 candidate discovery, F04 current/multiple-token residuals, F05 independent graph partition, F06/F19 generation/revision and F13 temporal freshness remain open."
+}

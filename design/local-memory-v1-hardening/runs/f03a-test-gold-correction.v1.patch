@@ -1,0 +1,19 @@
+--- design/local-memory-v1-hardening/runs/f03a-test-gold-initial.v1.py	2026-09-09 08:28:27
++++ tests/test_unmarked_version_candidates.py	2026-09-09 08:29:12
+@@ -181,7 +181,7 @@
+         self.held(records, build(records))
+ 
+     def test_three_member_permutations_preserve_full_projection_and_hash(self):
+-        records = [record("Notes/Manual_ver2.csv"), record("Notes/Manual.csv", "b"), record("Notes/Manual_copy.csv", "c")]
++        records = [record("Notes/Manual_ver2.csv"), record("Notes/Manual.csv", "b"), record("Notes/Manual copy.csv", "c")]
+         baseline = build(records)
+         self.held(records, baseline)
+         for ordered in itertools.permutations(records):
+@@ -258,7 +258,7 @@
+             changed = [dict(item) for item in records]
+             changed[index][field] = value
+             variants.append(changed)
+-        variants.extend([[*records, record("手順_copy(2).csv", "d")], records[:2]])
++        variants.extend([[*records, record("手順 copy(2).csv", "d")], records[:2]])
+         for changed in variants:
+             self.held(changed, build(changed, decision), "stale_human_decision")

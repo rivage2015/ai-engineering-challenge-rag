@@ -32,6 +32,7 @@ def prepare_reader_contract_semantic_fixture(
     semantic: Path,
     security: Path,
     *,
+    decision_snapshot: dict,
     manifest_paths: list[str] | None = None,
     status: str = "complete",
     limitations: dict | None = None,
@@ -124,7 +125,16 @@ def prepare_reader_contract_semantic_fixture(
             "sha256": bootstrap.sha256_file(adapter_state_path),
         },
     }
+    paths = semantic.parent / "01-path"
+    checked = bootstrap._decision_snapshot_descriptor(paths, decision_snapshot)
+    resolver = load_module("runtime_fixture_resolver", ENGINE / "document_version_resolver.py")
+    report = resolver.attest(paths / "document-version-graph.json", paths / "path-source-inventory.jsonl",
+                            decision_mode="snapshot", decisions_path=Path(checked["path"]),
+                            expected_decisions_sha256=checked["sha256"])
+    if report["status"] != "PASS":
+        raise AssertionError(report["errors"])
     reader_state = {
+        "document_version_graph": report["document_version_graph"],
         "status": status,
         "builder": "test_adaptive_reader",
         "builder_version": "0.1-test",
@@ -148,6 +158,25 @@ def prepare_reader_contract_semantic_fixture(
         semantic / "adaptive-reader-state.json", reader_state
     )
     return reader_state
+
+
+def prepare_snapshot_resolver_command(bootstrap, command):
+    """Keep the four orchestration stubs synthetic while exercising real resolver authority."""
+    bootstrap.ENGINE = ENGINE
+    bootstrap.DOCUMENT_VERSION_DECISIONS = bootstrap.SUPPORT / "document-version-decisions.json"
+    bootstrap.DOCUMENT_VERSION_REVIEW = bootstrap.SUPPORT / "document-version-review.json"
+    if Path(command[1]).name != "document_version_resolver.py":
+        return
+    resolver = load_module("runtime_command_resolver", ENGINE / "document_version_resolver.py")
+    option = lambda flag: Path(command[command.index(flag) + 1])
+    if command[2] == "build":
+        resolver.build(option("--inventory"), option("--output"), option("--decisions"))
+    else:
+        report = resolver.attest(option("--graph"), option("--inventory"), decision_mode="snapshot",
+                                 decisions_path=option("--decisions"),
+                                 expected_decisions_sha256=command[command.index("--decisions-sha256") + 1])
+        if report["status"] != "PASS":
+            raise AssertionError(report["errors"])
 
 
 def prepare_shadow_inputs(bootstrap, generation: Path) -> tuple[Path, Path]:
@@ -1166,14 +1195,19 @@ class RuntimeRecoveryTests(unittest.TestCase):
                 bootstrap.CROSS_DOCUMENT_STORAGE_FLAG: True,
             })
 
-            def fake_semantic(_source, _paths, semantic, security, _log):
+            def fake_semantic(_source, _paths, semantic, security, _log, *, decision_snapshot):
+                self.assertEqual(_paths.parent.name, decision_snapshot["generation"])
+                self.assertEqual(str(_paths / "document-version-decisions.snapshot.json"), decision_snapshot["path"])
+                self.assertEqual(hashlib.sha256(Path(decision_snapshot["path"]).read_bytes()).hexdigest(), decision_snapshot["sha256"])
                 return prepare_reader_contract_semantic_fixture(
                     bootstrap,
                     semantic,
                     security,
+                    decision_snapshot=decision_snapshot,
                 )
 
             def fake_run(command, _log):
+                prepare_snapshot_resolver_command(bootstrap, command)
                 if any(
                     str(value).endswith("build_path_graph.py")
                     for value in command
@@ -1398,14 +1432,19 @@ class RuntimeRecoveryTests(unittest.TestCase):
                 bootstrap.CROSS_DOCUMENT_INDEPENDENT_EDGE_AUDIT_FLAG: False,
             })
 
-            def fake_semantic(_source, _paths, semantic, security, _log):
+            def fake_semantic(_source, _paths, semantic, security, _log, *, decision_snapshot):
+                self.assertEqual(_paths.parent.name, decision_snapshot["generation"])
+                self.assertEqual(str(_paths / "document-version-decisions.snapshot.json"), decision_snapshot["path"])
+                self.assertEqual(hashlib.sha256(Path(decision_snapshot["path"]).read_bytes()).hexdigest(), decision_snapshot["sha256"])
                 return prepare_reader_contract_semantic_fixture(
                     bootstrap,
                     semantic,
                     security,
+                    decision_snapshot=decision_snapshot,
                 )
 
             def fake_run(command, _log):
+                prepare_snapshot_resolver_command(bootstrap, command)
                 if any(
                     str(value).endswith("build_path_graph.py")
                     for value in command
@@ -2490,13 +2529,19 @@ class RuntimeRecoveryTests(unittest.TestCase):
             })
 
             semantic_calls: list[Path] = []
+            snapshot_calls: list[dict] = []
 
-            def fake_semantic(_source, _paths, semantic, security, _log):
+            def fake_semantic(_source, _paths, semantic, security, _log, *, decision_snapshot):
+                self.assertEqual(_paths.parent.name, decision_snapshot["generation"])
+                self.assertEqual(str(_paths / "document-version-decisions.snapshot.json"), decision_snapshot["path"])
+                self.assertEqual(hashlib.sha256(Path(decision_snapshot["path"]).read_bytes()).hexdigest(), decision_snapshot["sha256"])
                 semantic_calls.append(semantic)
+                snapshot_calls.append(dict(decision_snapshot))
                 return prepare_reader_contract_semantic_fixture(
                     bootstrap,
                     semantic,
                     security,
+                    decision_snapshot=decision_snapshot,
                     manifest_paths=["scan.png"],
                     status="complete_with_limits",
                     limitations={"partial_documents": 1},
@@ -2504,6 +2549,7 @@ class RuntimeRecoveryTests(unittest.TestCase):
                 )
 
             def fake_run(command, _log):
+                prepare_snapshot_resolver_command(bootstrap, command)
                 if any(str(value).endswith("build_path_graph.py") for value in command):
                     output = Path(command[command.index("--output-dir") + 1])
                     (output / "path-source-inventory.jsonl").write_text(
@@ -2550,6 +2596,7 @@ class RuntimeRecoveryTests(unittest.TestCase):
                 bootstrap.build_index()
 
             self.assertEqual(len(semantic_calls), 2)
+            self.assertEqual(snapshot_calls[0], snapshot_calls[1])
             self.assertEqual(semantic_calls[0].name, "02-semantic")
             self.assertEqual(semantic_calls[1].name, "02-semantic-model-ready")
             published = bootstrap.load_json(config_path)
@@ -3670,14 +3717,19 @@ class RuntimeRecoveryTests(unittest.TestCase):
                 "semantic_graph_shadow_path": "/stale/shadow.sqlite3",
             })
 
-            def fake_semantic(_source, _paths, semantic, security, _log):
+            def fake_semantic(_source, _paths, semantic, security, _log, *, decision_snapshot):
+                self.assertEqual(_paths.parent.name, decision_snapshot["generation"])
+                self.assertEqual(str(_paths / "document-version-decisions.snapshot.json"), decision_snapshot["path"])
+                self.assertEqual(hashlib.sha256(Path(decision_snapshot["path"]).read_bytes()).hexdigest(), decision_snapshot["sha256"])
                 return prepare_reader_contract_semantic_fixture(
                     bootstrap,
                     semantic,
                     security,
+                    decision_snapshot=decision_snapshot,
                 )
 
             def fake_run(command, _log):
+                prepare_snapshot_resolver_command(bootstrap, command)
                 if any(str(value).endswith("build_path_graph.py") for value in command):
                     output = Path(command[command.index("--output-dir") + 1])
                     (output / "path-source-inventory.jsonl").write_text(

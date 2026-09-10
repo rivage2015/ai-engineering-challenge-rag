@@ -1,0 +1,342 @@
+{
+  "schema_version": "1.0",
+  "audit_id": "f05b-independent-audit-round0-v1",
+  "task_id": "local-memory-v1-f05b-snapshot-complete-selection",
+  "artifact_hash": "721db8b316bd22101ddcc9738d4006684eb50d9270af4a05e64c6b58af73b987",
+  "auditor_context": {
+    "independence_level": "same_model_separate_context",
+    "source_scope": [
+      "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/design/local-memory-v1-hardening/runs/f05b-graph-artifact.v1.json",
+      "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/design/local-memory-v1-hardening/runs/f05b-task-contract.v1.md",
+      "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/design/local-memory-v1-hardening/runs/f05b-contract-clarification.v1.md",
+      "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/design/local-memory-v1-hardening/runs/f05b-api-preflight.v1.md",
+      "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/design/local-memory-v1-hardening/runs/f05b-contract-refinement.v1.md",
+      "All 210 immutable artifact source IDs were hash-checked before and after; changed product/test deltas and referenced regression dependencies were reviewed without executor private reasoning.",
+      "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/design/local-memory-v1-hardening/runs/f05b-audit-sources-before.v1.json",
+      "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/design/local-memory-v1-hardening/runs/f05b-audit-sources-after.v1.json",
+      "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/design/local-memory-v1-hardening/runs/f05b-audit-holdouts.v1.py",
+      "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/design/local-memory-v1-hardening/runs/f05b-audit-holdouts-gold.v1.md",
+      "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/design/local-memory-v1-hardening/runs/f05b-audit-holdouts-preflight.v1.md",
+      "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/design/local-memory-v1-hardening/runs/f05b-audit-supplement.v1.py",
+      "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/design/local-memory-v1-hardening/runs/f05b-audit-supplement-gold.v1.md",
+      "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/design/local-memory-v1-hardening/runs/f05b-audit-run.v2.py",
+      "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/design/local-memory-v1-hardening/runs/f05b-audit-run.v3.py",
+      "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/design/local-memory-v1-hardening/runs/f05b-audit-runner-correction.v1.md",
+      "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/design/local-memory-v1-hardening/runs/f05b-audit-integrity.v1.py",
+      "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/design/local-memory-v1-hardening/runs/f05b-audit-integrity-result.v1.json",
+      "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/design/local-memory-v1-hardening/runs/f05b-audit-coverage.v1.md",
+      "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/design/local-memory-v1-hardening/runs/f05b-audit-evidence.v1.json",
+      "/Users/takashifukutomi/.codex/skills/codex-graph-engineering-adapter/SKILL.md",
+      "/Users/takashifukutomi/.codex/skills/graph-engineering-agentic-audit/SKILL.md",
+      "/Users/takashifukutomi/.codex/skills/graph-engineering-agentic-audit/references/agentic-audit.md"
+    ]
+  },
+  "status": "pass",
+  "checks": [
+    {
+      "check_id": "F05B_INTENT",
+      "check_type": "intent",
+      "target_ids": [
+        "N_CONTROLS",
+        "N_LIMITS"
+      ],
+      "verdict": "pass",
+      "severity": "info",
+      "reason": "Audited only the frozen F05b generation snapshot and complete-selection invariant under the contract, clarification and normative API/refinement. Same-model separate context supplied independent literal holdouts and read-only source reasoning; executor private reasoning was not used. Formal repair round 0. This is not full F05/V1, all-format, model, package or release acceptance.",
+      "evidence_ids": [
+        "CONTRACT",
+        "CLARIFICATION",
+        "API_PREFLIGHT",
+        "REFINEMENT",
+        "COORDINATION"
+      ],
+      "required_action": null
+    },
+    {
+      "check_id": "F05B_CAPTURE",
+      "check_type": "node",
+      "target_ids": [
+        "N_CAPTURE",
+        "E_CAPTURE_ATTEST"
+      ],
+      "verdict": "pass",
+      "severity": "info",
+      "reason": "Independent capture holdouts preserve exact noncanonical present bytes and two Human groups; strict invalid JSON, duplicate keys/group IDs, nonfinite values, shared symlink/directory and synthetic permission errors stop after real Path validation and before resolver. Initial absence yields literal EMPTY. Tiny boundary and named oversize/no-truncation guidance passed. Reviewed bootstrap captures once before resolver and forwards that descriptor through both semantic runs and index/registration.",
+      "evidence_ids": [
+        "BOOTSTRAP",
+        "RESOLVER",
+        "ROOT_APP_TEST",
+        "ROOT_CONTROLS",
+        "PURE_TEST",
+        "CONTRACT"
+      ],
+      "required_action": null
+    },
+    {
+      "check_id": "F05B_PATH",
+      "check_type": "safety",
+      "target_ids": [
+        "N_CAPTURE",
+        "N_REGISTER",
+        "E_CAPTURE_REGISTER"
+      ],
+      "verdict": "pass",
+      "severity": "info",
+      "reason": "Existing regular target and independent directory/symlink/dangling targets survive failure. Exact descriptor generation/path/hash/byte-count shape and static generation/01-path non-symlink checks precede commands. Independent identical-byte 01-path substitution and both frozen path probes reject. Scope is final-component no-follow plus the two fixed static directories, not all ancestors or race locking.",
+      "evidence_ids": [
+        "BOOTSTRAP",
+        "ROOT_CONTROLS",
+        "EXEC_FILE_071",
+        "EXEC_FILE_073",
+        "EXEC_FILE_076",
+        "CONTRACT"
+      ],
+      "required_action": null
+    },
+    {
+      "check_id": "F05B_ATTEST",
+      "check_type": "node",
+      "target_ids": [
+        "N_ATTEST"
+      ],
+      "verdict": "pass",
+      "severity": "info",
+      "reason": "Pure28 and F05a-pure25 independently reran. Required modes preserve wrapper semantics while app consumers permit only no_decisions/snapshot; missing/changed snapshot or wrong external digest fails without usable partial payload. Exact success keys, reconstructed groups/dispositions, raw/logical hashes, detached records and subsequent-mutation isolation are covered. Explicit legacy absence is not a snapshot fallback.",
+      "evidence_ids": [
+        "RESOLVER",
+        "PURE_TEST",
+        "F05A_PURE",
+        "CLARIFICATION",
+        "API_PREFLIGHT"
+      ],
+      "required_action": null
+    },
+    {
+      "check_id": "F05B_SAME_READ",
+      "check_type": "dependency",
+      "target_ids": [
+        "N_ATTEST",
+        "E_ATTEST_SELECTION"
+      ],
+      "verdict": "pass",
+      "severity": "info",
+      "reason": "Three-input single-open test and late-substitution pure holdout retain the original verified payload after all input files change. Independent Reader and ordinary Validator invocations each open inventory/graph/snapshot exactly once and use literal selection; wrong external snapshot hash is rejected before source open. Returned bindings derive from the same parsed bytes, not graph-selected paths or a subsequent producer read.",
+      "evidence_ids": [
+        "RESOLVER",
+        "READER",
+        "VALIDATOR",
+        "PURE_TEST",
+        "ROOT_CONTROLS"
+      ],
+      "required_action": null
+    },
+    {
+      "check_id": "F05B_COMPLETE_SELECTION",
+      "check_type": "node",
+      "target_ids": [
+        "N_SELECTION",
+        "E_ATTEST_SELECTION"
+      ],
+      "verdict": "pass",
+      "severity": "info",
+      "reason": "The shared selector receives attested full inventory before Reader filtering. Root coherent Contact omission is produced with a real shortened pipeline then producer patch restored before Validator; it is rejected. Independent .doc-only resolver family control passes exact Contact-only Reader selection but resealed deletion of the unsupported family fails. Post-initial-gate false active selection is separately rejected before source entry, so initial-gate rejection is not substituted for downstream proof.",
+      "evidence_ids": [
+        "READER",
+        "VALIDATOR",
+        "RESOLVER",
+        "ROOT_APP_TEST",
+        "ROOT_CONTROLS",
+        "API_PREFLIGHT"
+      ],
+      "required_action": null
+    },
+    {
+      "check_id": "F05B_COUNTS",
+      "check_type": "calculation",
+      "target_ids": [
+        "N_SELECTION"
+      ],
+      "verdict": "pass",
+      "severity": "info",
+      "reason": "Normative Contact/Guide_ver2 ordered manifest, selected_file_count JSON integer 2, seven exact counters and all five selection limitations were checked canonically. Reordered/duplicate manifest, inventory digests, changed counters/limits, float/bool coercion, missing and extra zero counters fail against reconstructed selection. Parser/adapter sources remain byte-identical; unchanged partial handling and focused orchestration controls are not presented as native all-format parser testing.",
+      "evidence_ids": [
+        "READER",
+        "VALIDATOR",
+        "ROOT_CONTROLS",
+        "CONTRACT",
+        "PARSER",
+        "ADAPTER",
+        "RUNTIME_TEST"
+      ],
+      "required_action": null
+    },
+    {
+      "check_id": "F05B_PROJECT",
+      "check_type": "edge",
+      "target_ids": [
+        "N_PROJECT",
+        "E_SELECTION_PROJECT"
+      ],
+      "verdict": "pass",
+      "severity": "info",
+      "reason": "Independent supplemental exact-context matrix checks valid generic/no_decisions/snapshot forms and rejects omitted/partial/null/wrong-type/extra serialized fields before path resolution or validator loading. Existing E2E bare-PASS, omitted-authority before index/embedding, and post-attestation state-swap controls retain only the detached checked binding in SQLite. Normal real-dispatched query/final-audit and security/lineage regressions passed under synthetic model stubs.",
+      "evidence_ids": [
+        "PROJECTOR",
+        "VALIDATOR",
+        "E2E_TEST",
+        "ROOT_APP_TEST",
+        "LINEAGE_TEST",
+        "SECURITY_TEST"
+      ],
+      "required_action": null
+    },
+    {
+      "check_id": "F05B_REGISTER",
+      "check_type": "edge",
+      "target_ids": [
+        "N_REGISTER",
+        "E_CAPTURE_REGISTER"
+      ],
+      "verdict": "pass",
+      "severity": "info",
+      "reason": "Actual new registration with producer graph and nested authority removed rejects despite unchanged trusted forwarded args. Fresh-registration canary is not inspected. Independent descriptor omission at actual registration preserves previous generation; explicit legacy helper succeeds only when deliberately opted into, whereas default/False and app descriptor None/omission reject. Intentional required-keyword TypeError is an API shape control, not semantic RED.",
+      "evidence_ids": [
+        "BOOTSTRAP",
+        "ROOT_CONTROLS",
+        "E2E_TEST",
+        "CONTRACT",
+        "API_PREFLIGHT"
+      ],
+      "required_action": null
+    },
+    {
+      "check_id": "F05B_CONFIG_EXPECTATION",
+      "check_type": "basis",
+      "target_ids": [
+        "N_REGISTER"
+      ],
+      "verdict": "pass",
+      "severity": "info",
+      "reason": "Root CONFIG-only registered-hash mismatch leaves all generation bytes legitimate and stops before snapshot open, isolating the external anchor. Coherent same-selection Human D1 producer forgery cannot replace registered D0. Independent actual-call spy confirms expected D0 from registered contract is passed before any snapshot open, followed by one attestation read and zero shared reads. The earlier saved-state canary is not credited as proof of reaching the later path comparison.",
+      "evidence_ids": [
+        "BOOTSTRAP",
+        "ROOT_CONTROLS",
+        "ROOT_AUX_154",
+        "ROOT_AUX_155"
+      ],
+      "required_action": null
+    },
+    {
+      "check_id": "F05B_OLD_GENERATION",
+      "check_type": "coverage",
+      "target_ids": [
+        "N_REGISTER",
+        "N_CAPTURE"
+      ],
+      "verdict": "pass",
+      "severity": "info",
+      "reason": "Independent successful D1 build preserves the complete prior D0 generation byte-map and old index. Supplemental historical bootstrap serializer/status creates schema0.1 builder0.4 versioned registration: old status is current; frozen current status requires migration before missing snapshot or malformed shared reads and creates no repair. This uses current synthetic stage resources with actual historical registration code, not a replay of an entire old application. Migration7/focused13 add unchanged publication and lineage controls.",
+      "evidence_ids": [
+        "BOOTSTRAP",
+        "EXEC_FILE_004",
+        "MIGRATION_TEST",
+        "FOCUSED_TEST",
+        "ROOT_CONTROLS"
+      ],
+      "required_action": null
+    },
+    {
+      "check_id": "F05B_HUMAN",
+      "check_type": "coverage",
+      "target_ids": [
+        "N_ATTEST",
+        "N_SELECTION"
+      ],
+      "verdict": "pass",
+      "severity": "info",
+      "reason": "Either Human member selection, newly added candidate, selected and nonselected content changes, stale-choice hold and original mixed/year policy are preserved in pure28, resolver20 and unmarked/year regression. Exactly three cross-key/year residual witnesses are excluded from acceptance totals; their successful observation does not fix or endorse those behaviors.",
+      "evidence_ids": [
+        "PURE_TEST",
+        "RESOLVER_TEST",
+        "UNMARKED_TEST",
+        "UNMARKED_APP_TEST",
+        "YEAR_TEST",
+        "CONTRACT"
+      ],
+      "required_action": null
+    },
+    {
+      "check_id": "F05B_PROVENANCE",
+      "check_type": "evidence",
+      "target_ids": [
+        "N_CONTROLS",
+        "E_CONTROLS_LIMITS"
+      ],
+      "verdict": "pass",
+      "severity": "info",
+      "reason": "Independent byte-level forward and reverse patch application matched 12 isolated product/test deltas plus README; all210 source hashes and107 executor manifest entries match. Original app6 source is unchanged, initial log contains six assertion REDs rather than API errors, controls7→10→13→16 and pure26→27→28 preserve every prior test-method AST. All30 historical logs include unchanged root/path failures, focused assertion failure, runtime SyntaxError with null methods and security skip followed by native success. No old failure was upgraded or removed.",
+      "evidence_ids": [
+        "EXECUTOR_MANIFEST",
+        "EXECUTOR_SUMMARY",
+        "ROOT_RESULTS",
+        "ROOT_AUX_149",
+        "ROOT_AUX_159",
+        "ROOT_AUX_160",
+        "ROOT_AUX_161",
+        "EXEC_FILE_025",
+        "EXEC_FILE_026",
+        "EXEC_FILE_027",
+        "EXEC_FILE_087",
+        "ROOT_README_DELTA"
+      ],
+      "required_action": null
+    },
+    {
+      "check_id": "F05B_EXECUTION",
+      "check_type": "safety",
+      "target_ids": [
+        "N_CONTROLS",
+        "N_CAPTURE",
+        "N_PROJECT"
+      ],
+      "verdict": "pass",
+      "severity": "info",
+      "reason": "Eighteen independent supervised runs completed:205 methods=202 acceptance/control/regression+3 residual witnesses, zero failures/skips/expected failures/timeouts. Twenty independently authored holdout methods were frozen and root-reviewed before execution. Reviewed synthetic tmp guards, stub network/model/process dispatch,30-second and1-MiB-log limits were retained. Root budget counts listed authored fixture writes, not all collateral/product disk; original holdouts69706 bytes and supplement24294 bytes were measured. No product/test or production data writes, real network/models/GUI/install/escalation/commit/push occurred.",
+      "evidence_ids": [
+        "GUARD",
+        "DISPATCHER",
+        "SUPERVISOR",
+        "FIXTURE_BUDGET",
+        "COORDINATION",
+        "ROOT_RUNNER",
+        "COLLATERAL_RUNNER"
+      ],
+      "required_action": null
+    },
+    {
+      "check_id": "F05B_LIMITS",
+      "check_type": "coverage",
+      "target_ids": [
+        "N_LIMITS",
+        "E_CONTROLS_LIMITS"
+      ],
+      "verdict": "pass",
+      "severity": "warning",
+      "reason": "The artifact and updated README retain F06/F19 Human/root authenticity, source freshness/identity, publication revisions/leases, cross-key/year retention, whole-tree drift, all-ancestor/global races, real-model/all-format/package/GUI and total-resource limitations. These are explicitly outside this local invariant and are not silently promoted by this pass. Same-model procedural separation and Python path-open observations are not independent model diversity or a whole-OS security proof.",
+      "evidence_ids": [
+        "CONTRACT",
+        "REFINEMENT",
+        "README",
+        "YEAR_TEST",
+        "UNMARKED_TEST",
+        "COORDINATION"
+      ],
+      "required_action": null
+    }
+  ],
+  "summary": {
+    "blocking_failures": 0,
+    "unresolved_count": 0,
+    "next_action": "deliver"
+  }
+}

@@ -1,0 +1,9 @@
+# F05b final initial app control packet
+
+Root, 2026-09-09 11:37 JST. Before the first acceptance run, add three methods following bounded preaudit review. Current controls `ff28bd5b93c8410f7928b2cb38ca981d1096abc44cf9373f970d64b2b587b7e6`, sixteen methods; original thirteen method bodies unchanged. Prior full source snapshots/gold retained. No result claimed yet.
+
+- test_only_config_registered_hash_mismatch_rejected_before_snapshot_access: otherwise genuine current generation and identity, change ONLY the supplied CONFIG registration sha256. Require reader_generation_contract_hash_mismatch before Python audit-event snapshot open, preserving all generation/CONFIG bytes. Unlike the earlier changed-producer case, no outdated producer identity can explain the rejection.
+- test_new_registration_rejects_canary_without_inspecting_it: actual new app registration entry, valid snapshot mode, change only producer authority path to a nonexistent canary; forward actual trusted app args. Require rejection without Python open audit events or Path.stat/resolve/os.stat/lstat of the canary; preserve prior publication. No registered old-state hash is available to create a vacuous earlier rejection at this fresh entry.
+- test_saved_generation_never_opens_shared_decisions_via_python_file_apis: genuine saved generation remains current and Validator PASS with corrupt shared file; Python audit-event guard rejects shared opens through Path/io/os APIs. Guard is not a complete OS sandbox or an already-open-FD tracing system.
+
+Earlier v3 changed-producer/selfhash contract case is retained but can fail at producer identity and therefore does not alone isolate the CONFIG anchor. These are scoped external behavior and ordering tests, not proof of a unique internal implementation. New APIs absent or unrelated setup errors must be recorded as errors, not semantic RED.

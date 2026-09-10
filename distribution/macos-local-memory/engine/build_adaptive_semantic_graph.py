@@ -27,7 +27,7 @@ from typing import Any, Callable
 
 
 BUILDER = "adaptive-layer1-semantic-bridge"
-BUILDER_VERSION = "0.4.0"
+BUILDER_VERSION = "0.5.0"
 SCHEMA_VERSION = "0.1"
 LOCAL_LLM_RUNNERS = {"ollama_loopback_chat"}
 
@@ -148,6 +148,17 @@ def safe_relative(value: str) -> PurePosixPath:
     return relative
 
 
+def canonical_manifest_input_paths(values: list[str]) -> list[str]:
+    """Match the NFC path representation written by Layer 1 build state.
+
+    macOS commonly exposes decomposed (NFD) filenames. The explicit manifest
+    must retain those source spellings for lookup, while the Layer 1 state uses
+    ``normalized_relative`` and therefore records NFC. Compare the two at that
+    canonical boundary without weakening path order or coverage checks.
+    """
+    return [unicodedata.normalize("NFC", value) for value in values]
+
+
 def selection_reason(relative_path: str) -> str:
     relative = safe_relative(relative_path)
     parts = set(relative.parts)
@@ -189,48 +200,9 @@ def select_inventory(inventory: list[dict[str, Any]]) -> tuple[list[dict[str, An
     return selected, dict(sorted(counts.items()))
 
 
-def apply_document_version_policy(
-    selected: list[dict[str, Any]],
-    version_graph_path: Path | None,
-    expected_inventory_sha256: str | None = None,
-) -> tuple[list[dict[str, Any]], dict[str, int], dict[str, Any] | None]:
-    """Keep only answer-eligible candidates from validated version families.
-
-    Historical files remain on disk and in the version graph.  Ambiguous
-    families are held out of the answer index until a human decision is bound
-    to the complete candidate set and selected source hash.
-    """
-    if version_graph_path is None:
-        return selected, {}, None
-    version_graph_path = version_graph_path.resolve(strict=True)
-    graph = json.loads(version_graph_path.read_text(encoding="utf-8"))
-    core = {key: value for key, value in graph.items() if key != "graph_sha256"}
-    if graph.get("graph_sha256") != hashlib.sha256(
-        canonical(core).encode("utf-8")
-    ).hexdigest():
-        raise ValueError("document_version_graph_hash_mismatch")
-    if (
-        expected_inventory_sha256 is not None
-        and graph.get("source", {}).get("inventory_sha256")
-        != expected_inventory_sha256
-    ):
-        raise ValueError("document_version_graph_inventory_mismatch")
-    dispositions: dict[str, str] = {}
-    for group in graph.get("groups", []):
-        if not isinstance(group, dict):
-            raise ValueError("document_version_group_invalid")
-        for item in group.get("candidates", []):
-            relative = item.get("relative_path") if isinstance(item, dict) else None
-            disposition = item.get("disposition") if isinstance(item, dict) else None
-            if (
-                not isinstance(relative, str)
-                or disposition not in {"active", "historical", "needs_human_review"}
-                or relative in dispositions
-            ):
-                raise ValueError("document_version_candidate_invalid")
-            dispositions[relative] = disposition
+def _version_selection(selected, dispositions):
     counts: Counter[str] = Counter()
-    eligible: list[dict[str, Any]] = []
+    eligible = []
     for item in selected:
         disposition = dispositions.get(item["relative_path"])
         if disposition in {"historical", "needs_human_review"}:
@@ -238,11 +210,93 @@ def apply_document_version_policy(
         else:
             eligible.append(item)
             counts["version_active" if disposition == "active" else "version_ungrouped"] += 1
-    return eligible, dict(sorted(counts.items())), {
-        "path": str(version_graph_path),
-        "sha256": sha256_file(version_graph_path),
-        "graph_sha256": graph["graph_sha256"],
+    return eligible, dict(sorted(counts.items()))
+
+
+def select_attested_inventory(
+    inventory_path: Path, version_graph_path: Path | None = None, *,
+    version_authority_mode: str | None = None,
+    version_decisions_path: Path | None = None,
+    version_decisions_sha256: str | None = None,
+) -> dict[str, Any]:
+    """Derive the complete Reader selection from one explicit attestation."""
+    binding = None
+    if version_graph_path is None:
+        if any(value is not None for value in (version_authority_mode, version_decisions_path, version_decisions_sha256)):
+            raise ValueError("unexpected_version_decision_authority")
+        raw = inventory_path.read_bytes()
+        inventory = [json.loads(line) for line in raw.decode("utf-8").splitlines() if line.strip()]
+        digest = hashlib.sha256(raw).hexdigest()
+    else:
+        if version_authority_mode not in ("no_decisions", "snapshot"):
+            raise ValueError("version_decision_authority_required")
+        spec = importlib.util.spec_from_file_location(
+            "_reader_document_version_resolver", Path(__file__).with_name("document_version_resolver.py"))
+        resolver = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(resolver)
+        report = resolver.attest(
+            version_graph_path, inventory_path, decision_mode=version_authority_mode,
+            decisions_path=version_decisions_path, expected_decisions_sha256=version_decisions_sha256,
+        )
+        if report["status"] != "PASS":
+            raise ValueError("document_version_attestation_failed:" + ";".join(report["errors"]))
+        inventory = report["inventory"]["records"]
+        digest = report["inventory"]["sha256"]
+        binding = report["document_version_graph"]
+    selected, counts = select_inventory(inventory)
+    if binding is not None:
+        selected, version_counts = _version_selection(selected, report["version"]["dispositions"])
+        counts.update(version_counts)
+    return {"inventory_records": inventory, "inventory_sha256": digest,
+            "selected": selected, "selection_counts": counts, "document_version_graph": binding}
+
+
+def unread_document_notices(documents: list[dict[str, Any]]) -> dict[str, Any]:
+    """Display-only diagnostics, never evidence or proof of unread location.
+
+    Document-level warnings do not establish a page/cell or complete exclusion
+    from answers. Keep that distinction explicit, and bound saved diagnostics.
+    """
+    items = []
+    total = 0
+    for document in documents:
+        extraction = document.get("extraction", {})
+        status = extraction.get("status")
+        if status not in {"partial", "failed", "deferred"}:
+            continue
+        total += 1
+        if len(items) >= 100:
+            continue
+        source = document.get("source", {})
+        messages = [value for key in ("errors", "warnings")
+                    for value in extraction.get(key, []) if isinstance(value, str)]
+        items.append({
+            "file": str(source.get("relative_path") or "ファイル名を特定できませんでした")[:2000],
+            "status": status,
+            "location": "読めなかった場所を特定できませんでした",
+            "reason": "\n".join(value[:1000] for value in messages[:4])
+                      or "理由を特定できませんでした",
+        })
+    return {"items": items, "total": total, "omitted": total - len(items)}
+
+
+def selection_limitations(counts: dict[str, int]) -> dict[str, int]:
+    return {
+        "unsupported_files": counts.get("unsupported", 0),
+        "policy_excluded_files": counts.get("policy_excluded", 0),
+        "inventory_unresolved_files": counts.get("inventory_unresolved", 0),
+        "historical_version_files_held": counts.get("version_historical", 0),
+        "version_files_needing_human_review": counts.get("version_needs_human_review", 0),
     }
+
+
+def apply_document_version_policy(
+    selected: list[dict[str, Any]], version_graph_path: Path | None,
+    expected_inventory_sha256: str | None = None,
+) -> tuple[list[dict[str, Any]], dict[str, int], dict[str, Any] | None]:
+    if version_graph_path is not None:
+        raise ValueError("full_inventory_and_version_authority_required")
+    return selected, {}, None
 
 
 def source_path(root: Path, relative_path: str) -> Path:
@@ -331,6 +385,9 @@ def build(
     output: Path,
     tools_dir: Path,
     version_graph_path: Path | None = None,
+    *, version_authority_mode: str | None = None,
+    version_decisions_path: Path | None = None,
+    version_decisions_sha256: str | None = None,
 ) -> dict[str, Any]:
     source_root = source_root.resolve(strict=True)
     inventory_path = inventory_path.resolve(strict=True)
@@ -349,12 +406,13 @@ def build(
     output.mkdir(parents=True, exist_ok=True)
     require_tools(tools_dir)
 
-    inventory = read_jsonl(inventory_path)
-    selected, selection_counts = select_inventory(inventory)
-    selected, version_counts, version_binding = apply_document_version_policy(
-        selected, version_graph_path, sha256_file(inventory_path)
+    selection = select_attested_inventory(
+        inventory_path, version_graph_path, version_authority_mode=version_authority_mode,
+        version_decisions_path=version_decisions_path, version_decisions_sha256=version_decisions_sha256,
     )
-    selection_counts.update(version_counts)
+    selected, selection_counts = selection["selected"], selection["selection_counts"]
+    version_binding = selection["document_version_graph"]
+    inventory_sha256 = selection["inventory_sha256"]
     if not selected:
         state = {
             "schema_version": SCHEMA_VERSION, "builder": BUILDER,
@@ -369,7 +427,7 @@ def build(
     manifest = {
         "schema_version": SCHEMA_VERSION,
         "source_root": str(source_root),
-        "source_inventory_sha256": sha256_file(inventory_path),
+        "source_inventory_sha256": inventory_sha256,
         "paths": [item["relative_path"] for item in selected],
     }
     manifest_path = output / "layer1-input-manifest.json"
@@ -394,7 +452,9 @@ def build(
             "external_network_used": False,
         })
         raise ValueError("adaptive_reader_extraction_incomplete")
-    if intermediate_state.get("input_paths") != manifest["paths"]:
+    if intermediate_state.get("input_paths") != canonical_manifest_input_paths(
+        manifest["paths"]
+    ):
         raise ValueError("Layer 1 input coverage differs from curated manifest")
 
     full_schema_validation = importlib.util.find_spec("jsonschema") is not None
@@ -463,11 +523,14 @@ def build(
         "llm_extraction": llm_extraction,
         "requires_content_security_gate": True,
         "source_root": str(source_root),
-        "source_inventory": {"path": str(inventory_path), "sha256": sha256_file(inventory_path)},
+        "source_inventory": {"path": str(inventory_path), "sha256": inventory_sha256},
         "document_version_graph": version_binding,
         "selection_counts": selection_counts,
         "selected_file_count": len(selected),
         "limitations": limitations,
+        "unread_document_notices": unread_document_notices(
+            read_jsonl(intermediate / "documents.jsonl")
+        ),
         "missing_dependencies": dependencies,
         "layer1_status_counts": adapter_state.get("layer1_status_counts", {}),
         "document_status_counts": dict(sorted(status_counts.items())),
@@ -494,6 +557,9 @@ def main() -> int:
     parser.add_argument("--source-root", required=True, type=Path)
     parser.add_argument("--output-dir", required=True, type=Path)
     parser.add_argument("--version-graph", type=Path)
+    parser.add_argument("--version-authority-mode", choices=("no_decisions", "snapshot"))
+    parser.add_argument("--version-decisions", type=Path)
+    parser.add_argument("--version-decisions-sha256")
     parser.add_argument(
         "--tools-dir", type=Path,
         default=default_tools_dir(),
@@ -503,6 +569,9 @@ def main() -> int:
         result = build(
             args.source_root, args.inventory, args.output_dir, args.tools_dir,
             args.version_graph,
+            version_authority_mode=args.version_authority_mode,
+            version_decisions_path=args.version_decisions,
+            version_decisions_sha256=args.version_decisions_sha256,
         )
     except Exception as exc:
         raise SystemExit(f"{type(exc).__name__}:{exc}") from exc

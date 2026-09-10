@@ -1,0 +1,95 @@
+{
+  "schema_version": "1.0",
+  "audit_id": "lms-v1-00-hardening-2026-09-09-f08-f09-audit-v1",
+  "task_id": "lms-v1-00-hardening-2026-09-09-f08-f09",
+  "artifact_hash": "f47e681cd3f7ca161b5c10c198130c81fe850eca67e2df6e7f30479c544579ae",
+  "auditor_context": {
+    "independence_level": "same_model_separate_context",
+    "source_scope": [
+      "Immutable task contract, graph, patch snapshot, and source manifest in f08-f09-graph-artifact.v1.json; all seven listed source SHA-256 values matched at audit entry",
+      "Targeted code review of PARSER, BUILDER, SEARCH, ADAPTER and the complete TESTS and execution records; current parser diff matched the supplied patch snapshot",
+      "Independent rerun of tests/test_generic_structured_reader_hardening.py: 13 tests passed, zero skips, unittest reported 0.109 seconds",
+      "Independent synthetic counterexamples in design/local-memory-v1-hardening/runs/f08-f09-adversarial-test.v1.py; SHA-256 a787bbac8a3802cac9c469201e5779231b557e701a8e56e8bcf4723efe4cd29d; four tests, two passed and two errors, unittest reported 0.096 seconds",
+      "Both test invocations used rag/.venv/bin/python -B and subprocess timeout=30 seconds; original synthetic/stub harness prevented model/fingerprint/Paddle execution, sources were temporary, and no product code was edited",
+      "Downstream runtime checks reached batch and streaming intermediate validators, SearchUnit build and both validators, and semantic adaptation. Embedding, safe SQLite publication, final answer and packaged application were not executed"
+    ]
+  },
+  "status": "revise",
+  "checks": [
+    {
+      "check_id": "F08F09-A01",
+      "check_type": "intent",
+      "target_ids": ["F08", "F09", "LIMITS"],
+      "verdict": "pass",
+      "severity": "info",
+      "reason": "The patch remains limited to rejecting duplicate native JSON object keys, retaining XML text/tail character data, and adding an optional same-byte XML gate. The contract correctly excludes universal XML/JSON support and full product acceptance. Generic nonfinite JSON, comments/processing instructions, broad resource limits, and old-index migration are expressly retained as separate boundaries, not silently certified by this patch.",
+      "evidence_ids": ["PARSER", "EXECUTOR"],
+      "required_action": null
+    },
+    {
+      "check_id": "F08F09-A02",
+      "check_type": "evidence",
+      "target_ids": ["F08", "F09", "VALIDATION"],
+      "verdict": "pass",
+      "severity": "info",
+      "reason": "All source hashes matched the submitted manifest and the parser diff matched the patch snapshot. The existing focused suite independently passed all 13 methods with no skips. This confirms those reported cases but does not override the new failing encoding-boundary counterexamples or establish any excluded product stage.",
+      "evidence_ids": ["PARSER", "TESTS", "EXECUTOR", "PARENT_RUN", "BUILDER", "SEARCH", "ADAPTER"],
+      "required_action": null
+    },
+    {
+      "check_id": "F08F09-A03",
+      "check_type": "coverage",
+      "target_ids": ["F08", "ROLLBACK", "E08"],
+      "verdict": "pass",
+      "severity": "info",
+      "reason": "The independent pretty-printed fixture used namespaced repeated children, attributes, empty elements, nested text, tails, and whitespace-only text nodes. Original character data remained in source order through the intermediate output; parent-bound text()[n] locators were distinct; batch/streaming validators, SearchUnit build/validation, and semantic adaptation all succeeded. The adapter retained the exact raw whitespace/text evidence, the adjacent duplicate-JSON source had zero evidence, and the valid XML source hash was unchanged. Text fields continue to use the Reader's locator convention with nullable ordinal; no general XPath or original-byte reconstruction guarantee is inferred.",
+      "evidence_ids": ["PARSER", "TESTS", "BUILDER", "SEARCH", "ADAPTER"],
+      "required_action": null
+    },
+    {
+      "check_id": "F08F09-A04",
+      "check_type": "coverage",
+      "target_ids": ["F09", "ROLLBACK", "E09"],
+      "verdict": "pass",
+      "severity": "info",
+      "reason": "object_pairs_hook runs for every native JSON object before add_document or evidence emission, rejects repeated decoded keys without logging the key, and leaves same-named keys in separate objects valid. Independent cases at object depths 0, 1 and 64, encoded as UTF-8 BOM, UTF-16 and CP932, rejected Japanese literal/Unicode-escaped duplicate names. Existing regressions additionally covered arrays, repeated identical values, special pointer characters and transactional failed-document retention without Evidence/Relation/SearchUnit contamination. The partial large-text fallback is explicitly outside native duplicate validation and is not claimed to resolve object values.",
+      "evidence_ids": ["PARSER", "TESTS", "BUILDER", "ADAPTER"],
+      "required_action": null
+    },
+    {
+      "check_id": "F08F09-A05",
+      "check_type": "safety",
+      "target_ids": ["XML_SAFETY", "F08", "E10"],
+      "verdict": "pass",
+      "severity": "info",
+      "reason": "The optional byte_validator hook receives the same raw byte buffer later decoded for native parsing. Existing focused cases confirm DTD/entity rejection before ElementTree is called, including wide encodings. The hook is omitted for other read_text callers, preserving their current literal-text behavior. This structural safety benefit does not excuse valid-input rejection caused by the gate's sampled decoding.",
+      "evidence_ids": ["PARSER", "TESTS"],
+      "required_action": null
+    },
+    {
+      "check_id": "F08F09-A06",
+      "check_type": "coverage",
+      "target_ids": ["COMPAT", "XML_SAFETY", "F08", "E11"],
+      "verdict": "fail",
+      "severity": "blocking",
+      "reason": "A new normal-input regression is reproducible in the generic XML path: validate_xml_bytes decodes value[bom_bytes:2048] with errors='strict' (PARSER line 605), treating a truncated multibyte character at the arbitrary sample boundary as malformed input. UTF-8 BOM bytes for '<p>' + 'あ' * 800 + '<b>中</b>後</p>' are valid and read_text(path) decodes them fully, but extract(path) now raises ValueError('ooxml_xml_encoding_invalid') after UnicodeDecodeError at sample positions 2043-2044. UTF-16 BOM bytes for '<r>!' + '😀' * 600 + '<b>中</b>後</r>' independently fail when the sample cuts a surrogate pair. Both are small valid fixtures below the direct-read limit and were accepted by the previous ungated generic read_text path. This is not an unsupported broad-encoding feature: the patch explicitly promises ordinary UTF-8 BOM/UTF-16 compatibility and newly routes those files through this preexisting gate. The audit fixture has two passing downstream/duplicate tests and these two reproducible errors.",
+      "evidence_ids": ["PARSER", "TESTS", "EXECUTOR"],
+      "required_action": "Make prolog sampling decoding safe when a valid character or surrogate pair crosses the sample boundary, while preserving same-byte DTD/entity rejection and declaration-family checks. Add permanent UTF-8 BOM multibyte and UTF-16 surrogate boundary regressions, including near-boundary offsets. Rerun the focused suite and the audit counterexamples; retain a mixed valid-neighbor build/adapter regression. Do not weaken the gate to ignore malformed data or drop its DTD/entity checks. Submit a new immutable artifact and execution record for re-audit."
+    },
+    {
+      "check_id": "F08F09-A07",
+      "check_type": "dependency",
+      "target_ids": ["COMPAT", "VALIDATION", "LIMITS"],
+      "verdict": "pass",
+      "severity": "warning",
+      "reason": "Initial XML text locators change from text() to text()[1], so derived evidence IDs and related artifacts change. The processing fingerprint includes the parser source and the Executor explicitly requires rebuilding affected derived artifacts. No production index rebuild, fingerprint migration, safe-index/answer run, or packaged acceptance occurred; those exclusions are correctly recorded and must remain visible after the scoped repair is eventually accepted.",
+      "evidence_ids": ["PARSER", "BUILDER", "EXECUTOR"],
+      "required_action": null
+    }
+  ],
+  "summary": {
+    "blocking_failures": 1,
+    "unresolved_count": 0,
+    "next_action": "revise"
+  }
+}

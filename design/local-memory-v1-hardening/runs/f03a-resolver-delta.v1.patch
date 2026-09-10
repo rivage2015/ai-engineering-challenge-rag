@@ -1,0 +1,78 @@
+--- design/local-memory-v1-hardening/runs/f03a-before-resolver.v1.py	2026-09-09 08:22:07
++++ distribution/macos-local-memory/engine/document_version_resolver.py	2026-09-09 08:26:44
+@@ -2,8 +2,10 @@
+ """Resolve document-version families with fail-closed human review.
+ 
+ This stage consumes the source-bound Path Graph inventory.  It never reads or
+-modifies source documents.  Explicit path status markers and numeric versions
+-may select one active candidate under a deterministic policy.  Filename years
++modifies source documents.  Signal-free peers are included within existing
++marked filename families; mixed marked/unmarked families require human review.
++Explicit path status markers and numeric versions may select one active
++candidate only within all-marked families under a deterministic policy. Filename years
+ alone never establish replacement.  Ambiguity is preserved as
+ ``needs_human_review`` and a human decision is reusable only while the complete
+ candidate set and selected source hash remain unchanged.
+@@ -24,7 +26,7 @@
+ 
+ 
+ SCHEMA_VERSION = "1.0"
+-RESOLVER_VERSION = "0.1.2"
++RESOLVER_VERSION = "0.1.3"
+ DOCUMENT_SUFFIXES = {
+     ".csv", ".doc", ".docx", ".ods", ".pdf", ".ppt", ".pptx",
+     ".tsv", ".xls", ".xlsx",
+@@ -159,8 +161,6 @@
+     current = markers(relative, CURRENT_MARKERS)
+     historical = markers(relative, HISTORICAL_MARKERS)
+     drafts = markers(relative, DRAFT_MARKERS)
+-    if not (years or versions or current or historical or drafts):
+-        return None
+     return {
+         "relative_path": relative,
+         "source_sha256": record["sha256"],
+@@ -175,6 +175,13 @@
+     }
+ 
+ 
++def has_version_signal(item: dict[str, Any]) -> bool:
++    return any(item[name] for name in (
++        "explicit_years", "explicit_versions", "current_markers",
++        "historical_markers", "draft_markers",
++    ))
++
++
+ def candidate_set_hash(candidates: list[dict[str, Any]]) -> str:
+     return sha256_json([
+         {
+@@ -193,6 +200,10 @@
+ 
+ 
+ def automatic_selection(candidates: list[dict[str, Any]]) -> tuple[str | None, str, list[str]]:
++    if any(not has_version_signal(item) for item in candidates):
++        return None, "unmarked_candidate_requires_human_review", [
++            item["relative_path"] for item in candidates
++        ]
+     current = [
+         item for item in candidates
+         if item["current_markers"]
+@@ -387,7 +398,7 @@
+         grouped.setdefault(family_key(item["relative_path"]), []).append(item)
+     groups = []
+     for key, candidates in sorted(grouped.items()):
+-        if len(candidates) < 2:
++        if len(candidates) < 2 or not any(has_version_signal(item) for item in candidates):
+             continue
+         group_id = "version_set_" + sha256_json({"family_key": key})[:32]
+         groups.append(resolve_group(key, candidates, decisions.get(group_id)))
+@@ -406,7 +417,9 @@
+         "policy": {
+             "creation_time_is_authoritative": False,
+             "modification_time_is_authoritative": False,
+-            "automatic_rule": "unique_explicit_current_without_year_or_single_version_conflict_else_hold_all_dated_else_comparable_latest_version",
++            "candidate_rule": "same_family_valid_documents_with_at_least_one_version_signal",
++            "mixed_signal_action": "needs_human_review",
++            "automatic_rule": "mixed_signal_hold_else_unique_explicit_current_without_year_or_single_version_conflict_else_hold_all_dated_else_comparable_latest_version",
+             "year_order_establishes_supersession": False,
+             "ambiguous_action": "needs_human_review",
+             "historical_sources_retained": True,

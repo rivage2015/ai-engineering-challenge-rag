@@ -1,0 +1,92 @@
+test_counts_only_wrapper_cannot_pass_without_originals (f11a_root_boundaries.NotebookMetadataBoundaryTests) ... test_direct_search_preserves_all_six_literal_states (f11a_root_boundaries.NotebookMetadataBoundaryTests) ... FAIL
+test_missing_metadata_rejected_with_originals (f11a_root_boundaries.NotebookMetadataBoundaryTests) ... test_well_typed_false_count_rejected_without_id_change (f11a_root_boundaries.NotebookMetadataBoundaryTests) ... 
+======================================================================
+FAIL: test_counts_only_wrapper_cannot_pass_without_originals (f11a_root_boundaries.NotebookMetadataBoundaryTests) (boundary='native')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/tests/test_notebook_metadata_boundaries.py", line 107, in test_counts_only_wrapper_cannot_pass_without_originals
+    validate(output, **kwargs)
+AssertionError: ValueError not raised
+
+======================================================================
+FAIL: test_counts_only_wrapper_cannot_pass_without_originals (f11a_root_boundaries.NotebookMetadataBoundaryTests) (boundary='stream')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/tests/test_notebook_metadata_boundaries.py", line 107, in test_counts_only_wrapper_cannot_pass_without_originals
+    validate(output, **kwargs)
+AssertionError: ValueError not raised
+
+======================================================================
+FAIL: test_counts_only_wrapper_cannot_pass_without_originals (f11a_root_boundaries.NotebookMetadataBoundaryTests) (boundary='structural-stream')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/tests/test_notebook_metadata_boundaries.py", line 107, in test_counts_only_wrapper_cannot_pass_without_originals
+    validate(output, **kwargs)
+AssertionError: ValueError not raised
+
+======================================================================
+FAIL: test_direct_search_preserves_all_six_literal_states (f11a_root_boundaries.NotebookMetadataBoundaryTests)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/tests/test_notebook_metadata_boundaries.py", line 117, in test_direct_search_preserves_all_six_literal_states
+    self.assertEqual([u.get("context", {}).get("notebook_state") for u in derived], literal_states())
+AssertionError: Lists differ: [None, None, None, None, None, None] != [{'version': '1.0', 'reader_execution': 'n[1681 chars]se}}]
+
+First differing element 0:
+None
+{'version': '1.0', 'reader_execution': 'n[169 chars]: 7}}
+
+Diff is 1977 characters long. Set self.maxDiff to None to see it.
+
+======================================================================
+FAIL: test_missing_metadata_rejected_with_originals (f11a_root_boundaries.NotebookMetadataBoundaryTests) (boundary='native')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/tests/test_notebook_metadata_boundaries.py", line 87, in test_missing_metadata_rejected_with_originals
+    validate(output, self.source, **kwargs)
+AssertionError: ValueError not raised
+
+======================================================================
+FAIL: test_missing_metadata_rejected_with_originals (f11a_root_boundaries.NotebookMetadataBoundaryTests) (boundary='stream')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/tests/test_notebook_metadata_boundaries.py", line 87, in test_missing_metadata_rejected_with_originals
+    validate(output, self.source, **kwargs)
+AssertionError: ValueError not raised
+
+======================================================================
+FAIL: test_missing_metadata_rejected_with_originals (f11a_root_boundaries.NotebookMetadataBoundaryTests) (boundary='structural-stream')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/tests/test_notebook_metadata_boundaries.py", line 87, in test_missing_metadata_rejected_with_originals
+    validate(output, self.source, **kwargs)
+AssertionError: ValueError not raised
+
+======================================================================
+FAIL: test_well_typed_false_count_rejected_without_id_change (f11a_root_boundaries.NotebookMetadataBoundaryTests) (boundary='native')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/tests/test_notebook_metadata_boundaries.py", line 100, in test_well_typed_false_count_rejected_without_id_change
+    validate(output, self.source, **kwargs)
+AssertionError: ValueError not raised
+
+======================================================================
+FAIL: test_well_typed_false_count_rejected_without_id_change (f11a_root_boundaries.NotebookMetadataBoundaryTests) (boundary='stream')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/tests/test_notebook_metadata_boundaries.py", line 100, in test_well_typed_false_count_rejected_without_id_change
+    validate(output, self.source, **kwargs)
+AssertionError: ValueError not raised
+
+======================================================================
+FAIL: test_well_typed_false_count_rejected_without_id_change (f11a_root_boundaries.NotebookMetadataBoundaryTests) (boundary='structural-stream')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/tests/test_notebook_metadata_boundaries.py", line 100, in test_well_typed_false_count_rejected_without_id_change
+    validate(output, self.source, **kwargs)
+AssertionError: ValueError not raised
+
+----------------------------------------------------------------------
+Ran 4 tests in 0.149s
+
+FAILED (failures=10)

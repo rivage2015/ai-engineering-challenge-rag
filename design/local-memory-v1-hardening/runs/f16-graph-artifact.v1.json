@@ -1,0 +1,199 @@
+{
+  "schema_version": "1.0",
+  "task_id": "lms-v1-00-hardening-2026-09-09-f16",
+  "artifact_version": 1,
+  "audit_repair_round": 0,
+  "task_contract": {
+    "requested": "Repair the scoped F16 builder race between lstat and pathname-based hashing/scandir; reject supplied symlink roots instead of resolving them away.",
+    "review_scope": "New runs of build_path_graph.py only. Preserve stable inventory/schema compatibility while preventing followed symlink content reads and withholding hashes when checked source bindings change.",
+    "max_repair_cycles": 2,
+    "role_separation": "same_model_separate_context",
+    "forbidden": [
+      "personal or Desktop inputs",
+      "network or model calls",
+      "changes to product sources by auditor",
+      "self approval",
+      "claiming global filesystem snapshot or whole product acceptance"
+    ],
+    "test_budget": {
+      "wall_seconds": 30,
+      "log_bytes": 1048576,
+      "max_fixture_file_bytes": 1048576
+    },
+    "expected_contracts": [
+      "Regular file bytes are read through a no-follow descriptor matched to the no-follow observed stat, never through a reopened full source pathname.",
+      "Directory enumeration is bound to descriptors. Root components are also no-follow; explicit symlink ancestors and '..' components are rejected, not silently resolved.",
+      "Detected identity/content/active-ancestor changes cannot retain observed source hashes or complete coverage. Unreadable paths are explicit.",
+      "Stable canonical synthetic roots preserve schema1.1, inventory fields, deterministic sort, symbolic-link metadata and exact duplicate groups.",
+      "No unavailable-platform fallback silently weakens confinement. No unclosed descriptors on exercised success/failure/exception paths.",
+      "The primary audited facts are bounded test schedules and local code contracts, not real-world exploit immunity or end-to-end old-index freshness."
+    ]
+  },
+  "goal": "Make newly built structural path observations descriptor-bound and fail explicitly when checked filesystem identities change.",
+  "nodes": [
+    {
+      "id": "ROOT",
+      "text": "All supplied root components are opened without following symlinks; parent traversal and missing facilities are rejected.",
+      "basis": [
+        "BUILDER",
+        "TESTS"
+      ]
+    },
+    {
+      "id": "FILE",
+      "text": "Regular-file hashing is no-follow, matches before/after identity and metadata, and reads at most the initially observed byte size.",
+      "basis": [
+        "BUILDER",
+        "TESTS"
+      ]
+    },
+    {
+      "id": "TREE",
+      "text": "Directory descriptors carry traversal; active root/ancestor binding changes invalidate observed hashes and block coverage.",
+      "basis": [
+        "BUILDER",
+        "TESTS"
+      ]
+    },
+    {
+      "id": "RECORDS",
+      "text": "Detected failures remain unresolved and incomplete; failed directory nodes do not expose an observed source hash.",
+      "basis": [
+        "BUILDER",
+        "TESTS"
+      ]
+    },
+    {
+      "id": "COMPAT",
+      "text": "Stable canonical roots retain schema1.1, inventory shape and deterministic order. Root aliases require explicit canonical choice; old generations are not automatically certified or necessarily invalidated.",
+      "basis": [
+        "BUILDER",
+        "TESTS",
+        "ADDENDUM"
+      ]
+    },
+    {
+      "id": "CHECKS",
+      "text": "Executor reports4 RED failures plus1 stable control; final18 tests pass on Python3.14.6 and3.9.6, zero skips. Independent audit still required.",
+      "basis": [
+        "EXECUTOR",
+        "RED",
+        "GREEN314",
+        "GREEN39"
+      ]
+    },
+    {
+      "id": "LIMITS",
+      "text": "No global snapshot, downstream Validator race repair, retrospective migration, all-resource bound, hard-link/mount provenance or full app acceptance claim.",
+      "basis": [
+        "EXECUTOR",
+        "ADDENDUM",
+        "VALIDATOR"
+      ]
+    }
+  ],
+  "edges": [
+    {
+      "id": "E_ROOT_FILE",
+      "source": "ROOT",
+      "target": "FILE",
+      "relation": "provides_bound_parent_descriptor",
+      "basis": [
+        "BUILDER"
+      ]
+    },
+    {
+      "id": "E_ROOT_TREE",
+      "source": "ROOT",
+      "target": "TREE",
+      "relation": "anchors_traversal",
+      "basis": [
+        "BUILDER"
+      ]
+    },
+    {
+      "id": "E_FILE_RECORDS",
+      "source": "FILE",
+      "target": "RECORDS",
+      "relation": "withholds_hash_on_detected_change",
+      "basis": [
+        "BUILDER",
+        "TESTS"
+      ]
+    },
+    {
+      "id": "E_TREE_RECORDS",
+      "source": "TREE",
+      "target": "RECORDS",
+      "relation": "invalidates_generation_on_active_ancestor_change",
+      "basis": [
+        "BUILDER",
+        "TESTS"
+      ]
+    },
+    {
+      "id": "E_COMPAT_CHECKS",
+      "source": "COMPAT",
+      "target": "CHECKS",
+      "relation": "requires_stable_fixture_regression",
+      "basis": [
+        "TESTS",
+        "GREEN314",
+        "GREEN39"
+      ]
+    }
+  ],
+  "sources": [
+    {
+      "id": "BUILDER",
+      "path": "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/distribution/macos-local-memory/engine/build_path_graph.py",
+      "sha256": "621746dc0d0ff0857db2c21844e7c042b9bf12debd47b7c145840d89479f8fdd"
+    },
+    {
+      "id": "TESTS",
+      "path": "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/tests/test_path_graph_confinement.py",
+      "sha256": "3e942bd0a391ba48e352e28cc4ebd9e62e4d9ec7acead1953addc3ad52c3eb4a"
+    },
+    {
+      "id": "VALIDATOR",
+      "path": "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/distribution/macos-local-memory/engine/validate_path_graph.py",
+      "sha256": "1725a7460ee357dc5ae6d1b42e960f57c720a432d910f49bdc98819ba99b968e"
+    },
+    {
+      "id": "EXECUTOR",
+      "path": "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/design/local-memory-v1-hardening/runs/f16-executor.v1.json",
+      "sha256": "f7e4bf0723bdbd705c04320afab52e4e6d64d6f9e2cdf90369f6b7a8bd8fef98"
+    },
+    {
+      "id": "ADDENDUM",
+      "path": "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/design/local-memory-v1-hardening/runs/f16-executor-addendum.v1.json",
+      "sha256": "83d32740921c64145c53eab5bfd0628161dba14670755f41f9235de7a3a9ad39"
+    },
+    {
+      "id": "RED",
+      "path": "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/artifacts/local-memory-v1-hardening/runs/f16-red-01/result.json",
+      "sha256": "bf2c3685bc535e345d8f5569300d2fb9a5451152e3165b919e7dbb631f1d6422"
+    },
+    {
+      "id": "GREEN314",
+      "path": "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/artifacts/local-memory-v1-hardening/runs/f16-green-03/result.json",
+      "sha256": "d151e179c4f2cc25def6c11c8c7bf1f1f1b2894bb12c6d0881afb43b995911d3"
+    },
+    {
+      "id": "GREEN39",
+      "path": "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/artifacts/local-memory-v1-hardening/runs/f16-green-py39-01/result.json",
+      "sha256": "3f68574ef29a942b774267c1db22e72fad674b269f412f2315b8c33a813066f2"
+    }
+  ],
+  "patch_snapshot": "diff --git a/distribution/macos-local-memory/engine/build_path_graph.py b/distribution/macos-local-memory/engine/build_path_graph.py\nindex 3ba7a89..371f80a 100755\n--- a/distribution/macos-local-memory/engine/build_path_graph.py\n+++ b/distribution/macos-local-memory/engine/build_path_graph.py\n@@ -10,12 +10,21 @@ import os\n import stat\n import unicodedata\n from collections import Counter, defaultdict\n+from contextlib import contextmanager\n from datetime import datetime\n from pathlib import Path\n \n \n SCHEMA_VERSION = \"1.1\"\n-BUILDER_VERSION = \"0.2.0\"\n+BUILDER_VERSION = \"0.3.0\"\n+\n+# Capability identity is captured before tests instrument individual OS calls.\n+_HAS_FD_OPERATIONS = (\n+    os.open in os.supports_dir_fd\n+    and os.stat in os.supports_dir_fd\n+    and os.readlink in os.supports_dir_fd\n+    and os.scandir in os.supports_fd\n+)\n \n \n def canonical(value: object) -> bytes:\n@@ -26,14 +35,118 @@ def sha256_bytes(value: bytes) -> str:\n     return hashlib.sha256(value).hexdigest()\n \n \n-def sha256_file(path: Path) -> str:\n+class SourceChangedError(OSError):\n+    \"\"\"An observation no longer describes the object bound to its pathname.\"\"\"\n+\n+\n+def _identity(metadata: os.stat_result) -> tuple:\n+    return metadata.st_dev, metadata.st_ino, stat.S_IFMT(metadata.st_mode)\n+\n+\n+def _revision(metadata: os.stat_result) -> tuple:\n+    # Do not include atime: reading a source may legitimately update it.\n+    return (*_identity(metadata), metadata.st_mode, metadata.st_size,\n+            metadata.st_mtime_ns, metadata.st_ctime_ns, metadata.st_nlink)\n+\n+\n+def _require_same(expected: os.stat_result, actual: os.stat_result, *, revision: bool = True) -> None:\n+    key = _revision if revision else _identity\n+    if key(expected) != key(actual):\n+        raise SourceChangedError(\"source identity or metadata changed during observation\")\n+\n+\n+def _absolute_root(root: Path) -> Path:\n+    # Do not resolve aliases or erase a symlink/.. component before checking it.\n+    if \"..\" in root.parts:\n+        raise OSError(\"root must not contain parent traversal components\")\n+    return root.absolute()\n+\n+\n+def _open_verified_directory(parent_fd: int, name: str, expected: os.stat_result) -> int:\n+    descriptor = os.open(name, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=parent_fd)\n+    try:\n+        _require_same(expected, os.fstat(descriptor))\n+        _require_same(expected, os.stat(name, dir_fd=parent_fd, follow_symlinks=False))\n+        return descriptor\n+    except BaseException:\n+        os.close(descriptor)\n+        raise\n+\n+\n+@contextmanager\n+def _root_descriptors(root: Path):\n+    \"\"\"Keep each supplied root component bound without following any symlink.\n+\n+    A caller that intentionally uses an ancestor alias must supply the explicit\n+    canonical directory instead. There is no pathname-based fallback.\n+    \"\"\"\n+    if not _HAS_FD_OPERATIONS or not all(hasattr(os, name) for name in (\"O_NOFOLLOW\", \"O_DIRECTORY\", \"O_NONBLOCK\")):\n+        raise OSError(\"descriptor-bound no-follow filesystem operations are unavailable\")\n+    descriptors = []\n+    bindings = []\n+    try:\n+        descriptor = os.open(root.anchor, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)\n+        descriptors.append(descriptor)\n+        bindings.append((descriptor, None, None, os.fstat(descriptor)))\n+        for name in root.parts[1:]:\n+            expected = os.stat(name, dir_fd=descriptor, follow_symlinks=False)\n+            if not stat.S_ISDIR(expected.st_mode):\n+                raise OSError(\"root components must be real directories, not symlinks\")\n+            parent_fd = descriptor\n+            descriptor = _open_verified_directory(parent_fd, name, expected)\n+            descriptors.append(descriptor)\n+            bindings.append((descriptor, parent_fd, name, expected))\n+        yield bindings\n+    finally:\n+        for descriptor in reversed(descriptors):\n+            os.close(descriptor)\n+\n+\n+def sha256_file(path: Path, *, dir_fd: int | None = None, expected: os.stat_result | None = None) -> str:\n+    \"\"\"Hash one stable regular-file descriptor, never a symlink or special file.\"\"\"\n+    if dir_fd is None:\n+        absolute = _absolute_root(path)\n+        with _root_descriptors(absolute.parent) as bindings:\n+            value = sha256_file(Path(absolute.name), dir_fd=bindings[-1][0])\n+            _verify_root_bindings(bindings)\n+            return value\n+    name = path.name\n+    expected = expected if expected is not None else os.stat(name, dir_fd=dir_fd, follow_symlinks=False)\n+    if not stat.S_ISREG(expected.st_mode):\n+        raise OSError(\"hash source must be a regular file\")\n+    # O_NONBLOCK avoids hanging if a FIFO replaces the regular file before open.\n+    descriptor = os.open(name, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=dir_fd)\n     digest = hashlib.sha256()\n-    with path.open(\"rb\") as handle:\n-        for block in iter(lambda: handle.read(1024 * 1024), b\"\"):\n+    try:\n+        _require_same(expected, os.fstat(descriptor))\n+        remaining = expected.st_size\n+        while remaining:\n+            block = os.read(descriptor, min(1024 * 1024, remaining))\n+            if not block:\n+                raise SourceChangedError(\"source was truncated during hashing\")\n             digest.update(block)\n+            remaining -= len(block)\n+        _require_same(expected, os.fstat(descriptor))\n+        _require_same(expected, os.stat(name, dir_fd=dir_fd, follow_symlinks=False))\n+    finally:\n+        os.close(descriptor)\n     return digest.hexdigest()\n \n \n+def _verify_root_bindings(bindings: list) -> None:\n+    for index, (descriptor, parent_fd, name, expected) in enumerate(bindings):\n+        # Unrelated changes outside the selected root do not invalidate it.\n+        revision = index == len(bindings) - 1\n+        _require_same(expected, os.fstat(descriptor), revision=revision)\n+        if parent_fd is not None:\n+            _require_same(expected, os.stat(name, dir_fd=parent_fd, follow_symlinks=False), revision=revision)\n+\n+\n+def _directory_names(descriptor: int) -> list[str]:\n+    with os.scandir(descriptor) as iterator:\n+        return sorted((item.name for item in iterator), key=os.fsencode)\n+\n+\n def stable_id(prefix: str, *parts: str) -> str:\n     return prefix + \"_\" + sha256_bytes(\"\\0\".join(parts).encode(\"utf-8\"))[:32]\n \n@@ -92,53 +205,95 @@ def atomic_text(path: Path, value: str) -> None:\n \n \n def enumerate_entries(root: Path) -> tuple[list[dict], list[dict]]:\n+    root = _absolute_root(root)\n     entries: list[dict] = []\n     errors: list[dict] = []\n-    stack = [root]\n-    while stack:\n-        directory = stack.pop()\n+\n+    def error(relative: str, operation: str, exc: OSError) -> None:\n+        errors.append({\"path\": relative, \"operation\": operation, \"error\": f\"{type(exc).__name__}: {exc}\"})\n+\n+    # Root validation raises instead of publishing an empty, apparently valid\n+    # inventory for a root that was never safely opened.\n+    with _root_descriptors(root) as bindings:\n+        root_fd, _, _, root_stat = bindings[-1]\n+        stack = [{\"fd\": root_fd, \"parent_fd\": None, \"name\": None, \"relative\": \".\", \"stat\": root_stat, \"names\": None, \"record\": None}]\n+\n+        def verify_active() -> None:\n+            _verify_root_bindings(bindings)\n+            for frame in stack[1:]:\n+                _require_same(frame[\"stat\"], os.fstat(frame[\"fd\"]))\n+                _require_same(frame[\"stat\"], os.stat(frame[\"name\"], dir_fd=frame[\"parent_fd\"], follow_symlinks=False))\n+\n         try:\n-            children = sorted(os.scandir(directory), key=lambda item: os.fsencode(item.name))\n-        except OSError as exc:\n-            errors.append({\"path\": str(directory), \"operation\": \"scandir\", \"error\": f\"{type(exc).__name__}: {exc}\"})\n-            continue\n-        child_directories = []\n-        for item in children:\n-            path = Path(item.path)\n-            relative = path.relative_to(root).as_posix()\n-            try:\n-                metadata = item.stat(follow_symlinks=False)\n-                kind = kind_from_mode(metadata.st_mode)\n-                target = os.readlink(path) if kind == \"symlink\" else None\n-                record = {\n-                    \"relative_path\": relative,\n-                    \"normalized_path\": unicodedata.normalize(\"NFC\", relative),\n-                    \"parent_path\": path.parent.relative_to(root).as_posix() if path.parent != root else \".\",\n-                    \"basename\": item.name,\n-                    \"kind\": kind,\n-                    \"extension\": extension(path, kind),\n-                    \"size_bytes\": metadata.st_size if kind == \"file\" else 0,\n-                    \"mtime_ns\": metadata.st_mtime_ns,\n-                    \"birthtime_ns\": birthtime_ns(metadata),\n-                    \"mode\": stat.S_IMODE(metadata.st_mode),\n-                    \"symlink_target\": target,\n-                    \"sha256\": None,\n-                    \"read_status\": \"observed\",\n-                }\n-                if kind == \"file\":\n+            while stack:\n+                frame = stack[-1]\n+                try:\n+                    verify_active()\n+                except OSError as exc:\n+                    error(frame[\"relative\"], \"tree_identity\", exc)\n+                    # An ancestor changed: no earlier descendant hash is\n+                    # promoted as an observed source in this generation.\n+                    for record in entries:\n+                        record[\"read_status\"], record[\"sha256\"] = \"unresolved\", None\n+                    break\n+                if frame[\"names\"] is None:\n                     try:\n-                        record[\"sha256\"] = sha256_file(path)\n+                        frame[\"names\"] = iter(_directory_names(frame[\"fd\"]))\n                     except OSError as exc:\n-                        record[\"read_status\"] = \"unresolved\"\n-                        errors.append({\"path\": relative, \"operation\": \"sha256\", \"error\": f\"{type(exc).__name__}: {exc}\"})\n-                elif kind == \"symlink\":\n-                    record[\"sha256\"] = sha256_bytes((\"symlink\\0\" + (target or \"\")).encode(\"utf-8\"))\n-                entries.append(record)\n-                if kind == \"directory\":\n-                    child_directories.append(path)\n-            except OSError as exc:\n-                errors.append({\"path\": relative, \"operation\": \"lstat\", \"error\": f\"{type(exc).__name__}: {exc}\"})\n-        stack.extend(reversed(child_directories))\n+                        error(frame[\"relative\"], \"scandir\", exc)\n+                        if frame[\"record\"] is not None:\n+                            frame[\"record\"][\"read_status\"] = \"unresolved\"\n+                        frame[\"names\"] = iter(())\n+                    # Recheck directory metadata after obtaining its name list.\n+                    continue\n+                name = next(frame[\"names\"], None)\n+                if name is None:\n+                    stack.pop()\n+                    if frame[\"parent_fd\"] is not None:\n+                        os.close(frame[\"fd\"])\n+                    continue\n+                path = Path(name) if frame[\"relative\"] == \".\" else Path(frame[\"relative\"]) / name\n+                relative = path.as_posix()\n+                parent_fd = frame[\"fd\"]\n+                record = None\n+                try:\n+                    metadata = os.stat(name, dir_fd=parent_fd, follow_symlinks=False)\n+                    kind = kind_from_mode(metadata.st_mode)\n+                    record = {\n+                        \"relative_path\": relative,\n+                        \"normalized_path\": unicodedata.normalize(\"NFC\", relative),\n+                        \"parent_path\": frame[\"relative\"],\n+                        \"basename\": name,\n+                        \"kind\": kind,\n+                        \"extension\": extension(path, kind),\n+                        \"size_bytes\": metadata.st_size if kind == \"file\" else 0,\n+                        \"mtime_ns\": metadata.st_mtime_ns,\n+                        \"birthtime_ns\": birthtime_ns(metadata),\n+                        \"mode\": stat.S_IMODE(metadata.st_mode),\n+                        \"symlink_target\": None,\n+                        \"sha256\": None,\n+                        \"read_status\": \"observed\",\n+                    }\n+                    entries.append(record)\n+                    if kind == \"file\":\n+                        digest = sha256_file(Path(name), dir_fd=parent_fd, expected=metadata)\n+                        verify_active()\n+                        record[\"sha256\"] = digest\n+                    elif kind == \"symlink\":\n+                        target = os.readlink(name, dir_fd=parent_fd)\n+                        _require_same(metadata, os.stat(name, dir_fd=parent_fd, follow_symlinks=False))\n+                        record[\"symlink_target\"] = target\n+                        record[\"sha256\"] = sha256_bytes((\"symlink\\0\" + target).encode(\"utf-8\"))\n+                    elif kind == \"directory\":\n+                        descriptor = _open_verified_directory(parent_fd, name, metadata)\n+                        stack.append({\"fd\": descriptor, \"parent_fd\": parent_fd, \"name\": name, \"relative\": relative, \"stat\": metadata, \"names\": None, \"record\": record})\n+                except OSError as exc:\n+                    if record is not None:\n+                        record[\"read_status\"], record[\"sha256\"] = \"unresolved\", None\n+                    error(relative, \"source_observation\", exc)\n+        finally:\n+            for frame in reversed(stack[1:]):\n+                os.close(frame[\"fd\"])\n     entries.sort(key=lambda item: os.fsencode(item[\"relative_path\"]))\n     return entries, errors\n \n@@ -188,7 +343,7 @@ def make_graph(root: Path, entries: list[dict], errors: list[dict], inventory_sh\n         \"node_type\": \"filesystem_root\",\n         \"raw_value\": {\"absolute_path\": str(root)},\n         \"normalized_value\": {\"relative_path\": \".\", \"normalized_path\": \".\"},\n-        \"status\": \"observed\",\n+        \"status\": \"unresolved\" if errors else \"observed\",\n         \"source\": {\n             \"source_id\": \"filesystem-root\",\n             \"path\": str(root),\n@@ -201,7 +356,7 @@ def make_graph(root: Path, entries: list[dict], errors: list[dict], inventory_sh\n     for item in entries:\n         node_id = stable_id(\"node\", item[\"kind\"], item[\"relative_path\"])\n         node_by_path[item[\"relative_path\"]] = node_id\n-        source_hash = dir_hash[item[\"relative_path\"]] if item[\"kind\"] == \"directory\" else item[\"sha256\"]\n+        source_hash = (dir_hash[item[\"relative_path\"]] if item[\"kind\"] == \"directory\" else item[\"sha256\"]) if item[\"read_status\"] == \"observed\" else None\n         nodes.append({\n             \"node_id\": node_id,\n             \"node_type\": f\"filesystem_{item['kind']}\",\n@@ -354,7 +509,7 @@ def make_graph(root: Path, entries: list[dict], errors: list[dict], inventory_sh\n         },\n         \"source_universe\": {\n             \"scope\": str(root),\n-            \"enumeration_rule\": \"recursive os.scandir; lstat semantics; do not follow symlinks\",\n+            \"enumeration_rule\": \"descriptor-bound os.scandir and no-follow child opens; stat identity and metadata checked during observation\",\n             \"inventory_file\": \"path-source-inventory.jsonl\",\n             \"expected_sources\": \"all descendants observable at build time\",\n             \"observed_source_count\": len(entries),\n@@ -499,12 +654,10 @@ def main() -> int:\n     parser.add_argument(\"root\")\n     parser.add_argument(\"--output-dir\", required=True)\n     args = parser.parse_args()\n-    root = Path(args.root).resolve(strict=True)\n-    if not root.is_dir() or root.is_symlink():\n-        raise SystemExit(\"root must be a real directory, not a symlink\")\n+    root = _absolute_root(Path(args.root))\n+    entries, errors = enumerate_entries(root)\n     output = Path(args.output_dir).resolve(strict=False)\n     output.mkdir(parents=True, exist_ok=True)\n-    entries, errors = enumerate_entries(root)\n     records = inventory_records(entries)\n     inventory_data = inventory_jsonl(records)\n     graph = make_graph(root, entries, errors, sha256_bytes(inventory_data))\n",
+  "unverified_points": [
+    "This is not an atomic global filesystem snapshot. A completed file/directory can change after its final check, especially after its directory frame closes or during later publication. Answer-time freshness and final-generation revalidation remain separate F13 work.",
+    "No-follow confinement covers this builder only. validate_path_graph.py and other Readers/Validators still contain pathname reopen sequences and require separately owned repairs before any end-to-end race-safety claim.",
+    "Descriptor capability refers to the initially opened directory objects. Hard links, mount/privileged filesystem remapping, hostile filesystem metadata guarantees, and same-account compromise are not universal provenance protection.",
+    "No whole-tree item/byte/depth/deadline budget is implemented here. Name lists and records remain in memory, open descriptors scale with active depth, and blocking filesystem I/O can still require process supervision. F14 remains open.",
+    "Output-directory symlink handling, atomic publication of multiple output files, source/output overlap, unusual non-UTF8 filenames, and full app/model/GUI/package acceptance are not certified by this change.",
+    "Ancestor changes conservatively invalidate the entire observed generation, including otherwise unaffected files; this trades availability for explicit uncertainty."
+  ],
+  "factual_correction": "ADDENDUM overrides EXECUTOR changes[4] about existing rebuild fingerprints; no automatic migration assurance is made.",
+  "proposed_output": "Submit the scoped builder patch for independent adversarial review, then parent deterministic validation. Do not self-approve or mark F16 end-to-end safety complete."
+}

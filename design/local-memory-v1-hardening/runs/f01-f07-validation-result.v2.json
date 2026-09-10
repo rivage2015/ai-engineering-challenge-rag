@@ -1,0 +1,12 @@
+{
+  "schema_version": "1.0",
+  "task_id": "lms-v1-00-hardening-2026-09-09-f01-f07",
+  "artifact": "f01-f07-graph-artifact.v2.json",
+  "report": "f01-f07-audit-report.v2.json",
+  "actual_artifact_sha256": "568adc6adc50027692f32dd7a798fd79f7347e238b4e1ebc7538d54b8e09544e",
+  "ruby_structural_referential_validator": "PASS",
+  "draft202012_schema_task_hash": "PASS",
+  "audit_status": "revise",
+  "required_repairs": 1,
+  "action": "Round2 of max2 updates successful Graph-index helper mocks to the new wrapper while preserving original safety assertions. Shared F16 root-alias policy additionally requires canonical synthetic temporary roots; this is recorded separately from F01 production behavior."
+}

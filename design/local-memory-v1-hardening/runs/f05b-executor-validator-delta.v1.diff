@@ -1,0 +1,137 @@
+--- distribution/macos-local-memory/engine/validate_adaptive_semantic_graph.py
++++ distribution/macos-local-memory/engine/validate_adaptive_semantic_graph.py
+@@ -6,6 +6,7 @@
+ import argparse
+ import copy
+ import hashlib
++import importlib.util
+ import json
+ import os
+ import re
+@@ -2562,6 +2563,9 @@
+     version_graph: Path | None = None,
+     *,
+     initialize_lineage: bool = False,
++    version_authority_mode: str | None = None,
++    version_decisions_path: Path | None = None,
++    version_decisions_sha256: str | None = None,
+ ) -> dict[str, Any]:
+     output = output.resolve(strict=True)
+     source_root = source_root.resolve(strict=True)
+@@ -2580,36 +2584,20 @@
+     )
+     fail(state.get("requires_content_security_gate") is not True, "security_gate_requirement_invalid")
+     fail(Path(state.get("source_root", "")).resolve() != source_root, "source_root_mismatch")
+-    fail(state.get("source_inventory", {}).get("sha256") != sha256_file(inventory), "source_inventory_hash_mismatch")
+-    version_binding = state.get("document_version_graph")
+-    version_value = None
++    spec = importlib.util.spec_from_file_location(
++        "_validator_reader_selection", Path(__file__).with_name("build_adaptive_semantic_graph.py"))
++    reader = importlib.util.module_from_spec(spec)
++    spec.loader.exec_module(reader)
++    selection = reader.select_attested_inventory(
++        inventory, version_graph, version_authority_mode=version_authority_mode,
++        version_decisions_path=version_decisions_path, version_decisions_sha256=version_decisions_sha256,
++    )
++    fail(state.get("source_inventory", {}).get("sha256") != selection["inventory_sha256"], "source_inventory_hash_mismatch")
++    version_binding = selection["document_version_graph"]
+     if version_graph is None:
+-        fail(version_binding is not None, "unexpected_document_version_graph")
+-    else:
+-        version_graph = version_graph.resolve(strict=True)
+-        fail(not isinstance(version_binding, dict), "document_version_graph_binding_missing")
+-        fail(
+-            version_binding.get("sha256") != sha256_file(version_graph),
+-            "document_version_graph_hash_mismatch",
+-        )
+-        version_value = json.loads(version_graph.read_text(encoding="utf-8"))
+-        version_core = {
+-            key: value for key, value in version_value.items()
+-            if key != "graph_sha256"
+-        }
+-        fail(
+-            version_value.get("graph_sha256") != sha256_text(canonical(version_core)),
+-            "document_version_graph_integrity_invalid",
+-        )
+-        fail(
+-            version_binding.get("graph_sha256") != version_value.get("graph_sha256"),
+-            "document_version_graph_identity_mismatch",
+-        )
+-        fail(
+-            version_value.get("source", {}).get("inventory_sha256")
+-            != sha256_file(inventory),
+-            "document_version_graph_inventory_mismatch",
+-        )
++        fail(state.get("document_version_graph") is not None, "unexpected_document_version_graph")
++    fail(canonical(state.get("document_version_graph")) != canonical(version_binding),
++         "document_version_graph_binding_mismatch")
+ 
+     for stage in state.get("stages", {}).values():
+         stage_path = output / stage.get("path", "")
+@@ -2626,26 +2614,19 @@
+     paths = manifest.get("paths", [])
+     fail(not isinstance(paths, list) or not paths or len(paths) != len(set(paths)), "manifest_paths_invalid")
+     fail(len(paths) != state.get("selected_file_count"), "selected_file_count_mismatch")
+-    inventory_records = read_jsonl(inventory)
++    inventory_records = selection["inventory_records"]
++    fail(canonical(paths) != canonical([item["relative_path"] for item in selection["selected"]]), "manifest_complete_selection_mismatch")
++    fail(manifest.get("source_inventory_sha256") != selection["inventory_sha256"], "manifest_inventory_hash_mismatch")
++    fail(canonical(state.get("selection_counts")) != canonical(selection["selection_counts"]), "selection_counts_mismatch")
++    fail(canonical(state.get("selected_file_count")) != canonical(len(selection["selected"])), "selected_file_count_mismatch")
++    for field, expected in reader.selection_limitations(selection["selection_counts"]).items():
++        fail(canonical(state.get("limitations", {}).get(field)) != canonical(expected), "selection_limitation_mismatch:" + field)
+     inventory_files = {
+         item["relative_path"]: item
+         for item in inventory_records
+         if item.get("kind") == "file" and isinstance(item.get("relative_path"), str)
+     }
+     fail(not set(paths) <= set(inventory_files), "manifest_path_missing_from_inventory")
+-    if isinstance(version_value, dict):
+-        held_version_paths = {
+-            item.get("relative_path")
+-            for group in version_value.get("groups", [])
+-            if isinstance(group, dict)
+-            for item in group.get("candidates", [])
+-            if isinstance(item, dict)
+-            and item.get("disposition") in {"historical", "needs_human_review"}
+-        }
+-        fail(
+-            bool(set(paths) & held_version_paths),
+-            "held_document_version_in_answer_manifest",
+-        )
+ 
+     intermediate_state = json.loads((output / "layer1-intermediate" / "build-state.json").read_text(encoding="utf-8"))
+     fail(
+@@ -3045,14 +3026,7 @@
+         # Return only the binding actually checked in this invocation. Build
+         # a detached value from the explicit resolved input and checked hashes,
+         # not a later producer-state reread (or unchecked extra producer keys).
+-        "document_version_graph": (
+-            {
+-                "path": str(version_graph),
+-                "sha256": version_binding["sha256"],
+-                "graph_sha256": version_binding["graph_sha256"],
+-            }
+-            if version_graph is not None else None
+-        ),
++        "document_version_graph": copy.deepcopy(version_binding),
+         "build_status": state["status"],
+         "documents": len(documents),
+         "evidence": len(evidence),
+@@ -3075,11 +3049,17 @@
+     parser.add_argument("--source-root", required=True, type=Path)
+     parser.add_argument("--inventory", required=True, type=Path)
+     parser.add_argument("--version-graph", type=Path)
++    parser.add_argument("--version-authority-mode", choices=("no_decisions", "snapshot"))
++    parser.add_argument("--version-decisions", type=Path)
++    parser.add_argument("--version-decisions-sha256")
+     parser.add_argument("--initialize-lineage", action="store_true", help="Create absent lineage artifacts only in a new unpublished generation; never overwrite.")
+     args = parser.parse_args()
+     print(json.dumps(validate(
+         args.output_dir, args.source_root, args.inventory, args.version_graph,
+         initialize_lineage=args.initialize_lineage,
++        version_authority_mode=args.version_authority_mode,
++        version_decisions_path=args.version_decisions,
++        version_decisions_sha256=args.version_decisions_sha256,
+     ), ensure_ascii=False, sort_keys=True))
+     return 0

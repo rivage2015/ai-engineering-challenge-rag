@@ -1,0 +1,23 @@
+--- design/local-memory-v1-hardening/runs/f11a-image-repair-before-intermediate-stream.v1.py	2026-09-09 16:02:56
++++ scripts/validate_intermediate_records_streaming.py	2026-09-09 16:06:50
+@@ -619,6 +619,12 @@
+             errors.append(f"{relation_id}: dangling supporting Evidence {evidence_id}")
+         # One bounded Notebook snapshot at a time; existing SQLite Evidence
+         # storage avoids retaining an all-source metadata/JSON cache.
++        def notebook_parent_lookup(evidence_id: str) -> dict[str, Any] | None:
++            row = connection.execute(
++                "SELECT record_json FROM evidence WHERE id=?", (evidence_id,),
++            ).fetchone()
++            return json.loads(row[0]) if row is not None else None
++
+         for (document_json,) in connection.execute("SELECT record_json FROM documents"):
+             document = json.loads(document_json)
+             try:
+@@ -629,6 +635,7 @@
+                         (document["document_id"],),
+                     )),
+                     source_root,
++                    parent_lookup=notebook_parent_lookup,
+                 ))
+             except ValueError as exc:
+                 errors.append(f"{document.get('document_id')}: {exc}")

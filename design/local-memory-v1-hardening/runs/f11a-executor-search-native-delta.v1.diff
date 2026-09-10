@@ -1,0 +1,73 @@
+--- design/local-memory-v1-hardening/runs/f11a-executor-before-search-native.v1.py	2026-09-09 13:32:59
++++ scripts/validate_search_units.py	2026-09-09 14:22:05
+@@ -12,6 +12,7 @@
+ from pathlib import Path, PurePosixPath
+ from typing import Any
+ 
++from probe_intermediate_records import notebook_evidence_state, validate_notebook_state
+ 
+ ID_PATTERN = re.compile(r"^su_[0-9a-f]{16,64}$")
+ DOCUMENT_PATTERN = re.compile(r"^doc_[0-9a-f]{16,64}$")
+@@ -38,7 +39,7 @@
+     "is_header_candidate", "container_kind", "container_heading_text",
+     "container_heading_evidence_ids", "quality_tier", "agreement_types",
+     "provisional_marker", "bbox_coordinate_system", "reading_order_method",
+-    "row_band_count",
++    "row_band_count", "notebook_state",
+ }
+ PROVISIONAL_OCR_MARKER = "[暫定読取]"
+ PROVISIONAL_VISUAL_METHODS = {
+@@ -88,7 +89,7 @@
+ }
+ ROW_BAND_CENTER_TOLERANCE = 0.55
+ SEARCH_UNIT_BUILDER = "search-unit-builder"
+-SEARCH_UNIT_BUILDER_VERSION = "0.6.0"
++SEARCH_UNIT_BUILDER_VERSION = "0.7.0"
+ 
+ 
+ def canonical_json(value: Any) -> str:
+@@ -815,6 +816,36 @@
+     if context.get("row_band_count") != expected["row_band_count"]:
+         errors.append(f"{label}: image packet row order differs from OCR geometry")
+     return errors
++
++
++def notebook_search_unit_contract_errors(
++    item: dict[str, Any], label: str, evidence: dict[str, dict[str, Any]],
++    documents: dict[str, dict[str, Any]],
++) -> list[str]:
++    """Evidence-bound metadata only; this does not attest original source bytes."""
++    try:
++        context = item.get("context", {})
++        if not isinstance(context, dict):
++            raise ValueError("notebook SearchUnit context must be an object")
++        sources = [evidence[key] for key in item.get("source_evidence_ids", []) if key in evidence]
++        states = [notebook_evidence_state(source, documents.get(source.get("document_id"))) for source in sources]
++        present = [state for state in states if state is not None]
++        if not present:
++            if "notebook_state" in context:
++                raise ValueError("notebook_state injected onto unrelated SearchUnit")
++            return []
++        if len(sources) != 1 or len(present) != 1:
++            raise ValueError("notebook SearchUnit must have one canonical textual source")
++        expected = present[0]
++        actual = validate_notebook_state(context.get("notebook_state"))
++        expected_type = "notebook_cell" if expected["content_origin"] == "cell_source" else "text_chunk"
++        if (canonical_json(actual) != canonical_json(expected)
++                or item.get("unit_type") != expected_type
++                or canonical_json(item.get("locator")) != canonical_json(sources[0].get("location"))):
++            raise ValueError("notebook SearchUnit metadata/type/locator differs from Evidence")
++    except ValueError as exc:
++        return [f"{label}: {exc}"]
++    return []
+ 
+ 
+ def validate(search_output: Path, intermediate: Path | list[Path]) -> dict[str, Any]:
+@@ -914,6 +945,7 @@
+             errors.extend(
+                 image_packet_contract_errors(item, label, evidence, documents)
+             )
++            errors.extend(notebook_search_unit_contract_errors(item, label, evidence, documents))
+             counts[unit_type] = counts.get(unit_type, 0) + 1
+     if errors:
+         preview = errors[:100]

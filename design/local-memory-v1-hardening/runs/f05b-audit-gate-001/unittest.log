@@ -1,0 +1,10 @@
+test_absent_inventory_candidate_fails_before_reader_and_keeps_prior_generation (f05b_target.VersionGraphApplicationGateTests.test_absent_inventory_candidate_fails_before_reader_and_keeps_prior_generation) ... ok
+test_changed_explicit_decision_snapshot_fails_before_reader (f05b_target.VersionGraphApplicationGateTests.test_changed_explicit_decision_snapshot_fails_before_reader) ... ok
+test_empty_resealed_graph_fails_before_reader_and_keeps_prior_generation (f05b_target.VersionGraphApplicationGateTests.test_empty_resealed_graph_fails_before_reader_and_keeps_prior_generation) ... ok
+test_fabricated_active_choice_fails_before_reader_and_keeps_prior_generation (f05b_target.VersionGraphApplicationGateTests.test_fabricated_active_choice_fails_before_reader_and_keeps_prior_generation) ... ok
+F05b explicit fixture budget: {"explicit_test_bytes": 256, "explicit_test_writes": 12, "max_source_fixture_bytes": 64, "source_fixture_count": 4}
+
+----------------------------------------------------------------------
+Ran 4 tests in 0.529s
+
+OK

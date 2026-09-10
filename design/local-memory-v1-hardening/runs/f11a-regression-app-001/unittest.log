@@ -1,0 +1,168 @@
+test_native_current_012_exact_types_allowed (f11a_regression_gold.ProjectorProducerIdentityTests.test_native_current_012_exact_types_allowed) ... 
+  test_native_current_012_exact_types_allowed (f11a_regression_gold.ProjectorProducerIdentityTests.test_native_current_012_exact_types_allowed) (relation_type='contains') ... FAIL
+  test_native_current_012_exact_types_allowed (f11a_regression_gold.ProjectorProducerIdentityTests.test_native_current_012_exact_types_allowed) (relation_type='section_contains') ... FAIL
+test_native_historical_versions_preserved (f11a_regression_gold.ProjectorProducerIdentityTests.test_native_historical_versions_preserved) ... ok
+test_native_unknown_versions_and_fabricated_producers_rejected (f11a_regression_gold.ProjectorProducerIdentityTests.test_native_unknown_versions_and_fabricated_producers_rejected) ... ok
+test_smartart_current_012_exact_producer_allowed (f11a_regression_gold.ProjectorProducerIdentityTests.test_smartart_current_012_exact_producer_allowed) ... FAIL
+test_smartart_historical_versions_and_support_preserved (f11a_regression_gold.ProjectorProducerIdentityTests.test_smartart_historical_versions_and_support_preserved) ... ok
+test_smartart_current_012_support_is_verified (f11a_regression_gold.ProjectorProducerIdentityTests.test_smartart_current_012_support_is_verified) ... FAIL
+test_smartart_unknown_versions_and_fabricated_producers_rejected (f11a_regression_gold.ProjectorProducerIdentityTests.test_smartart_unknown_versions_and_fabricated_producers_rejected) ... ok
+test_smartart_current_012_mismatched_support_rejected (f11a_regression_gold.ProjectorProducerIdentityTests.test_smartart_current_012_mismatched_support_rejected) ... 
+  test_smartart_current_012_mismatched_support_rejected (f11a_regression_gold.ProjectorProducerIdentityTests.test_smartart_current_012_mismatched_support_rejected) (version='0.12.0', case='support text') ... FAIL
+  test_smartart_current_012_mismatched_support_rejected (f11a_regression_gold.ProjectorProducerIdentityTests.test_smartart_current_012_mismatched_support_rejected) (version='0.12.0', case='raw srcId') ... FAIL
+  test_smartart_current_012_mismatched_support_rejected (f11a_regression_gold.ProjectorProducerIdentityTests.test_smartart_current_012_mismatched_support_rejected) (version='0.12.0', case='support locator') ... FAIL
+  test_smartart_current_012_mismatched_support_rejected (f11a_regression_gold.ProjectorProducerIdentityTests.test_smartart_current_012_mismatched_support_rejected) (version='0.12.0', case='support document') ... FAIL
+test_smartart_historical_mismatched_support_rejected (f11a_regression_gold.ProjectorProducerIdentityTests.test_smartart_historical_mismatched_support_rejected) ... ok
+F05b explicit fixture budget: {"explicit_test_bytes": 0, "explicit_test_writes": 0, "max_source_fixture_bytes": 0, "source_fixture_count": 0}
+
+======================================================================
+FAIL: test_native_current_012_exact_types_allowed (f11a_regression_gold.ProjectorProducerIdentityTests.test_native_current_012_exact_types_allowed) (relation_type='contains')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/design/local-memory-v1-hardening/runs/f11a-app-regression-gold.v1.py", line 165, in test_native_current_012_exact_types_allowed
+    self.assertIs(True, index_builder._is_explicit_verified_structural(value))
+    ~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: True is not False
+
+======================================================================
+FAIL: test_native_current_012_exact_types_allowed (f11a_regression_gold.ProjectorProducerIdentityTests.test_native_current_012_exact_types_allowed) (relation_type='section_contains')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/design/local-memory-v1-hardening/runs/f11a-app-regression-gold.v1.py", line 165, in test_native_current_012_exact_types_allowed
+    self.assertIs(True, index_builder._is_explicit_verified_structural(value))
+    ~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: True is not False
+
+======================================================================
+FAIL: test_smartart_current_012_exact_producer_allowed (f11a_regression_gold.ProjectorProducerIdentityTests.test_smartart_current_012_exact_producer_allowed)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/design/local-memory-v1-hardening/runs/f11a-app-regression-gold.v1.py", line 198, in test_smartart_current_012_exact_producer_allowed
+    self.assertIs(True, index_builder._is_explicit_verified_structural(smartart("0.12.0")))
+    ~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: True is not False
+
+======================================================================
+FAIL: test_smartart_current_012_support_is_verified (f11a_regression_gold.ProjectorProducerIdentityTests.test_smartart_current_012_support_is_verified)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/design/local-memory-v1-hardening/runs/f11a-app-regression-gold.v1.py", line 208, in test_smartart_current_012_support_is_verified
+    self.assertEqual(("accepted", None), support_outcome(smartart("0.12.0"), smartart_evidence()))
+    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: Tuples differ: ('accepted', None) != ('rejected', 'graph_smartart_relation_contract_invalid')
+
+First differing element 0:
+'accepted'
+'rejected'
+
+- ('accepted', None)
++ ('rejected', 'graph_smartart_relation_contract_invalid')
+
+======================================================================
+FAIL: test_smartart_current_012_mismatched_support_rejected (f11a_regression_gold.ProjectorProducerIdentityTests.test_smartart_current_012_mismatched_support_rejected) (version='0.12.0', case='support text')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/design/local-memory-v1-hardening/runs/f11a-app-regression-gold.v1.py", line 249, in assert_support_tampering_rejected
+    self.assertEqual(
+    ~~~~~~~~~~~~~~~~^
+        ("rejected", "graph_smartart_support_binding_invalid"),
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+        support_outcome(candidate, candidate_evidence),
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    )
+    ^
+AssertionError: Tuples differ: ('rejected', 'graph_smartart_support_binding_invalid') != ('rejected', 'graph_smartart_relation_contract_invalid')
+
+First differing element 1:
+'graph_smartart_support_binding_invalid'
+'graph_smartart_relation_contract_invalid'
+
+- ('rejected', 'graph_smartart_support_binding_invalid')
+?                              ^^^^   --------
+
++ ('rejected', 'graph_smartart_relation_contract_invalid')
+?                              ^^^^^^ ++++++ ++
+
+
+======================================================================
+FAIL: test_smartart_current_012_mismatched_support_rejected (f11a_regression_gold.ProjectorProducerIdentityTests.test_smartart_current_012_mismatched_support_rejected) (version='0.12.0', case='raw srcId')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/design/local-memory-v1-hardening/runs/f11a-app-regression-gold.v1.py", line 249, in assert_support_tampering_rejected
+    self.assertEqual(
+    ~~~~~~~~~~~~~~~~^
+        ("rejected", "graph_smartart_support_binding_invalid"),
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+        support_outcome(candidate, candidate_evidence),
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    )
+    ^
+AssertionError: Tuples differ: ('rejected', 'graph_smartart_support_binding_invalid') != ('rejected', 'graph_smartart_relation_contract_invalid')
+
+First differing element 1:
+'graph_smartart_support_binding_invalid'
+'graph_smartart_relation_contract_invalid'
+
+- ('rejected', 'graph_smartart_support_binding_invalid')
+?                              ^^^^   --------
+
++ ('rejected', 'graph_smartart_relation_contract_invalid')
+?                              ^^^^^^ ++++++ ++
+
+
+======================================================================
+FAIL: test_smartart_current_012_mismatched_support_rejected (f11a_regression_gold.ProjectorProducerIdentityTests.test_smartart_current_012_mismatched_support_rejected) (version='0.12.0', case='support locator')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/design/local-memory-v1-hardening/runs/f11a-app-regression-gold.v1.py", line 249, in assert_support_tampering_rejected
+    self.assertEqual(
+    ~~~~~~~~~~~~~~~~^
+        ("rejected", "graph_smartart_support_binding_invalid"),
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+        support_outcome(candidate, candidate_evidence),
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    )
+    ^
+AssertionError: Tuples differ: ('rejected', 'graph_smartart_support_binding_invalid') != ('rejected', 'graph_smartart_relation_contract_invalid')
+
+First differing element 1:
+'graph_smartart_support_binding_invalid'
+'graph_smartart_relation_contract_invalid'
+
+- ('rejected', 'graph_smartart_support_binding_invalid')
+?                              ^^^^   --------
+
++ ('rejected', 'graph_smartart_relation_contract_invalid')
+?                              ^^^^^^ ++++++ ++
+
+
+======================================================================
+FAIL: test_smartart_current_012_mismatched_support_rejected (f11a_regression_gold.ProjectorProducerIdentityTests.test_smartart_current_012_mismatched_support_rejected) (version='0.12.0', case='support document')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/design/local-memory-v1-hardening/runs/f11a-app-regression-gold.v1.py", line 249, in assert_support_tampering_rejected
+    self.assertEqual(
+    ~~~~~~~~~~~~~~~~^
+        ("rejected", "graph_smartart_support_binding_invalid"),
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+        support_outcome(candidate, candidate_evidence),
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    )
+    ^
+AssertionError: Tuples differ: ('rejected', 'graph_smartart_support_binding_invalid') != ('rejected', 'graph_smartart_relation_contract_invalid')
+
+First differing element 1:
+'graph_smartart_support_binding_invalid'
+'graph_smartart_relation_contract_invalid'
+
+- ('rejected', 'graph_smartart_support_binding_invalid')
+?                              ^^^^   --------
+
++ ('rejected', 'graph_smartart_relation_contract_invalid')
+?                              ^^^^^^ ++++++ ++
+
+
+----------------------------------------------------------------------
+Ran 9 tests in 0.002s
+
+FAILED (failures=8)

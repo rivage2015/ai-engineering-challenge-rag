@@ -1,0 +1,12 @@
+test_deferred_first_image_child_survives_second_image (f11a_additional_gold.NotebookVisualAdditionalGold) ... ok
+test_actual_unlocated_transcript_keeps_literal_child_shape (f11a_additional_gold.NotebookVisualAdditionalGold) ... ok
+test_attachment_encoded_prefix_keeps_native_metadata_separate (f11a_additional_gold.NotebookVisualAdditionalGold) ... ok
+test_markdown_data_uri_prefix_keeps_existing_text_transform (f11a_additional_gold.NotebookVisualAdditionalGold) ... ok
+test_missing_and_cross_document_visual_parent_are_rejected (f11a_additional_gold.NotebookVisualAdditionalGold) ... ok
+test_non_notebook_origin_contract_keeps_exact_existing_behavior (f11a_additional_gold.NotebookVisualAdditionalGold) ... ok
+F05b explicit fixture budget: {"explicit_test_bytes": 230181, "explicit_test_writes": 49, "max_source_fixture_bytes": 712, "source_fixture_count": 6}
+
+----------------------------------------------------------------------
+Ran 6 tests in 0.225s
+
+OK

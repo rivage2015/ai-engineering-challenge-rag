@@ -1,0 +1,789 @@
+"""Literal F11a metadata-only contract; execute only in the reviewed guard.
+
+The historical fixture is fictional inert text. Expected state objects below
+are hand-written, never produced by the implementation being checked. Source
+text correspondence/full membership/freshness are intentionally not certified.
+"""
+from __future__ import annotations
+
+import copy
+import hashlib
+import json
+from pathlib import Path
+import sys
+import tempfile
+import unittest
+
+
+ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT / "scripts"))
+
+import probe_intermediate_records as records
+import build_search_units as search_builder
+import validate_intermediate_records as native_validator
+import validate_intermediate_records_streaming as stream_validator
+
+
+RUN_AT = "2026-09-09T00:00:00+00:00"
+FIXTURE = ROOT / "design/local-memory-v1-hardening/runs/f11-next-fixture.v1.ipynb"
+FIXTURE_SHA256 = "123ff664e24f2cea7c3caac841e139f8574e7b2f9667701dd16e63f5086d80ad"
+EXPECTED_COUNTS = {"document": 1, "evidence": 6, "relation": 6}
+GOLD_STATES = [
+    {
+        "version": "1.0", "cell_index": 1, "cell_type": "code",
+        "content_origin": "cell_source", "source_json_pointer": "/cells/0",
+        "reader_execution": "not_executed",
+        "cell_execution_count": {"present": True, "value": 7},
+    },
+    {
+        "version": "1.0", "cell_index": 1, "cell_type": "code",
+        "content_origin": "saved_output", "source_json_pointer": "/cells/0/outputs/0",
+        "reader_execution": "not_executed",
+        "cell_execution_count": {"present": True, "value": 7},
+        "output_index": 1, "output_type": "execute_result",
+        "output_execution_count": {"present": True, "value": 6},
+        "output_freshness": "unverified",
+    },
+    {
+        "version": "1.0", "cell_index": 2, "cell_type": "code",
+        "content_origin": "cell_source", "source_json_pointer": "/cells/1",
+        "reader_execution": "not_executed",
+        "cell_execution_count": {"present": True, "value": 2},
+    },
+    {
+        "version": "1.0", "cell_index": 2, "cell_type": "code",
+        "content_origin": "saved_output", "source_json_pointer": "/cells/1/outputs/0",
+        "reader_execution": "not_executed",
+        "cell_execution_count": {"present": True, "value": 2},
+        "output_index": 1, "output_type": "stream",
+        "output_execution_count": {"present": False},
+        "output_freshness": "unverified",
+    },
+    {
+        "version": "1.0", "cell_index": 3, "cell_type": "code",
+        "content_origin": "saved_output", "source_json_pointer": "/cells/2/outputs/0",
+        "reader_execution": "not_executed",
+        "cell_execution_count": {"present": True, "value": None},
+        "output_index": 1, "output_type": "display_data",
+        "output_execution_count": {"present": False},
+        "output_freshness": "unverified",
+    },
+    {
+        "version": "1.0", "cell_index": 4, "cell_type": "markdown",
+        "content_origin": "cell_source", "source_json_pointer": "/cells/3",
+        "reader_execution": "not_executed",
+        "cell_execution_count": {"present": False},
+    },
+]
+GOLD_TEXTS = [
+    "raise RuntimeError('F11 source must never execute')\n",
+    "saved value A", "print('saved value B')\n", "saved value B\n",
+    "saved value C", "F11 synthetic note",
+]
+GOLD_LOCATIONS = [
+    {"notebook_cell_index": 1, "locator_text": "cell=1"},
+    {"notebook_cell_index": 1, "object_index": 1, "locator_text": "cell=1;output=1"},
+    {"notebook_cell_index": 2, "locator_text": "cell=2"},
+    {"notebook_cell_index": 2, "object_index": 1, "locator_text": "cell=2;output=1"},
+    {"notebook_cell_index": 3, "object_index": 1, "locator_text": "cell=3;output=1"},
+    {"notebook_cell_index": 4, "locator_text": "cell=4"},
+]
+GOLD_REPORT = {
+    "status": "PASS", "counts": {"document": 1, "evidence": 6, "relation": 6},
+    "notebook_metadata_binding": {
+        "status": "verified", "documents": 1, "checked_evidence": 6,
+        "unchecked_evidence": 0, "reason_codes": [],
+        "scope": {"raw_text_binding": "not_verified",
+                  "complete_membership": "not_verified",
+                  "output_freshness": "not_verified"},
+    },
+}
+
+
+def canonical(value):
+    return json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"), allow_nan=False)
+
+
+class NotebookMetadataBindingTests(unittest.TestCase):
+    """Initial existing-API semantic RED batch (G1/G2/G3/G6)."""
+
+    def setUp(self):
+        temporary = tempfile.TemporaryDirectory(prefix="f11a-metadata-")
+        self.addCleanup(temporary.cleanup)
+        self.base = Path(temporary.name)
+        self.source = self.base / "source"
+        self.source.mkdir()
+        self.fixture_bytes = FIXTURE.read_bytes()
+        self.assertEqual(hashlib.sha256(self.fixture_bytes).hexdigest(), FIXTURE_SHA256)
+        self.assertLessEqual(len(self.fixture_bytes), 16384)
+        self.path = self.source / "saved.ipynb"
+        self.path.write_bytes(self.fixture_bytes)
+        self.probe = records.Probe(
+            self.source, RUN_AT, None, diagnostic=False,
+            visual_observation_mode="suppressed",
+        )
+        self.probe.extract(self.path)
+        self.addCleanup(lambda: self.assertEqual(self.path.read_bytes(), self.fixture_bytes))
+        self.addCleanup(lambda: self.assertEqual(FIXTURE.read_bytes(), self.fixture_bytes))
+
+    def install_literal_states(self):
+        self.assertEqual(len(self.probe.evidence), 6)
+        for evidence, expected in zip(self.probe.evidence, GOLD_STATES):
+            evidence.setdefault("native_properties", {})["notebook_state"] = copy.deepcopy(expected)
+
+    def validate_existing(self, mode, directory):
+        if mode == "native":
+            return native_validator.validate(directory, self.source)
+        return stream_validator.validate(
+            directory, self.source, published_schema=(mode == "schema"),
+        )
+
+    def assert_metadata_rejected(self, mode, mutation):
+        self.install_literal_states()
+        directory = self.base / "intermediate"
+        self.probe.write(directory)
+        self.assertEqual(self.validate_existing(mode, directory), EXPECTED_COUNTS)
+        before_ids = [item["evidence_id"] for item in self.probe.evidence]
+        before_content = copy.deepcopy([item["content"] for item in self.probe.evidence])
+        state = self.probe.evidence[0]["native_properties"]
+        if mutation == "missing":
+            del state["notebook_state"]
+        else:
+            # Still schema-valid; counts do not participate in Evidence IDs.
+            state["notebook_state"]["cell_execution_count"]["value"] = 17
+        self.probe.write(directory)
+        self.assertEqual([item["evidence_id"] for item in self.probe.evidence], before_ids)
+        self.assertEqual([item["content"] for item in self.probe.evidence], before_content)
+        with self.assertRaisesRegex(ValueError, "notebook"):
+            self.validate_existing(mode, directory)
+
+    def test_g1_probe_emits_literal_six_states_and_preserves_source(self):
+        self.assertEqual(len(self.probe.documents), 1)
+        self.assertEqual(len(self.probe.evidence), 6)
+        self.assertEqual(len(self.probe.relations), 6)
+        self.assertEqual([item["content"]["raw_text"] for item in self.probe.evidence], GOLD_TEXTS)
+        self.assertEqual([item["location"] for item in self.probe.evidence], GOLD_LOCATIONS)
+        self.assertEqual([item["ordinal"] for item in self.probe.evidence], [1, 1, 2, 1, 1, 4])
+        self.assertEqual(self.probe.documents[0]["source"]["sha256"], FIXTURE_SHA256)
+        expected_content_hashes = [hashlib.sha256(canonical({"raw_text": text}).encode("utf-8")).hexdigest() for text in GOLD_TEXTS]
+        self.assertEqual([item["content"]["sha256"] for item in self.probe.evidence], expected_content_hashes)
+        actual = [item.get("native_properties", {}).get("notebook_state") for item in self.probe.evidence]
+        self.assertEqual(canonical(actual), canonical(GOLD_STATES))
+
+    def test_g2_missing_state_rejected_native(self):
+        self.assert_metadata_rejected("native", "missing")
+
+    def test_g2_missing_state_rejected_stream_schema(self):
+        self.assert_metadata_rejected("schema", "missing")
+
+    def test_g2_missing_state_rejected_stream_structural(self):
+        self.assert_metadata_rejected("structural", "missing")
+
+    def test_g2_shape_valid_wrong_count_rejected_native(self):
+        self.assert_metadata_rejected("native", "wrong_count")
+
+    def test_g2_shape_valid_wrong_count_rejected_stream_schema(self):
+        self.assert_metadata_rejected("schema", "wrong_count")
+
+    def test_g2_shape_valid_wrong_count_rejected_stream_structural(self):
+        self.assert_metadata_rejected("structural", "wrong_count")
+
+    def test_g3_direct_search_copies_all_six_literal_states(self):
+        self.install_literal_states()
+        before = copy.deepcopy(self.probe.evidence)
+        units = []
+        deriver = search_builder.DocumentDeriver(
+            self.probe.documents[0]["document_id"], RUN_AT, units.append, 1200,
+        )
+        for evidence in self.probe.evidence:
+            deriver.consume(evidence)
+        self.assertEqual(deriver.finish(), {"notebook_cell": 3, "text_chunk": 3})
+        self.assertEqual(len(units), 6)
+        self.assertEqual([item["text"]["search_text"] for item in units], [text.strip() for text in GOLD_TEXTS])
+        self.assertEqual([item["locator"] for item in units], GOLD_LOCATIONS)
+        self.assertEqual([item["source_evidence_ids"] for item in units], [[item["evidence_id"]] for item in before])
+        self.assertEqual(self.probe.evidence, before)
+        actual = [item.get("context", {}).get("notebook_state") for item in units]
+        self.assertEqual(canonical(actual), canonical(GOLD_STATES))
+
+    def test_g6_non_notebook_retains_exact_old_counts(self):
+        path = self.source / "plain.txt"
+        path.write_text("fictional plain text\n", encoding="utf-8")
+        probe = records.Probe(self.source, RUN_AT, None, diagnostic=False,
+                              visual_observation_mode="suppressed")
+        probe.extract(path)
+        directory = self.base / "plain-intermediate"
+        probe.write(directory)
+        expected = {"document": 1, "evidence": 1, "relation": 1}
+        self.assertEqual(native_validator.validate(directory), expected)
+        self.assertEqual(stream_validator.validate(directory), expected)
+        self.assertEqual(stream_validator.validate(directory, published_schema=False), expected)
+
+
+class NotebookMetadataPostAPITests(unittest.TestCase):
+    """Additional preimplementation gold; API absence is not semantic RED."""
+
+    setUp = NotebookMetadataBindingTests.setUp
+    install_literal_states = NotebookMetadataBindingTests.install_literal_states
+
+    def reports(self, probe, label, source_root=True):
+        directory = self.base / label
+        probe.write(directory)
+        root = self.source if source_root else None
+        return [
+            native_validator.validate_report(directory, root),
+            stream_validator.validate_report(directory, root),
+            stream_validator.validate_report(directory, root, published_schema=False),
+        ]
+
+    def assert_reports(self, probe, label, expected, source_root=True):
+        values = self.reports(probe, label, source_root)
+        for mode, value in zip(("native", "stream-schema", "stream-structural"), values):
+            with self.subTest(mode=mode):
+                self.assertEqual(canonical(value), canonical(expected))
+
+    def expected_report(self, *, counts=None, checked=6, unchecked=0, reasons=(), documents=1):
+        # This formats explicit test parameters; it never inspects a source,
+        # producer result, or implementation helper to choose expected facts.
+        expected = copy.deepcopy(GOLD_REPORT)
+        if counts is not None:
+            expected["counts"] = counts
+        binding = expected["notebook_metadata_binding"]
+        binding.update(documents=documents, checked_evidence=checked,
+                       unchecked_evidence=unchecked, reason_codes=sorted(reasons))
+        if reasons:
+            expected["status"] = "UNVERIFIED"
+            binding["status"] = "unverified"
+        elif not documents:
+            binding["status"] = "not_applicable"
+        return expected
+
+    def variant(self, cells, label="variant", raw=None):
+        path = self.source / (label + ".ipynb")
+        payload = raw if raw is not None else canonical({"cells": cells}).encode("utf-8")
+        self.assertLessEqual(len(payload), 16384)
+        path.write_bytes(payload)
+        probe = records.Probe(self.source, RUN_AT, None, diagnostic=False,
+                              visual_observation_mode="suppressed")
+        probe.extract(path)
+        self.assertEqual(path.read_bytes(), payload)
+        return probe, path
+
+    def reject_all(self, probe, label, *, source_root=True, pattern="notebook"):
+        directory = self.base / label
+        probe.write(directory)
+        root = self.source if source_root else None
+        for mode in ("native", "schema", "structural"):
+            with self.subTest(mode=mode):
+                with self.assertRaisesRegex(ValueError, pattern):
+                    if mode == "native":
+                        native_validator.validate_report(directory, root)
+                    else:
+                        stream_validator.validate_report(directory, root, published_schema=(mode == "schema"))
+
+    def reseal_evidence(self, probe):
+        """Recompute documented public IDs, not metadata expectations."""
+        replacements = {}
+        for item in probe.evidence:
+            old = item["evidence_id"]
+            identity = {"document_id": item["document_id"],
+                        "evidence_type": item["evidence_type"],
+                        "location": item["location"],
+                        "content_sha256": item["content"]["sha256"]}
+            item["evidence_id"] = "ev_" + hashlib.sha256(canonical(identity).encode()).hexdigest()[:32]
+            replacements[old] = item["evidence_id"]
+        for item in probe.relations:
+            for key in ("from_ref", "to_ref"):
+                ref = item[key]
+                ref["record_id"] = replacements.get(ref["record_id"], ref["record_id"])
+            if "supporting_evidence_ids" in item:
+                item["supporting_evidence_ids"] = [replacements.get(value, value) for value in item["supporting_evidence_ids"]]
+            identity = {"class": item["relation_class"], "type": item["relation_type"],
+                        "from": item["from_ref"], "to": item["to_ref"],
+                        "generator": item["provenance"]["generated_by"],
+                        "generator_version": item["provenance"]["generator_version"]}
+            item["relation_id"] = "rel_" + hashlib.sha256(canonical(identity).encode()).hexdigest()[:32]
+
+    def search_fixture(self, probe, label="search"):
+        # A synthetic Search input contract, not a managed Reader-success claim.
+        intermediate = self.base / (label + "-input")
+        probe.write(intermediate)
+        evidence_path = intermediate / "evidence.jsonl"
+        document_id = probe.documents[0]["document_id"]
+        relative = probe.documents[0]["source"]["relative_path"]
+        state = {
+            "build_status": "complete", "run_at": RUN_AT,
+            "extractor": "intermediate-record-probe", "extractor_version": records.EXTRACTOR_VERSION,
+            "input_paths": [relative], "entries": {relative: {
+                "document_id": document_id, "shards": {"evidence": {
+                    "relative_path": "evidence.jsonl",
+                    "sha256": hashlib.sha256(evidence_path.read_bytes()).hexdigest(),
+                }},
+            }},
+        }
+        (intermediate / "build-state.json").write_text(canonical(state) + "\n", encoding="utf-8")
+        output = self.base / label
+        search_builder.build(intermediate, output, 1200)
+        return intermediate, output
+
+    def reseal_units(self, output, units):
+        path = output / "search_units.jsonl"
+        payload = "".join(canonical(item) + "\n" for item in units).encode("utf-8")
+        path.write_bytes(payload)
+        state_path = output / "search-build-state.json"
+        state = json.loads(state_path.read_text(encoding="utf-8"))
+        state["output"].update(sha256=hashlib.sha256(payload).hexdigest(), size_bytes=len(payload))
+        state_path.write_text(canonical(state) + "\n", encoding="utf-8")
+
+    def test_g1_exact_metadata_only_report_three_paths(self):
+        self.assert_reports(self.probe, "literal-report", GOLD_REPORT)
+
+    def test_g1_equal_zero_null_raw_and_multiple_outputs(self):
+        cells = [
+            {"cell_type": "code", "execution_count": 0, "source": "zero\n", "outputs": [
+                {"output_type": "execute_result", "execution_count": 0, "data": {"text/plain": "equal"}},
+                {"output_type": "stream", "execution_count": None, "text": "null-output"},
+            ]},
+            {"cell_type": "raw", "source": "raw\n"},
+            {"cell_type": "code", "execution_count": None, "source": "null-source", "outputs": []},
+            {"cell_type": "markdown", "source": "note"},
+        ]
+        expected = [
+            {"version": "1.0", "cell_index": 1, "cell_type": "code", "content_origin": "cell_source",
+             "source_json_pointer": "/cells/0", "reader_execution": "not_executed",
+             "cell_execution_count": {"present": True, "value": 0}},
+            {"version": "1.0", "cell_index": 1, "cell_type": "code", "content_origin": "saved_output",
+             "source_json_pointer": "/cells/0/outputs/0", "reader_execution": "not_executed",
+             "cell_execution_count": {"present": True, "value": 0}, "output_index": 1,
+             "output_type": "execute_result", "output_execution_count": {"present": True, "value": 0},
+             "output_freshness": "unverified"},
+            {"version": "1.0", "cell_index": 1, "cell_type": "code", "content_origin": "saved_output",
+             "source_json_pointer": "/cells/0/outputs/1", "reader_execution": "not_executed",
+             "cell_execution_count": {"present": True, "value": 0}, "output_index": 2,
+             "output_type": "stream", "output_execution_count": {"present": True, "value": None},
+             "output_freshness": "unverified"},
+            {"version": "1.0", "cell_index": 2, "cell_type": "raw", "content_origin": "cell_source",
+             "source_json_pointer": "/cells/1", "reader_execution": "not_executed",
+             "cell_execution_count": {"present": False}},
+            {"version": "1.0", "cell_index": 3, "cell_type": "code", "content_origin": "cell_source",
+             "source_json_pointer": "/cells/2", "reader_execution": "not_executed",
+             "cell_execution_count": {"present": True, "value": None}},
+            {"version": "1.0", "cell_index": 4, "cell_type": "markdown", "content_origin": "cell_source",
+             "source_json_pointer": "/cells/3", "reader_execution": "not_executed",
+             "cell_execution_count": {"present": False}},
+        ]
+        probe, _ = self.variant(cells)
+        self.assertEqual(canonical([item["native_properties"]["notebook_state"] for item in probe.evidence]), canonical(expected))
+        self.assertEqual([item["ordinal"] for item in probe.evidence], [1, 1, 2, 2, 3, 4])
+        self.assert_reports(probe, "var-report", GOLD_REPORT)
+
+    def test_g1_long_text_retains_one_direct_unit_and_whitespace_emits_none(self):
+        source, output = "s" * 4000 + "\n", "o" * 4000 + "\n"
+        probe, _ = self.variant([
+            {"cell_type": "code", "execution_count": 1, "source": source,
+             "outputs": [{"output_type": "stream", "text": output}]},
+            {"cell_type": "raw", "source": "  \n\t"},
+        ], "long")
+        self.assertEqual([item["content"]["raw_text"] for item in probe.evidence], [source, output, "  \n\t"])
+        self.assertTrue(all(item["content"]["is_truncated"] is False for item in probe.evidence))
+        units = []
+        deriver = search_builder.DocumentDeriver(probe.documents[0]["document_id"], RUN_AT, units.append, 1200)
+        for item in probe.evidence:
+            deriver.consume(item)
+        self.assertEqual(deriver.finish(), {"notebook_cell": 1, "text_chunk": 1})
+        self.assertEqual([item["text"]["search_text"] for item in units], ["s" * 4000, "o" * 4000])
+        self.assertEqual([item["context"]["notebook_state"]["cell_index"] for item in units], [1, 1])
+        self.assert_reports(probe, "long-report", self.expected_report(
+            counts={"document": 1, "evidence": 3, "relation": 3}, checked=3))
+
+    def test_g2_wrong_pointer_role_locator_ordinal_and_bool_fail(self):
+        self.install_literal_states()
+        self.assert_reports(self.probe, "mut-good", GOLD_REPORT)
+        original = copy.deepcopy(self.probe.evidence)
+        original_relations = copy.deepcopy(self.probe.relations)
+        mutations = (
+            ("pointer", lambda item: item["native_properties"]["notebook_state"].update(source_json_pointer="/cells/1")),
+            ("role", lambda item: item.update(evidence_type="text_block")),
+            ("type-optout", lambda item: item.update(evidence_type="paragraph")),
+            ("locator", lambda item: item["location"].update(notebook_cell_index=2, locator_text="cell=2")),
+            ("ordinal", lambda item: item.update(ordinal=2)),
+            ("bool-index", lambda item: item["native_properties"]["notebook_state"].update(cell_index=True)),
+            ("bool-count", lambda item: item["native_properties"]["notebook_state"]["cell_execution_count"].update(value=True)),
+        )
+        for label, mutation in mutations:
+            with self.subTest(mutation=label):
+                self.probe.evidence = copy.deepcopy(original)
+                self.probe.relations = copy.deepcopy(original_relations)
+                mutation(self.probe.evidence[0])
+                self.reseal_evidence(self.probe)
+                self.reject_all(self.probe, "mut-" + label)
+
+    def test_g2_parser_extension_and_state_omission_cannot_opt_out(self):
+        self.install_literal_states()
+        self.assert_reports(self.probe, "optout-good", GOLD_REPORT)
+        self.probe.documents[0]["extraction"]["parser"] = "bounded-text-stream"
+        self.assert_reports(self.probe, "parser-name-only", GOLD_REPORT)
+        del self.probe.evidence[0]["native_properties"]["notebook_state"]
+        self.reject_all(self.probe, "parser-omission")
+        self.install_literal_states()
+        self.probe.documents[0]["source"]["extension"] = "txt"
+        self.reject_all(self.probe, "extension-contradiction")
+
+    def test_g2_unrelated_text_state_injection_rejected(self):
+        path = self.source / "ordinary.txt"
+        path.write_text("ordinary fictional text", encoding="utf-8")
+        probe = records.Probe(self.source, RUN_AT, None, diagnostic=False, visual_observation_mode="suppressed")
+        probe.extract(path)
+        probe.evidence[0].setdefault("native_properties", {})["notebook_state"] = copy.deepcopy(GOLD_STATES[0])
+        self.reject_all(probe, "unrelated")
+
+    def test_g3_same_id_context_mutations_rejected_by_both_search_validators(self):
+        import validate_search_units as search_native
+        import validate_search_units_streaming as search_stream
+        self.install_literal_states()
+        intermediate, output = self.search_fixture(self.probe)
+        expected = {"records": 6, "counts_by_type": {"notebook_cell": 3, "text_chunk": 3}}
+        self.assertEqual(search_native.validate(output, intermediate), expected)
+        self.assertEqual(search_stream.validate(output, intermediate), expected)
+        original = [json.loads(line) for line in (output / "search_units.jsonl").read_text().splitlines()]
+        source_index = next(index for index, item in enumerate(original) if item["locator"]["locator_text"] == "cell=1")
+        for mutation in ("count", "pointer", "missing", "bool"):
+            units = copy.deepcopy(original)
+            selected = units[source_index]
+            state = selected["context"]["notebook_state"]
+            if mutation == "count":
+                state["cell_execution_count"]["value"] = 17
+            elif mutation == "pointer":
+                state["source_json_pointer"] = "/cells/1"
+            elif mutation == "bool":
+                state["cell_index"] = True
+            else:
+                del selected["context"]["notebook_state"]
+            self.assertEqual([item["search_unit_id"] for item in units], [item["search_unit_id"] for item in original])
+            self.reseal_units(output, units)
+            for validator in (search_native, search_stream):
+                with self.subTest(mutation=mutation, validator=validator.__name__):
+                    with self.assertRaisesRegex(ValueError, "notebook"):
+                        validator.validate(output, intermediate)
+
+    def test_g4_invalid_count_types_and_malformed_json_raise_controlled_errors(self):
+        for index, value in enumerate((False, -1, 1.0, "7")):
+            with self.subTest(count=value):
+                with self.assertRaisesRegex(ValueError, "notebook"):
+                    self.variant([{"cell_type": "code", "execution_count": value, "source": "x", "outputs": []}], "bad-count-" + str(index))
+        invalid = [
+            b'{"cells":[],"cells":[]}', b'{"cells":[],"metadata":{"x":NaN}}',
+            b'{"cells":[],"metadata":{"x":Infinity}}', b'{"cells":[],"metadata":{"x":1e309}}',
+            b'{"cells":[]}\x81', b'{"cells":{}}', b'{"cells":[null]}',
+            b'{"cells":[{"cell_type":"raw","source":[1]}]}',
+            b'{"cells":[{"cell_type":"code","execution_count":0,"source":"x","outputs":{}}]}',
+        ]
+        for index, raw in enumerate(invalid):
+            with self.subTest(invalid=index):
+                with self.assertRaisesRegex(ValueError, "notebook"):
+                    self.variant([], "bad-json-" + str(index), raw=raw)
+
+    def test_g4_byte_token_depth_and_number_limits_precede_parse(self):
+        from unittest import mock
+        # Exactly 9 lexical tokens and depth 4. Brackets/quotes/backslashes
+        # inside the source string must not add tokens or nesting.
+        raw = canonical({"cells": [{"cell_type": "raw", "source": ['[]{} " \\']}] }).encode()
+        counts = {"document": 1, "evidence": 1, "relation": 1}
+        expected_ok = self.expected_report(counts=counts, checked=1)
+        expected_limit = self.expected_report(counts=counts, checked=0, unchecked=1,
+            reasons=("notebook_metadata_resource_limit", "notebook_state_unparsed",
+                     "notebook_extraction_incomplete", "no_textual_records_checked"))
+        cases = (
+            ("bytes", "MAX_NOTEBOOK_METADATA_BYTES", len(raw), len(raw) - 1),
+            ("tokens", "MAX_NOTEBOOK_JSON_TOKENS", 9, 8),
+            ("depth", "MAX_NOTEBOOK_JSON_DEPTH", 4, 3),
+        )
+        for label, seam, inside, outside in cases:
+            with mock.patch.object(records, seam, inside):
+                probe, _ = self.variant([], label + "-inside", raw=raw)
+                self.assert_reports(probe, label + "-inside-report", expected_ok)
+            with mock.patch.object(records, seam, outside):
+                probe, _ = self.variant([], label + "-outside", raw=raw)
+                self.assertEqual(probe.documents[0]["extraction"]["status"], "partial")
+                self.assertTrue(all("notebook_state" not in item.get("native_properties", {}) for item in probe.evidence))
+                self.assert_reports(probe, label + "-outside-report", expected_limit)
+        number_raw = b'{"cells":[{"cell_type":"raw","source":"n"}],"metadata":{"n":12}}'
+        with mock.patch.object(records, "MAX_NOTEBOOK_NUMBER_CHARS", 2):
+            probe, _ = self.variant([], "number-inside", raw=number_raw)
+            self.assert_reports(probe, "number-inside-report", expected_ok)
+        with mock.patch.object(records, "MAX_NOTEBOOK_NUMBER_CHARS", 1):
+            probe, _ = self.variant([], "number-outside", raw=number_raw)
+            self.assert_reports(probe, "number-outside-report", expected_limit)
+
+    def test_g4_source_mismatch_and_missing_file_are_failures(self):
+        self.install_literal_states()
+        self.assert_reports(self.probe, "source-good", GOLD_REPORT)
+        self.probe.documents[0]["source"]["size_bytes"] += 1
+        self.reject_all(self.probe, "size-mismatch", pattern="source")
+        self.probe.documents[0]["source"]["size_bytes"] -= 1
+        changed = self.fixture_bytes.replace(b'"execution_count": 7', b'"execution_count": 8', 1)
+        self.path.write_bytes(changed)
+        try:
+            self.reject_all(self.probe, "digest-mismatch", pattern="source")
+        finally:
+            self.path.write_bytes(self.fixture_bytes)
+        moved = self.source / "held.ipynb"
+        self.path.rename(moved)
+        try:
+            self.reject_all(self.probe, "missing-source", pattern="source")
+        finally:
+            moved.rename(self.path)
+
+    def test_g4_each_validation_uses_one_bounded_source_snapshot(self):
+        from unittest import mock
+        self.install_literal_states()
+        directory = self.base / "single-read"
+        self.probe.write(directory)
+        original_open = Path.open
+        calls = []
+        class ReadGuard:
+            def __init__(self, handle):
+                self.handle = handle
+            def __enter__(self):
+                self.handle.__enter__()
+                return self
+            def __exit__(self, *args):
+                return self.handle.__exit__(*args)
+            def read(self, size=-1):
+                if not 0 <= size <= records.MAX_NOTEBOOK_METADATA_BYTES + 1:
+                    raise AssertionError("Notebook read was unbounded")
+                return self.handle.read(size)
+            def __getattr__(self, name):
+                return getattr(self.handle, name)
+        def opening(path, *args, **kwargs):
+            handle = original_open(path, *args, **kwargs)
+            if path == self.path:
+                calls.append(str(path))
+                return ReadGuard(handle)
+            return handle
+        for mode in ("native", "schema", "structural"):
+            calls.clear()
+            with mock.patch.object(Path, "open", opening):
+                value = (native_validator.validate_report(directory, self.source) if mode == "native" else
+                         stream_validator.validate_report(directory, self.source, published_schema=(mode == "schema")))
+            self.assertEqual(canonical(value), canonical(GOLD_REPORT))
+            self.assertEqual(calls, [str(self.path)])
+
+    def switch_snapshot(self, action):
+        """Return A from the first read, then place B at the same path."""
+        from unittest import mock
+        original_open = Path.open
+        changed = self.fixture_bytes.replace(b'"execution_count": 7', b'"execution_count": 8', 1)
+        calls = []
+        switched = []
+        case = self
+        class SwitchingReader:
+            def __init__(self, handle):
+                self.handle = handle
+            def __enter__(self):
+                self.handle.__enter__()
+                return self
+            def __exit__(self, *args):
+                return self.handle.__exit__(*args)
+            def read(self, size=-1):
+                if not 0 <= size <= records.MAX_NOTEBOOK_METADATA_BYTES + 1:
+                    raise AssertionError("Notebook snapshot read was unbounded")
+                value = self.handle.read(size)
+                if not switched:
+                    switched.append(True)
+                    case.path.write_bytes(changed)
+                return value
+            def __getattr__(self, name):
+                return getattr(self.handle, name)
+        def opening(path, *args, **kwargs):
+            handle = original_open(path, *args, **kwargs)
+            mode = kwargs.get("mode", args[0] if args else "r")
+            if path == case.path and "r" in mode:
+                calls.append(str(path))
+                return SwitchingReader(handle)
+            return handle
+        try:
+            with mock.patch.object(Path, "open", opening):
+                action()
+            self.assertEqual(switched, [True])
+            self.assertEqual(calls, [str(self.path)])
+        finally:
+            self.path.write_bytes(self.fixture_bytes)
+
+    def test_g4_probe_digest_and_facts_share_the_read_snapshot(self):
+        second = records.Probe(self.source, RUN_AT, None, diagnostic=False,
+                               visual_observation_mode="suppressed")
+        self.switch_snapshot(lambda: second.extract(self.path))
+        self.assertEqual(second.documents[0]["source"]["sha256"], FIXTURE_SHA256)
+        self.assertEqual(second.documents[0]["source"]["size_bytes"], len(self.fixture_bytes))
+        self.assertEqual(canonical([item["native_properties"]["notebook_state"] for item in second.evidence]), canonical(GOLD_STATES))
+
+    def test_g4_validators_reject_b_facts_bound_to_an_a_snapshot(self):
+        self.install_literal_states()
+        self.assert_reports(self.probe, "race-good", GOLD_REPORT)
+        # Candidate facts come from B but the claimed Document digest is A.
+        self.probe.evidence[0]["native_properties"]["notebook_state"]["cell_execution_count"]["value"] = 8
+        directory = self.base / "race-forged"
+        self.probe.write(directory)
+        for mode in ("native", "schema", "structural"):
+            def check():
+                with self.assertRaisesRegex(ValueError, "notebook"):
+                    if mode == "native":
+                        native_validator.validate_report(directory, self.source)
+                    else:
+                        stream_validator.validate_report(directory, self.source, published_schema=(mode == "schema"))
+            self.switch_snapshot(check)
+
+    def test_g4_path_cache_cannot_reuse_a_previous_calls_metadata(self):
+        self.install_literal_states()
+        self.assert_reports(self.probe, "cache-a", GOLD_REPORT)
+        changed = self.fixture_bytes.replace(b'"execution_count": 7', b'"execution_count": 8', 1)
+        self.assertNotEqual(changed, self.fixture_bytes)
+        self.path.write_bytes(changed)
+        try:
+            second = records.Probe(self.source, RUN_AT, None, diagnostic=False, visual_observation_mode="suppressed")
+            second.extract(self.path)
+            expected = copy.deepcopy(GOLD_STATES)
+            expected[0]["cell_execution_count"]["value"] = 8
+            expected[1]["cell_execution_count"]["value"] = 8
+            self.assertEqual(canonical([item["native_properties"]["notebook_state"] for item in second.evidence]), canonical(expected))
+            self.assert_reports(second, "cache-b", GOLD_REPORT)
+        finally:
+            self.path.write_bytes(self.fixture_bytes)
+
+    def test_g5_missing_code_and_execute_result_counts_are_checked_but_unverified(self):
+        probe, _ = self.variant([{"cell_type": "code", "source": "missing", "outputs": [
+            {"output_type": "execute_result", "data": {"text/plain": "saved"}},
+        ]}], "missing-counts")
+        expected_states = [
+            {"version": "1.0", "cell_index": 1, "cell_type": "code", "content_origin": "cell_source",
+             "source_json_pointer": "/cells/0", "reader_execution": "not_executed", "cell_execution_count": {"present": False}},
+            {"version": "1.0", "cell_index": 1, "cell_type": "code", "content_origin": "saved_output",
+             "source_json_pointer": "/cells/0/outputs/0", "reader_execution": "not_executed", "cell_execution_count": {"present": False},
+             "output_index": 1, "output_type": "execute_result", "output_execution_count": {"present": False}, "output_freshness": "unverified"},
+        ]
+        self.assertEqual(canonical([item["native_properties"]["notebook_state"] for item in probe.evidence]), canonical(expected_states))
+        # Missing count is a warning, not a fabricated malformed/partial source.
+        self.assert_reports(probe, "missing-count-report", self.expected_report(
+            counts={"document": 1, "evidence": 2, "relation": 2}, checked=2,
+            reasons=("notebook_execution_count_missing",)))
+
+    def test_g5_rootless_reports_unverified_and_old_counts_wrapper_raises(self):
+        self.install_literal_states()
+        expected = self.expected_report(checked=0, unchecked=6,
+                                       reasons=("source_root_missing", "no_textual_records_checked"))
+        self.assert_reports(self.probe, "rootless", expected, source_root=False)
+        directory = self.base / "rootless"
+        for mode in ("native", "schema", "structural"):
+            with self.subTest(mode=mode):
+                with self.assertRaisesRegex(ValueError, "^notebook_metadata_binding_unverified"):
+                    if mode == "native":
+                        native_validator.validate(directory)
+                    else:
+                        stream_validator.validate(directory, published_schema=(mode == "schema"))
+
+    def test_g5_rootless_known_malformed_state_is_not_hidden(self):
+        self.install_literal_states()
+        self.probe.evidence[0]["native_properties"]["notebook_state"]["cell_execution_count"]["value"] = False
+        self.reject_all(self.probe, "rootless-malformed", source_root=False)
+
+    def test_g5_partial_and_failed_records_never_return_pass(self):
+        self.install_literal_states()
+        for status in ("partial", "failed"):
+            self.probe.documents[0]["extraction"]["status"] = status
+            self.probe.documents[0]["extraction"]["warnings"] = ["synthetic separate visual incompleteness"]
+            self.assert_reports(self.probe, "incomplete-" + status,
+                                self.expected_report(reasons=("notebook_extraction_incomplete",)))
+
+    def test_g5_empty_notebook_is_zero_checked_unverified(self):
+        probe, _ = self.variant([], "empty")
+        expected = self.expected_report(counts={"document": 1, "evidence": 0, "relation": 0},
+                                        checked=0, reasons=("no_textual_records_checked",))
+        self.assert_reports(probe, "empty-report", expected)
+
+    def test_g5_cli_pass_unverified_and_fail_envelopes(self):
+        import contextlib
+        import io
+        from unittest import mock
+        self.install_literal_states()
+        directory = self.base / "cli"
+        self.probe.write(directory)
+        for module in (native_validator, stream_validator):
+            for kind, root_args, expected_exit in (("PASS", ["--root", str(self.source)], 0),
+                                                   ("UNVERIFIED", [], 2)):
+                captured = io.StringIO()
+                with mock.patch.object(sys, "argv", [module.__file__, str(directory), *root_args]), contextlib.redirect_stdout(captured):
+                    try:
+                        result = module.main()
+                        code = 0 if result is None else result
+                    except SystemExit as exc:
+                        code = exc.code
+                payload = json.loads(captured.getvalue())
+                self.assertEqual(code, expected_exit)
+                self.assertEqual(payload["status"], kind)
+                if module is stream_validator:
+                    self.assertEqual(payload.pop("schema_validation"), "draft202012")
+                expected = GOLD_REPORT if kind == "PASS" else self.expected_report(
+                    checked=0, unchecked=6, reasons=("source_root_missing", "no_textual_records_checked"))
+                self.assertEqual(canonical(payload), canonical(expected))
+        self.probe.evidence[0]["native_properties"]["notebook_state"]["reader_execution"] = "executed"
+        self.probe.write(directory)
+        for module in (native_validator, stream_validator):
+            captured = io.StringIO()
+            with mock.patch.object(sys, "argv", [module.__file__, str(directory)]), contextlib.redirect_stdout(captured):
+                try:
+                    result = module.main()
+                    code = 0 if result is None else result
+                except SystemExit as exc:
+                    code = exc.code
+            payload = json.loads(captured.getvalue())
+            self.assertEqual(code, 1)
+            self.assertEqual(payload["status"], "FAIL")
+            self.assertLessEqual(len(payload["error"]), 512)
+            self.assertIn("notebook", payload["error"])
+
+    def test_g6_versions_and_old_notebook_have_no_silent_upgrade(self):
+        import build_intermediate_records as managed
+        import validate_search_units as search_native
+        import validate_search_units_streaming as search_stream
+        self.assertEqual(records.EXTRACTOR_VERSION, "0.8.0")
+        self.assertEqual(managed.EXTRACTOR_VERSION, "0.12.0")
+        self.assertEqual(search_builder.BUILDER_VERSION, "0.7.0")
+        self.assertEqual(search_native.SEARCH_UNIT_BUILDER_VERSION, "0.7.0")
+        self.assertEqual(search_stream.SEARCH_UNIT_BUILDER_VERSION, "0.7.0")
+        for item in self.probe.evidence:
+            item["native_properties"].pop("notebook_state", None)
+            item["provenance"]["extractor_version"] = "0.7.1"
+        self.probe.documents[0]["extraction"]["parser_version"] = "0.7.1"
+        self.reject_all(self.probe, "old-notebook", pattern="notebook_rebuild_required")
+
+    def test_residual_metadata_only_allows_coherent_raw_text_replacement(self):
+        self.install_literal_states()
+        item = self.probe.evidence[0]
+        raw = "fictional replacement not claimed to match original source text"
+        item["content"].update(raw_text=raw, normalized_text=raw, original_length=len(raw),
+                               sha256=hashlib.sha256(canonical({"raw_text": raw}).encode()).hexdigest())
+        self.reseal_evidence(self.probe)
+        self.assert_reports(self.probe, "residual-body", GOLD_REPORT)
+
+    def test_residual_nonzero_record_removal_does_not_claim_membership(self):
+        self.install_literal_states()
+        removed = self.probe.evidence.pop()["evidence_id"]
+        self.probe.relations = [item for item in self.probe.relations if item["to_ref"]["record_id"] != removed]
+        self.assert_reports(self.probe, "residual-membership", self.expected_report(
+            counts={"document": 1, "evidence": 5, "relation": 5}, checked=5))
+
+    def test_residual_search_only_coherent_state_forgery_is_not_original_attestation(self):
+        import validate_search_units as search_native
+        import validate_search_units_streaming as search_stream
+        self.install_literal_states()
+        self.probe.evidence[0]["native_properties"]["notebook_state"]["cell_execution_count"]["value"] = 17
+        intermediate, output = self.search_fixture(self.probe, "coherent-search")
+        expected = {"records": 6, "counts_by_type": {"notebook_cell": 3, "text_chunk": 3}}
+        self.assertEqual(search_native.validate(output, intermediate), expected)
+        self.assertEqual(search_stream.validate(output, intermediate), expected)
+        self.reject_all(self.probe, "coherent-source-rejected")
+
+
+if __name__ == "__main__":
+    unittest.main(verbosity=2)

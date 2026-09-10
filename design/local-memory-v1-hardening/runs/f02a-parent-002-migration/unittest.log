@@ -1,0 +1,12 @@
+test_builder_adapter_processing_or_schema_byte_change_requires_migration (f18_target.ReaderGenerationMigrationTests.test_builder_adapter_processing_or_schema_byte_change_requires_migration) ... ok
+test_current_generation_matches_code_processing_and_schema_bytes (f18_target.ReaderGenerationMigrationTests.test_current_generation_matches_code_processing_and_schema_bytes) ... ok
+test_diagnose_keeps_old_pointer_ready_and_ui_offers_explicit_rebuild (f18_target.ReaderGenerationMigrationTests.test_diagnose_keeps_old_pointer_ready_and_ui_offers_explicit_rebuild) ... ok
+test_existing_step6_config_requires_reader_migration_without_mutation (f18_target.ReaderGenerationMigrationTests.test_existing_step6_config_requires_reader_migration_without_mutation) ... ok
+test_generation_artifact_tamper_requires_migration (f18_target.ReaderGenerationMigrationTests.test_generation_artifact_tamper_requires_migration) ... ok
+test_missing_contract_requires_migration (f18_target.ReaderGenerationMigrationTests.test_missing_contract_requires_migration) ... ok
+test_tampered_contract_requires_migration (f18_target.ReaderGenerationMigrationTests.test_tampered_contract_requires_migration) ... ok
+
+----------------------------------------------------------------------
+Ran 7 tests in 0.319s
+
+OK

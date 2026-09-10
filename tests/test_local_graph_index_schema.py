@@ -952,7 +952,8 @@ class LocalGraphIndexSchemaTests(unittest.TestCase):
             insert_indexed_evidence(self.connection, record)
 
         with mock.patch.object(
-            index_builder, "_attest_lineage_context", return_value=validation,
+            index_builder, "_attest_lineage_context",
+            return_value={"lineage_validation": validation, "document_version_graph": None},
         ):
             report = index_builder.project_verified_structural_graph(
                 self.connection,
@@ -1011,7 +1012,7 @@ class LocalGraphIndexSchemaTests(unittest.TestCase):
         with mock.patch.object(
             index_builder,
             "_attest_lineage_context",
-            return_value=forged_incomplete_state,
+            return_value={"lineage_validation": forged_incomplete_state, "document_version_graph": None},
         ), self.assertRaisesRegex(ValueError, "graph_lineage_fan_in_incomplete"):
             index_builder.project_verified_structural_graph(
                 self.connection,
@@ -1026,7 +1027,8 @@ class LocalGraphIndexSchemaTests(unittest.TestCase):
         )
         tampered_state["output"]["relation_source_set_sha256"] = "0" * 64
         with mock.patch.object(
-            index_builder, "_attest_lineage_context", return_value=tampered_state,
+            index_builder, "_attest_lineage_context",
+            return_value={"lineage_validation": tampered_state, "document_version_graph": None},
         ), self.assertRaisesRegex(
             ValueError, "graph_lineage_relation_set_hash_mismatch",
         ):
@@ -1269,7 +1271,8 @@ class LocalGraphIndexSchemaTests(unittest.TestCase):
         insert_indexed_evidence(self.connection, evidence)
 
         with mock.patch.object(
-            index_builder, "_attest_lineage_context", return_value=validation,
+            index_builder, "_attest_lineage_context",
+            return_value={"lineage_validation": validation, "document_version_graph": None},
         ):
             report = index_builder.project_verified_structural_graph(
                 self.connection,
@@ -1317,7 +1320,8 @@ class LocalGraphIndexSchemaTests(unittest.TestCase):
         validation = lineage_validation_state([document], evidence_records, lineages)
 
         with mock.patch.object(
-            index_builder, "_attest_lineage_context", return_value=validation,
+            index_builder, "_attest_lineage_context",
+            return_value={"lineage_validation": validation, "document_version_graph": None},
         ):
             report = index_builder.project_verified_structural_graph(
                 self.connection,
@@ -1372,7 +1376,7 @@ class LocalGraphIndexSchemaTests(unittest.TestCase):
         with mock.patch.object(
             index_builder,
             "_attest_lineage_context",
-            return_value=validation_state,
+            return_value={"lineage_validation": validation_state, "document_version_graph": None},
         ):
             report = index_builder.project_verified_structural_graph(
                 self.connection,

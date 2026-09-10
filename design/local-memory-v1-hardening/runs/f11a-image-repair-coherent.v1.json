@@ -1,0 +1,394 @@
+{
+  "schema_version": "1.0",
+  "task_id": "lms-v1-f11a-notebook-metadata-2026-09-09",
+  "status": "integration_correction1_image_handoff_for_root_and_audit_not_self_approval",
+  "integration_regression_correction": 1,
+  "source_stable": true,
+  "edited_products": 6,
+  "files": [
+    {
+      "path": "scripts/probe_intermediate_records.py",
+      "sha256": "1320cda390ab671dc2df82678ed2237e12aa4828b29666e3fb3d5b8a734f456d",
+      "bytes": 323104
+    },
+    {
+      "path": "scripts/build_intermediate_records.py",
+      "sha256": "8d9dd31a7acba7d6b8f3e5a841b86565ea3e6e85d932fa08f77e3f3641ae59dd",
+      "bytes": 51670
+    },
+    {
+      "path": "scripts/validate_intermediate_records.py",
+      "sha256": "91573a6216a1cf1814c36452e36752c08af46ef6dd393020830f7d82df87ae31",
+      "bytes": 22884
+    },
+    {
+      "path": "scripts/validate_intermediate_records_streaming.py",
+      "sha256": "e7f5a53dc9822f8cccd1f0fa60c3c6873605575b4297e4c888b350dbfe56928a",
+      "bytes": 31676
+    },
+    {
+      "path": "scripts/build_search_units.py",
+      "sha256": "55f0284acd6462260ba4962fa77246fb78090aed9b42554146e49723728c20df",
+      "bytes": 43241
+    },
+    {
+      "path": "scripts/validate_search_units.py",
+      "sha256": "c1bb29855c8b390c4af8334e9641af0ad069279cc7ea86faf25fddd85c7f500b",
+      "bytes": 39622
+    },
+    {
+      "path": "scripts/validate_search_units_streaming.py",
+      "sha256": "54851bb4500a8eb82a9dada65c5bec7cbcdce212fd70852f430b3f703ac24059",
+      "bytes": 29799
+    },
+    {
+      "path": "schemas/evidence.schema.json",
+      "sha256": "030fea7251578e6a1c57934b595a457294ab7281c38e93779a097d3dca0a4899",
+      "bytes": 19655
+    },
+    {
+      "path": "schemas/search-unit.schema.json",
+      "sha256": "b0bc29b9e9252bd35ac553ca428e679b8e664d8a353ff6d40d56e90c4375e776",
+      "bytes": 13947
+    },
+    {
+      "path": "distribution/macos-local-memory/engine/validate_adaptive_semantic_graph.py",
+      "sha256": "c2587b685d06a1e8d1ec006bb2577be47168a0c14b072a22b3a90878c30563e3",
+      "bytes": 124733
+    },
+    {
+      "path": "distribution/macos-local-memory/engine/build_local_semantic_index.py",
+      "sha256": "c70f36d98012cca29877af72e4d345c30a555e1fef24e34ebc057b4f823e7229",
+      "bytes": 123861
+    },
+    {
+      "path": "design/local-memory-v1-hardening/runs/f11a-image-repair-before-probe.v1.py",
+      "sha256": "5a3c443a76f02b198367c036017967a33a75f22ec0826091ab5c8b54a988baa4",
+      "bytes": 310996
+    },
+    {
+      "path": "design/local-memory-v1-hardening/runs/f11a-image-repair-after-probe.v1.py",
+      "sha256": "1320cda390ab671dc2df82678ed2237e12aa4828b29666e3fb3d5b8a734f456d",
+      "bytes": 323104
+    },
+    {
+      "path": "design/local-memory-v1-hardening/runs/f11a-image-repair-probe-delta.v1.diff",
+      "sha256": "39315dc39ca16aaec23fde6ee518534c2720844ce75227c3c2956ff3d8f4cb0b",
+      "bytes": 15950
+    },
+    {
+      "path": "design/local-memory-v1-hardening/runs/f11a-image-repair-before-search-builder.v1.py",
+      "sha256": "08d768bcc772c8d16c82d973d7cb8b212a1ee4bb1d8469bec5063e3707e0167b",
+      "bytes": 42122
+    },
+    {
+      "path": "design/local-memory-v1-hardening/runs/f11a-image-repair-after-search-builder.v1.py",
+      "sha256": "55f0284acd6462260ba4962fa77246fb78090aed9b42554146e49723728c20df",
+      "bytes": 43241
+    },
+    {
+      "path": "design/local-memory-v1-hardening/runs/f11a-image-repair-search-builder-delta.v1.diff",
+      "sha256": "24edf782a423d7087081f5d035d901f4dc4d5c385f15a9f4cd32af396d17e2c8",
+      "bytes": 2668
+    },
+    {
+      "path": "design/local-memory-v1-hardening/runs/f11a-image-repair-before-search-native.v1.py",
+      "sha256": "34b949755780e5699e549320730127af486f232c09dae724275ae36a855121f7",
+      "bytes": 44756
+    },
+    {
+      "path": "design/local-memory-v1-hardening/runs/f11a-image-repair-after-search-native.v1.py",
+      "sha256": "c1bb29855c8b390c4af8334e9641af0ad069279cc7ea86faf25fddd85c7f500b",
+      "bytes": 39622
+    },
+    {
+      "path": "design/local-memory-v1-hardening/runs/f11a-image-repair-search-native-delta.v1.diff",
+      "sha256": "59cd855788be576f0ab4ed04b9cf83cb572445ffc5f8bda1fca458230ac79b1f",
+      "bytes": 7960
+    },
+    {
+      "path": "design/local-memory-v1-hardening/runs/f11a-image-repair-before-search-stream.v1.py",
+      "sha256": "cfdbfaedaf7557cb5f09c16f6be4020a32cd4fd6ea8d918858dab93d1a57173a",
+      "bytes": 29405
+    },
+    {
+      "path": "design/local-memory-v1-hardening/runs/f11a-image-repair-after-search-stream.v1.py",
+      "sha256": "54851bb4500a8eb82a9dada65c5bec7cbcdce212fd70852f430b3f703ac24059",
+      "bytes": 29799
+    },
+    {
+      "path": "design/local-memory-v1-hardening/runs/f11a-image-repair-search-stream-delta.v1.diff",
+      "sha256": "d6604759dd14dbd96e393d21f3d19a63958382e1b9261acf9ebae84e3ee6ba42",
+      "bytes": 1222
+    },
+    {
+      "path": "design/local-memory-v1-hardening/runs/f11a-image-repair-before-intermediate-native.v1.py",
+      "sha256": "1b64c531e061c2faabef0aa912fab66a006b925755c9c60872261fe5ee5f9c46",
+      "bytes": 22834
+    },
+    {
+      "path": "design/local-memory-v1-hardening/runs/f11a-image-repair-after-intermediate-native.v1.py",
+      "sha256": "91573a6216a1cf1814c36452e36752c08af46ef6dd393020830f7d82df87ae31",
+      "bytes": 22884
+    },
+    {
+      "path": "design/local-memory-v1-hardening/runs/f11a-image-repair-intermediate-native-delta.v1.diff",
+      "sha256": "b87fa490bb790707fdf1c0da82af1feb3300872f74b2618d76d55bf396c3b5cd",
+      "bytes": 497
+    },
+    {
+      "path": "design/local-memory-v1-hardening/runs/f11a-image-repair-before-intermediate-stream.v1.py",
+      "sha256": "db5d5e92518ce1c919dda2c796551adcb2646e2305a2c70b38df578ff9229199",
+      "bytes": 31329
+    },
+    {
+      "path": "design/local-memory-v1-hardening/runs/f11a-image-repair-after-intermediate-stream.v1.py",
+      "sha256": "e7f5a53dc9822f8cccd1f0fa60c3c6873605575b4297e4c888b350dbfe56928a",
+      "bytes": 31676
+    },
+    {
+      "path": "design/local-memory-v1-hardening/runs/f11a-image-repair-intermediate-stream-delta.v1.diff",
+      "sha256": "78a443be61c057c84fc91df45e51a4b4c22d8c09320d67e1d6ab112c6b4ebbe0",
+      "bytes": 1221
+    },
+    {
+      "path": "design/local-memory-v1-hardening/runs/f11a-image-repair-gate.v1.md",
+      "sha256": "0b9e6252a549c29989f6209e5a2258f3a5edbfe5c10098fe807f919bca475d4b",
+      "bytes": 3070
+    },
+    {
+      "path": "design/local-memory-v1-hardening/runs/f11a-image-repair-design.v1.md",
+      "sha256": "b63e7fdc3161aed6cb61466770ecfe720018f8872df429a357dbb9817b9afc48",
+      "bytes": 19955
+    },
+    {
+      "path": "design/local-memory-v1-hardening/runs/f11a-image-regression-diagnosis.v1.md",
+      "sha256": "c60342c81fb92c2290a86ab826c2771ee239b8bf702b3d3456835304f9f173d1",
+      "bytes": 7342
+    },
+    {
+      "path": "design/local-memory-v1-hardening/runs/f11a-image-regression-gold.v1.py",
+      "sha256": "75573e3ba7ea4a464b20feaf09b6a9e4d4a9133ceabe519399785f9638046913",
+      "bytes": 13804
+    },
+    {
+      "path": "design/local-memory-v1-hardening/runs/f11a-image-repair-coherent-before-runs.v1.json",
+      "sha256": "e9178b38ea5d803c2a1f06ccaf5d7007cf8fb5340b46d03372055a38920ff657",
+      "bytes": 2098
+    },
+    {
+      "path": "design/local-memory-v1-hardening/runs/f11a-image-repair-mechanical-check.v1.json",
+      "sha256": "5ec445e6a36322f0c922d752e48dbc017397c63eabd8167d8abb99b176226c64",
+      "bytes": 3925
+    },
+    {
+      "path": "design/local-memory-v1-hardening/runs/f11a-image-repair-summary.v1.md",
+      "sha256": "ff30e04f84a4ba5f18070be544d3281e94f5da74aa3e7c6fa0bab48332d328e1",
+      "bytes": 8271
+    },
+    {
+      "path": "design/local-memory-v1-hardening/runs/f11a-regression-run.v1.py",
+      "sha256": "12969e040d7b5797dfbaf9fe39e99d7b2b44d0ad5945a0c09c301d0597d813e6",
+      "bytes": 2765
+    },
+    {
+      "path": "design/local-memory-v1-hardening/runs/f11a-root-image-run.v1.py",
+      "sha256": "bb5a7cd8b1e820e946e8f81b0763cea4ae93801241536d55813ddf81be8f8ce7",
+      "bytes": 2629
+    },
+    {
+      "path": "design/local-memory-v1-hardening/runs/f04a-executor-run.v1.py",
+      "sha256": "7c6953d3e92c46ede699b81690a138fb50e74e51b79fc37d14f9fc44d6c4391b",
+      "bytes": 7818
+    },
+    {
+      "path": "design/local-memory-v1-hardening/runs/f05b-fixture-budget.v1.py",
+      "sha256": "f4c4a647997334385fb02edc2b120624cda9b0da95e438164eacdca0c80b24af",
+      "bytes": 3548
+    },
+    {
+      "path": "scripts/run_local_memory_hardening_tests.py",
+      "sha256": "6b3bde90b6ed649a82325f6b5ad9661756bef7b6e0303fa74c2d045fb26eb4a9",
+      "bytes": 9437
+    },
+    {
+      "path": "tests/test_local_embedded_visual_pipeline.py",
+      "sha256": "892658aa919cad1dd35a7fdc19aba9c8b0ef1b931e83f3137fc6112b5a150508",
+      "bytes": 85005
+    },
+    {
+      "path": "tests/test_notebook_metadata_binding.py",
+      "sha256": "ab2256c31b04bc8e8ec9a3c5c294d1e1d98071e38e9969c62bee3718c95bc41e",
+      "bytes": 43350
+    },
+    {
+      "path": "tests/test_notebook_metadata_application.py",
+      "sha256": "b254860584650f376400a50d3890b9cc6074633427a565787b91aae11965496a",
+      "bytes": 7249
+    },
+    {
+      "path": "distribution/macos-local-memory/tests/test_versioned_safe_index_e2e.py",
+      "sha256": "bd967cb2e4d22aa3985d59514a72e22e42e9e9d03841dbc6b80164a69c9f97ff",
+      "bytes": 29140
+    },
+    {
+      "path": "design/local-memory-v1-hardening/runs/f11a-regression-image-001/started.json",
+      "sha256": "8406e75c86abf71643e25b7a4ab60346809a5b70d5c5342fa19c1f4499165459",
+      "bytes": 818
+    },
+    {
+      "path": "design/local-memory-v1-hardening/runs/f11a-regression-image-001/result.json",
+      "sha256": "b2c2bf6e0ab99a522ccc78e59dc9b8ad9363a2360868cda4ec4bd42ec75a5577",
+      "bytes": 1285
+    },
+    {
+      "path": "design/local-memory-v1-hardening/runs/f11a-regression-image-001/unittest.log",
+      "sha256": "dfa209febe47a573e7111eae819b2fb60df34031601acb9ee9f51412d8089b46",
+      "bytes": 10608
+    },
+    {
+      "path": "design/local-memory-v1-hardening/runs/f11a-root-images-001/started.json",
+      "sha256": "fdad73db4bb0541e447d4cac80ff306bf3c4648210d4f0b9708eecbebd3c8dbb",
+      "bytes": 741
+    },
+    {
+      "path": "design/local-memory-v1-hardening/runs/f11a-root-images-001/result.json",
+      "sha256": "984c182b0e3eaa8ea70c54e118c28050ee1d9a12f44a6d471f27d4dfd411ca13",
+      "bytes": 1202
+    },
+    {
+      "path": "design/local-memory-v1-hardening/runs/f11a-root-images-001/unittest.log",
+      "sha256": "c438ee4a714abc862d6a022df1d21bade07cf48098ad6d37d305006eab10be1e",
+      "bytes": 2585
+    },
+    {
+      "path": "design/local-memory-v1-hardening/runs/f11a-regression-image-002/started.json",
+      "sha256": "64e74a457305d396391d10a80b7827c9913e04ab5868012242fe6412105b4a1a",
+      "bytes": 818
+    },
+    {
+      "path": "design/local-memory-v1-hardening/runs/f11a-regression-image-002/result.json",
+      "sha256": "8c09b06af4e7452cd0f9512dbdad3a5e63d5d6bd217aae3adcb74f39ad5bf948",
+      "bytes": 1283
+    },
+    {
+      "path": "design/local-memory-v1-hardening/runs/f11a-regression-image-002/unittest.log",
+      "sha256": "823f3ab7dbca0c3d0556115ec6061334fc9c1177e9f18a7cb1698e8d8a1a99a7",
+      "bytes": 615
+    },
+    {
+      "path": "design/local-memory-v1-hardening/runs/f11a-root-images-002/started.json",
+      "sha256": "300f325af470798b1e48b9fe61e9c62fb5b367c4a6794030f12f9898aff343d0",
+      "bytes": 741
+    },
+    {
+      "path": "design/local-memory-v1-hardening/runs/f11a-root-images-002/result.json",
+      "sha256": "cce8fd82db89dbb13386a2c32e33820e1764947d1a588d1dc7907288e6723ba3",
+      "bytes": 1201
+    },
+    {
+      "path": "design/local-memory-v1-hardening/runs/f11a-root-images-002/unittest.log",
+      "sha256": "eac45c987ba4e6a00d7c9231ea5d75f4231fb5528e54608f99a4685143b40aa9",
+      "bytes": 813
+    }
+  ],
+  "runs": [
+    {
+      "run_id": "f11a-regression-image-001",
+      "result_path": "design/local-memory-v1-hardening/runs/f11a-regression-image-001/result.json",
+      "status": "failed",
+      "tests": 3,
+      "skips": 0,
+      "expected_failures": 0,
+      "elapsed_seconds": 0.452133,
+      "log_path": "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/design/local-memory-v1-hardening/runs/f11a-regression-image-001/unittest.log",
+      "log_sha256": "dfa209febe47a573e7111eae819b2fb60df34031601acb9ee9f51412d8089b46",
+      "log_bytes": 10608,
+      "classification": "historical_baseline_regression_not_defended_negatives",
+      "source_snapshot": "historical_before_image_correction"
+    },
+    {
+      "run_id": "f11a-root-images-001",
+      "result_path": "design/local-memory-v1-hardening/runs/f11a-root-images-001/result.json",
+      "status": "failed",
+      "tests": 3,
+      "skips": 0,
+      "expected_failures": 0,
+      "elapsed_seconds": 0.188288,
+      "log_path": "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/design/local-memory-v1-hardening/runs/f11a-root-images-001/unittest.log",
+      "log_sha256": "c438ee4a714abc862d6a022df1d21bade07cf48098ad6d37d305006eab10be1e",
+      "log_bytes": 2585,
+      "classification": "historical_baseline_regression_not_defended_negatives",
+      "source_snapshot": "historical_before_image_correction"
+    },
+    {
+      "run_id": "f11a-regression-image-002",
+      "result_path": "design/local-memory-v1-hardening/runs/f11a-regression-image-002/result.json",
+      "status": "passed",
+      "tests": 3,
+      "skips": 0,
+      "expected_failures": 0,
+      "elapsed_seconds": 0.550352,
+      "log_path": "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/design/local-memory-v1-hardening/runs/f11a-regression-image-002/unittest.log",
+      "log_sha256": "823f3ab7dbca0c3d0556115ec6061334fc9c1177e9f18a7cb1698e8d8a1a99a7",
+      "log_bytes": 615,
+      "classification": "fresh_functional_green_not_audit_acceptance",
+      "source_snapshot": "f11a-image-repair-coherent-before-runs.v1.json"
+    },
+    {
+      "run_id": "f11a-root-images-002",
+      "result_path": "design/local-memory-v1-hardening/runs/f11a-root-images-002/result.json",
+      "status": "passed",
+      "tests": 3,
+      "skips": 0,
+      "expected_failures": 0,
+      "elapsed_seconds": 0.202992,
+      "log_path": "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/design/local-memory-v1-hardening/runs/f11a-root-images-002/unittest.log",
+      "log_sha256": "eac45c987ba4e6a00d7c9231ea5d75f4231fb5528e54608f99a4685143b40aa9",
+      "log_bytes": 813,
+      "classification": "fresh_functional_green_not_audit_acceptance",
+      "source_snapshot": "f11a-image-repair-coherent-before-runs.v1.json"
+    }
+  ],
+  "isolated_deltas": [
+    [
+      "scripts/probe_intermediate_records.py",
+      "design/local-memory-v1-hardening/runs/f11a-image-repair-before-probe.v1.py",
+      "design/local-memory-v1-hardening/runs/f11a-image-repair-probe-delta.v1.diff"
+    ],
+    [
+      "scripts/build_search_units.py",
+      "design/local-memory-v1-hardening/runs/f11a-image-repair-before-search-builder.v1.py",
+      "design/local-memory-v1-hardening/runs/f11a-image-repair-search-builder-delta.v1.diff"
+    ],
+    [
+      "scripts/validate_search_units.py",
+      "design/local-memory-v1-hardening/runs/f11a-image-repair-before-search-native.v1.py",
+      "design/local-memory-v1-hardening/runs/f11a-image-repair-search-native-delta.v1.diff"
+    ],
+    [
+      "scripts/validate_search_units_streaming.py",
+      "design/local-memory-v1-hardening/runs/f11a-image-repair-before-search-stream.v1.py",
+      "design/local-memory-v1-hardening/runs/f11a-image-repair-search-stream-delta.v1.diff"
+    ],
+    [
+      "scripts/validate_intermediate_records.py",
+      "design/local-memory-v1-hardening/runs/f11a-image-repair-before-intermediate-native.v1.py",
+      "design/local-memory-v1-hardening/runs/f11a-image-repair-intermediate-native-delta.v1.diff"
+    ],
+    [
+      "scripts/validate_intermediate_records_streaming.py",
+      "design/local-memory-v1-hardening/runs/f11a-image-repair-before-intermediate-stream.v1.py",
+      "design/local-memory-v1-hardening/runs/f11a-image-repair-intermediate-stream-delta.v1.diff"
+    ]
+  ],
+  "limits": [
+    "Same F11a correction1, not renamed issue or acceptance",
+    "Only two authorized image batches run here; metadata33/app/broad collateral/additional holdouts are root-owned after freeze",
+    "All original v1 gold and historical failures retained; no retry or gold edit",
+    "Per-Document Notebook image-record map only; no whole stream memory or aggregate RSS bound claim",
+    "No raw image reread, parent source-image membership/body/recognition attestation",
+    "30 seconds / 1 MiB log; F04/F05b safeguards not OS sandbox",
+    "F11b mandatory downstream propagation and original metadata-only residuals remain open"
+  ]
+}

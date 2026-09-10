@@ -158,7 +158,7 @@ class SecurityGraphPartitionTests(unittest.TestCase):
                 source_root, inventory_path, semantic_dir, SCRIPTS,
             )
             semantic_report = semantic_validator.validate(
-                semantic_dir, source_root, inventory_path,
+                semantic_dir, source_root, inventory_path, initialize_lineage=True,
             )
             self.assertEqual(semantic_report["status"], "PASS")
 

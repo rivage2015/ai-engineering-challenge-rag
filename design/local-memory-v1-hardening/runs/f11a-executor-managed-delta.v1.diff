@@ -1,0 +1,11 @@
+--- design/local-memory-v1-hardening/runs/f11a-executor-before-managed.v1.py	2026-09-09 13:32:58
++++ scripts/build_intermediate_records.py	2026-09-09 14:19:58
+@@ -49,7 +49,7 @@
+ }
+ SKIP_DIRECTORY_NAMES = {".git", "__pycache__", ".ipynb_checkpoints", "node_modules"}
+ EXTRACTOR = "intermediate-record-extractor"
+-EXTRACTOR_VERSION = "0.11.0"
++EXTRACTOR_VERSION = "0.12.0"
+ STATE_VERSION = "1"
+ STATE_FILE = "build-state.json"
+ LOCK_FILE = "build.lock"

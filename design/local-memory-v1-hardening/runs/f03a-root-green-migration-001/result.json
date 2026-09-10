@@ -1,0 +1,29 @@
+{
+  "schema_version": "1.0",
+  "status": "passed",
+  "command": [
+    "/opt/homebrew/opt/python@3.14/bin/python3.14",
+    "-I",
+    "-B",
+    "-u",
+    "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/design/local-memory-v1-hardening/runs/f03a-root-run.v1.py",
+    "migration",
+    "f03a-root-green-migration-001",
+    "--worker"
+  ],
+  "cwd": "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ",
+  "started_at": "2026-09-08T23:29:06.219141+00:00",
+  "timeout_seconds": 30,
+  "max_log_bytes": 1048576,
+  "repository_import_root": "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ",
+  "safety_scope": "preflight-approved synthetic tests; not an OS sandbox",
+  "exit_code": 0,
+  "elapsed_seconds": 0.467691,
+  "tests_reported": 7,
+  "skipped_reported": 0,
+  "expected_failures_reported": 0,
+  "log_path": "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/design/local-memory-v1-hardening/runs/f03a-root-green-migration-001/unittest.log",
+  "log_bytes": 1277,
+  "log_sha256": "235701fc7d4c1d6ebff1e20fda84d04708f792fc0337ba24d5c0a47c9b5a2ca9",
+  "finished_at": "2026-09-08T23:29:06.687163+00:00"
+}

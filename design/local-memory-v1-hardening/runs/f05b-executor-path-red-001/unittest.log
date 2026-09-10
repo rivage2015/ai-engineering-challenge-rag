@@ -1,0 +1,31 @@
+test_capture_rejects_static_generation_directory_symlink (f05b_path_tests.StaticSnapshotPathTests.test_capture_rejects_static_generation_directory_symlink) ... FAIL
+test_capture_rejects_static_path_directory_symlink (f05b_path_tests.StaticSnapshotPathTests.test_capture_rejects_static_path_directory_symlink) ... FAIL
+
+======================================================================
+FAIL: test_capture_rejects_static_generation_directory_symlink (f05b_path_tests.StaticSnapshotPathTests.test_capture_rejects_static_generation_directory_symlink)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/design/local-memory-v1-hardening/runs/f05b-executor-path-boundary-probe.v1.py", line 44, in test_capture_rejects_static_generation_directory_symlink
+    self.assert_static_link_rejected(True)
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^
+  File "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/design/local-memory-v1-hardening/runs/f05b-executor-path-boundary-probe.v1.py", line 36, in assert_static_link_rejected
+    self.assertTrue(rejected, "static generation/path symlink must be rejected")
+    ~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: False is not true : static generation/path symlink must be rejected
+
+======================================================================
+FAIL: test_capture_rejects_static_path_directory_symlink (f05b_path_tests.StaticSnapshotPathTests.test_capture_rejects_static_path_directory_symlink)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/design/local-memory-v1-hardening/runs/f05b-executor-path-boundary-probe.v1.py", line 41, in test_capture_rejects_static_path_directory_symlink
+    self.assert_static_link_rejected(False)
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^
+  File "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/design/local-memory-v1-hardening/runs/f05b-executor-path-boundary-probe.v1.py", line 36, in assert_static_link_rejected
+    self.assertTrue(rejected, "static generation/path symlink must be rejected")
+    ~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: False is not true : static generation/path symlink must be rejected
+
+----------------------------------------------------------------------
+Ran 2 tests in 0.041s
+
+FAILED (failures=2)

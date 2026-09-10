@@ -1,0 +1,10 @@
+--- design/local-memory-v1-hardening/runs/f11a-image-repair-before-intermediate-native.v1.py	2026-09-09 16:02:56
++++ scripts/validate_intermediate_records.py	2026-09-09 16:06:50
+@@ -566,6 +566,7 @@
+                 document,
+                 evidence_by_document.get(document["document_id"], []),
+                 source_root,
++                parent_lookup=evidence_by_id.get,
+             ))
+         except ValueError as exc:
+             errors.append(f"{document.get('document_id')}: {exc}")

@@ -1,0 +1,67 @@
+test_current_marker_conflicts_with_higher_numeric_version (f04a_resolver_tests.DocumentVersionResolverTests) ... 
+======================================================================
+FAIL: test_current_marker_conflicts_with_higher_numeric_version (f04a_resolver_tests.DocumentVersionResolverTests) (current='現行/業務_ver1.xlsx', other='業務_ver2.xlsx')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/distribution/macos-local-memory/tests/test_document_version_resolver.py", line 130, in test_current_marker_conflicts_with_higher_numeric_version
+    self.assertEqual("needs_human_review", group["status"])
+AssertionError: 'needs_human_review' != 'resolved'
+- needs_human_review
++ resolved
+
+
+======================================================================
+FAIL: test_current_marker_conflicts_with_higher_numeric_version (f04a_resolver_tests.DocumentVersionResolverTests) (current='現行/業務_ver1.2.xlsx', other='業務_ver1.10.xlsx')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/distribution/macos-local-memory/tests/test_document_version_resolver.py", line 130, in test_current_marker_conflicts_with_higher_numeric_version
+    self.assertEqual("needs_human_review", group["status"])
+AssertionError: 'needs_human_review' != 'resolved'
+- needs_human_review
++ resolved
+
+
+======================================================================
+FAIL: test_current_marker_conflicts_with_higher_numeric_version (f04a_resolver_tests.DocumentVersionResolverTests) (current='現行/業務_ver1.2.xlsx', other='業務_ver1.10_下書き.xlsx')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/distribution/macos-local-memory/tests/test_document_version_resolver.py", line 130, in test_current_marker_conflicts_with_higher_numeric_version
+    self.assertEqual("needs_human_review", group["status"])
+AssertionError: 'needs_human_review' != 'resolved'
+- needs_human_review
++ resolved
+
+
+======================================================================
+FAIL: test_current_marker_conflicts_with_higher_numeric_version (f04a_resolver_tests.DocumentVersionResolverTests) (current='現行/業務_ver1.2.xlsx', other='旧版/業務_ver1.10.xlsx')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/distribution/macos-local-memory/tests/test_document_version_resolver.py", line 130, in test_current_marker_conflicts_with_higher_numeric_version
+    self.assertEqual("needs_human_review", group["status"])
+AssertionError: 'needs_human_review' != 'resolved'
+- needs_human_review
++ resolved
+
+
+----------------------------------------------------------------------
+Ran 1 test in 0.005s
+
+FAILED (failures=4)
+Traceback (most recent call last):
+  File "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/design/local-memory-v1-hardening/runs/f04a-executor-run.v1.py", line 124, in <module>
+    raise SystemExit(main())
+  File "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/design/local-memory-v1-hardening/runs/f04a-executor-run.v1.py", line 113, in main
+    return worker(mode)
+  File "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/design/local-memory-v1-hardening/runs/f04a-executor-run.v1.py", line 105, in worker
+    fixture_root.cleanup()
+  File "/Library/Developer/CommandLineTools/Library/Frameworks/Python3.framework/Versions/3.9/lib/python3.9/tempfile.py", line 830, in cleanup
+    self._rmtree(self.name)
+  File "/Library/Developer/CommandLineTools/Library/Frameworks/Python3.framework/Versions/3.9/lib/python3.9/tempfile.py", line 812, in _rmtree
+    _shutil.rmtree(name, onerror=onerror)
+  File "/Library/Developer/CommandLineTools/Library/Frameworks/Python3.framework/Versions/3.9/lib/python3.9/shutil.py", line 718, in rmtree
+    _rmtree_safe_fd(fd, path, onerror)
+  File "/Library/Developer/CommandLineTools/Library/Frameworks/Python3.framework/Versions/3.9/lib/python3.9/shutil.py", line 649, in _rmtree_safe_fd
+    dirfd = os.open(entry.name, os.O_RDONLY, dir_fd=topfd)
+  File "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/design/local-memory-v1-hardening/runs/f04a-executor-run.v1.py", line 64, in audit
+    raise AssertionError("F04a read outside reviewed code/runtime/fixtures: " + path)
+AssertionError: F04a read outside reviewed code/runtime/fixtures: /Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/versioned-safe-e2e-ko_jdkm0

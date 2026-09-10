@@ -85,6 +85,12 @@ def write_minimal_xlsx(
         "[Content_Types].xml": (
             '<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"/>'
         ),
+        "_rels/.rels": (
+            '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'
+            '<Relationship Id="rId1" '
+            'Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" '
+            'Target="xl/workbook.xml"/></Relationships>'
+        ),
         "xl/workbook.xml": workbook_xml_bytes or (workbook_prefix + (
             '<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" '
             'xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">'

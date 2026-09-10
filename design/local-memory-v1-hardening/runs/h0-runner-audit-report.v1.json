@@ -1,0 +1,84 @@
+{
+  "schema_version": "1.0",
+  "audit_id": "lms-v1-00-h0-test-supervisor-audit-v1",
+  "task_id": "lms-v1-00-h0-test-supervisor",
+  "artifact_hash": "f73ba0c008d74992e5bb162d3fea0570587995b4ce05bec02953325c62ab7fef",
+  "auditor_context": {
+    "independence_level": "same_model_separate_context",
+    "source_scope": [
+      "design/local-memory-v1-hardening/runs/h0-runner-graph-artifact.v1.json",
+      "scripts/run_local_memory_hardening_tests.py",
+      "tests/test_hardening_test_runner.py",
+      "artifacts/local-memory-v1-hardening/runs/002-runner-selftest/result.json",
+      "Static source review and SHA-256 verification only. No auditor counterexample was executed. A temporary counterexample-file apply_patch call was interrupted after prolonged tool waiting; no test process or exec session was started."
+    ]
+  },
+  "status": "revise",
+  "checks": [
+    {
+      "check_id": "A01-result-classification",
+      "check_type": "calculation",
+      "target_ids": ["TRUTH", "E02"],
+      "verdict": "fail",
+      "severity": "blocking",
+      "reason": "At runner lines 115-127, re.search selects the first unanchored Ran and skipped= values anywhere in the combined output and never requires the final unittest outcome to be OK. A preceding log containing 'Ran 1 test in 0.001s' followed by the actual 'Ran 0 tests in 0.000s' is classified passed with exit code zero. A preceding 'skipped=0' also masks the actual final 'OK (skipped=1)'. A unittest failure with unittest.main(exit=False) reports FAILED but exits zero and is likewise classified passed. These conclusions follow directly from the reviewed conditions; dynamic counterexamples were not executed. Existing tests only provide simple single-summary strings and do not cover these cases.",
+      "evidence_ids": ["RUNNER", "TESTS"],
+      "required_action": "Parse a complete, authoritative terminal unittest summary and require its explicit successful outcome before passed. Treat missing, malformed or ambiguous result summaries conservatively; derive test and skip counts from that same summary, and never pass a terminal FAILED summary even with exit code zero. Add small synthetic cases for prefixed summary/skip text, zero tests, skips, and FAILED with a zero process exit."
+    },
+    {
+      "check_id": "A02-supervisor-termination",
+      "check_type": "safety",
+      "target_ids": ["BOUNDS", "DURABILITY"],
+      "verdict": "fail",
+      "severity": "blocking",
+      "reason": "The supervisor starts its child in a new session, but installs no SIGTERM handler. The except BaseException branch only performs cleanup when Python raises an exception; default SIGTERM termination bypasses that branch. Terminating the CLI supervisor can therefore leave the child process group running without its wall-time monitor and without interrupted.json. This is distinct from the explicitly excluded successful-run orphan guarantee. The finding is static; no signal counterexample was executed.",
+      "evidence_ids": ["RUNNER"],
+      "required_action": "Handle ordinary supervisor cancellation, including SIGTERM, with bounded cleanup of the process group created for this run and durable interrupted metadata. Restore any installed handlers and explicitly document unavoidable abrupt-death limits such as SIGKILL. Add a short synthetic cancellation case that proves the created child group is cleaned up and an interrupted record remains."
+    },
+    {
+      "check_id": "A03-normal-bounds-and-reservation",
+      "check_type": "safety",
+      "target_ids": ["BOUNDS", "DURABILITY", "E01"],
+      "verdict": "pass",
+      "severity": "info",
+      "reason": "For the normal CLI path, the source checks the elapsed wall clock while reading the pipe nonblockingly, writes at most max_log_bytes, kills its newly created group on timeout/output overflow, reserves a fresh run directory with exist_ok=False, and writes metadata with exclusive creation. The six recorded selftests cover basic success, zero/skip classification, nonzero exit, timeout, output overflow, and existing-run preservation. This pass covers those bounded normal paths only and does not override A01 or A02.",
+      "evidence_ids": ["RUNNER", "TESTS", "RESULT"],
+      "required_action": null
+    },
+    {
+      "check_id": "A04-source-and-result-provenance",
+      "check_type": "evidence",
+      "target_ids": ["RESULTS"],
+      "verdict": "pass",
+      "severity": "info",
+      "reason": "At the audit read, SHA-256 of RUNNER, TESTS, and RESULT matched all three values recorded by the artifact, and the artifact SHA-256 was f73ba0c008d74992e5bb162d3fea0570587995b4ce05bec02953325c62ab7fef. RESULT records six tests and passed. This verifies the recorded result and source identity at inspection time; it is not a fresh test run. The orchestrator subsequently stated the runner remained unchanged. Any source change requires a new artifact and audit revision.",
+      "evidence_ids": ["RUNNER", "TESTS", "RESULT"],
+      "required_action": null
+    },
+    {
+      "check_id": "A05-scope-limits",
+      "check_type": "intent",
+      "target_ids": ["LIMITS"],
+      "verdict": "pass",
+      "severity": "info",
+      "reason": "The artifact and module docstring explicitly require preflight-approved synthetic tests and exclude OS isolation, no-network guarantees, product certification, and the absence of descendants after a successful run. The audit accepts those limits and makes none of those stronger claims.",
+      "evidence_ids": ["RUNNER"],
+      "required_action": null
+    },
+    {
+      "check_id": "A06-cli-import-contract",
+      "check_type": "coverage",
+      "target_ids": ["RESULTS", "BOUNDS"],
+      "verdict": "unresolved",
+      "severity": "warning",
+      "reason": "The CLI launches the test file directly and copies the inherited environment without explicitly establishing repository-root imports. The orchestrator reported two recovery-test errors caused by 'ModuleNotFoundError: No module named tests' in run 008. That additional log was not independently read and is not a hashed source in this artifact, so its exact cause is not treated as verified. The six reviewed selftests do not establish the CLI's repository import contract.",
+      "evidence_ids": ["RUNNER", "TESTS"],
+      "required_action": "Inspect the reported recovery log and define a consistent repository import contract for approved test files; cover it with a minimal synthetic test before relying on this runner for the affected suite. Include the relevant evidence in the next artifact."
+    }
+  ],
+  "summary": {
+    "blocking_failures": 2,
+    "unresolved_count": 1,
+    "next_action": "revise"
+  }
+}

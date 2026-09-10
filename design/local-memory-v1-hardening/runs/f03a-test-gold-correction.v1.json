@@ -1,0 +1,27 @@
+{
+  "schema_version": "1.0",
+  "task_id": "lms-v1-00-hardening-2026-09-09-f03a",
+  "status": "parent_authorized_fixture_correction_before_reverification",
+  "audit_repair_rounds_consumed": 0,
+  "test_correction_count": 1,
+  "authorization": "Parent independently confirmed COPY_TOKEN word-boundary semantics and authorized only two fixture delimiters changed to spaces. Product family_key remains frozen. Original gold/test/RED/first post-fix failure retained; corrected test must fail against saved BEFORE source and then pass against current product.",
+  "initial_test_snapshot": "design/local-memory-v1-hardening/runs/f03a-test-gold-initial.v1.py",
+  "initial_test_sha256": "cba73b1f99a5fb5ce306e5e71f0aad0b44579ad109189d79e626e89d494d06ea",
+  "corrected_test": "tests/test_unmarked_version_candidates.py",
+  "corrected_test_sha256": "aa7da7f0a308dec79a398678c18d41d246c26a514d6fc88dedcf1cba431100d3",
+  "correction_delta": "design/local-memory-v1-hardening/runs/f03a-test-gold-correction.v1.patch",
+  "unchanged_product_sha256": "c2b98254ec28a82e8cc7b5ef3f5e780739bcc1b6983ef2a9252609156d4b672f",
+  "first_postfix_failed_run": "design/local-memory-v1-hardening/runs/f03a-executor-green-pure-001/result.json",
+  "first_postfix_failed_log_sha256": "afa02caa5be824ae97c5a2c064b55de66c1d0faac22007ea03f1422e6b590025",
+  "first_postfix_result": "19 methods, 2 FAIL/0 ERROR/0 skip; run-id contains green but actual result is FAILED and must never count as passed.",
+  "reason": "Existing COPY_TOKEN uses a word boundary before copy. Underscore is a word character, so _copy is not removed; the two fixtures were not the same family required by the contract. Changing product normalization would expand scope. Only fixture spellings changed; assertions, counts, policy and acceptance contract unchanged.",
+  "corrections": [
+    {"before": "Notes/Manual_copy.csv", "after": "Notes/Manual copy.csv"},
+    {"before": "手順_copy(2).csv", "after": "手順 copy(2).csv"}
+  ],
+  "residual_boundary_witnesses_not_acceptance": [
+    {"path": "Notes/Manual_copy.csv", "family_key": "notes\u0000manualcopy\u0000.csv", "not_equal_to": "notes\u0000manual\u0000.csv"},
+    {"path": "手順_copy(2).csv", "family_key": "\u0000手順copy2\u0000.csv", "not_equal_to": "\u0000手順\u0000.csv"}
+  ],
+  "corrected_red_preflight": "f03a-corrected-before-run.v1.py reads only the exact saved resolver and corrected test before worker guards. It temporarily redirects Path.read_bytes only for the test's exact resolver path to the hash-verified saved bytes, executes unchanged corrected test CLI, then restores the method. No product rollback or document I/O. Guard and supervisor still enforce 30sec/1MiB. This is retrospective corrected-gold RED, not a second preimplementation chronology claim."
+}

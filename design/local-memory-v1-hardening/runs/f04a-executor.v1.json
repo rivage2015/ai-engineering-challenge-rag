@@ -1,0 +1,67 @@
+{
+  "schema_version": "1.0",
+  "task_id": "lms-v1-00-hardening-2026-09-09-f04a",
+  "executor": "version_policy_contract",
+  "status": "awaiting_separate_audit",
+  "artifact_version": 1,
+  "audit_repair_round": 0,
+  "maximum_repair_rounds": 2,
+  "base_commit": "79a69260fb1a42efb3c0e2c0093ed6101470f2a1",
+  "task_contract": "design/local-memory-v1-hardening/runs/f02-f06-next-slice-contract.v1.md",
+  "authorization": "Parent read the complete contract and explicitly authorized F04a implementation in resolver, its existing test file and f04a-prefixed evidence only.",
+  "goal": "A unique current candidate with one explicit version cannot automatically supersede another candidate carrying one larger numeric version. Hold the group for human review; preserve valid human decisions and stale-decision holding.",
+  "implementation": {
+    "changed_files": ["distribution/macos-local-memory/engine/document_version_resolver.py", "distribution/macos-local-memory/tests/test_document_version_resolver.py"],
+    "resolver_version": "0.1.1",
+    "schema_version_unchanged": "1.0",
+    "behavior": "After existing current/year-conflict checks, compare single explicit numeric-version tuples. A greater peer version returns current_marker_conflicts_with_latest_version with no selected path. Draft/historical labels do not suppress this conflict.",
+    "unchanged": ["family grouping", "year-only automatic selection", "candidate universe", "decision validity checks and precedence", "version graph Validator", "HITL/publication/revision", "shared bootstrap and Reader sources", "all prior evidence"],
+    "diff_numstat": {"resolver": {"added": 16, "removed": 2}, "tests": {"added": 119, "removed": 0}},
+    "committed": false,
+    "production_state_changed": false
+  },
+  "source_hashes": {
+    "before": {
+      "distribution/macos-local-memory/engine/document_version_resolver.py": "a1780dc59d23b0c3b5423ca3264841d9261facbaf7dba0701b139049543d0e1b",
+      "distribution/macos-local-memory/tests/test_document_version_resolver.py": "fb15dfad9dc742e5a387aebca1c1ff86894b39392010f327a1a109a1bf0e7125"
+    },
+    "stable_after": {
+      "distribution/macos-local-memory/engine/document_version_resolver.py": "f42db568267befe8a041d036242795599544ba6a46236866a643b91d4f93811b",
+      "distribution/macos-local-memory/tests/test_document_version_resolver.py": "6031c30fbfc1b8eda0159b926ef07bbcedee1b0c2c92747b3135f9be6f6efd17",
+      "design/local-memory-v1-hardening/runs/f04a-executor-run.v1.py": "7c6953d3e92c46ede699b81690a138fb50e74e51b79fc37d14f9fc44d6c4391b"
+    },
+    "shared_dependencies_observed_after": {
+      "distribution/macos-local-memory/engine/build_path_graph.py": "b29031b8a0ae594bda762795bb6bc79a7080ea8cfe0a147118accf374be94839",
+      "distribution/macos-local-memory/engine/validate_path_graph.py": "810b6fe761a399c6527f905e8ffa411c26965e56a29de9fda6e2e8ab79b5bb3d",
+      "distribution/macos-local-memory/app/bootstrap.py": "069c36f8d03634583dec27a6647ec100ae90bbbe7408b4275b164ee1b4b16192"
+    },
+    "stability_method": "Resolver and test hashes were equal at the post-implementation checkpoint and after final Python 3.14 tests. Shared hashes are read-time observations, not evidence of a global immutable filesystem snapshot."
+  },
+  "validation": [
+    {"phase": "RED", "result": "design/local-memory-v1-hardening/runs/f04a-red-002/result.json", "status": "failed_as_expected", "tests": 1, "subtest_failures": 4, "exit_code": 1, "elapsed_seconds": 0.229229, "reason": "All four expected needs_human_review cases instead returned resolved before product changes.", "log_sha256": "a0a99017053fd936b786dd90664d7cdaf5f7d5e9dfb191663591aab8cb52e86b"},
+    {"phase": "GREEN-supported-resolver", "result": "design/local-memory-v1-hardening/runs/f04a-resolver-python314-001/result.json", "status": "passed", "tests": 17, "composition": "11 existing plus 6 new tests; includes Reader exclusion, source hash retention, tuple comparison, order invariance, valid human choice and stale choice", "skips": 0, "expected_failures": 0, "exit_code": 0, "elapsed_seconds": 0.265408, "log_sha256": "d897211a165d388ea84d90440837c102d607fe5e1684788c278190cfbd930c22"},
+    {"phase": "GREEN-supported-F01-wiring", "result": "design/local-memory-v1-hardening/runs/f04a-e2e-python314-001/result.json", "status": "passed", "tests": 15, "skips": 0, "expected_failures": 0, "exit_code": 0, "elapsed_seconds": 1.628756, "log_sha256": "3f87de6690568800217a27f4f5f64df7fa83950f5fb58799796344c79b092ed7"},
+    {"phase": "DIAGNOSTIC-Python39-resolver", "result": "design/local-memory-v1-hardening/runs/f04a-resolver-green-003/result.json", "status": "passed_limited_scope", "tests": 17, "exit_code": 0, "reason": "Pure resolver/Reader fixture checks passed; not Python 3.9 application compatibility."},
+    {"phase": "DIAGNOSTIC-Python39-F01", "result": "design/local-memory-v1-hardening/runs/f04a-e2e-green-005/result.json", "status": "failed", "tests": 15, "errors": 2, "exit_code": 1, "reason": "Unchanged answer_local_memory.py uses zip(strict=True), unsupported by Python 3.9. No unrelated compatibility repair was made."},
+    {"phase": "git-diff-check", "status": "passed", "exit_code": 0}
+  ],
+  "guard_development_failures_retained": [
+    {"run": "f04a-red-001", "reason": "Four true RED failures followed by fixture cleanup rejection: relative os.open with directory descriptor was misinterpreted as cwd-relative. Footer not accepted by supervisor; not counted as a clean RED run.", "cleanup": "The two small synthetic support files left by this run were moved into its cleanup-leftover-fixture subdirectory. No personal files were involved."},
+    {"run": "f04a-resolver-green-001", "reason": "Two Reader tests attempted stdlib MIME table initialization from host Apache config. Guard rejected this; later runs initialize only the built-in MIME table."},
+    {"run": "f04a-e2e-green-001", "reason": "The os.open guard changed primitive identity in os.supports_dir_fd. Later wrapper retains this capability only when the actual original primitive advertises it, forwarding dir_fd unchanged."},
+    {"run": "f04a-e2e-green-002", "reason": "Guard rejected directory-only ancestor handles required by existing confined source observation. Later wrapper allows only fixture ancestors with O_DIRECTORY."},
+    {"run": "f04a-e2e-green-003", "reason": "Guard rejected checked-in Paddle manifest/lock hashing during server import; exact static resource paths were subsequently allowed after source inspection."},
+    {"run": "f04a-e2e-green-004", "reason": "Guard rejected the operating-system Asia/Tokyo timezone file needed by existing question code; exact path was subsequently allowed."}
+  ],
+  "safety_preflight": {
+    "interpreter_final": "/opt/homebrew/opt/python@3.14/bin/python3.14 (3.14.6), matching F01 supported validation",
+    "reviewed": ["Complete existing resolver test and synthetic F01 E2E test", "adaptive builder import/build/run_tool", "build_intermediate_records runtime fingerprint, OCR/Paddle/PDF/VLM identity helpers and main", "server build fingerprint and exact static runtime contracts", "audit SKILL, audit contract/schema, Adapter SKILL"],
+    "metadata_probes": "Existing F01 dispatcher replaces _local_vlm_identities, _fixed_ocr_runtime_identity, _paddle_runtime_identity, _pdfkit_jxa_backend_identity, paddle_build_session and password discovery before Reader main. Processing code identities remain actual source hashes.",
+    "bounds": {"wall_seconds_per_suite": 30, "max_log_bytes_per_suite": 1048576, "cumulative_synthetic_source_write_bytes_per_worker": 1048576},
+    "guards": "Worker socket/HTTP/Popen and OS process audit events denied. File opens limited to reviewed code/runtime/exact OS metadata and generated fixture trees; writes limited to generated fixture trees. Supervisor creates only its owned Python worker and logs.",
+    "limitations": "Runtime guards and static preflight are not an OS sandbox proof. Source-write limit covers fixture document writes through Path.write_text, not every derived output or metadata record. Total RSS/derived disk byte budgets were not certified."
+  },
+  "not_claimed": ["Complete F04 or F02-F06 resolution", "Annual versus revision identity", "Unmarked/cross-format candidate completeness", "Independent version partition validation", "HITL generation/revision/CAS correctness", "Answer-time freshness", "Real model/OCR/package acceptance", "Python 3.9 application compatibility"],
+  "rollback": "Reverse only the two F04a file diffs, preserving other dirty work. No index or CONFIG migration was performed. Existing resolver resource identity continues to signal explicit rebuild; never describe a prior published index as validated under the new policy.",
+  "next_action": "Separate-context audit against this exact source and evidence; executor does not self-approve."
+}

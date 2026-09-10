@@ -1,0 +1,14 @@
+test_all_marked_differential_corpus_matches_saved_before_semantics (audit_target_tests.IndependentF03aHoldouts.test_all_marked_differential_corpus_matches_saved_before_semantics) ... ok
+test_all_unmarked_same_family_still_reaches_real_reader_and_safe_index (audit_target_tests.IndependentF03aHoldouts.test_all_unmarked_same_family_still_reaches_real_reader_and_safe_index) ... ok
+test_every_allowed_suffix_and_five_signal_categories_hold_plain_peer (audit_target_tests.IndependentF03aHoldouts.test_every_allowed_suffix_and_five_signal_categories_hold_plain_peer) ... ok
+test_existing_metadata_hash_representation_and_plain_decision_are_preserved (audit_target_tests.IndependentF03aHoldouts.test_existing_metadata_hash_representation_and_plain_decision_are_preserved) ... ok
+test_ineligible_plain_records_do_not_poison_numeric_selection (audit_target_tests.IndependentF03aHoldouts.test_ineligible_plain_records_do_not_poison_numeric_selection) ... ok
+test_multiple_families_and_input_order_have_exact_stable_membership (audit_target_tests.IndependentF03aHoldouts.test_multiple_families_and_input_order_have_exact_stable_membership) ... ok
+test_plain_to_marked_rename_stales_choice_before_numeric_automatic_selection (audit_target_tests.IndependentF03aHoldouts.test_plain_to_marked_rename_stales_choice_before_numeric_automatic_selection) ... ok
+test_removing_selected_or_unselected_plain_member_stales_formed_group (audit_target_tests.IndependentF03aHoldouts.test_removing_selected_or_unselected_plain_member_stales_formed_group) ... ok
+test_same_set_wrong_source_or_missing_selection_cannot_activate (audit_target_tests.IndependentF03aHoldouts.test_same_set_wrong_source_or_missing_selection_cannot_activate) ... ok
+
+----------------------------------------------------------------------
+Ran 9 tests in 0.225s
+
+OK

@@ -1,0 +1,10 @@
+test_unverified_notebook_stops_actual_bridge_and_preserves_public_generation (f11a_app_controls.NotebookApplicationTests.test_unverified_notebook_stops_actual_bridge_and_preserves_public_generation) ... ok
+test_changed_reader_contract_holds_old_generation_without_mutating_it (f11a_app_controls.NotebookApplicationTests.test_changed_reader_contract_holds_old_generation_without_mutating_it) ... ok
+test_explicit_rebuild_creates_new_generation_and_keeps_previous_bytes (f11a_app_controls.NotebookApplicationTests.test_explicit_rebuild_creates_new_generation_and_keeps_previous_bytes) ... ok
+test_probe_and_schemas_are_in_existing_package_copy_contract (f11a_app_controls.NotebookApplicationTests.test_probe_and_schemas_are_in_existing_package_copy_contract) ... ok
+F05b explicit fixture budget: {"explicit_test_bytes": 265, "explicit_test_writes": 10, "max_source_fixture_bytes": 137, "source_fixture_count": 3}
+
+----------------------------------------------------------------------
+Ran 4 tests in 0.574s
+
+OK

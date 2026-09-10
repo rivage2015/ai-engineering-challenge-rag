@@ -14,6 +14,7 @@ import csv
 import hashlib
 import io
 import json
+import math
 import mimetypes
 import os
 import posixpath
@@ -38,8 +39,32 @@ from evidence_text_chunking import (
 
 SCHEMA_VERSION = "0.1"
 EXTRACTOR = "intermediate-record-probe"
-EXTRACTOR_VERSION = "0.7.1"
+EXTRACTOR_VERSION = "0.8.0"
 FORMULA_CACHED_VALUE_STATUS = "stored_in_file_not_recalculated"
+
+SHA256_PATTERN = re.compile(r"^[0-9a-f]{64}$")
+DOCUMENT_VISUAL_CONTAINER_BY_SUFFIX = {
+    ".pdf": "pdf_page_image",
+    ".docx": "office_embedded_image",
+    ".docm": "office_embedded_image",
+    ".xlsx": "office_embedded_image",
+    ".xlsm": "office_embedded_image",
+    ".pptx": "office_embedded_image",
+    ".pptm": "office_embedded_image",
+    ".ipynb": "notebook_embedded_image",
+    ".png": "standalone_image",
+    ".jpg": "standalone_image",
+    ".jpeg": "standalone_image",
+    ".gif": "standalone_image",
+    ".bmp": "standalone_image",
+    ".tif": "standalone_image",
+    ".tiff": "standalone_image",
+    ".webp": "standalone_image",
+}
+NOTEBOOK_PROVISIONAL_VISUAL_METHODS = {
+    "local_vlm_visual_observation_provisional",
+    "local_vlm_unlocated_transcript_provisional",
+}
 
 PLAIN_TEXT_SUFFIXES = {
     ".md", ".txt", ".py", ".toml", ".yaml", ".yml", ".rst", ".sql", ".sh", ".command",
@@ -69,6 +94,10 @@ OCR_ENGINE_BY_PASS = {
 CODE_SUFFIXES = {".py", ".toml", ".yaml", ".yml", ".sql", ".sh", ".command"}
 DIRECT_TEXT_SUFFIXES = PLAIN_TEXT_SUFFIXES | {".csv", ".tsv", ".json", ".xml", ".ipynb"}
 MAX_DIRECT_TEXT_BYTES = 64 * 1024 * 1024
+MAX_NOTEBOOK_METADATA_BYTES = 8 * 1024 * 1024
+MAX_NOTEBOOK_JSON_TOKENS = 100_000
+MAX_NOTEBOOK_JSON_DEPTH = 64
+MAX_NOTEBOOK_NUMBER_CHARS = 256
 STREAM_TEXT_READ_CHARS = 64 * 1024
 MAX_STREAM_TEXT_READ_BLOCKS = 4096
 TEXT_ENCODING_SNIFF_BYTES = 64 * 1024
@@ -451,7 +480,11 @@ def detect_text_file_encoding(path: Path) -> str:
     return next((encoding for encoding in candidates if encoding in decoders), "utf-8-replacement")
 
 
-def read_text(path: Path) -> tuple[str, str]:
+def read_text(
+    path: Path,
+    *,
+    byte_validator: Callable[[bytes], None] | None = None,
+) -> tuple[str, str]:
     """Read bounded native text while reporting the selected encoding.
 
     ``Probe.extract`` routes larger text-like files to the streaming reader
@@ -462,6 +495,8 @@ def read_text(path: Path) -> tuple[str, str]:
     if path.stat().st_size > MAX_DIRECT_TEXT_BYTES:
         raise ValueError("direct_text_resource_limit")
     raw = path.read_bytes()
+    if byte_validator is not None:
+        byte_validator(raw)
     encoding = detect_text_encoding(raw)
     if encoding == "utf-8-replacement":
         return raw.decode("utf-8", errors="replace"), encoding
@@ -596,7 +631,16 @@ def validate_xml_bytes(value: bytes) -> None:
     elif any(marker.decode("ascii").encode(encoding) in value for marker in OOXML_FORBIDDEN_XML):
         raise ValueError("ooxml_xml_unsafe")
     try:
-        prolog = value[bom_bytes:2048].decode(encoding, errors="strict")
+        decoder = codecs.getincrementaldecoder(encoding)(errors="strict")
+        # A sample boundary is not EOF: retain an incomplete character or
+        # surrogate pair in decoder state instead of rejecting valid XML.
+        prolog = decoder.decode(value[bom_bytes:2048], final=False)
+        # Validate the remaining bytes strictly without retaining a second
+        # whole-document Unicode buffer. Malformed data (including a genuinely
+        # truncated final character) must not become an ignored sample tail.
+        for offset in range(2048, len(value), 64 * 1024):
+            decoder.decode(value[offset:offset + 64 * 1024], final=False)
+        decoder.decode(b"", final=True)
     except UnicodeDecodeError as exc:
         raise ValueError("ooxml_xml_encoding_invalid") from exc
     declaration = XML_DECLARATION_ENCODING.search(prolog)
@@ -628,9 +672,34 @@ def _ooxml_relationship_source(member: str) -> str | None:
 
 
 def _resolve_ooxml_target(source_part: str, target: str) -> str | None:
-    """Resolve an internal OOXML relationship target without filesystem access."""
-    if not target or "\\" in target or "\x00" in target:
+    """Resolve a supported internal whole-part URI without filesystem access.
+
+    A relationship target is a URI reference, not an arbitrary POSIX filename.
+    Keep escapes literal for exact ZIP-member lookup; never unquote a target
+    into URI syntax or path separators. This is not a full OPC URI validator.
+    """
+    if (
+        not target
+        or re.search(r"[\x00-\x20\x7f\\?#]", target)
+        or "//" in target
+        or target.endswith("/")
+        # URI terminal dot segments denote a directory, even though POSIX
+        # normpath would erase that meaning and allow a file-part lookup.
+        or target.rsplit("/", 1)[-1] in {".", ".."}
+        or (not target.startswith("/") and ":" in target.split("/", 1)[0])
+        or re.search(r"%(?![0-9a-fA-F]{2})", target)
+    ):
         return None
+    # Encoded separators/controls and unreserved aliases are not supported
+    # part names. In particular, encoded dots must not bypass path traversal
+    # checks. Other escapes (e.g. %20, %23, %25) remain literal, not decoded.
+    for escape in re.finditer(r"%([0-9a-fA-F]{2})", target):
+        value = int(escape.group(1), 16)
+        if (
+            value < 0x20 or value == 0x7f
+            or chr(value) in "/\\ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~"
+        ):
+            return None
     if target.startswith("/"):
         candidate = target[1:]
     else:
@@ -2394,26 +2463,13 @@ def referenced_pptx_diagrams(
 
 
 def discover_password_candidates(root: Path) -> tuple[str, ...]:
-    """Derive generic Office password candidates from path-visible aliases and dates."""
-    aliases: set[str] = set()
-    dates: set[str] = set()
-    embedded: set[str] = set()
-    for path in root.rglob("*"):
-        if not path.is_file():
-            continue
-        visible = unicodedata.normalize("NFC", path.as_posix())
-        dates.update(DATE_TOKEN_PATTERN.findall(visible))
-        for alias, date_token in ALIAS_DATE_PATTERN.findall(visible):
-            aliases.add(alias)
-            dates.add(date_token)
-            embedded.add(f"{alias}{date_token}")
-    candidates = set(embedded)
-    for alias in aliases:
-        for date_token in dates:
-            for extension in ("docx", "xlsx", "pptx"):
-                candidates.add(f"DA-{alias}-{date_token}-{extension}")
-                candidates.add(f"DA-{alias.upper()}-{date_token}-{extension}")
-    return tuple(sorted(candidates))
+    """Compatibility entry point: never discover or guess document passwords.
+
+    Keep existing callers safe without traversing their root. Explicit per-file
+    consent and secret delivery require a separate input boundary; a batch-wide
+    password candidate list is not that boundary.
+    """
+    return ()
 
 
 def json_value(value: Any) -> Any:
@@ -2480,6 +2536,541 @@ def nfc_path(path: Path) -> str:
     return unicodedata.normalize("NFC", path.as_posix())
 
 
+class NotebookMetadataResourceLimit(ValueError):
+    """The declared metadata budget, not malformed JSON, stopped attestation."""
+
+
+def read_notebook_bytes(path: Path) -> bytes:
+    with path.open("rb") as handle:
+        raw = handle.read(MAX_NOTEBOOK_METADATA_BYTES + 1)
+    if len(raw) > MAX_NOTEBOOK_METADATA_BYTES:
+        raise NotebookMetadataResourceLimit("notebook_metadata_resource_limit: bytes")
+    return raw
+
+
+def _notebook_json_budget(text: str) -> None:
+    """Bound lexical work before json.loads; never materialize a token list."""
+    position = tokens = depth = 0
+    while position < len(text):
+        char = text[position]
+        if char.isspace() or char in ",:":
+            position += 1
+            continue
+        if char in "}]":
+            depth -= 1
+            position += 1
+            continue
+        tokens += 1
+        if tokens > MAX_NOTEBOOK_JSON_TOKENS:
+            raise NotebookMetadataResourceLimit("notebook_metadata_resource_limit: tokens")
+        if char in "[{":
+            depth += 1
+            if depth > MAX_NOTEBOOK_JSON_DEPTH:
+                raise NotebookMetadataResourceLimit("notebook_metadata_resource_limit: depth")
+            position += 1
+        elif char == '"':
+            position += 1
+            while position < len(text):
+                char = text[position]
+                position += 1
+                if char == "\\":
+                    position += 1
+                elif char == '"':
+                    break
+        else:
+            start = position
+            numeric = char in "-0123456789"
+            while position < len(text) and not text[position].isspace() and text[position] not in ",:[]{}\"":
+                position += 1
+                if numeric and position - start > MAX_NOTEBOOK_NUMBER_CHARS:
+                    raise NotebookMetadataResourceLimit("notebook_metadata_resource_limit: number")
+            if position == start:
+                position += 1
+
+
+def _notebook_count(value: dict[str, Any], key: str) -> dict[str, Any]:
+    if key not in value:
+        return {"present": False}
+    count = value[key]
+    if count is not None and (type(count) is not int or count < 0):
+        raise ValueError(f"notebook invalid {key}: {type(count).__name__} {repr(count)[:128]}")
+    return {"present": True, "value": count}
+
+
+def _notebook_text(value: Any) -> str:
+    if isinstance(value, str):
+        return value
+    if isinstance(value, list) and all(isinstance(part, str) for part in value):
+        return "".join(value)
+    raise ValueError("notebook text must be a string or an array of strings")
+
+
+def parse_notebook_bytes(raw: bytes) -> tuple[dict[str, Any], str, dict[str, dict[str, Any]], bool]:
+    """Project metadata from one bounded snapshot; no source body attestation."""
+    encoding = detect_text_encoding(raw)
+    if encoding == "utf-8-replacement":
+        raise ValueError("notebook invalid text encoding")
+    try:
+        text = raw.decode(encoding, errors="strict")
+    except UnicodeError as exc:
+        raise ValueError("notebook invalid text encoding") from exc
+    _notebook_json_budget(text)
+
+    def pairs(items):
+        result = {}
+        for key, value in items:
+            if key in result:
+                raise ValueError("notebook duplicate JSON key")
+            result[key] = value
+        return result
+
+    def constant(_value):
+        raise ValueError("notebook nonfinite JSON constant")
+
+    def number(value):
+        result = float(value)
+        if not math.isfinite(result):
+            raise ValueError("notebook nonfinite JSON number")
+        return result
+
+    try:
+        notebook = json.loads(text, object_pairs_hook=pairs, parse_constant=constant, parse_float=number)
+    except (ValueError, RecursionError, OverflowError) as exc:
+        raise ValueError(f"notebook invalid JSON: {str(exc)[:256]}") from exc
+    if not isinstance(notebook, dict) or not isinstance(notebook.get("cells"), list):
+        raise ValueError("notebook requires an object with a cells array")
+    states: dict[str, dict[str, Any]] = {}
+    missing_count = False
+    for cell_index, cell in enumerate(notebook["cells"], 1):
+        if not isinstance(cell, dict) or cell.get("cell_type") not in ("code", "markdown", "raw"):
+            raise ValueError("notebook invalid cell shape/type")
+        _notebook_text(cell.get("source", []))
+        count = _notebook_count(cell, "execution_count")
+        missing_count |= cell["cell_type"] == "code" and not count["present"]
+        pointer = f"/cells/{cell_index - 1}"
+        common = {
+            "version": "1.0", "cell_index": cell_index, "cell_type": cell["cell_type"],
+            "content_origin": "cell_source", "source_json_pointer": pointer,
+            "reader_execution": "not_executed", "cell_execution_count": count,
+        }
+        states[pointer] = common
+        outputs = cell.get("outputs", [])
+        if not isinstance(outputs, list):
+            raise ValueError("notebook outputs must be an array")
+        for output_index, output in enumerate(outputs, 1):
+            if not isinstance(output, dict) or not isinstance(output.get("data", {}), dict):
+                raise ValueError("notebook invalid output shape")
+            output_count = _notebook_count(output, "execution_count")
+            output_type = output.get("output_type")
+            missing_count |= output_type == "execute_result" and not output_count["present"]
+            text_output = _notebook_text(output.get("text", ""))
+            plain = _notebook_text(output.get("data", {}).get("text/plain", ""))
+            if not (text_output or plain):
+                continue  # Image/error/display-update content is not this slice.
+            if output_type not in ("stream", "display_data", "execute_result"):
+                raise ValueError("notebook unsupported textual output type")
+            output_pointer = f"{pointer}/outputs/{output_index - 1}"
+            states[output_pointer] = {
+                **common, "content_origin": "saved_output", "source_json_pointer": output_pointer,
+                "output_index": output_index, "output_type": output_type,
+                "output_execution_count": output_count, "output_freshness": "unverified",
+            }
+    return notebook, encoding, states, missing_count
+
+
+def validate_notebook_state(state: Any) -> dict[str, Any]:
+    common = {"version", "cell_index", "cell_type", "content_origin", "source_json_pointer",
+              "reader_execution", "cell_execution_count"}
+    output = {"output_index", "output_type", "output_execution_count", "output_freshness"}
+    if not isinstance(state, dict):
+        raise ValueError("notebook_state must be an object")
+    origin = state.get("content_origin")
+    expected_keys = common | output if origin == "saved_output" else common
+    if set(state) != expected_keys or origin not in ("cell_source", "saved_output"):
+        raise ValueError("notebook_state fields/origin mismatch")
+    index = state["cell_index"]
+    if type(index) is not int or index < 1 or state["cell_type"] not in ("code", "markdown", "raw"):
+        raise ValueError("notebook_state cell type/index mismatch")
+    if state["version"] != "1.0" or state["reader_execution"] != "not_executed":
+        raise ValueError("notebook_state version/reader_execution mismatch")
+    for key in ("cell_execution_count", "output_execution_count"):
+        if key not in state:
+            continue
+        presence = state[key]
+        if not isinstance(presence, dict) or type(presence.get("present")) is not bool:
+            raise ValueError("notebook_state count presence mismatch")
+        if set(presence) != ({"present", "value"} if presence["present"] else {"present"}):
+            raise ValueError("notebook_state count presence fields mismatch")
+        if presence["present"]:
+            _notebook_count({"execution_count": presence["value"]}, "execution_count")
+    pointer = f"/cells/{index - 1}"
+    if origin == "saved_output":
+        output_index = state["output_index"]
+        if type(output_index) is not int or output_index < 1:
+            raise ValueError("notebook_state output index mismatch")
+        if state["output_type"] not in ("stream", "display_data", "execute_result") or state["output_freshness"] != "unverified":
+            raise ValueError("notebook_state output type/freshness mismatch")
+        pointer += f"/outputs/{output_index - 1}"
+    if state["source_json_pointer"] != pointer:
+        raise ValueError("notebook_state pointer mismatch")
+    return state
+
+
+def _visual_origin_errors(
+    parent: dict[str, Any],
+    visual_sources: list[dict[str, Any]],
+    expected_container: str,
+    document: dict[str, Any] | None = None,
+) -> list[str]:
+    """Validate one canonical, source-bound origin shared by an image family."""
+    errors: list[str] = []
+    parent_location = parent.get("location", {})
+    parent_native = parent.get("native_properties", {})
+    if not isinstance(parent_location, dict):
+        return ["parent image location is not an object"]
+    if not isinstance(parent_native, dict):
+        return ["parent image native properties are not an object"]
+    parent_origin = (
+        parent_native.get("visual_origin") if isinstance(parent_native, dict) else None
+    )
+    if not isinstance(parent_origin, dict):
+        return ["parent image visual origin is missing or invalid"]
+    required_origin = {
+        "kind", "source_relative_path", "source_sha256",
+        "source_location", "materialization",
+    }
+    if not required_origin.issubset(parent_origin):
+        errors.append("parent image visual origin is incomplete")
+    if parent_origin.get("kind") != expected_container:
+        errors.append("parent image visual origin kind is invalid")
+    source_location = parent_origin.get("source_location")
+    if source_location != parent_location:
+        errors.append("parent image visual origin location is inconsistent")
+
+    source_relative_path = parent_origin.get("source_relative_path")
+    source_sha256 = parent_origin.get("source_sha256")
+    if not isinstance(source_relative_path, str) or not source_relative_path:
+        errors.append("parent image visual origin source path is invalid")
+    if not isinstance(source_sha256, str) or not SHA256_PATTERN.fullmatch(source_sha256):
+        errors.append("parent image visual origin source hash is invalid")
+    if document is not None:
+        document_source = document.get("source", {})
+        if not isinstance(document_source, dict) or (
+            source_relative_path != document_source.get("relative_path")
+            or source_sha256 != document_source.get("sha256")
+        ):
+            errors.append("parent image visual origin differs from Document source")
+        if isinstance(document_source, dict):
+            document_path = document_source.get("relative_path")
+            expected_document_container = (
+                DOCUMENT_VISUAL_CONTAINER_BY_SUFFIX.get(
+                    PurePosixPath(document_path).suffix.casefold()
+                )
+                if isinstance(document_path, str) else None
+            )
+            if (
+                expected_document_container is not None
+                and expected_document_container != expected_container
+            ):
+                errors.append(
+                    "parent image visual origin kind differs from Document format"
+                )
+
+    materialization = parent_origin.get("materialization")
+    if not isinstance(materialization, dict):
+        errors.append("parent image visual materialization is missing or invalid")
+    else:
+        rendered_sha256 = materialization.get("rendered_sha256")
+        if (
+            not isinstance(rendered_sha256, str)
+            or not SHA256_PATTERN.fullmatch(rendered_sha256)
+        ):
+            errors.append("parent image rendered hash is invalid")
+        if materialization.get("source_sha256") != source_sha256:
+            errors.append("parent image materialization source hash is inconsistent")
+        if materialization.get("external_network_used") is not False:
+            errors.append("parent image materialization is not offline")
+        if expected_container in {
+            "office_embedded_image", "notebook_embedded_image",
+        }:
+            embedded_sha256 = materialization.get("embedded_sha256")
+            if (
+                not isinstance(embedded_sha256, str)
+                or not SHA256_PATTERN.fullmatch(embedded_sha256)
+                or embedded_sha256 != rendered_sha256
+                or parent_native.get("embedded_sha256") != embedded_sha256
+            ):
+                errors.append("parent embedded image digest binding is invalid")
+        else:
+            if parent_native.get("source_sha256") != rendered_sha256:
+                errors.append("parent rendered image digest binding is invalid")
+
+    for source in visual_sources:
+        native = source.get("native_properties", {})
+        origin = native.get("visual_origin") if isinstance(native, dict) else None
+        if not isinstance(origin, dict):
+            errors.append("child visual Evidence origin is missing or invalid")
+            continue
+        if origin != parent_origin:
+            errors.append("child visual Evidence origin differs from parent image")
+    return errors
+
+
+def is_notebook_document(document: dict[str, Any]) -> bool:
+    source = document.get("source", {})
+    relative = source.get("relative_path", "")
+    notebook = isinstance(relative, str) and PurePosixPath(relative).suffix.lower() == ".ipynb"
+    extension = source.get("extension", "")
+    if notebook != (isinstance(extension, str) and extension.lower() == "ipynb"):
+        raise ValueError("notebook source extension disagrees with relative path")
+    return notebook
+
+
+def _validate_notebook_visual_text(
+    evidence: dict[str, Any], document: dict[str, Any] | None,
+    parent_lookup: Callable[[str], dict[str, Any] | None] | None,
+) -> None:
+    """Check producer-shaped visual lineage without reading image/source files."""
+    native = evidence.get("native_properties", {})
+    provenance = evidence.get("provenance", {})
+    method = provenance.get("extraction_method") if isinstance(provenance, dict) else None
+    if (
+        evidence.get("evidence_type") != "text_block"
+        or not isinstance(method, str)
+        or method not in NOTEBOOK_PROVISIONAL_VISUAL_METHODS
+        or native.get("quality_tier") != "provisional"
+        or native.get("provisional_marker") != PROVISIONAL_OCR_MARKER
+        or native.get("question_independent") is not True
+        or "notebook_state" in native
+    ):
+        raise ValueError("notebook visual text quality/method/state mismatch")
+    parent_id = evidence.get("parent_evidence_id")
+    if not isinstance(parent_id, str) or not parent_id or parent_lookup is None:
+        raise ValueError("notebook visual parent lookup required")
+    parent = parent_lookup(parent_id)
+    if (
+        not isinstance(parent, dict)
+        or parent.get("evidence_id") != parent_id
+        or parent.get("evidence_type") != "image"
+        or not isinstance(evidence.get("document_id"), str)
+        or parent.get("document_id") != evidence.get("document_id")
+        or (document is not None and document.get("document_id") != evidence.get("document_id"))
+    ):
+        raise ValueError("notebook visual parent identity/type/document mismatch")
+    errors = _visual_origin_errors(parent, [evidence], "notebook_embedded_image", document)
+    if errors:
+        raise ValueError("notebook visual origin: " + "; ".join(errors))
+    parent_native = parent["native_properties"]
+    parent_origin = parent_native["visual_origin"]
+    parent_location = parent.get("location", {})
+    if (
+        canonical_json(native.get("visual_origin")) != canonical_json(parent_origin)
+        or canonical_json(parent_origin.get("source_location")) != canonical_json(parent_location)
+    ):
+        raise ValueError("notebook visual origin strict binding mismatch")
+    cell = parent_location.get("notebook_cell_index")
+    image_index = parent_location.get("object_index")
+    locator = parent_location.get("locator_text")
+    if (
+        set(parent_location) != {"notebook_cell_index", "object_index", "locator_text"}
+        or type(cell) is not int or cell < 1
+        or type(image_index) is not int or image_index < 1
+        or type(parent.get("ordinal")) is not int or parent["ordinal"] != image_index
+        or not isinstance(locator, str)
+    ):
+        raise ValueError("notebook visual parent location/ordinal mismatch")
+    output_match = re.fullmatch(r"cell=([1-9][0-9]*);output=([1-9][0-9]*);output-image=([1-9][0-9]*)", locator)
+    valid_prefix = (
+        output_match is not None
+        and output_match.group(1) == str(cell)
+        and output_match.group(3) == str(image_index)
+    ) or locator == f"cell={cell};source-image={image_index}"
+    attachment = parent_native.get("attachment_name")
+    if isinstance(attachment, str):
+        valid_prefix = valid_prefix or locator == (
+            f"cell={cell};attachment-image={image_index};attachment="
+            + urllib.parse.quote(attachment, safe="-._~")
+        )
+    if not valid_prefix:
+        raise ValueError("notebook visual parent producer locator mismatch")
+    ordinal = evidence.get("ordinal")
+    if type(ordinal) is not int or ordinal < 1:
+        raise ValueError("notebook visual child ordinal mismatch")
+    if method == "local_vlm_visual_observation_provisional":
+        object_index = 1
+        suffix = "visual_observation=whole_image"
+    else:
+        chunk = native.get("transcript_chunk_index")
+        chunks = native.get("transcript_chunk_count")
+        start = native.get("character_start")
+        end = native.get("character_end")
+        if (
+            native.get("location_status") != "unlocated"
+            or native.get("transcript_type") != "whole_image_faithful_transcript"
+            or "geometry" in evidence
+            or type(chunk) is not int or type(chunks) is not int
+            or not 1 <= chunk <= chunks
+            or type(start) is not int or type(end) is not int
+            or not 0 <= start < end
+            or native.get("character_offset_basis") != "zero_based_half_open"
+        ):
+            raise ValueError("notebook visual unlocated transcript contract mismatch")
+        object_index = ordinal
+        suffix = f"location_status=unlocated;source=image;chunk={chunk}/{chunks};characters={start + 1}-{end}"
+    expected_location = {
+        "notebook_cell_index": cell, "image_object_index": image_index,
+        "object_index": object_index, "locator_text": f"{locator};{suffix}",
+    }
+    if canonical_json(evidence.get("location", {})) != canonical_json(expected_location):
+        raise ValueError("notebook visual child producer location mismatch")
+
+
+def classify_notebook_evidence(
+    evidence: dict[str, Any], document: dict[str, Any] | None = None, *, allow_unparsed: bool = False,
+    parent_lookup: Callable[[str], dict[str, Any] | None] | None = None,
+) -> tuple[str, dict[str, Any] | None]:
+    native = evidence.get("native_properties", {})
+    if not isinstance(native, dict):
+        raise ValueError("notebook native_properties must be an object")
+    state = native.get("notebook_state")
+    kind = evidence.get("evidence_type")
+    location = evidence.get("location", {})
+    if not isinstance(kind, str) or not isinstance(location, dict):
+        raise ValueError("notebook Evidence role/location shape mismatch")
+    notebook = is_notebook_document(document) if document is not None else (
+        kind == "notebook_cell" or "notebook_cell_index" in location
+    )
+    textual = kind in {"notebook_cell", "text_block"}
+    if state is not None:
+        validate_notebook_state(state)
+        if not notebook or not textual:
+            raise ValueError("notebook_state injected onto unrelated Evidence")
+    elif "notebook_state" in native:
+        raise ValueError("notebook_state must not be null")
+    if not notebook:
+        if kind == "notebook_cell" or "notebook_cell_index" in location:
+            raise ValueError("notebook Evidence contradicts its Document")
+        return "not_applicable", None
+    if not textual:
+        if kind not in {"image", "ocr_line", "chart"} and "raw_text" in evidence.get("content", {}):
+            raise ValueError("notebook unsupported textual Evidence role")
+        return "not_applicable", None
+    provenance = evidence.get("provenance", {})
+    method = provenance.get("extraction_method") if isinstance(provenance, dict) else None
+    locator = location.get("locator_text")
+    visual_signals = (
+        (isinstance(method, str) and method.startswith("local_vlm_"))
+        or "visual_origin" in native or "image_object_index" in location
+        or native.get("quality_tier") == "provisional"
+        or "provisional_marker" in native
+        or (isinstance(locator, str) and any(part in locator for part in (
+            "visual_observation=", "location_status=unlocated", "source=image",
+        )))
+    )
+    if visual_signals:
+        _validate_notebook_visual_text(evidence, document, parent_lookup)
+        return "visual_text", None
+    if state is None:
+        if (allow_unparsed and kind == "text_block" and "notebook_cell_index" not in location
+                and native.get("source_structure_status") == "unresolved"):
+            return "unparsed_text", None
+        raise ValueError("notebook_rebuild_required: textual Evidence lacks notebook_state")
+    cell = state["cell_index"]
+    expected_location = {"notebook_cell_index": cell, "locator_text": f"cell={cell}"}
+    ordinal = cell
+    expected_kind = "notebook_cell"
+    if state["content_origin"] == "saved_output":
+        ordinal = state["output_index"]
+        expected_kind = "text_block"
+        expected_location.update(object_index=ordinal, locator_text=f"cell={cell};output={ordinal}")
+    if (kind != expected_kind or type(evidence.get("ordinal")) is not int or evidence["ordinal"] != ordinal
+            or canonical_json(location) != canonical_json(expected_location)):
+        raise ValueError("notebook_state role/location/ordinal mismatch")
+    return "native_text", state
+
+
+def notebook_evidence_state(
+    evidence: dict[str, Any], document: dict[str, Any] | None = None, *, allow_unparsed: bool = False,
+    parent_lookup: Callable[[str], dict[str, Any] | None] | None = None,
+) -> dict[str, Any] | None:
+    """Compatibility state API; visual exclusions still require parent validation."""
+    return classify_notebook_evidence(
+        evidence, document, allow_unparsed=allow_unparsed, parent_lookup=parent_lookup,
+    )[1]
+
+
+def notebook_document_binding(
+    document: dict[str, Any], evidence: Any, source_root: Path | None, *,
+    parent_lookup: Callable[[str], dict[str, Any] | None] | None = None,
+) -> dict[str, Any]:
+    """Check one Document at a time; retain no cross-call source/path cache."""
+    notebook = is_notebook_document(document)
+    result = {"documents": int(notebook), "checked_evidence": 0, "unchecked_evidence": 0, "reason_codes": []}
+    reasons: set[str] = set()
+    expected = None
+    incomplete = document.get("extraction", {}).get("status") in {"partial", "failed"}
+    if notebook:
+        if incomplete:
+            reasons.add("notebook_extraction_incomplete")
+        if source_root is None:
+            reasons.add("source_root_missing")
+        else:
+            source = document["source"]
+            root = source_root.resolve()
+            path = (root / source["relative_path"]).resolve()
+            try:
+                path.relative_to(root)
+                if not path.is_file():
+                    raise ValueError("notebook source file is missing")
+                raw = read_notebook_bytes(path)
+                if hashlib.sha256(raw).hexdigest() != source.get("sha256") or len(raw) != source.get("size_bytes"):
+                    raise ValueError("notebook source size or hash mismatch")
+                parsed, encoding, expected, missing = parse_notebook_bytes(raw)
+                del raw, parsed, encoding
+                if missing:
+                    reasons.add("notebook_execution_count_missing")
+            except NotebookMetadataResourceLimit:
+                reasons.add("notebook_metadata_resource_limit")
+            except OSError as exc:
+                raise ValueError(f"notebook source read failed: {str(exc)[:256]}") from exc
+    for item in evidence:
+        kind, state = classify_notebook_evidence(
+            item, document, allow_unparsed=incomplete and expected is None,
+            parent_lookup=parent_lookup,
+        )
+        if kind in {"visual_text", "not_applicable"}:
+            continue
+        if state is None:
+            reasons.add("notebook_state_unparsed")
+        if expected is not None and state is not None:
+            if canonical_json(expected.get(state["source_json_pointer"])) != canonical_json(state):
+                raise ValueError("notebook_state differs from original source metadata")
+            result["checked_evidence"] += 1
+        else:
+            result["unchecked_evidence"] += 1
+    if notebook and not result["checked_evidence"]:
+        reasons.add("no_textual_records_checked")
+    result["reason_codes"] = sorted(reasons)
+    return result
+
+
+def notebook_binding_report(counts: dict[str, int], bindings: Any) -> dict[str, Any]:
+    total = {"documents": 0, "checked_evidence": 0, "unchecked_evidence": 0}
+    reasons: set[str] = set()
+    for binding in bindings:
+        for key in total:
+            total[key] += binding[key]
+        reasons.update(binding["reason_codes"])
+    return {
+        "status": "UNVERIFIED" if reasons else "PASS", "counts": counts,
+        "notebook_metadata_binding": {
+            "status": "unverified" if reasons else "verified" if total["documents"] else "not_applicable",
+            **total, "reason_codes": sorted(reasons),
+            "scope": {"raw_text_binding": "not_verified", "complete_membership": "not_verified", "output_freshness": "not_verified"},
+        },
+    }
+
+
 class DeferredVisualStoreError(RuntimeError):
     """The private per-document visual spool violated its integrity contract."""
 
@@ -2541,9 +3132,9 @@ class Probe:
             raise ValueError(f"input is outside --root: {resolved}") from exc
         return nfc_path(relative)
 
-    def add_document(self, path: Path, parser: str) -> dict[str, Any]:
+    def add_document(self, path: Path, parser: str, *, source_snapshot: bytes | None = None) -> dict[str, Any]:
         rel = self.relative_path(path)
-        source_sha = digest_file(path)
+        source_sha = digest_file(path) if source_snapshot is None else hashlib.sha256(source_snapshot).hexdigest()
         doc_id = stable_id("doc", {"relative_path": rel, "source_sha256": source_sha})
         stat = path.stat()
         if self.diagnostic:
@@ -2564,7 +3155,7 @@ class Probe:
                 "file_name": unicodedata.normalize("NFC", path.name),
                 "extension": path.suffix.lower().lstrip("."),
                 "media_type": mimetypes.guess_type(path.name)[0] or "application/octet-stream",
-                "size_bytes": stat.st_size,
+                "size_bytes": stat.st_size if source_snapshot is None else len(source_snapshot),
                 "sha256": source_sha,
                 "modified_at": datetime.fromtimestamp(stat.st_mtime, timezone.utc).isoformat(),
             },
@@ -3305,22 +3896,13 @@ class Probe:
     def office_source(self, path: Path) -> tuple[str | io.BytesIO, bool]:
         if zipfile.is_zipfile(path):
             return str(path), False
-        try:
-            import msoffcrypto
-        except ImportError as exc:
-            raise RuntimeError("msoffcrypto-tool is required for password-protected Office files") from exc
-        for candidate in self.password_candidates:
-            try:
-                output = io.BytesIO()
-                with path.open("rb") as handle:
-                    office = msoffcrypto.OfficeFile(handle)
-                    office.load_key(password=candidate)
-                    office.decrypt(output)
-                output.seek(0)
-                return output, True
-            except Exception:
-                continue
-        raise ValueError("password-protected Office file could not be decrypted with derived candidates")
+        # A non-ZIP Office input may be encrypted, legacy, or damaged. Do not
+        # declare it encrypted solely from that test, and never try a batch key.
+        raise ValueError(
+            "office_source_requires_human_review: 読めませんでした。"
+            "パスワード保護・旧形式・破損の可能性があります。"
+            "パスワードの自動推測は行いません。"
+        )
 
     def extract_docx(self, path: Path) -> None:
         try:
@@ -3986,6 +4568,7 @@ class Probe:
             source,
             required_members=frozenset({
                 "[Content_Types].xml",
+                "_rels/.rels",
                 "xl/workbook.xml",
                 "xl/_rels/workbook.xml.rels",
             }),
@@ -4001,9 +4584,6 @@ class Probe:
 
         def child(element: ElementTree.Element, local_name: str) -> ElementTree.Element | None:
             return next((item for item in element if item.tag.endswith("}" + local_name) or item.tag == local_name), None)
-
-        def attr_by_local_name(element: ElementTree.Element, local_name: str) -> str | None:
-            return next((value for key, value in element.attrib.items() if key == local_name or key.endswith("}" + local_name)), None)
 
         def numeric(raw: str) -> Any:
             # Python floats would round the OOXML decimal lexeme. Preserve
@@ -4054,8 +4634,51 @@ class Probe:
             source.seek(0)
         with zipfile.ZipFile(source) as archive:
             names = set(archive.namelist())
-            if "xl/workbook.xml" not in names:
-                raise ValueError("XLSX package has no xl/workbook.xml")
+            # Attest the entire workbook -> worksheet fan-out before emitting
+            # any Evidence. A guessed sheetN.xml is not a source relationship.
+            relationships = _ooxml_relationships(archive)
+            _require_ooxml_office_document_binding(
+                archive, relationships, "xl/workbook.xml"
+            )
+            workbook_root = _ooxml_xml_root(
+                archive, "xl/workbook.xml",
+                namespaces=OOXML_SPREADSHEET_NAMESPACES,
+                local_names={"workbook"},
+            )
+            sheet_lists = _direct_xml_children(
+                workbook_root, OOXML_SPREADSHEET_NAMESPACES, "sheets"
+            )
+            if len(sheet_lists) != 1:
+                raise ValueError("ooxml_sheet_list_invalid")
+            sheets = _direct_xml_children(
+                sheet_lists[0], OOXML_SPREADSHEET_NAMESPACES, "sheet"
+            )
+            if not sheets or len(sheets) != len(sheet_lists[0]):
+                raise ValueError("ooxml_sheet_list_invalid")
+            # This shared resolver checks the qualified relationship id,
+            # relationship Type/mode, unique sheet id/name/target, and the
+            # target's exact worksheet root. Its insertion order is workbook
+            # order, independent of ZIP, relationship or member-name order.
+            sheet_names, _drawing_sheets = _xlsx_sheet_context(archive, relationships)
+            sheet_parts = {name: member for member, name in sheet_names.items()}
+
+            def worksheet_with_data(member: str) -> tuple[ElementTree.Element, ElementTree.Element]:
+                sheet_root = _ooxml_xml_root(
+                    archive, member, namespaces=OOXML_SPREADSHEET_NAMESPACES,
+                    local_names={"worksheet"},
+                )
+                data_parts = _direct_xml_children(
+                    sheet_root, OOXML_SPREADSHEET_NAMESPACES, "sheetData"
+                )
+                if len(data_parts) != 1:
+                    raise ValueError("ooxml_worksheet_data_invalid")
+                return sheet_root, data_parts[0]
+
+            # Validate all referenced data containers before the first sheet
+            # can emit Evidence/Relation. Do not retain every worksheet tree
+            # at once: projection still reads one part at a time below.
+            for member in sheet_names:
+                worksheet_with_data(member)
 
             shared: list[str] = []
             if "xl/sharedStrings.xml" in names:
@@ -4078,38 +4701,18 @@ class Probe:
                     if item.tag.endswith("}cellXfs") or item.tag == "cellXfs":
                         cell_formats = [dict(node.attrib) for node in item if node.tag.endswith("}xf") or node.tag == "xf"]
 
-            relationships: dict[str, str] = {}
-            rels_name = "xl/_rels/workbook.xml.rels"
-            if rels_name in names:
-                rels_root = ElementTree.fromstring(archive.read(rels_name))
-                for relation in rels_root:
-                    identifier = relation.attrib.get("Id")
-                    target = relation.attrib.get("Target")
-                    if not identifier or not target or relation.attrib.get("TargetMode") == "External":
-                        continue
-                    member = posixpath.normpath(
-                        target.lstrip("/") if target.startswith("/")
-                        else posixpath.join("xl", target)
-                    )
-                    if member.startswith("xl/") and ".." not in PurePosixPath(member).parts:
-                        relationships[identifier] = member
-
-            workbook_root = ElementTree.fromstring(archive.read("xl/workbook.xml"))
-            sheets = [
-                item for item in workbook_root.iter()
-                if item.tag.endswith("}sheet") or item.tag == "sheet"
-            ]
             for sheet_index, sheet in enumerate(sheets, 1):
-                title = sheet.attrib.get("name") or f"Sheet{sheet_index}"
-                relation_id = attr_by_local_name(sheet, "id")
-                member = relationships.get(relation_id or "", f"xl/worksheets/sheet{sheet_index}.xml")
-                if member not in names:
-                    self.mark_partial(doc, f"worksheet OOXML part unavailable for sheet index {sheet_index}")
-                    continue
-                sheet_root = ElementTree.fromstring(archive.read(member))
+                title = sheet.attrib["name"]
+                member = sheet_parts[title]
+                sheet_root, sheet_data = worksheet_with_data(member)
                 cells = [
-                    item for item in sheet_root.iter()
-                    if item.tag.endswith("}c") or item.tag == "c"
+                    cell
+                    for row in _direct_xml_children(
+                        sheet_data, OOXML_SPREADSHEET_NAMESPACES, "row"
+                    )
+                    for cell in _direct_xml_children(
+                        row, OOXML_SPREADSHEET_NAMESPACES, "c"
+                    )
                 ]
                 row_numbers: list[int] = []
                 column_numbers: list[int] = []
@@ -6361,7 +6964,19 @@ class Probe:
 
     def extract_json(self, path: Path) -> None:
         text_value, encoding = read_text(path)
-        parsed = json.loads(text_value)
+
+        def unique_object(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
+            result: dict[str, Any] = {}
+            for key, value in pairs:
+                if key in result:
+                    # Do not choose a last-wins value or leak an untrusted key
+                    # into logs. process_file retains a failed Document and
+                    # discards its uncommitted Evidence/Relation shards.
+                    raise ValueError("duplicate JSON object key")
+                result[key] = value
+            return result
+
+        parsed = json.loads(text_value, object_pairs_hook=unique_object)
         doc = self.add_document(path, "python-json")
         doc_id = doc["document_id"]
 
@@ -6404,7 +7019,9 @@ class Probe:
         walk(parsed, "", None, 1)
 
     def extract_xml(self, path: Path) -> None:
-        text_value, encoding = read_text(path)
+        # Reuse the existing wide-encoding-aware DTD/entity gate on the same
+        # bytes that are decoded and parsed; do not validate a separate read.
+        text_value, encoding = read_text(path, byte_validator=validate_xml_bytes)
         root = ElementTree.fromstring(text_value)
         doc = self.add_document(path, "xml.etree.ElementTree")
         doc_id = doc["document_id"]
@@ -6433,17 +7050,30 @@ class Probe:
                         ordinal=attr_index,
                         native_properties={"xml_path": f"{element_path}/@{name}"},
                     )
-            if element.text and element.text.strip() and self.may_add_leaf(doc_id):
-                self.add_evidence(
-                    doc_id,
-                    "field",
-                    {"locator_text": f"{element_path}/text()"},
-                    content(raw_text=element.text),
-                    parent_id=container["evidence_id"],
-                    native_properties={"xml_path": f"{element_path}/text()"},
-                )
+            text_index = 0
+
+            def add_text(value: str | None) -> None:
+                nonlocal text_index
+                if value is None or value == "":
+                    return
+                # A child's tail belongs to its parent, after that child's
+                # complete subtree. Whitespace can separate meaningful text.
+                text_index += 1
+                if self.may_add_leaf(doc_id):
+                    text_path = f"{element_path}/text()[{text_index}]"
+                    self.add_evidence(
+                        doc_id,
+                        "field",
+                        {"locator_text": text_path},
+                        content(raw_text=value),
+                        parent_id=container["evidence_id"],
+                        native_properties={"xml_path": text_path},
+                    )
+
+            add_text(element.text)
             for child_index, child in enumerate(list(element), 1):
                 walk(child, element_path, container["evidence_id"], child_index)
+                add_text(child.tail)
 
         walk(root, "", None, 1)
 
@@ -6496,9 +7126,17 @@ class Probe:
             self.mark_partial(doc, "input required replacement characters during decoding")
 
     def extract_notebook(self, path: Path) -> None:
-        text_value, encoding = read_text(path)
-        notebook = json.loads(text_value)
-        doc = self.add_document(path, "nbformat-json")
+        try:
+            source_snapshot = read_notebook_bytes(path)
+            notebook, encoding, notebook_states, missing_count = parse_notebook_bytes(source_snapshot)
+        except NotebookMetadataResourceLimit:
+            self.extract_large_text(path)
+            self.mark_partial(self._current_document, "notebook_metadata_resource_limit: retained unparsed raw text")
+            return
+        doc = self.add_document(path, "nbformat-json", source_snapshot=source_snapshot)
+        del source_snapshot
+        if missing_count:
+            doc["extraction"]["warnings"].append("notebook_execution_count_missing: saved execution count absent; metadata binding remains unverified")
         doc_id = doc["document_id"]
         image_count = 0
 
@@ -6664,7 +7302,8 @@ class Probe:
                     {"notebook_cell_index": cell_index, "locator_text": f"cell={cell_index}"},
                     content(raw_text=source_text),
                     ordinal=cell_index,
-                    native_properties={"cell_type": cell.get("cell_type"), "encoding": encoding},
+                    native_properties={"cell_type": cell.get("cell_type"), "encoding": encoding,
+                                       "notebook_state": notebook_states[f"/cells/{cell_index - 1}"]},
                 )
                 self.contain_document(doc_id, ev["evidence_id"])
             output_index = 0
@@ -6685,7 +7324,8 @@ class Probe:
                          "locator_text": f"cell={cell_index};output={output_index}"},
                         content(raw_text=str(text_output)),
                         ordinal=output_index,
-                        native_properties={"output_type": output.get("output_type")},
+                        native_properties={"output_type": output.get("output_type"),
+                                           "notebook_state": notebook_states[f"/cells/{cell_index - 1}/outputs/{output_index - 1}"]},
                     )
                     self.contain_document(doc_id, ev["evidence_id"])
                 for mime_type, payload in data.items():

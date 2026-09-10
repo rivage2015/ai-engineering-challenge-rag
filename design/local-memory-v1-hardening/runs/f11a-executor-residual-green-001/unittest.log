@@ -1,0 +1,9 @@
+test_residual_metadata_only_allows_coherent_raw_text_replacement (f11a_executor_post_tests.NotebookMetadataPostAPITests) ... ok
+test_residual_nonzero_record_removal_does_not_claim_membership (f11a_executor_post_tests.NotebookMetadataPostAPITests) ... ok
+test_residual_search_only_coherent_state_forgery_is_not_original_attestation (f11a_executor_post_tests.NotebookMetadataPostAPITests) ... ok
+F05b explicit fixture budget: {"explicit_test_bytes": 3584, "explicit_test_writes": 4, "max_source_fixture_bytes": 1069, "source_fixture_count": 3}
+
+----------------------------------------------------------------------
+Ran 3 tests in 0.124s
+
+OK

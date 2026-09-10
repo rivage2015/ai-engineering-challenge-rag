@@ -1,0 +1,86 @@
+{
+  "schema_version": "1.0",
+  "audit_id": "lms-v1-00-hardening-2026-09-09-f01-f07-audit-v2",
+  "task_id": "lms-v1-00-hardening-2026-09-09-f01-f07",
+  "artifact_hash": "568adc6adc50027692f32dd7a798fd79f7347e238b4e1ebc7538d54b8e09544e",
+  "auditor_context": {
+    "independence_level": "same_model_separate_context",
+    "source_scope": [
+      "Re-audit after repair round 1: immutable v2 contract, graph, source manifest, complete patch and execution record; all seven source hashes matched",
+      "Inspected actual validator return value, two production helper callers, security and graph-report forwarding, metadata use, strict lineage-state fields, and existing successful helper mocks found by repository search",
+      "Additional compatibility source tests/test_local_graph_index_schema.py, SHA-256 b538d8478d8a18433cc5397893445e1bef6ab005a37b7c1f8287bdf24152ee7a; existing in-memory/synthetic SQLite test source, not changed by Auditor",
+      "Independent focused run: 15 passed, zero skips, unittest reported 1.451 seconds. Unchanged v1 counterexample fixture: two passed, zero skips, 0.204 seconds. Existing graph-index schema suite: 20 ran, five errors, zero skips, 0.031 seconds",
+      "All three runs used design/local-memory-v1-hardening/runs/f01-f07-audit-runner.v2.py, SHA-256 08dc2a1abb4bc5dae4ab075ef4c73502f900bf86717eaec70dc61e45975d73b7; Python 3.14, per-run 30-second supervisor timeout and 1-MiB output cap, HTTP/urllib/Popen guards, temporary synthetic sources/state only",
+      "Every run checked submitted sources and shared dependencies before/after; hashes were unchanged. Observed build_path_graph.py a5c34aa063ea6f67a484832e6c5045d4617ca4498613cd22ccb51f8de6bccbb3, probe_intermediate_records.py db73270807c3e976fb51f38ff51cc6cd40dd7c0ef3c2d6954fc1f924acd8ab3d, answer_local_memory.py 33f2b25e9d434e00b216be162d3e60dd8d322409cb108d07e26e455f4a1f34b2, answer_local_memory_v2.py 8677d5d49c37e081ad2c2ab06bd9c4734280ef5d3e4b2941a1fe570061388e60. No F16/shared-source edit collision occurred during these runs",
+      "No product source, original audit record, real user data, model endpoint, package or public user generation was modified"
+    ]
+  },
+  "status": "revise",
+  "checks": [
+    {
+      "check_id": "F01F07-R01",
+      "check_type": "evidence",
+      "target_ids": ["F01", "F07", "BINDING"],
+      "verdict": "pass",
+      "severity": "info",
+      "reason": "The actual v2 artifact hash and all seven source hashes matched the submitted manifest. The controlled runs observed unchanged source and dependency hashes before and after execution, including the shared path builder under separate development. The positive focused and original-counterexample results are reproducible observations of this source state; the compatibility-suite errors below are also reproducible and must not be omitted from acceptance.",
+      "evidence_ids": ["BOOTSTRAP", "PROJECTOR", "TESTS", "MIGRATION", "VALIDATOR", "RESOLVER", "EXECUTOR"],
+      "required_action": null
+    },
+    {
+      "check_id": "F01F07-R02",
+      "check_type": "safety",
+      "target_ids": ["BINDING", "F01", "E01"],
+      "verdict": "pass",
+      "severity": "info",
+      "reason": "The prior blocking check F01F07-A05 is resolved in the production code. The source-bound validator constructs its returned binding from the explicit resolved graph input and the two hashes checked in that invocation. The projector requires an explicit attestation field, detaches it from the return report, carries it through security/graph attestation, and uses graph_report.document_version_graph for SQLite metadata without rereading producer state after the model probe. Both the permanent post-attestation swap test and the unchanged independent swap/restore counterexample now publish the original attested binding and retain current registration.",
+      "evidence_ids": ["PROJECTOR", "VALIDATOR", "BOOTSTRAP", "TESTS"],
+      "required_action": null
+    },
+    {
+      "check_id": "F01F07-R03",
+      "check_type": "dependency",
+      "target_ids": ["LEGACY", "F01", "FAILURE"],
+      "verdict": "pass",
+      "severity": "info",
+      "reason": "The focused fifteen-case suite still accepts explicitly unversioned legacy input with a null binding and rejects omitted, unexpected, null-path, missing and mismatched version arguments. A PASS report lacking the new explicit attestation field is rejected rather than interpreted as legacy. Generation path/hash/code checks, previous CONFIG/index retention on failed rebuild, human-decision invalidation and positive/negative query gates also passed within the synthetic fixture.",
+      "evidence_ids": ["PROJECTOR", "VALIDATOR", "BOOTSTRAP", "TESTS"],
+      "required_action": null
+    },
+    {
+      "check_id": "F01F07-R04",
+      "check_type": "dependency",
+      "target_ids": ["F07", "LEGACY", "BINDING", "E02"],
+      "verdict": "fail",
+      "severity": "blocking",
+      "reason": "The _attest_lineage_context success result changed from a lineage state to a wrapper, but existing tests/test_local_graph_index_schema.py mocks still return the old bare state. An independent guarded run executed 20 tests and produced five KeyError('lineage_validation') errors at PROJECTOR line 2031. Affected tests are test_projects_only_hash_bound_complete_lineage_fan_in, test_lineage_requires_independent_manifest_and_atomic_fan_in, test_empty_attested_lineage_allows_structural_projection, test_dawn_sized_validated_lineage_connects_all_43_derived_nodes and test_dawn_sized_topology_keeps_all_relations_and_derived_isolates. The relevant mocks occur around lines 955, 1013, 1029, 1272, 1320 and 1374. Consequently, previously meaningful valid-fan-in, incomplete-fan-in rejection, relation-hash rejection, empty-lineage and larger-topology assertions are no longer reached. This is a scoped test-contract regression caused by the changed helper, not evidence that real production lineage validation now fails. It also contradicts the Executor compatibility claim that existing direct helper use only exercised rejection, because successful helper mocks are callers of that contract.",
+      "evidence_ids": ["PROJECTOR", "EXECUTOR", "TESTS"],
+      "required_action": "Update every affected successful _attest_lineage_context mock to return the new wrapper with the original state under lineage_validation and explicit document_version_graph: null for these legacy fixtures. Preserve the existing valid/invalid fan-in, strict-state, hash and topology assertions, and keep tampering directed at the inner state. Do not weaken production checks, suppress the five errors, or count those tests as skipped. Rerun the complete 20-case schema suite plus the focused and prior-counterexample checks, record the compatibility test source in the next immutable manifest, and submit repair round 2 for re-audit."
+    },
+    {
+      "check_id": "F01F07-R05",
+      "check_type": "safety",
+      "target_ids": ["BINDING", "LIMITS"],
+      "verdict": "pass",
+      "severity": "info",
+      "reason": "The wrapper separates document_version_graph from the unchanged strict lineage_validation state, so it does not add an unexpected property to semantic-lineage-validation.json or weaken its exact field-set checks. Both production helper consumers unpack the wrapper. No general race-elimination, version-selection-policy, immutable-public-validator or same-user compromise guarantee is inferred; F18's existing file mutation remains explicitly outside this change.",
+      "evidence_ids": ["PROJECTOR", "VALIDATOR", "EXECUTOR"],
+      "required_action": null
+    },
+    {
+      "check_id": "F01F07-R06",
+      "check_type": "intent",
+      "target_ids": ["LIMITS", "F07"],
+      "verdict": "pass",
+      "severity": "warning",
+      "reason": "The passed focused and counterexample tests remain synthetic wiring checks using captured model responses and guarded transport. Real-model semantics, native HTTP/GUI, cross-document trust, package acceptance, complete migration and V1.00 product certification were not performed. The current decision is revise solely because the directly affected regression test contract is incomplete; the already repaired metadata-binding result must remain recorded as passed rather than conflated with that new compatibility issue.",
+      "evidence_ids": ["TESTS", "MIGRATION", "EXECUTOR"],
+      "required_action": null
+    }
+  ],
+  "summary": {
+    "blocking_failures": 1,
+    "unresolved_count": 0,
+    "next_action": "revise"
+  }
+}

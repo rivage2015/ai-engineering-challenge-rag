@@ -1,0 +1,69 @@
+test_ambiguous_graph_question_is_not_promoted_by_mock_model (f04a_isolated.VersionedSafeIndexE2E) ... FAIL
+test_application_build_query_and_final_audit (f04a_isolated.VersionedSafeIndexE2E) ... FAIL
+test_failed_rebuild_retains_previous_published_generation (f04a_isolated.VersionedSafeIndexE2E) ... ok
+test_human_choice_rebuild_and_source_change_remain_version_bound (f04a_isolated.VersionedSafeIndexE2E) ... ok
+test_legacy_reader_rejects_unexpected_explicit_version_graph (f04a_isolated.VersionedSafeIndexE2E) ... ok
+test_legacy_unversioned_reader_remains_explicitly_supported (f04a_isolated.VersionedSafeIndexE2E) ... ok
+test_lineage_context_rejects_unknown_keys_and_null_version (f04a_isolated.VersionedSafeIndexE2E) ... ok
+test_lineage_context_requires_explicit_version_attestation_result (f04a_isolated.VersionedSafeIndexE2E) ... ok
+test_missing_version_graph_is_rejected (f04a_isolated.VersionedSafeIndexE2E) ... ok
+test_post_attestation_state_swap_cannot_change_published_binding (f04a_isolated.VersionedSafeIndexE2E)
+A transient producer-state swap must not become trusted metadata. ... ok
+test_registration_detects_changed_version_artifact (f04a_isolated.VersionedSafeIndexE2E) ... ok
+test_resolver_code_change_invalidates_reader_registration (f04a_isolated.VersionedSafeIndexE2E) ... ok
+test_versioned_build_publishes_safe_index (f04a_isolated.VersionedSafeIndexE2E) ... ok
+test_versioned_reader_omission_never_replaces_existing_index (f04a_isolated.VersionedSafeIndexE2E) ... ok
+test_wrong_version_graph_is_rejected (f04a_isolated.VersionedSafeIndexE2E) ... ok
+
+======================================================================
+FAIL: test_ambiguous_graph_question_is_not_promoted_by_mock_model (f04a_isolated.VersionedSafeIndexE2E)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/distribution/macos-local-memory/tests/test_versioned_safe_index_e2e.py", line 402, in test_ambiguous_graph_question_is_not_promoted_by_mock_model
+    result = self.application_query("業務内容のownerを教えてください")
+  File "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/distribution/macos-local-memory/tests/test_versioned_safe_index_e2e.py", line 384, in application_query
+    server = load_module(APP / "local_memory_server.py")
+  File "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/distribution/macos-local-memory/tests/test_versioned_safe_index_e2e.py", line 38, in load_module
+    spec.loader.exec_module(module)
+  File "<frozen importlib._bootstrap_external>", line 850, in exec_module
+  File "<frozen importlib._bootstrap>", line 228, in _call_with_frames_removed
+  File "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/distribution/macos-local-memory/app/local_memory_server.py", line 111, in <module>
+    SERVER_BUILD_ID = _server_build_id()
+  File "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/distribution/macos-local-memory/app/local_memory_server.py", line 105, in _server_build_id
+    data = path.read_bytes()
+  File "/Library/Developer/CommandLineTools/Library/Frameworks/Python3.framework/Versions/3.9/lib/python3.9/pathlib.py", line 1249, in read_bytes
+    with self.open(mode='rb') as f:
+  File "/Library/Developer/CommandLineTools/Library/Frameworks/Python3.framework/Versions/3.9/lib/python3.9/pathlib.py", line 1242, in open
+    return io.open(self, mode, buffering, encoding, errors, newline,
+  File "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/design/local-memory-v1-hardening/runs/f04a-executor-run.v1.py", line 73, in audit
+    raise AssertionError("F04a read outside reviewed code/runtime/fixtures: " + path)
+AssertionError: F04a read outside reviewed code/runtime/fixtures: /Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/distribution/macos-local-memory/paddleocr-model-manifest.json
+
+======================================================================
+FAIL: test_application_build_query_and_final_audit (f04a_isolated.VersionedSafeIndexE2E)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/distribution/macos-local-memory/tests/test_versioned_safe_index_e2e.py", line 392, in test_application_build_query_and_final_audit
+    result = self.application_query("業務内容に書かれた語句を教えてください")
+  File "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/distribution/macos-local-memory/tests/test_versioned_safe_index_e2e.py", line 384, in application_query
+    server = load_module(APP / "local_memory_server.py")
+  File "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/distribution/macos-local-memory/tests/test_versioned_safe_index_e2e.py", line 38, in load_module
+    spec.loader.exec_module(module)
+  File "<frozen importlib._bootstrap_external>", line 850, in exec_module
+  File "<frozen importlib._bootstrap>", line 228, in _call_with_frames_removed
+  File "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/distribution/macos-local-memory/app/local_memory_server.py", line 111, in <module>
+    SERVER_BUILD_ID = _server_build_id()
+  File "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/distribution/macos-local-memory/app/local_memory_server.py", line 105, in _server_build_id
+    data = path.read_bytes()
+  File "/Library/Developer/CommandLineTools/Library/Frameworks/Python3.framework/Versions/3.9/lib/python3.9/pathlib.py", line 1249, in read_bytes
+    with self.open(mode='rb') as f:
+  File "/Library/Developer/CommandLineTools/Library/Frameworks/Python3.framework/Versions/3.9/lib/python3.9/pathlib.py", line 1242, in open
+    return io.open(self, mode, buffering, encoding, errors, newline,
+  File "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/design/local-memory-v1-hardening/runs/f04a-executor-run.v1.py", line 73, in audit
+    raise AssertionError("F04a read outside reviewed code/runtime/fixtures: " + path)
+AssertionError: F04a read outside reviewed code/runtime/fixtures: /Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/distribution/macos-local-memory/paddleocr-model-manifest.json
+
+----------------------------------------------------------------------
+Ran 15 tests in 2.628s
+
+FAILED (failures=2)

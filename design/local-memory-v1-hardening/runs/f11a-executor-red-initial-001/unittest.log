@@ -1,0 +1,93 @@
+test_g1_probe_emits_literal_six_states_and_preserves_source (f11a_executor_metadata_tests.NotebookMetadataBindingTests) ... FAIL
+test_g2_missing_state_rejected_native (f11a_executor_metadata_tests.NotebookMetadataBindingTests) ... FAIL
+test_g2_missing_state_rejected_stream_schema (f11a_executor_metadata_tests.NotebookMetadataBindingTests) ... FAIL
+test_g2_missing_state_rejected_stream_structural (f11a_executor_metadata_tests.NotebookMetadataBindingTests) ... FAIL
+test_g2_shape_valid_wrong_count_rejected_native (f11a_executor_metadata_tests.NotebookMetadataBindingTests) ... FAIL
+test_g2_shape_valid_wrong_count_rejected_stream_schema (f11a_executor_metadata_tests.NotebookMetadataBindingTests) ... FAIL
+test_g2_shape_valid_wrong_count_rejected_stream_structural (f11a_executor_metadata_tests.NotebookMetadataBindingTests) ... FAIL
+test_g3_direct_search_copies_all_six_literal_states (f11a_executor_metadata_tests.NotebookMetadataBindingTests) ... FAIL
+test_g6_non_notebook_retains_exact_old_counts (f11a_executor_metadata_tests.NotebookMetadataBindingTests) ... ok
+F05b explicit fixture budget: {"explicit_test_bytes": 9642, "explicit_test_writes": 10, "max_source_fixture_bytes": 1090, "source_fixture_count": 9}
+
+======================================================================
+FAIL: test_g1_probe_emits_literal_six_states_and_preserves_source (f11a_executor_metadata_tests.NotebookMetadataBindingTests)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/tests/test_notebook_metadata_binding.py", line 171, in test_g1_probe_emits_literal_six_states_and_preserves_source
+    self.assertEqual(canonical(actual), canonical(GOLD_STATES))
+AssertionError: '[null,null,null,null,null,null]' != '[{"cell_execution_count":{"present":true,"[1554 chars]0"}]'
+Diff is 1638 characters long. Set self.maxDiff to None to see it.
+
+======================================================================
+FAIL: test_g2_missing_state_rejected_native (f11a_executor_metadata_tests.NotebookMetadataBindingTests)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/tests/test_notebook_metadata_binding.py", line 174, in test_g2_missing_state_rejected_native
+    self.assert_metadata_rejected("native", "missing")
+  File "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/tests/test_notebook_metadata_binding.py", line 158, in assert_metadata_rejected
+    self.validate_existing(mode, directory)
+AssertionError: ValueError not raised
+
+======================================================================
+FAIL: test_g2_missing_state_rejected_stream_schema (f11a_executor_metadata_tests.NotebookMetadataBindingTests)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/tests/test_notebook_metadata_binding.py", line 177, in test_g2_missing_state_rejected_stream_schema
+    self.assert_metadata_rejected("schema", "missing")
+  File "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/tests/test_notebook_metadata_binding.py", line 158, in assert_metadata_rejected
+    self.validate_existing(mode, directory)
+AssertionError: ValueError not raised
+
+======================================================================
+FAIL: test_g2_missing_state_rejected_stream_structural (f11a_executor_metadata_tests.NotebookMetadataBindingTests)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/tests/test_notebook_metadata_binding.py", line 180, in test_g2_missing_state_rejected_stream_structural
+    self.assert_metadata_rejected("structural", "missing")
+  File "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/tests/test_notebook_metadata_binding.py", line 158, in assert_metadata_rejected
+    self.validate_existing(mode, directory)
+AssertionError: ValueError not raised
+
+======================================================================
+FAIL: test_g2_shape_valid_wrong_count_rejected_native (f11a_executor_metadata_tests.NotebookMetadataBindingTests)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/tests/test_notebook_metadata_binding.py", line 183, in test_g2_shape_valid_wrong_count_rejected_native
+    self.assert_metadata_rejected("native", "wrong_count")
+  File "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/tests/test_notebook_metadata_binding.py", line 158, in assert_metadata_rejected
+    self.validate_existing(mode, directory)
+AssertionError: ValueError not raised
+
+======================================================================
+FAIL: test_g2_shape_valid_wrong_count_rejected_stream_schema (f11a_executor_metadata_tests.NotebookMetadataBindingTests)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/tests/test_notebook_metadata_binding.py", line 186, in test_g2_shape_valid_wrong_count_rejected_stream_schema
+    self.assert_metadata_rejected("schema", "wrong_count")
+  File "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/tests/test_notebook_metadata_binding.py", line 158, in assert_metadata_rejected
+    self.validate_existing(mode, directory)
+AssertionError: ValueError not raised
+
+======================================================================
+FAIL: test_g2_shape_valid_wrong_count_rejected_stream_structural (f11a_executor_metadata_tests.NotebookMetadataBindingTests)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/tests/test_notebook_metadata_binding.py", line 189, in test_g2_shape_valid_wrong_count_rejected_stream_structural
+    self.assert_metadata_rejected("structural", "wrong_count")
+  File "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/tests/test_notebook_metadata_binding.py", line 158, in assert_metadata_rejected
+    self.validate_existing(mode, directory)
+AssertionError: ValueError not raised
+
+======================================================================
+FAIL: test_g3_direct_search_copies_all_six_literal_states (f11a_executor_metadata_tests.NotebookMetadataBindingTests)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/tests/test_notebook_metadata_binding.py", line 207, in test_g3_direct_search_copies_all_six_literal_states
+    self.assertEqual(canonical(actual), canonical(GOLD_STATES))
+AssertionError: '[null,null,null,null,null,null]' != '[{"cell_execution_count":{"present":true,"[1554 chars]0"}]'
+Diff is 1638 characters long. Set self.maxDiff to None to see it.
+
+----------------------------------------------------------------------
+Ran 9 tests in 0.132s
+
+FAILED (failures=8)

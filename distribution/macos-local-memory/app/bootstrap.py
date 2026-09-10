@@ -47,7 +47,10 @@ GENERATION_NAME = re.compile(r"generation-[0-9a-f]{32}")
 GENERATION_MARKER = "build-generation.json"
 READER_GENERATION_CONTRACT_CONFIG_KEY = "reader_generation_contract"
 READER_GENERATION_CONTRACT_FILENAME = "reader-generation-contract.json"
-READER_GENERATION_CONTRACT_SCHEMA_VERSION = "0.1"
+READER_GENERATION_CONTRACT_SCHEMA_VERSION = "0.2"
+DEFAULT_DECISION_SNAPSHOT_BYTES = 1_048_576
+MAX_DECISION_SNAPSHOT_BYTES = 67_108_864
+EMPTY_DECISION_SNAPSHOT = b'{"schema_version":"1.0","decisions":[]}\n'
 READER_PROCESSING_CODE_FILES = (
     "build_intermediate_records.py",
     "probe_intermediate_records.py",
@@ -351,11 +354,19 @@ def _current_reader_resource_contract() -> dict[str, object]:
     tools = _reader_tools_dir()
     schemas = _reader_schema_dir()
     return {
+        "path_builder": _reader_file_identity(ENGINE / "build_path_graph.py"),
+        "path_validator": _reader_file_identity(ENGINE / "validate_path_graph.py"),
         "adaptive_builder": _reader_file_identity(
             ENGINE / "build_adaptive_semantic_graph.py"
         ),
         "adaptive_validator": _reader_file_identity(
             ENGINE / "validate_adaptive_semantic_graph.py"
+        ),
+        "document_version_resolver": _reader_file_identity(
+            ENGINE / "document_version_resolver.py"
+        ),
+        "safe_index_projector": _reader_file_identity(
+            ENGINE / "build_local_semantic_index.py"
         ),
         "adapter": _reader_file_identity(
             tools / "adapt_layer1_to_local_memory.py"
@@ -423,7 +434,266 @@ def _reader_output_identity(
     return {**identity, "count": output["count"]}
 
 
-def _reader_generation_contract_body(semantic: Path) -> dict[str, object]:
+def _decision_resolver():
+    spec = importlib.util.spec_from_file_location("_app_decision_resolver", ENGINE / "document_version_resolver.py")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def _path_graph_validator():
+    spec = importlib.util.spec_from_file_location(
+        "_app_path_graph_validator", ENGINE / "validate_path_graph.py"
+    )
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def current_document_version_review_context(*, validate_source: bool = False) -> dict:
+    """Reconstruct trusted review inputs from the active generation only.
+
+    Paths embedded in the review graph are diagnostic and are never followed.
+    The optional source validation is used at submission, not ordinary display.
+    """
+    exists, config = load_config_snapshot()
+    if not exists:
+        raise ValueError("review_configuration_missing")
+    generation_name = config.get("active_generation")
+    if not isinstance(generation_name, str) or GENERATION_NAME.fullmatch(generation_name) is None:
+        raise ValueError("review_active_generation_invalid")
+    workspace = Path(config.get("workspace", SUPPORT / "data"))
+    generation = _generation_path(workspace, generation_name)
+    if generation is None or not generation.is_dir() or generation.is_symlink():
+        raise ValueError("review_generation_invalid")
+    paths = generation / "01-path"
+    graph_path = paths / "document-version-graph.json"
+    inventory_path = paths / "path-source-inventory.jsonl"
+    path_graph_path = paths / "path-evidence-graph.json"
+    snapshot_path = paths / "document-version-decisions.snapshot.json"
+    review_artifacts = (
+        graph_path,
+        inventory_path,
+        path_graph_path,
+        snapshot_path,
+        DOCUMENT_VERSION_REVIEW,
+    )
+    for path in review_artifacts:
+        if path.is_symlink() or not path.is_file():
+            raise ValueError("review_artifact_invalid")
+    # These generation artifacts are immutable by contract.  Pin their
+    # initial digests and verify the same bytes are still present after every
+    # validator/reconstruction read, so a mixed metadata view is not returned.
+    initial_artifact_hashes = {
+        path: sha256_file(path) for path in review_artifacts
+    }
+    graph_raw = graph_path.read_bytes()
+    if DOCUMENT_VERSION_REVIEW.read_bytes() != graph_raw:
+        raise ValueError("review_shared_copy_changed")
+    graph = json.loads(graph_raw)
+    resolver = _decision_resolver()
+    snapshot_raw = resolver.read_decision_snapshot(
+        snapshot_path, MAX_DECISION_SNAPSHOT_BYTES
+    )
+    snapshot_sha256 = hashlib.sha256(snapshot_raw).hexdigest()
+    report = resolver.attest(
+        graph_path,
+        inventory_path,
+        decision_mode="snapshot",
+        decisions_path=snapshot_path,
+        expected_decisions_sha256=snapshot_sha256,
+    )
+    if report.get("status") != "PASS":
+        raise ValueError("review_version_attestation_failed")
+    source = Path(config["source_root"]).resolve(strict=True)
+    if validate_source:
+        path_report = _path_graph_validator().validate(
+            path_graph_path, inventory_path, source_root=source
+        )
+        if path_report.get("status") != "PASS":
+            raise ValueError("review_source_changed")
+    records = resolver.load_inventory(inventory_path)
+    family_keys: dict[str, str] = {}
+    dated_group_ids: set[str] = set()
+    grouped: dict[str, list[dict]] = {}
+    for raw_record in records:
+        item = resolver.candidate(raw_record)
+        if item is not None:
+            grouped.setdefault(resolver.family_key(item["relative_path"]), []).append(item)
+    for key, candidates in grouped.items():
+        if len(candidates) >= 2 and any(resolver.has_version_signal(item) for item in candidates):
+            group_id = "version_set_" + resolver.sha256_json({"family_key": key})[:32]
+            family_keys[group_id] = key
+            if any(resolver._has_temporal_signal(item) for item in candidates):
+                dated_group_ids.add(group_id)
+    store_revision = resolver.decision_store_revision(
+        DOCUMENT_VERSION_DECISIONS, MAX_DECISION_SNAPSHOT_BYTES
+    )
+    try:
+        final_artifact_hashes = {
+            path: sha256_file(path) for path in review_artifacts
+        }
+    except Exception as exc:
+        raise ValueError("review_artifact_changed_during_validation") from exc
+    if final_artifact_hashes != initial_artifact_hashes:
+        raise ValueError("review_artifact_changed_during_validation")
+    base_revision = {
+        "generation": generation_name,
+        "source_scope_sha256": _canonical_json_sha256({"source_root": str(source)}),
+        "graph_sha256": graph["graph_sha256"],
+        "graph_file_sha256": hashlib.sha256(graph_raw).hexdigest(),
+        "inventory_sha256": initial_artifact_hashes[inventory_path],
+        "decisions_sha256": store_revision["sha256"],
+        "resolver_version": resolver.RESOLVER_VERSION,
+    }
+    return {
+        "graph": graph,
+        "family_keys": family_keys,
+        "dated_group_ids": sorted(dated_group_ids),
+        "base_revision": base_revision,
+        "decision_store_revision": store_revision,
+    }
+
+
+ANSWER_REVISION_IDENTITY_FIELDS = {
+    "generation",
+    "generation_path",
+    "decision_snapshot_sha256",
+    "config_sha256",
+}
+
+
+def active_answer_revision_identity() -> tuple[bool, str, dict | None]:
+    """Return the exact active generation/decision identity for one answer."""
+    exists, config = load_config_snapshot()
+    if not exists:
+        return False, "configuration_missing", None
+    generation_name = config.get("active_generation")
+    if not isinstance(generation_name, str) or GENERATION_NAME.fullmatch(generation_name) is None:
+        return False, "active_generation_invalid", None
+    workspace = Path(config.get("workspace", SUPPORT / "data"))
+    generation = _generation_path(workspace, generation_name)
+    if generation is None:
+        return False, "active_generation_invalid", None
+    snapshot = generation / "01-path" / "document-version-decisions.snapshot.json"
+    resolver = _decision_resolver()
+    try:
+        snapshot_raw = resolver.read_decision_snapshot(
+            snapshot, MAX_DECISION_SNAPSHOT_BYTES
+        )
+        live_exists, live_raw = resolver._decision_store_snapshot(
+            DOCUMENT_VERSION_DECISIONS, MAX_DECISION_SNAPSHOT_BYTES
+        )
+    except Exception:
+        return False, "decision_revision_unreadable", None
+    if not live_exists:
+        if snapshot_raw != EMPTY_DECISION_SNAPSHOT:
+            return False, "decision_revision_changed", None
+    elif hashlib.sha256(snapshot_raw).digest() != hashlib.sha256(live_raw).digest():
+        return False, "decision_revision_changed", None
+    identity = {
+        "generation": generation_name,
+        "generation_path": str(generation.absolute()),
+        "decision_snapshot_sha256": hashlib.sha256(snapshot_raw).hexdigest(),
+        "config_sha256": _canonical_json_sha256(config),
+    }
+    return True, "current", identity
+
+
+def answer_config_matches_revision(config: object, identity: object) -> bool:
+    """Bind answer_query's captured CONFIG to the handler's start identity."""
+    if (
+        not isinstance(config, dict)
+        or not isinstance(identity, dict)
+        or set(identity) != ANSWER_REVISION_IDENTITY_FIELDS
+        or not all(isinstance(identity[key], str) for key in identity)
+        or GENERATION_NAME.fullmatch(identity["generation"]) is None
+        or re.fullmatch(r"[0-9a-f]{64}", identity["decision_snapshot_sha256"])
+        is None
+        or re.fullmatch(r"[0-9a-f]{64}", identity["config_sha256"]) is None
+        or config.get("active_generation") != identity["generation"]
+        or _canonical_json_sha256(config) != identity["config_sha256"]
+    ):
+        return False
+    workspace = Path(config.get("workspace", SUPPORT / "data"))
+    generation = _generation_path(workspace, identity["generation"])
+    return (
+        generation is not None
+        and str(generation.absolute()) == identity["generation_path"]
+    )
+
+
+def active_decision_revision_current() -> tuple[bool, str]:
+    """Backward-compatible boolean view of the active answer revision."""
+    current, reason, _identity = active_answer_revision_identity()
+    return current, reason
+
+
+def _decision_snapshot_directories(paths: Path) -> None:
+    # Only the two fixed generation-local directories are in this contract.
+    # This is a static check, not locking against subsequent filesystem races.
+    if paths.name != "01-path" or GENERATION_NAME.fullmatch(paths.parent.name) is None:
+        raise ValueError("decision_snapshot_directory_identity_invalid")
+    for directory in (paths.parent, paths):
+        if not stat.S_ISDIR(directory.lstat().st_mode):
+            raise ValueError("decision_snapshot_directory_not_regular")
+
+
+def _decision_snapshot_descriptor(paths: Path, descriptor: dict) -> dict:
+    expected_path = paths / "document-version-decisions.snapshot.json"
+    if (not isinstance(descriptor, dict) or set(descriptor) != {"generation", "path", "sha256", "byte_count"}
+        or descriptor["generation"] != paths.parent.name
+        or GENERATION_NAME.fullmatch(paths.parent.name) is None
+        or paths.name != "01-path" or descriptor["path"] != str(expected_path)
+        or not isinstance(descriptor["sha256"], str) or re.fullmatch(r"[0-9a-f]{64}", descriptor["sha256"]) is None
+        or type(descriptor["byte_count"]) is not int or not 0 <= descriptor["byte_count"] <= MAX_DECISION_SNAPSHOT_BYTES):
+        raise ValueError("decision_snapshot_descriptor_invalid")
+    _decision_snapshot_directories(paths)
+    return dict(descriptor)
+
+
+class DecisionSnapshotTargetExists(FileExistsError):
+    """A pre-existing target must survive failed generation cleanup."""
+
+
+def capture_decision_snapshot(paths: Path, limit: int) -> dict:
+    _decision_snapshot_directories(paths)
+    resolver = _decision_resolver()
+    try:
+        raw = resolver.read_decision_snapshot(DOCUMENT_VERSION_DECISIONS, limit)
+    except FileNotFoundError:
+        # A dangling link is not genuine absence.
+        if DOCUMENT_VERSION_DECISIONS.is_symlink():
+            raise ValueError("decision_snapshot_source_not_regular_file")
+        raw = EMPTY_DECISION_SNAPSHOT
+    except ValueError as exc:
+        if str(exc) == "decision_snapshot_too_large":
+            raise ValueError("decision_snapshot_too_large: increase max_decision_snapshot_bytes within 67108864; no bytes were truncated") from exc
+        raise
+    if len(raw) > limit:
+        raise ValueError("decision_snapshot_too_large: increase max_decision_snapshot_bytes within 67108864; no bytes were truncated")
+    resolver._validation_decisions(raw)
+    path = paths / "document-version-decisions.snapshot.json"
+    try:
+        descriptor = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
+    except FileExistsError as exc:
+        raise DecisionSnapshotTargetExists("decision_snapshot_target_already_exists") from exc
+    with os.fdopen(descriptor, "wb") as handle:
+        handle.write(raw)
+    return _decision_snapshot_descriptor(paths, {
+        "generation": paths.parent.name, "path": str(path),
+        "sha256": hashlib.sha256(raw).hexdigest(), "byte_count": len(raw),
+    })
+
+
+def _snapshot_flags(decision_snapshot: dict) -> list[str]:
+    return ["--version-authority-mode", "snapshot", "--version-decisions", decision_snapshot["path"],
+            "--version-decisions-sha256", decision_snapshot["sha256"]]
+
+
+def _reader_generation_contract_body(
+    semantic: Path, *, decision_snapshot: dict | None = None, legacy_unversioned: bool = False,
+) -> dict[str, object]:
     if semantic.is_symlink() or not semantic.is_dir():
         raise ValueError("reader_contract_semantic_directory_invalid")
     semantic = semantic.resolve(strict=True)
@@ -465,6 +735,36 @@ def _reader_generation_contract_body(semantic: Path) -> dict[str, object]:
             semantic, adaptive_state, "evidence"
         ),
     }
+    version_binding = adaptive_state.get("document_version_graph")
+    if legacy_unversioned:
+        if decision_snapshot is not None or version_binding is not None:
+            raise ValueError("reader_contract_legacy_unversioned_invalid")
+    else:
+        paths = semantic.parent / "01-path"
+        decision_snapshot = _decision_snapshot_descriptor(paths, decision_snapshot)
+        # App generations have a fixed version-artifact location. Do not read
+        # an arbitrary producer-provided path when checking a registration.
+        version_path = semantic.parent / "01-path" / "document-version-graph.json"
+        if (
+            not isinstance(version_binding, dict)
+            or version_binding.get("path") != str(version_path)
+        ):
+            raise ValueError("reader_contract_version_graph_path_mismatch")
+        expected_authority = {"mode": "snapshot", "path": decision_snapshot["path"],
+                              "sha256": decision_snapshot["sha256"], "byte_count": decision_snapshot["byte_count"]}
+        # Compare metadata strings before any operation on a producer path.
+        if _canonical_json_sha256(version_binding.get("decision_authority")) != _canonical_json_sha256(expected_authority):
+            raise ValueError("reader_contract_decision_authority_mismatch")
+        if version_path.is_symlink() or not version_path.is_file():
+            raise ValueError("reader_contract_version_graph_invalid")
+        report = _decision_resolver().attest(
+            version_path, paths / "path-source-inventory.jsonl", decision_mode="snapshot",
+            decisions_path=Path(decision_snapshot["path"]), expected_decisions_sha256=decision_snapshot["sha256"],
+        )
+        if report["status"] != "PASS" or _canonical_json_sha256(report.get("document_version_graph")) != _canonical_json_sha256(version_binding):
+            raise ValueError("reader_contract_version_attestation_failed")
+        artifacts["document_version_graph"] = _reader_file_identity(version_path)
+        artifacts["decision_snapshot"] = {"mode": "snapshot", **decision_snapshot}
 
     intermediate = _required_reader_json(
         semantic / "layer1-intermediate/build-state.json"
@@ -524,6 +824,8 @@ def _reader_generation_contract_body(semantic: Path) -> dict[str, object]:
         "schema_version": READER_GENERATION_CONTRACT_SCHEMA_VERSION,
         "record_type": "reader_generation_contract",
         "semantic_directory_name": semantic.name,
+        "decision_snapshot": decision_snapshot,
+        "authority_mode": "legacy_unversioned" if legacy_unversioned else "snapshot",
         "resources": resources,
         "generation_artifacts": artifacts,
         "producer_records": {
@@ -552,12 +854,13 @@ def _reader_generation_contract_body(semantic: Path) -> dict[str, object]:
 def write_reader_generation_contract(
     semantic: Path,
     generation_name: str,
+    *, decision_snapshot: dict,
 ) -> dict[str, object]:
     if GENERATION_NAME.fullmatch(generation_name) is None:
         raise ValueError("reader_contract_generation_name_invalid")
     if semantic.parent.name != generation_name or semantic.parent.is_symlink():
         raise ValueError("reader_contract_generation_binding_invalid")
-    contract = _reader_generation_contract_body(semantic)
+    contract = _reader_generation_contract_body(semantic, decision_snapshot=decision_snapshot)
     contract_path = semantic / READER_GENERATION_CONTRACT_FILENAME
     if contract_path.exists() or contract_path.is_symlink():
         raise FileExistsError("reader_generation_contract_already_exists")
@@ -607,10 +910,15 @@ def reader_generation_contract_status(config: dict) -> dict[str, object]:
             raise ValueError("reader_generation_contract_registration_invalid")
         if contract_path.is_symlink() or not contract_path.is_file():
             raise ValueError("reader_generation_contract_missing")
-        if registration.get("sha256") != sha256_file(contract_path):
+        contract_raw = contract_path.read_bytes()
+        if registration.get("sha256") != hashlib.sha256(contract_raw).hexdigest():
             raise ValueError("reader_generation_contract_hash_mismatch")
-        contract = _required_reader_json(contract_path)
-        expected_contract = _reader_generation_contract_body(semantic)
+        contract = json.loads(contract_raw)
+        if not isinstance(contract, dict) or contract.get("authority_mode") != "snapshot":
+            raise ValueError("reader_generation_snapshot_required")
+        if registration.get("logical_sha256") != contract.get("logical_sha256"):
+            raise ValueError("reader_generation_contract_logical_hash_mismatch")
+        expected_contract = _reader_generation_contract_body(semantic, decision_snapshot=contract.get("decision_snapshot"))
         if contract != expected_contract:
             raise ValueError("reader_generation_contract_content_mismatch")
         if registration.get("logical_sha256") != contract.get("logical_sha256"):
@@ -1316,6 +1624,7 @@ def _ready_state(
             "message": "索引は作成しましたが、未対応または部分読取りのファイルがあります。",
             "error": "",
             "reader_limitations": reader_state.get("limitations", {}),
+            "unread_document_notices": reader_state.get("unread_document_notices", {}),
             **recovered_fields,
             **shadow_fields,
             **storage_fields,
@@ -2136,7 +2445,9 @@ def run_semantic_pipeline(
     semantic: Path,
     security: Path,
     log,
+    *, decision_snapshot: dict,
 ) -> dict:
+    decision_snapshot = _decision_snapshot_descriptor(paths, decision_snapshot)
     for path in (semantic, security):
         path.mkdir(parents=True, exist_ok=False)
     run([
@@ -2144,12 +2455,15 @@ def run_semantic_pipeline(
         "--inventory", str(paths / "path-source-inventory.jsonl"),
         "--source-root", str(source), "--output-dir", str(semantic),
         "--version-graph", str(paths / "document-version-graph.json"),
+        *_snapshot_flags(decision_snapshot),
     ], log)
     run([
         sys.executable, str(ENGINE / "validate_adaptive_semantic_graph.py"),
         "--output-dir", str(semantic), "--source-root", str(source),
         "--inventory", str(paths / "path-source-inventory.jsonl"),
         "--version-graph", str(paths / "document-version-graph.json"),
+        "--initialize-lineage",
+        *_snapshot_flags(decision_snapshot),
     ], log)
     reader_state = load_json(semantic / "adaptive-reader-state.json")
     run([
@@ -3531,6 +3845,9 @@ def build_index() -> None:
     if not config_exists:
         raise RuntimeError("configuration_missing")
     config = dict(loaded_config)
+    snapshot_limit = config.get("max_decision_snapshot_bytes", DEFAULT_DECISION_SNAPSHOT_BYTES)
+    if type(snapshot_limit) is not int or not 1 <= snapshot_limit <= MAX_DECISION_SNAPSHOT_BYTES:
+        raise ValueError("max_decision_snapshot_bytes_invalid")
     # Starting a rebuild is the explicit migration boundary for older
     # installations. Missing feature flags adopt the current fully-gated
     # pipeline, while an explicit false remains the rollback switch.
@@ -3604,6 +3921,7 @@ def build_index() -> None:
     }
     atomic_json(STATE, state)
     generation_published = False
+    preserve_snapshot_target = False
     reader_state: dict = {}
     reader_contract_registration: dict[str, object] = {}
     shadow_state = _shadow_run_base(
@@ -3624,17 +3942,20 @@ def build_index() -> None:
         with log_path.open("w", encoding="utf-8", buffering=1) as log:
             paths.mkdir(parents=True, exist_ok=False)
             run([sys.executable, str(ENGINE / "build_path_graph.py"), str(source), "--output-dir", str(paths)], log)
-            run([sys.executable, str(ENGINE / "validate_path_graph.py"), str(paths / "path-evidence-graph.json"), str(paths / "path-source-inventory.jsonl")], log)
+            run([sys.executable, str(ENGINE / "validate_path_graph.py"), str(paths / "path-evidence-graph.json"), str(paths / "path-source-inventory.jsonl"), "--source-root", str(source)], log)
+            decision_snapshot = capture_decision_snapshot(paths, snapshot_limit)
             run([
                 sys.executable, str(ENGINE / "document_version_resolver.py"),
                 "build", "--inventory", str(paths / "path-source-inventory.jsonl"),
                 "--output", str(paths / "document-version-graph.json"),
-                "--decisions", str(DOCUMENT_VERSION_DECISIONS),
+                "--decisions", decision_snapshot["path"],
             ], log)
             run([
                 sys.executable, str(ENGINE / "document_version_resolver.py"),
                 "validate", "--graph", str(paths / "document-version-graph.json"),
                 "--inventory", str(paths / "path-source-inventory.jsonl"),
+                "--decisions", decision_snapshot["path"],
+                "--decision-mode", "snapshot", "--decisions-sha256", decision_snapshot["sha256"],
             ], log)
             atomic_json(
                 DOCUMENT_VERSION_REVIEW,
@@ -3643,7 +3964,7 @@ def build_index() -> None:
             image_fallback_available_before_reader = local_model_available(
                 IMAGE_FALLBACK_MODEL
             )
-            reader_state = run_semantic_pipeline(source, paths, semantic, security, log)
+            reader_state = run_semantic_pipeline(source, paths, semantic, security, log, decision_snapshot=decision_snapshot)
             # Reader validity and content safety are established before any
             # model pull.  The /build action is the existing user-authorized
             # boundary for model downloads.
@@ -3674,13 +3995,15 @@ def build_index() -> None:
                     f"{IMAGE_FALLBACK_MODEL in pulled_models}.",
                 )
                 reader_state = run_semantic_pipeline(
-                    source, paths, semantic_after_pull, security_after_pull, log
+                    source, paths, semantic_after_pull, security_after_pull, log,
+                    decision_snapshot=decision_snapshot,
                 )
                 semantic = semantic_after_pull
                 security = security_after_pull
             reader_contract_registration = write_reader_generation_contract(
                 semantic,
                 generation.name,
+                decision_snapshot=decision_snapshot,
             )
             run([
                 sys.executable, str(ENGINE / "build_local_semantic_index.py"),
@@ -3689,7 +4012,9 @@ def build_index() -> None:
                 "--security-state", str(security / "content-security-state.json"),
                 "--source-root", str(source),
                 "--source-inventory", str(paths / "path-source-inventory.jsonl"),
+                "--version-graph", str(paths / "document-version-graph.json"),
                 "--index-purpose", "safe_answer", "--model", config["embedding_model"],
+                *_snapshot_flags(decision_snapshot),
                 "--output", str(index),
             ], log)
             base_index_sha256 = sha256_file(index)
@@ -4171,9 +4496,10 @@ def build_index() -> None:
                 state["generation_marker_warning"] = marker_warning
     except Exception as exc:
         state = {"phase": "error", "message": "索引の作成に失敗しました。", "error": f"{type(exc).__name__}: {exc}"}
+        preserve_snapshot_target = isinstance(exc, DecisionSnapshotTargetExists)
         raise
     finally:
-        if not generation_published and generation.exists():
+        if not generation_published and not preserve_snapshot_target and generation.exists():
             shutil.rmtree(generation)
         atomic_json(STATE, state)
 def main() -> int:

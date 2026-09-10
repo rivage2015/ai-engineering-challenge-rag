@@ -1,0 +1,18 @@
+test_changed_missing_and_symlink_lineage_are_not_repaired (f18_target.ImmutableLineageValidationTests.test_changed_missing_and_symlink_lineage_are_not_repaired) ... ok
+test_default_never_initializes_missing_artifacts (f18_target.ImmutableLineageValidationTests.test_default_never_initializes_missing_artifacts) ... ok
+test_early_validation_failure_preserves_existing_lineage (f18_target.ImmutableLineageValidationTests.test_early_validation_failure_preserves_existing_lineage) ... ok
+test_first_creation_and_repeat_read_only_validation (f18_target.ImmutableLineageValidationTests.test_first_creation_and_repeat_read_only_validation) ... ok
+test_initial_publisher_never_overwrites_existing_artifacts (f18_target.ImmutableLineageValidationTests.test_initial_publisher_never_overwrites_existing_artifacts) ... ok
+test_initial_publisher_rejects_dangling_symlink_and_directory (f18_target.ImmutableLineageValidationTests.test_initial_publisher_rejects_dangling_symlink_and_directory) ... ok
+test_initialization_cleanup_preserves_concurrently_created_foreign_files (f18_target.ImmutableLineageValidationTests.test_initialization_cleanup_preserves_concurrently_created_foreign_files) ... ok
+test_initialization_write_and_second_link_failure_leave_no_own_files (f18_target.ImmutableLineageValidationTests.test_initialization_write_and_second_link_failure_leave_no_own_files) ... ok
+test_projector_rejects_failed_revalidation_even_with_saved_pass (f18_target.ImmutableLineageValidationTests.test_projector_rejects_failed_revalidation_even_with_saved_pass) ... ok
+test_published_generation_success_and_failure_leave_config_and_index_unchanged (f18_target.ImmutableLineageValidationTests.test_published_generation_success_and_failure_leave_config_and_index_unchanged) ... ok
+test_read_only_directory_remains_unchanged (f18_target.ImmutableLineageValidationTests.test_read_only_directory_remains_unchanged) ... ok
+test_source_and_reader_failures_preserve_lineage (f18_target.ImmutableLineageValidationTests.test_source_and_reader_failures_preserve_lineage) ... ok
+test_unexpected_version_binding_fails_without_removing_lineage (f18_target.ImmutableLineageValidationTests.test_unexpected_version_binding_fails_without_removing_lineage) ... ok
+
+----------------------------------------------------------------------
+Ran 13 tests in 0.331s
+
+OK

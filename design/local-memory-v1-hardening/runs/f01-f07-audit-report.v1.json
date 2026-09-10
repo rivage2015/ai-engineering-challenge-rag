@@ -1,0 +1,95 @@
+{
+  "schema_version": "1.0",
+  "audit_id": "lms-v1-00-hardening-2026-09-09-f01-f07-audit-v1",
+  "task_id": "lms-v1-00-hardening-2026-09-09-f01-f07",
+  "artifact_hash": "6115bdae967aed499fcee0e9de55946b5f6236e16e0c3f93b1b211ed4231e021",
+  "auditor_context": {
+    "independence_level": "same_model_separate_context",
+    "source_scope": [
+      "Immutable F01/F07 task contract, graph, source manifest, patch snapshot and Executor record; all seven manifest source hashes matched at entry and after audit tests",
+      "Targeted static review of bootstrap generation registration/publication, projector attestation/metadata ordering, Reader validator version checks, and the complete synthetic E2E fixture",
+      "Independent focused rerun under /opt/homebrew/bin/python3 -B: 13 tests passed, no skips, unittest reported 1.076 seconds, subprocess timeout 30 seconds, output bounded to 1 MiB",
+      "Independent audit fixture design/local-memory-v1-hardening/runs/f01-f07-adversarial-test.v1.py, SHA-256 c96796f678df4714ee6dde78c6e3228c1bece111f91e9f7fa5a63e651ec77d77: two tests, one failure and one pass, unittest reported 0.178 seconds, timeout 30 seconds",
+      "Shared probe_intermediate_records.py changed from the initial inspection hash 155b62aebe2ea786afd74a95e167997c9b9cfcfa52f5099176c9bc13df09e7f7 before testing; both audit and focused runs observed db73270807c3e976fb51f38ff51cc6cd40dd7c0ef3c2d6954fc1f924acd8ab3d unchanged before and after their execution; this file is excluded from the submitted F01/F07 source manifest",
+      "All runtime tests used temporary synthetic sources/config/index generations and the fixture's HTTP, model and Popen guards; the adversarial change affected only temporary Reader state. No product source, real data, external service, OS permissions or published user generation was changed"
+    ]
+  },
+  "status": "revise",
+  "checks": [
+    {
+      "check_id": "F01F07-A01",
+      "check_type": "intent",
+      "target_ids": ["F01", "F07", "LIMITS"],
+      "verdict": "pass",
+      "severity": "info",
+      "reason": "The changes address explicit version-graph propagation, generation registration and real-function synthetic E2E coverage. They do not modify version-choice semantics, destructive lineage validation, cross-document V2 features, or claim real-model/packaged product acceptance. Existing year-winner behavior is correctly described as a wiring fixture rather than approval of annual-document policy.",
+      "evidence_ids": ["BOOTSTRAP", "PROJECTOR", "TESTS", "EXECUTOR"],
+      "required_action": null
+    },
+    {
+      "check_id": "F01F07-A02",
+      "check_type": "evidence",
+      "target_ids": ["F01", "F07", "BINDING"],
+      "verdict": "pass",
+      "severity": "info",
+      "reason": "All seven manifest source hashes matched before and after the audit tests. The submitted artifact hash is recorded above. The independent 13-case rerun reproduced the focused suite's reported success on the observed shared Reader hash, with no skipped cases. That positive baseline does not override the independent TOCTOU counterexample below.",
+      "evidence_ids": ["BOOTSTRAP", "PROJECTOR", "TESTS", "MIGRATION", "VALIDATOR", "RESOLVER", "EXECUTOR"],
+      "required_action": null
+    },
+    {
+      "check_id": "F01F07-A03",
+      "check_type": "dependency",
+      "target_ids": ["F01", "LEGACY"],
+      "verdict": "pass",
+      "severity": "info",
+      "reason": "The app now supplies --version-graph to the safe-index CLI, the CLI adds it only to an explicit versioned lineage context, and both lineage/security context checks accept only the legacy three-field or versioned four-field shape. Independent focused tests confirm omitted, missing, wrong, null and unexpected bindings are rejected; unversioned legacy input remains accepted without inferring producer paths. Restricting --version-graph to safe_answer also avoids giving prompt-library indexes unsupported version semantics.",
+      "evidence_ids": ["BOOTSTRAP", "PROJECTOR", "VALIDATOR", "TESTS"],
+      "required_action": null
+    },
+    {
+      "check_id": "F01F07-A04",
+      "check_type": "safety",
+      "target_ids": ["BINDING", "E01"],
+      "verdict": "pass",
+      "severity": "info",
+      "reason": "The added generation contract uses a fixed same-generation version-artifact path and checks both file SHA-256 and canonical graph identity. Resolver/projector source identities join the resource contract. Focused tests detected graph-byte and resolver-code changes, and an additional counterexample confirmed that copying identical graph bytes to a different producer-selected path is rejected by app registration. These checks are useful but do not bind the later SQLite metadata reread to the already attested version value.",
+      "evidence_ids": ["BOOTSTRAP", "PROJECTOR", "TESTS"],
+      "required_action": null
+    },
+    {
+      "check_id": "F01F07-A05",
+      "check_type": "safety",
+      "target_ids": ["BINDING", "F01", "FAILURE", "E01"],
+      "verdict": "fail",
+      "severity": "blocking",
+      "reason": "The newly added metadata assignment rereads adaptive-reader-state.json after project_verified_structural_graph has completed source-bound validation and after a further embedding-space probe. This is a new check/use gap: the reread value is described as checked but is not the value returned by the validator. In the independent synthetic application test, the finite embedding probe temporarily replaced only document_version_graph with a fabricated path and hashes; the dispatcher restored the original state bytes after the projector completed, before app publication. build_index completed, the fake binding was stored in SQLite, answer_generation_allowed was true, and reader_generation_contract_status(config) was current. Thus a published/current generation can retain an unvalidated version binding even when its restored Reader artifacts pass registration. Hashing the final index preserves the wrong metadata rather than establishing its relation to the validator-attested graph. This violates the submitted binding contract independently of F02-F06 or the preexisting F18 behavior.",
+      "evidence_ids": ["PROJECTOR", "BOOTSTRAP", "VALIDATOR", "TESTS", "EXECUTOR"],
+      "required_action": "Carry a detached validated version binding, or an equivalent bound attestation result, from the source-bound validation into graph projection and SQLite metadata. Do not populate trusted metadata from a later unchecked producer-state reread. If later state reads remain necessary, require equality to the attested identity and fail safely before publication on mismatch. Add a permanent fault-injection regression at the post-attestation embedding-probe boundary, including a swapped/restored state, and verify the published metadata equals the attested binding or the new build is rejected with the prior CONFIG/index intact. Submit a new immutable artifact and execution evidence for re-audit."
+    },
+    {
+      "check_id": "F01F07-A06",
+      "check_type": "coverage",
+      "target_ids": ["F07", "FAILURE", "E02"],
+      "verdict": "pass",
+      "severity": "info",
+      "reason": "The E2E fixture executes actual CLI parsing and production build, Reader, validator, projection, registration, publication, retrieval, claim and final orchestration functions. Network/process launch is guarded; embeddings and model responses are finite fixtures. The positive answer requires the gold value to exist in real retrieved evidence, and the ambiguous Graph question remains rejected despite a successful mock model verdict. Failed rebuild and human-decision/source-change cases confirm prior CONFIG/index retention and candidate holding within their tested paths. The newly found post-attestation metadata window is not covered by those existing negatives and requires the additional test above.",
+      "evidence_ids": ["TESTS", "EXECUTOR", "BOOTSTRAP"],
+      "required_action": null
+    },
+    {
+      "check_id": "F01F07-A07",
+      "check_type": "coverage",
+      "target_ids": ["LIMITS", "LEGACY", "F07"],
+      "verdict": "pass",
+      "severity": "warning",
+      "reason": "Legacy unversioned compatibility is verified only for the covered producer/context shape; current app registration intentionally changes when added executable identities change. Python 3.9 build-only checks must not be represented as query compatibility, and the query E2E uses Python 3.14. No real models, server transport/GUI, package acceptance, full migration campaign or immutable-public-validation repair was performed. These are correctly preserved exclusions, not reasons to suppress the scoped binding regression.",
+      "evidence_ids": ["PROJECTOR", "BOOTSTRAP", "MIGRATION", "TESTS", "EXECUTOR"],
+      "required_action": null
+    }
+  ],
+  "summary": {
+    "blocking_failures": 1,
+    "unresolved_count": 0,
+    "next_action": "revise"
+  }
+}

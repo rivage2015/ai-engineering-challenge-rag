@@ -1,0 +1,91 @@
+{
+  "schema_version": "1.0",
+  "task_id": "lms-v1-00-hardening-2026-09-09-f02-next-contract",
+  "observed_at_utc": "2026-09-08 21:15:04 UTC",
+  "repository": "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ",
+  "branch": "codex/visual-classification-v1",
+  "head": "79a69260fb1a42efb3c0e2c0093ed6101470f2a1",
+  "state": "dirty_source_snapshot_not_git_head_content",
+  "sources": [
+    {
+      "path": "design/local-memory-search-v1-00-hardening-plan-2026-09-09.md",
+      "sha256": "e49801e3af62fb0a4e8f73a1379d105c2ff5b62946606d69ddf2522f4935f456",
+      "read_scope": "full"
+    },
+    {
+      "path": "design/local-memory-v1-hardening/RESUME.md",
+      "sha256": "cea41626013245ddeccd675cee91bd9e4de15736b7b7b5721f3cf8e3832ae419",
+      "read_scope": "full"
+    },
+    {
+      "path": "design/local-memory-v1-hardening/checkpoint.json",
+      "sha256": "c33e0085ca7fa63ede198f2345856c7a7eb014d4d188ef734557f5ac8ac1b00b",
+      "read_scope": "full"
+    },
+    {
+      "path": "design/local-memory-v1-hardening/runs/f02-f06-next-slice-contract.v1.md",
+      "sha256": "a163bf175335dc9901051cb4b0462bdf0cdb1a32a121269ffeec6cef2b6ce493",
+      "read_scope": "full"
+    },
+    {
+      "path": "design/local-memory-v1-hardening/runs/f04a-validation-result.v1.json",
+      "sha256": "d5155a26177a1d63c45cdebbf31735e73152e3556510170884b2175ac00b45db",
+      "read_scope": "full"
+    },
+    {
+      "path": "distribution/macos-local-memory/engine/document_version_resolver.py",
+      "sha256": "f42db568267befe8a041d036242795599544ba6a46236866a643b91d4f93811b",
+      "read_scope": "full"
+    },
+    {
+      "path": "distribution/macos-local-memory/tests/test_document_version_resolver.py",
+      "sha256": "6031c30fbfc1b8eda0159b926ef07bbcedee1b0c2c92747b3135f9be6f6efd17",
+      "read_scope": "full"
+    },
+    {
+      "path": "distribution/macos-local-memory/engine/build_adaptive_semantic_graph.py",
+      "sha256": "19b5c55c64959dc136cd4d6b2081151ed1e39560874fb083e9796edb8812adfa",
+      "read_scope": "1-280;337-363;435-449; related references"
+    },
+    {
+      "path": "distribution/macos-local-memory/engine/validate_adaptive_semantic_graph.py",
+      "sha256": "1a3aff494b724882a600adc6978fda3e0f3955da6e2f11291180a92d7f898e1a",
+      "read_scope": "2530-2605; related references"
+    },
+    {
+      "path": "distribution/macos-local-memory/engine/build_local_semantic_index.py",
+      "sha256": "2bfaf8174e8249087d720e49070c9812ce9ecf93b21dd5276f057e145965dfb2",
+      "read_scope": "805-890; related references"
+    },
+    {
+      "path": "distribution/macos-local-memory/app/local_memory_server.py",
+      "sha256": "3acb859916ccb9fb1a1c26cc0ebfa511bea2d8114fa83103ace40183fa899ee6",
+      "read_scope": "646-712;2688-2742"
+    },
+    {
+      "path": "distribution/macos-local-memory/app/bootstrap.py",
+      "sha256": "069c36f8d03634583dec27a6647ec100ae90bbbe7408b4275b164ee1b4b16192",
+      "read_scope": "3648-3687;3760-3795; reader identity references"
+    },
+    {
+      "path": "distribution/macos-local-memory/tests/test_versioned_safe_index_e2e.py",
+      "sha256": "c16cc5bfafe493ad4096eadbf84722c8d9f1d476dcb03bfc36bb26959983341b",
+      "read_scope": "full"
+    },
+    {
+      "path": "distribution/macos-local-memory/tests/test_package.py",
+      "sha256": "f98596239852363a77c991b2a886b8d455a31b6def656667197412e298799296",
+      "read_scope": "4360-4405"
+    },
+    {
+      "path": "design/local-memory-v1-hardening/runs/f02-next-probe.v1.py",
+      "sha256": "38649a6a2e73f92f07bc920a309dd395a59af013f0b511044457ee03a9129a17",
+      "read_scope": "full"
+    }
+  ],
+  "notes": [
+    "F04a source identity matches accepted snapshot. Acceptance is inherited from f04a-validation-result.v1.json, not re-certified here.",
+    "Other workers may change non-owned files; recheck live hashes and exact diffs before implementation.",
+    "Review-only subtask owns only new runs/f02-next-* files. Product code and tests were not edited."
+  ]
+}

@@ -1,0 +1,9 @@
+test_counts_only_wrapper_cannot_pass_without_originals (f11a_root_boundaries.NotebookMetadataBoundaryTests) ... ok
+test_direct_search_preserves_all_six_literal_states (f11a_root_boundaries.NotebookMetadataBoundaryTests) ... ok
+test_missing_metadata_rejected_with_originals (f11a_root_boundaries.NotebookMetadataBoundaryTests) ... ok
+test_well_typed_false_count_rejected_without_id_change (f11a_root_boundaries.NotebookMetadataBoundaryTests) ... ok
+
+----------------------------------------------------------------------
+Ran 4 tests in 0.166s
+
+OK

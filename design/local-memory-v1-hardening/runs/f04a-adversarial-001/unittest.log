@@ -1,0 +1,14 @@
+test_absent_current_retains_existing_numeric_order (f04a_adversarial.IndependentF04aProbes.test_absent_current_retains_existing_numeric_order) ... ok
+test_both_human_choices_win_then_hash_or_membership_changes_hold (f04a_adversarial.IndependentF04aProbes.test_both_human_choices_win_then_hash_or_membership_changes_hold) ... ok
+test_equal_normalized_and_newer_current_remain_eligible (f04a_adversarial.IndependentF04aProbes.test_equal_normalized_and_newer_current_remain_eligible) ... ok
+test_numeric_normalization_and_component_comparison (f04a_adversarial.IndependentF04aProbes.test_numeric_normalization_and_component_comparison) ... ok
+test_observed_scope_limit_multiple_version_tokens_is_still_open (f04a_adversarial.IndependentF04aProbes.test_observed_scope_limit_multiple_version_tokens_is_still_open) ... {"scope_limit_witness": "multiple_version_tokens_not_fixed", "observed_status": "resolved", "reason": "unique_explicit_current_marker", "acceptance_claim": false}
+ok
+test_reader_excludes_all_held_candidates_but_keeps_unrelated (f04a_adversarial.IndependentF04aProbes.test_reader_excludes_all_held_candidates_but_keeps_unrelated) ... ok
+test_three_peers_all_permutations_and_projection_identity (f04a_adversarial.IndependentF04aProbes.test_three_peers_all_permutations_and_projection_identity) ... ok
+test_year_conflict_and_multiple_current_precedence (f04a_adversarial.IndependentF04aProbes.test_year_conflict_and_multiple_current_precedence) ... ok
+
+----------------------------------------------------------------------
+Ran 8 tests in 0.002s
+
+OK

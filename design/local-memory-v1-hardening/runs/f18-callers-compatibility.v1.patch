@@ -1,0 +1,86 @@
+*** Begin Patch
+*** Update File: tests/test_semantic_lineage_relations.py
+@@
+-            report = validator.validate(output, source_root, inventory_path)
++            report = validator.validate(
++                output, source_root, inventory_path, initialize_lineage=True,
++            )
+@@
+-            evidence[0]["observed_text"] += " tampered"
++            # F18: failed read-only revalidation preserves published lineage.
++            lineage_before_failure = {
++                path: (path.read_bytes(), path.stat().st_ino, path.stat().st_mtime_ns)
++                for path in (relations_path, state_path)
++            }
++            evidence[0]["observed_text"] += " tampered"
+@@
+-            self.assertFalse(relations_path.exists())
+-            self.assertFalse(state_path.exists())
++            self.assertEqual(
++                lineage_before_failure,
++                {
++                    path: (path.read_bytes(), path.stat().st_ino, path.stat().st_mtime_ns)
++                    for path in (relations_path, state_path)
++                },
++            )
+@@
+             with self.assertRaisesRegex(
+                 ValueError, "lineage_search_unit_run_mismatch"
+             ):
+-                validator.validate(output, source_root, inventory_path)
++                validator.validate(
++                    output, source_root, inventory_path, initialize_lineage=True,
++                )
+*** Update File: tests/test_security_graph_partition.py
+@@
+             semantic_report = semantic_validator.validate(
+-                semantic_dir, source_root, inventory_path,
++                semantic_dir, source_root, inventory_path, initialize_lineage=True,
+             )
+*** Update File: tests/test_local_embedded_visual_pipeline.py
+@@
+         validation = adaptive_validator.validate(
+-            adaptive_output, self.source_root, inventory
++            adaptive_output, self.source_root, inventory, initialize_lineage=True,
+         )
+*** Update File: distribution/macos-local-memory/tests/test_document_version_resolver.py
+@@
+         self.assertEqual(
+             "PASS",
+-            validator.validate(output, source, inventory, graph)["status"],
++            validator.validate(
++                output, source, inventory, graph, initialize_lineage=True,
++            )["status"],
+         )
+@@
+-        self.assertEqual("PASS", validator.validate(output, source, inventory, graph)["status"])
++        self.assertEqual("PASS", validator.validate(
++            output, source, inventory, graph, initialize_lineage=True,
++        )["status"])
+*** Update File: distribution/macos-local-memory/tests/test_package.py
+@@
+             validate = subprocess.run([
+                 os.sys.executable, str(ENGINE / "validate_adaptive_semantic_graph.py"),
++                "--initialize-lineage",
+                 "--output-dir", str(semantic_output), "--source-root", str(source_root),
+@@
+             validation = subprocess.run([
+                 *reader_command, str(ENGINE / "validate_adaptive_semantic_graph.py"),
++                "--initialize-lineage",
+                 "--output-dir", str(semantic_output), "--source-root", str(source_root),
+@@
+             validation = subprocess.run([
+                 *reader_command,
+                 str(ENGINE / "validate_adaptive_semantic_graph.py"),
++                "--initialize-lineage",
+                 "--output-dir",
+@@
+             subprocess.run([
+                 os.sys.executable, str(ENGINE / "validate_adaptive_semantic_graph.py"),
++                "--initialize-lineage",
+                 "--output-dir", str(semantic_output), "--source-root", str(source_root),
+*** Update File: distribution/macos-local-memory/tests/test_versioned_safe_index_e2e.py
+@@
+-        self.run_cli([sys.executable, str(ENGINE / "validate_adaptive_semantic_graph.py"), *reader_args])
++        self.run_cli([sys.executable, str(ENGINE / "validate_adaptive_semantic_graph.py"), "--initialize-lineage", *reader_args])
+*** End Patch

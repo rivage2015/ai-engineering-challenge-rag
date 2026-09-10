@@ -1,0 +1,204 @@
+{
+  "schema_version": "1.0",
+  "audit_id": "lms-v1-00-hardening-plan-audit-2026-09-09-v1",
+  "task_id": "lms-v1-00-hardening-plan-2026-09-09",
+  "artifact_hash": "40b51626a32149cb5e5d2dcf8982d6b57bc240e779fe7db0897eea51704b6075",
+  "auditor_context": {
+    "independence_level": "same_model_separate_context",
+    "source_scope": [
+      "Immutable task contract, nodes, edges, source manifest, and complete plan snapshot in graph-artifact.v1.json",
+      "Complete plan: design/local-memory-search-v1-00-hardening-plan-2026-09-09.md",
+      "All source-file SHA-256 values S_PLAN and S1-S13 independently matched; plan snapshot matched the current plan byte for byte",
+      "Targeted static inspection of S1-S13, prioritizing production wiring, version selection and validation, Reader loss/status behavior, runtime limits, HTTP boundaries, publication and packaging",
+      "Plan-readiness review only. No product certification, heavy tests, model downloads, personal-source scans, or independent replay of the Executor's transient Probe experiments"
+    ]
+  },
+  "status": "pass",
+  "checks": [
+    {
+      "check_id": "A01",
+      "check_type": "intent",
+      "target_ids": ["GOAL", "SCOPE"],
+      "verdict": "pass",
+      "severity": "info",
+      "reason": "The plan explicitly pauses the proposed V2 features, targets the future V1.00 stability milestone, and limits this turn to a plan and review records. It distinguishes the current README app version 0.6 from both that milestone and existing v2 filenames. This matches the immutable task contract without authorizing product changes or release.",
+      "evidence_ids": ["S_PLAN", "S8"],
+      "required_action": null
+    },
+    {
+      "check_id": "A02",
+      "check_type": "evidence",
+      "target_ids": ["FINDINGS", "GOAL"],
+      "verdict": "pass",
+      "severity": "info",
+      "reason": "All 14 manifest sources matched their recorded SHA-256 values during this audit, and the complete embedded plan snapshot matched the current markdown. The submitted artifact's actual SHA-256 is recorded in this report. The review therefore refers to a fixed, reproducible source and plan state.",
+      "evidence_ids": ["S_PLAN", "S1", "S2", "S3", "S4", "S5", "S6", "S7", "S8", "S9", "S10", "S11", "S12", "S13"],
+      "required_action": null
+    },
+    {
+      "check_id": "A03",
+      "check_type": "basis",
+      "target_ids": ["FINDINGS", "H1", "E02"],
+      "verdict": "pass",
+      "severity": "info",
+      "reason": "F01's high-priority wiring claim is supported: bootstrap passes the version graph to the adaptive builder and its initial validator, while the index projector's lineage context has only output_dir/source_root/inventory and its independent validator call omits version_graph. The validator rejects a version-bound state when that argument is absent. F07 is also supported: the named Reader end-to-end test stops at the adaptive validator and does not establish index publication or answering. Reproduce-first repair and a full production-path test are appropriate next steps; this static finding is not treated as a freshly executed application failure.",
+      "evidence_ids": ["S1", "S2", "S5", "S6", "S_PLAN"],
+      "required_action": null
+    },
+    {
+      "check_id": "A04",
+      "check_type": "basis",
+      "target_ids": ["FINDINGS", "H2", "E03"],
+      "verdict": "pass",
+      "severity": "info",
+      "reason": "The version rules support F02-F06: family normalization removes years, unmarked files are excluded from candidates, unique current markers precede version-number comparisons, and the validator checks graph self-consistency without reconstructing candidate completeness. The UI exposes needs_human_review groups only, and bootstrap publishes its review graph before semantic/index success. The plan correctly proposes annual-record versus revision semantics, complete candidate reconstruction, correction of automatic choices, and generation-bound review without claiming these are already implemented.",
+      "evidence_ids": ["S3", "S4", "S5", "S_PLAN"],
+      "required_action": null
+    },
+    {
+      "check_id": "A05",
+      "check_type": "evidence",
+      "target_ids": ["FINDINGS", "H3", "E04"],
+      "verdict": "pass",
+      "severity": "info",
+      "reason": "Targeted Reader inspection supports the identified loss paths: XML walks element.text and attributes but not child.tail; JSON uses json.loads without duplicate-key preservation; CSV fixes comma except for .tsv; fallback XLSX resolves relationship IDs through an overwriteable map and falls back to a numbered sheet path. Notebook source and saved outputs omit execution_count/state metadata. Optional Office-library paths and fallback warnings support a fidelity/coverage audit. These justify planned counterexamples, not a claim that all downstream validators or answers currently accept the defective extraction.",
+      "evidence_ids": ["S9", "S_PLAN"],
+      "required_action": null
+    },
+    {
+      "check_id": "A06",
+      "check_type": "evidence",
+      "target_ids": ["FINDINGS", "H0", "H6"],
+      "verdict": "pass",
+      "severity": "warning",
+      "reason": "The plan separates static observations, Executor-reported small Probe reproductions, and unverified exploit/whole-pipeline outcomes. This Auditor did not replay those transient probes or certify their runtime environment. Their reproducible code-level basis is sufficient to admit the cases into a plan, and the plan explicitly requires permanent fixtures, commands, expected results, and full-path reproduction from H0 onward. The report must not be represented as independent runtime confirmation or a completed product audit.",
+      "evidence_ids": ["S_PLAN", "S3", "S9", "S11", "S12"],
+      "required_action": null
+    },
+    {
+      "check_id": "A07",
+      "check_type": "coverage",
+      "target_ids": ["SCOPE", "H3", "GATES"],
+      "verdict": "pass",
+      "severity": "info",
+      "reason": "The stated current extension allowlist matches the adaptive bridge. The plan does not confuse version-candidate suffixes with Reader support. It defines capabilities by format, feature, Reader path, dependency environment, and limits; requires original locators and unread/unknown regions; separates processing state from answer eligibility; and makes safely returning unsupported insufficient for claiming actual reading support. Legacy and additional business formats remain explicitly prioritized future scope rather than an unlimited all-format guarantee.",
+      "evidence_ids": ["S_PLAN", "S7", "S3", "S8"],
+      "required_action": null
+    },
+    {
+      "check_id": "A08",
+      "check_type": "coverage",
+      "target_ids": ["H2", "H4", "E08", "E09"],
+      "verdict": "pass",
+      "severity": "info",
+      "reason": "Ordinary retrieval reads the published SQLite evidence/vector state; it does not establish current source completeness on every question. The planned freshness contract covers edits, deletions, and newly added version candidates, so rehashing only cited files cannot masquerade as a complete latest-version check. It also distinguishes local questions from aggregate/absence questions whose answers can change because of unread regions, and retains annual or historical requests through explicit support or an honest unsupported result.",
+      "evidence_ids": ["S_PLAN", "S11", "S2", "S3"],
+      "required_action": null
+    },
+    {
+      "check_id": "A09",
+      "check_type": "safety",
+      "target_ids": ["H0", "H1", "H5", "SCOPE"],
+      "verdict": "pass",
+      "severity": "info",
+      "reason": "The plan covers source-root confinement and identity races, archive/XML limits, password discovery outside a selected manifest, executable/macro content, hostile paths and HTML, HTTP authorization, endpoint identity, response/body limits, and interruption cleanup. Targeted source checks support the cited race windows, root-wide password enumeration, unbounded subprocess waits, raw HTTP body read, and unrestricted response.read. Existing Host/Origin/CSRF and bounded helper defenses are explicitly retained and regression-tested rather than declared absent. Exploit success is not asserted from static inspection alone.",
+      "evidence_ids": ["S_PLAN", "S4", "S5", "S7", "S9", "S12", "S13"],
+      "required_action": null
+    },
+    {
+      "check_id": "A10",
+      "check_type": "safety",
+      "target_ids": ["H4", "FINDINGS"],
+      "verdict": "pass",
+      "severity": "info",
+      "reason": "The answer code constructs evidence text/path context without escaping and inserts it into UNTRUSTED_EVIDENCE delimiters, supporting the framing concern. The plan limits that claim to a framing defect and leaves actual model takeover unverified. Its layered response includes authority restrictions, structured framing, original-source binding, deterministic validation, rendering controls, and measurement of false positives; it does not treat escaping, keyword filters, hash consistency, or agreement between models as a complete injection defense or proof of truth.",
+      "evidence_ids": ["S_PLAN", "S11"],
+      "required_action": null
+    },
+    {
+      "check_id": "A11",
+      "check_type": "dependency",
+      "target_ids": ["H0", "H1", "H2", "H3", "H4", "H5", "H6", "E05", "E06", "E07", "E08", "E09", "E10", "E11"],
+      "verdict": "pass",
+      "severity": "info",
+      "reason": "The execution order places baseline isolation and budgets before repair, restores the currently broken connection before whole-pipeline acceptance, and requires input confinement and bounded execution before hostile parser/OCR/fuzz work. Temporal eligibility and source-bound Reader evidence both feed answer validation; full recovery and packaged acceptance precede final release review. Stage labels do not require waiting to inspect independent static boundaries. This is a feasible dependency ordering at plan granularity.",
+      "evidence_ids": ["S_PLAN", "S1", "S2", "S5"],
+      "required_action": null
+    },
+    {
+      "check_id": "A12",
+      "check_type": "parallelism",
+      "target_ids": ["H0", "H2", "H3", "H5"],
+      "verdict": "pass",
+      "severity": "info",
+      "reason": "The plan permits independent static audits after H0 while requiring shared schema, version policy, and input contracts to be fixed first. It constrains real-file fuzzing and conversion by isolation and budgets, and serializes heavy local model work by default. This prevents the graph's staged presentation from forcing all independent review work into a serial chain or running expensive shared-state work concurrently without control.",
+      "evidence_ids": ["S_PLAN"],
+      "required_action": null
+    },
+    {
+      "check_id": "A13",
+      "check_type": "safety",
+      "target_ids": ["LOOP", "E12", "E13", "E14"],
+      "verdict": "pass",
+      "severity": "info",
+      "reason": "The loop records contract, independent expected result, minimal reproduction, plan delta, minimal change, regression, separate audit, and an explicit decision. It caps the same request's Executor-Auditor repair cycles at two, prohibits relabeling an issue to bypass that cap, preserves unresolved findings as blocked, and stops an affected test group after source changes, unexpected network/root access, orphan processes, resource overruns, or public-generation corruption. Same-model separate context is accurately described as procedural separation only.",
+      "evidence_ids": ["S_PLAN"],
+      "required_action": null
+    },
+    {
+      "check_id": "A14",
+      "check_type": "coverage",
+      "target_ids": ["H6", "GATES", "E15"],
+      "verdict": "pass",
+      "severity": "info",
+      "reason": "Acceptance separates deterministic component tests, production-path wiring tests, real dependency/model runs, and generation quality. It uses original-source gold, held-out cases, metamorphic transformations with valid invariance assumptions, isolated mutations, bounded fuzzing, boundary values, and selected compound cases. Mandatory skips and unknowns cannot count as PASS, and normal answerable cases cannot all be held to inflate safety. Past test counts and small-fixture success are not substituted for fresh acceptance or population accuracy.",
+      "evidence_ids": ["S_PLAN", "S6", "S8"],
+      "required_action": null
+    },
+    {
+      "check_id": "A15",
+      "check_type": "safety",
+      "target_ids": ["ROLLBACK", "H1", "H5", "E16", "E17"],
+      "verdict": "pass",
+      "severity": "info",
+      "reason": "The adaptive validator demonstrably removes lineage artifacts at validation entry and later republishes them. The plan responds with immutable public generations and temporary validation outputs, tests concurrent reads and injected validation failure, and permits fallback only to an independently valid generation whose source eligibility still holds. It preserves user dirty changes, forbids broad reset/staging, separates SQLite atomicity from power-loss durability, and confines hardware-failure equivalents to an appropriately authorized isolated environment.",
+      "evidence_ids": ["S_PLAN", "S2", "S5"],
+      "required_action": null
+    },
+    {
+      "check_id": "A16",
+      "check_type": "coverage",
+      "target_ids": ["H5", "GATES"],
+      "verdict": "pass",
+      "severity": "info",
+      "reason": "The build script copies the root Reader sources into Resources/engine/layer1/scripts, and the adaptive bridge prioritizes that packaged directory. The plan therefore correctly targets generated-source files for repair, checks source-versus-package hashes, and includes new-install, existing-index/migration, and offline packaged acceptance. It avoids treating checkout-only tests or successful packaging as evidence that the distributed application has passed runtime acceptance.",
+      "evidence_ids": ["S_PLAN", "S7", "S10"],
+      "required_action": null
+    },
+    {
+      "check_id": "A17",
+      "check_type": "dependency",
+      "target_ids": ["OPEN_ITEMS", "H0", "GATES", "E18"],
+      "verdict": "pass",
+      "severity": "info",
+      "reason": "Resource ceilings, acceptable quality deltas, representative corpus/environment, and additional-format priorities are not fabricated as settled values. The plan places measurements and prospective acceptance thresholds in H0 and requires them to be fixed before H1 repairs; product acceptance remains gated on these decisions and real results. Those explicit future implementation prerequisites do not block delivery of this plan, and this audit pass does not resolve or certify them.",
+      "evidence_ids": ["S_PLAN"],
+      "required_action": null
+    },
+    {
+      "check_id": "A18",
+      "check_type": "edge",
+      "target_ids": ["E01", "E02", "E03", "E04", "E05", "E06", "E07", "E08", "E09", "E10", "E11", "E12", "E13", "E14", "E15", "E16", "E17", "E18"],
+      "verdict": "pass",
+      "severity": "info",
+      "reason": "All graph edges express named scope, priority, prerequisite, evidence-flow, loop-governance, or safety constraints supported by the plan. They do not convert parser observations or model agreement into causal proof, and they retain version and Reader contributions as separate inputs to answer validation. No missing required plan path or blocking contradiction was found within the stated plan-readiness scope.",
+      "evidence_ids": ["S_PLAN"],
+      "required_action": null
+    }
+  ],
+  "summary": {
+    "blocking_failures": 0,
+    "unresolved_count": 0,
+    "next_action": "deliver"
+  }
+}

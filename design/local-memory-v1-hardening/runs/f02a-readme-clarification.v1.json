@@ -1,0 +1,13 @@
+{
+  "schema_version": "1.0",
+  "task_id": "lms-v1-00-hardening-2026-09-09-f02a",
+  "owner": "root",
+  "scope": "Documentation compatibility only, supplementing the three-file implementation contract; no additional product semantics or user decisions.",
+  "path": "distribution/macos-local-memory/README.md",
+  "before_sha256": "693abb0b0443d613caa3880ca0d9edcec0408f89dc19349d1cee7aa87519224b",
+  "finding": "Line33 still says a unique maximum year can automatically become active. F02a removes only the final year-branch success, so that wording must not remain after implementation.",
+  "change": "Remove maximum-year automatic selection claim; explain year-only ambiguity, complete hold and human selection, preserve original/hash binding explanation, and explicitly retain current-marker and independent-annual-record limitations.",
+  "protected": "F18 initialization README bullet, all other README content, user-owned build and two introduction files.",
+  "timing": "F18 source freeze released after parent acceptance; its README hash remains the historical F18 snapshot, not the post-F02a snapshot.",
+  "acceptance": "Separate F02a audit must inspect paragraph and match actual resolver behavior, without claiming full F02/HITL support."
+}

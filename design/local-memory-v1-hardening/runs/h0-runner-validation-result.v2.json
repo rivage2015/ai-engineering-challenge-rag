@@ -1,0 +1,19 @@
+{
+  "schema_version": "1.0",
+  "task_id": "lms-v1-00-h0-test-supervisor",
+  "artifact": "h0-runner-graph-artifact.v2.json",
+  "report": "h0-runner-audit-report.v2.json",
+  "actual_artifact_sha256": "35ad11ad788ff21ab68cdddb7fec9c97652652af52590e23631004ef6fc28fd0",
+  "ruby_structural_referential_validator": "PASS",
+  "draft202012_schema_task_hash_sources": "PASS",
+  "audit_status": "pass",
+  "repair_round": 1,
+  "verified_at_utc": "2026-09-08 19:17:00 UTC",
+  "scope": "Bounded internal supervisor for preflight-approved synthetic tests only; not OS/network isolation or product acceptance.",
+  "legacy_log_recheck": {
+    "all_saved_log_hashes": "matched",
+    "run013": "Saved old-parser count1 was wrong; terminal log says11 with FAILED. Failure status was correctly retained.",
+    "f01-f07-repair1-audit-replay-001": "Old parser accepted a successful two-test footer followed by source-hash diagnostics. New terminal-only contract rejects that log, not evidence of a test failure. Replayed in repair2-audit-replay-green-003 with terminal footer, PASS2.",
+    "policy": "Do not rewrite original result records or weaken the new terminal-footer requirement."
+  }
+}

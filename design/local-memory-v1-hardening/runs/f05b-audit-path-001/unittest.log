@@ -1,0 +1,8 @@
+test_capture_rejects_static_generation_directory_symlink (f05b_audit_target.StaticSnapshotPathTests.test_capture_rejects_static_generation_directory_symlink) ... ok
+test_capture_rejects_static_path_directory_symlink (f05b_audit_target.StaticSnapshotPathTests.test_capture_rejects_static_path_directory_symlink) ... ok
+F05b explicit fixture budget: {"explicit_test_bytes": 0, "explicit_test_writes": 0, "max_source_fixture_bytes": 0, "source_fixture_count": 0}
+
+----------------------------------------------------------------------
+Ran 2 tests in 0.033s
+
+OK

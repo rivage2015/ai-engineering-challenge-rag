@@ -1,0 +1,22 @@
+{
+  "schema_version": "1.0",
+  "task_id": "lms-v1-00-hardening-2026-09-09-f03a",
+  "status": "parent_authorized_second_fixture_correction_before_reverification",
+  "audit_repair_rounds_consumed": 0,
+  "test_correction_count": 2,
+  "authorization": "Parent directly verified current family_key: 手順 copy.csv equals 手順.csv; 手順 copy(2).csv has stem 手順2. Parent authorized one literal string change only. No further same-fixture trial-and-error is authorized; another failure requires independent gold review.",
+  "correction1_snapshot": "design/local-memory-v1-hardening/runs/f03a-test-gold-correction1-snapshot.v1.py",
+  "correction1_sha256": "aa7da7f0a308dec79a398678c18d41d246c26a514d6fc88dedcf1cba431100d3",
+  "corrected_test": "tests/test_unmarked_version_candidates.py",
+  "corrected_test_sha256": "b4a9176f3f7bb723d701a548418be8647a5336dc7b88dd0707d03cfa70eb5b94",
+  "correction_delta": "design/local-memory-v1-hardening/runs/f03a-test-gold-correction.v2.patch",
+  "unchanged_product_sha256": "c2b98254ec28a82e8cc7b5ef3f5e780739bcc1b6983ef2a9252609156d4b672f",
+  "previous_failed_run": "design/local-memory-v1-hardening/runs/f03a-executor-green-pure-002/result.json",
+  "previous_failed_log_sha256": "fbc1f86a7d0ba91f306e86149283d76c6ebbf7d5f49f2c81944daed7b955be27",
+  "previous_result": "19 methods, 1 FAIL/0 ERROR/0 skip. The run-id contains green but actual status is failed, never acceptance.",
+  "reason": "The COPY_TOKEN trailing word boundary prevents the optional (2) branch from ending at ')' before '.', so only copy is removed and 2 remains. The initial correction failed to account for this separate boundary. Parent independently confirmed the new unnumbered same-family fixture before authorizing it. Product normalization must stay unchanged.",
+  "correction": {"before": "手順 copy(2).csv", "after": "手順 copy.csv"},
+  "residual_boundary_witness_not_acceptance": {"path": "手順 copy(2).csv", "family_key": "\u0000手順2\u0000.csv", "not_equal_to": "\u0000手順\u0000.csv"},
+  "preservation": "Initial test/gold/RED, correction1 test/diff/record/corrected-RED and both failed post-fix runs retained unchanged. No assertions or method counts weakened.",
+  "corrected_red_preflight": "New v2 wrapper differs from reviewed v1 only in frozen corrected-test hash and exclusive run ID. It executes unchanged corrected gold with saved before resolver bytes in memory; no product rollback. Source+test below1MiB, runtime IO guards, 30sec/1MiB supervisor bounds. Retrospective corrected-gold RED is not mislabeled as original preimplementation chronology."
+}

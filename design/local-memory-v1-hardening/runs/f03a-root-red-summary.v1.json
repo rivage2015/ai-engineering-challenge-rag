@@ -1,0 +1,24 @@
+{
+  "schema_version": "1.0",
+  "task_id": "lms-v1-00-hardening-2026-09-09-f03a",
+  "phase": "preimplementation_red",
+  "contract_sha256": "1a5244d9fd4c537aeaaec88f44d358e24f1b1d56441beaf4ec60fe2a34e07924",
+  "resolver_sha256_before_and_after_run": "9a7443862c015ed768007ef5a7b21bd3bc197c9bb7a3d7ed2f7b39b33374359d",
+  "test_path": "tests/test_unmarked_version_e2e.py",
+  "test_sha256": "146a69f210c47c8f36390238d68c5f37bbb955b3f6faa3729febe38f3c014105",
+  "runner_sha256": "be70a3ffb3c8f55cfb44955e5ea8cdac21ac3cb22041937e2e753c9c14fd0559",
+  "run_path": "design/local-memory-v1-hardening/runs/f03a-root-red-app-001/result.json",
+  "result_sha256": "7192035539c96c4c98fea3dfe7cbba22c48f8a2788a4d6933663245bd7a29224",
+  "log_sha256": "e973bccd148ceb12e38ec67c1caa5c6bfd67d7fd3ca01fe9d5c6bc5392e9c5f6",
+  "methods": 4,
+  "failures": 4,
+  "errors": 0,
+  "skips": 0,
+  "elapsed_seconds": 0.852392,
+  "observed": [
+    "year+unmarked and current+unmarked have zero groups instead of one complete held group",
+    "same-key unmarked addition leaves a previously bound Human group resolved",
+    "all mixed input rebuild succeeds rather than refusing the candidate generation"
+  ],
+  "interpretation": "Real expected behavior assertions failed; not import/guard errors. This is a RED baseline, not acceptance. Fresh isolated CONFIG/index/source roots, stub inference/metadata only."
+}

@@ -7,8 +7,8 @@ STAGE="$ROOT/.tmp/local-memory-macos-package"
 APP="$STAGE/Local Memory Search.app"
 RESOURCES="$APP/Contents/Resources"
 DELIVERABLES="$ROOT/deliverables"
-PACKAGE_VERSION="0.6"
-PACKAGE_BUILD="6"
+PACKAGE_VERSION="1.0"
+PACKAGE_BUILD="8"
 DMG_NAME="Local-Memory-Search-v${PACKAGE_VERSION}-macOS-unsigned.dmg"
 ZIP_NAME="Local-Memory-Search-v${PACKAGE_VERSION}-macOS-unsigned.zip"
 CHECKSUM_NAME="Local-Memory-Search-v${PACKAGE_VERSION}-macOS-unsigned.sha256.txt"
@@ -30,6 +30,7 @@ OUTPUT_STAGE="$(mktemp -d "$DELIVERABLES/.local-memory-package.XXXXXX")"
 DMG_CANDIDATE="$OUTPUT_STAGE/$DMG_NAME"
 ZIP_CANDIDATE="$OUTPUT_STAGE/$ZIP_NAME"
 CHECKSUM_CANDIDATE="$OUTPUT_STAGE/$CHECKSUM_NAME"
+ZIP_STAGE="$OUTPUT_STAGE/Local Memory Search"
 ln -s /Applications "$STAGE/Applications"
 
 /usr/bin/osacompile -l JavaScript -o "$APP" "$SOURCE/app/launcher.js"
@@ -101,7 +102,13 @@ fi
 
 /usr/bin/codesign --verify --deep --strict "$APP"
 /usr/bin/hdiutil create -volname "Local Memory Search" -srcfolder "$STAGE" -ov -format UDZO "$DMG_CANDIDATE" >/dev/null
-(cd "$STAGE" && /usr/bin/ditto -c -k --sequesterRsrc --keepParent "Local Memory Search.app" "$ZIP_CANDIDATE")
+# Keep the ZIP self-contained too: recipients who choose it instead of the
+# DMG need the same start page and written installation guide.
+/bin/mkdir -p "$ZIP_STAGE"
+/usr/bin/ditto "$APP" "$ZIP_STAGE/Local Memory Search.app"
+/usr/bin/ditto "$STAGE/導入ガイド" "$ZIP_STAGE/導入ガイド"
+/bin/cp "$STAGE/START-HERE.html" "$ZIP_STAGE/START-HERE.html"
+/usr/bin/ditto -c -k --sequesterRsrc --keepParent "$ZIP_STAGE" "$ZIP_CANDIDATE"
 /usr/bin/hdiutil verify "$DMG_CANDIDATE" >/dev/null
 /usr/bin/unzip -tq "$ZIP_CANDIDATE"
 (

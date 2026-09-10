@@ -1,0 +1,20 @@
+{
+  "task_id": "lms-v1-00-hardening-2026-09-09-f05a",
+  "scope": "supplemental read-only artifact generator reproduction, not product tests or audit repair",
+  "attempts": [
+    {
+      "status": "failed",
+      "exit_code": 1,
+      "cause": "Parent invoked runpy.run_path with relative f05a-freeze.v1.py, making its __file__ relative. Artifact source capture correctly requires an absolute path and raised AssertionError at add(sid,path), line40. No source mutation or artifact was written.",
+      "tool_chunk_id": "2cff3c"
+    },
+    {
+      "status": "passed",
+      "exit_code": 0,
+      "correction": "Parent resolved the RUNS path before runpy.run_path; frozen generator unchanged.",
+      "artifact_bytes_exactly_reproduced": true,
+      "artifact_sha256": "7b7414f3e58a62b6eb34fc71534da11eec51c1dd58c316326ba03e9ab436bf61",
+      "sources": 115
+    }
+  ]
+}

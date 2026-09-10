@@ -1,0 +1,235 @@
+{
+  "schema_version": "1.0",
+  "audit_id": "lms-v1-00-hardening-2026-09-09-f18-audit-round-0",
+  "task_id": "lms-v1-00-hardening-2026-09-09-f18",
+  "artifact_hash": "50fbc6b89d17065f9f8920954088998e68d499770515b02a998d5274a087f005",
+  "auditor_context": {
+    "independence_level": "same_model_separate_context",
+    "source_scope": [
+      "All 37 source IDs and exact source hashes in f18-graph-artifact.v1.json, verified before and after this audit.",
+      "Whole changed validate, _publish_lineage_artifacts, _compare_lineage_artifacts and CLI functions; independent lineage reconstruction; related default projector and bootstrap callers.",
+      "Static caller-only subreview in a further separate context, with exact inversion of all six compatibility deltas; no writes or test execution by that helper.",
+      "design/local-memory-v1-hardening/runs/f18-audit-before.v1.json",
+      "design/local-memory-v1-hardening/runs/f18-audit-evidence.v1.json",
+      "design/local-memory-v1-hardening/runs/f18-adversarial-holdouts.v1.py",
+      "design/local-memory-v1-hardening/runs/f18-adversarial-001-holdouts/result.json",
+      "design/local-memory-v1-hardening/runs/f18-audit-001-focused/result.json",
+      "design/local-memory-v1-hardening/runs/f18-audit-002-e2e/result.json",
+      "design/local-memory-v1-hardening/runs/f18-audit-003-lineage/result.json",
+      "design/local-memory-v1-hardening/runs/f18-audit-004-resolver/result.json",
+      "design/local-memory-v1-hardening/runs/f18-audit-005-migration/result.json"
+    ]
+  },
+  "status": "pass",
+  "checks": [
+    {
+      "check_id": "F18-A01",
+      "check_type": "intent",
+      "target_ids": [
+        "N_READ_ONLY",
+        "N_INIT",
+        "N_CALLER",
+        "N_LIMITS"
+      ],
+      "verdict": "pass",
+      "severity": "info",
+      "reason": "The frozen contract and separately saved clarifications support a local F18 decision: ordinary validation preserves the inspected generation; explicit initialization may create absent lineage only when the caller owns a fresh unpublished generation. The boolean flag does not itself attest publication state. No change to that human-approved scope or whole-V1 acceptance is inferred.",
+      "evidence_ids": [
+        "CONTRACT",
+        "CLARIFICATIONS",
+        "EXECUTOR"
+      ],
+      "required_action": null
+    },
+    {
+      "check_id": "F18-A02",
+      "check_type": "evidence",
+      "target_ids": [
+        "N_READ_ONLY",
+        "N_INIT",
+        "N_COMPAT",
+        "N_LIFECYCLE"
+      ],
+      "verdict": "pass",
+      "severity": "info",
+      "reason": "The submitted artifact SHA-256 equals the task hash. All 37 source hashes, including every submitted result and log, match before and after audit. Each result log digest and byte count matches its real log. Independent in-memory reversal of the isolated validator and bootstrap diffs reproduces both pre-F18 hashes; the caller subreview independently reverses all six compatibility deltas. Exact observations are retained in f18-audit-before.v1.json and f18-audit-evidence.v1.json.",
+      "evidence_ids": [
+        "DELTA",
+        "CALLERS",
+        "CALLER_PATCH",
+        "VALIDATOR",
+        "BOOTSTRAP",
+        "FOCUSED_RUN",
+        "E2E_RUN",
+        "LINEAGE_RUN",
+        "RESOLVER_RUN",
+        "MIGRATION_RUN",
+        "SECURITY_RUN"
+      ],
+      "required_action": null
+    },
+    {
+      "check_id": "F18-A03",
+      "check_type": "evidence",
+      "target_ids": [
+        "N_READ_ONLY",
+        "N_INIT"
+      ],
+      "verdict": "pass",
+      "severity": "info",
+      "reason": "The retained RED log records two test methods with four genuine assertions failing: early validation deleted the saved artifacts and the initial publisher did not reject three preexisting-artifact combinations. These are preserved as failures, not counted as passing verification. Current focused and adversarial checks exercise the corresponding changed behaviors.",
+      "evidence_ids": [
+        "RED",
+        "RED_LOG",
+        "FOCUSED",
+        "VALIDATOR"
+      ],
+      "required_action": null
+    },
+    {
+      "check_id": "F18-A04",
+      "check_type": "safety",
+      "target_ids": [
+        "N_READ_ONLY"
+      ],
+      "verdict": "pass",
+      "severity": "info",
+      "reason": "The entire default validate path performs reads, derivation and comparison, with no artifact-clearing or write call. _compare_lineage_artifacts anchors a directory descriptor, refuses following the final artifact symlink, requests expected length plus one, checks regular-file identity before/after reading and compares exact canonical bytes. Replay and independent holdouts confirm read-only repeat success, failure preservation, missing/malformed/truncated payload rejection, FIFO/directory rejection without blocking, bounded requested reads and detection of a same-bytes inode replacement. Inspected bytes, inode, mtime, mode and membership remain unchanged where the validator is the only actor.",
+      "evidence_ids": [
+        "VALIDATOR",
+        "FOCUSED",
+        "FOCUSED_RUN",
+        "FOCUSED_RUN_LOG"
+      ],
+      "required_action": null
+    },
+    {
+      "check_id": "F18-A05",
+      "check_type": "safety",
+      "target_ids": [
+        "N_INIT"
+      ],
+      "verdict": "pass",
+      "severity": "info",
+      "reason": "Explicit initialization prechecks both final names without following links, creates exclusive temporary files, fsyncs them, links without replacing destinations and records expected identities before linking. Cleanup only unlinks a matching created inode. In addition to focused fixtures, independent holdouts pass for actual EEXIST at either link, foreign regular/symlink preservation, second-payload write failure, and controlled KeyboardInterrupt immediately after either link. No surviving own files or modification of foreign entries was observed in those cases. Arbitrary cleanup failures and global concurrent-writer safety are not promoted to guarantees.",
+      "evidence_ids": [
+        "VALIDATOR",
+        "FOCUSED",
+        "FOCUSED_RUN",
+        "CONTRACT",
+        "CLARIFICATIONS"
+      ],
+      "required_action": null
+    },
+    {
+      "check_id": "F18-A06",
+      "check_type": "dependency",
+      "target_ids": [
+        "N_CALLER",
+        "E_INITIALIZE"
+      ],
+      "verdict": "pass",
+      "severity": "info",
+      "reason": "Bootstrap run_semantic_pipeline creates semantic and security with mkdir(exist_ok=False) before its initialization CLI. Its initial and model-ready production call sites use distinct new directories before generation publication. Command failures propagate through run; no retry initializes the already inspected generation. The new initialization flag has an evidenced caller precondition and is not presented as proof of freshness by itself.",
+      "evidence_ids": [
+        "BOOTSTRAP",
+        "CLARIFICATIONS",
+        "E2E_TEST",
+        "MIGRATION_TEST",
+        "E2E_RUN",
+        "MIGRATION_RUN"
+      ],
+      "required_action": null
+    },
+    {
+      "check_id": "F18-A07",
+      "check_type": "dependency",
+      "target_ids": [
+        "N_CALLER",
+        "E_REVALIDATE"
+      ],
+      "verdict": "pass",
+      "severity": "info",
+      "reason": "The default projector invokes validator.validate without initialization. An exception or non-PASS prevents saved-state use and reaches the caller before graph transaction/final index publication. The saved-PASS source-tamper test fails as required while preserving that saved artifact. Explicit F01 version arguments and the detached attested version binding remain in the reviewed validator/projector code. Later ordinary rereads following successful validation are unchanged, explicitly excluded concurrency work.",
+      "evidence_ids": [
+        "PROJECTOR",
+        "VALIDATOR",
+        "FOCUSED",
+        "E2E_TEST",
+        "CLARIFICATIONS"
+      ],
+      "required_action": null
+    },
+    {
+      "check_id": "F18-A08",
+      "check_type": "coverage",
+      "target_ids": [
+        "N_COMPAT",
+        "E_REGRESS"
+      ],
+      "verdict": "pass",
+      "severity": "info",
+      "reason": "The exact six-file compatibility delta adds eleven initial-call flags, including one intentionally failing initial call. The two deletion assertions are deliberately replaced with exact bytes/inode/mtime preservation, while rejection and version-selection assertions remain. No unrelated assertion was weakened. Source review of package and embedded-test initial/revalidation contexts is consistent, but those two full runtimes were not executed in this audit and are not claimed as dynamically verified.",
+      "evidence_ids": [
+        "CALLERS",
+        "CALLER_PATCH",
+        "LINEAGE_TEST",
+        "RESOLVER_TEST",
+        "E2E_TEST",
+        "EMBEDDED_TEST",
+        "PACKAGE_TEST"
+      ],
+      "required_action": null
+    },
+    {
+      "check_id": "F18-A09",
+      "check_type": "calculation",
+      "target_ids": [
+        "N_LIFECYCLE",
+        "E_BOUND"
+      ],
+      "verdict": "pass",
+      "severity": "info",
+      "reason": "Auditor reexecution on Python 3.14 passed focused 13, app E2E 15, lineage 8, resolver 17 and migration 7 methods, plus eight independently authored adversarial methods: 68 total, zero skips and zero expected failures. All six runs have bounded durable logs and verified result/log hashes in f18-audit-evidence.v1.json. The executor's separate Python 3.9 native XLSX security-partition result has one passing method and a matching log; it was inspected, not reexecuted by this auditor, and is not Python 3.9 application compatibility evidence.",
+      "evidence_ids": [
+        "FOCUSED_RUN",
+        "E2E_RUN",
+        "LINEAGE_RUN",
+        "RESOLVER_RUN",
+        "MIGRATION_RUN",
+        "SECURITY_RUN",
+        "SECURITY_RUN_LOG",
+        "RUNNER2",
+        "GUARD",
+        "SUPERVISOR",
+        "EXECUTOR"
+      ],
+      "required_action": null
+    },
+    {
+      "check_id": "F18-A10",
+      "check_type": "coverage",
+      "target_ids": [
+        "N_LIMITS",
+        "E_BOUND"
+      ],
+      "verdict": "pass",
+      "severity": "warning",
+      "reason": "The evidence supports only the stated F18 local lifecycle and preservation contract. No global filesystem snapshot, atomic pair publication, power-loss/SIGKILL recovery, every fdopen/fstat/unlink failure, arbitrary same-user race, full package/embedded runtime, all-model/format quality, or other open V1 finding is accepted. The reviewed process/read/write guards are scoped test controls, not an OS sandbox or proof of RSS/all-derived-output disk bounds. These are explicit non-required boundaries, not unresolved F18 acceptance failures.",
+      "evidence_ids": [
+        "CONTRACT",
+        "CLARIFICATIONS",
+        "EXECUTOR",
+        "GUARD",
+        "SUPERVISOR",
+        "README"
+      ],
+      "required_action": null
+    }
+  ],
+  "summary": {
+    "blocking_failures": 0,
+    "unresolved_count": 0,
+    "next_action": "deliver"
+  }
+}

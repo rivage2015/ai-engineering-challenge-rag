@@ -1,0 +1,117 @@
+{
+  "schema_version": "1.0",
+  "task_id": "lms-v1-00-hardening-2026-09-09-f08-f09",
+  "executor": "fix_xml_json_readers",
+  "date": "2026-09-09",
+  "status": "awaiting_separate_reaudit",
+  "artifact_version": 2,
+  "audit_repair_round": 1,
+  "maximum_audit_repair_rounds": 2,
+  "addressed_check_id": "F08F09-A06",
+  "predecessor": {
+    "execution_record": "design/local-memory-v1-hardening/runs/f08-f09-cycle-01-executor.json",
+    "execution_record_sha256": "608e2540e3780df5fbadf25f57100815face39c501024acc5c72f7096c56abde",
+    "audit_report": "design/local-memory-v1-hardening/runs/f08-f09-audit-report.v1.json",
+    "audit_status": "revise",
+    "audit_fixture": "design/local-memory-v1-hardening/runs/f08-f09-adversarial-test.v1.py",
+    "audit_fixture_sha256": "a787bbac8a3802cac9c469201e5779231b557e701a8e56e8bcf4723efe4cd29d",
+    "modified": false
+  },
+  "source_hashes": {
+    "scripts/probe_intermediate_records.py": "db73270807c3e976fb51f38ff51cc6cd40dd7c0ef3c2d6954fc1f924acd8ab3d",
+    "tests/test_generic_structured_reader_hardening.py": "d1aa3c26a729be1896cdea8998e60e4785c715fb26a69be46172fb5dd1facda2"
+  },
+  "change": {
+    "production_function": "validate_xml_bytes",
+    "cause": "The arbitrary 2048-byte prolog sample was decoded with strict EOF semantics, rejecting valid multibyte characters or surrogate pairs cut by that sample boundary.",
+    "repair": "Use a strict incremental decoder. Decode the original prolog sample with final=false, continue strict validation over all remaining bytes in 64 KiB pieces without retaining a second full Unicode document, and finalize at the actual EOF.",
+    "retained_guards": [
+      "Full-buffer byte-level DTD and entity declaration scan before decoding or parsing",
+      "Storage encoding BOM/signature detection",
+      "Declared encoding-family compatibility check",
+      "Same byte buffer validation before generic Reader decoding",
+      "Strict malformed encoding and true EOF truncation rejection"
+    ],
+    "shared_impact": "The existing OOXML gate also uses validate_xml_bytes. A small stored-ZIP XML-member regression confirms valid boundary content is accepted and unsafe DTD content is rejected.",
+    "not_changed": ["JSON handling", "XML text/tail/locator handling", "shared schema", "Core", "extractor version constants", "fingerprint design", "production index", "user files"]
+  },
+  "test_environment": {
+    "interpreter": "rag/.venv/bin/python3",
+    "version": "Python 3.9.6",
+    "write_bytecode": false,
+    "fixture_scope": "Synthetic temporary source roots and small in-memory ZIP only",
+    "visual_observation_mode": "suppressed",
+    "fingerprint_model_metadata": "stubbed",
+    "paddle_build_session": "nullcontext stub",
+    "password_discovery": "empty tuple stub",
+    "ollama_metadata": "AssertionError guard",
+    "network_requests": 0,
+    "model_requests": 0,
+    "new_approval_requests": 0,
+    "subprocess_timeout_seconds": 180,
+    "combined_output_limit_bytes": 8388608,
+    "synthetic_file_limit_bytes": 1048576
+  },
+  "runs": [
+    {
+      "id": "round-1-red",
+      "target": "Permanent suite with three new boundary methods and expanded mixed corpus, before production repair",
+      "test_methods": 16,
+      "elapsed_seconds_reported_by_unittest": 0.114,
+      "exit_code": 1,
+      "failures_including_subtests": 10,
+      "errors_including_subtests": 14,
+      "observations": [
+        "Valid UTF-8 BOM and UTF-16 surrogate boundary inputs raised ooxml_xml_encoding_invalid.",
+        "The mixed pipeline classified two valid boundary neighbors as failed.",
+        "Invalid code units after the old sample were not checked by the former gate. The repair explicitly validates them rather than ignoring decode errors."
+      ]
+    },
+    {
+      "id": "round-1-green-permanent",
+      "command": "rag/.venv/bin/python3 -B -c 'import subprocess, sys; run = subprocess.run([sys.executable, \"-B\", \"-m\", \"unittest\", \"discover\", \"-s\", \"tests\", \"-p\", \"test_generic_structured_reader_hardening.py\", \"-v\"], stdout=subprocess.PIPE, stderr=subprocess.STDOUT, timeout=180); assert len(run.stdout) <= 8 * 1024 * 1024, \"test output budget exceeded\"; sys.stdout.buffer.write(run.stdout); sys.exit(run.returncode)'",
+      "test_methods": 17,
+      "elapsed_seconds_reported_by_unittest": 0.135,
+      "exit_code": 0,
+      "failures": 0,
+      "errors": 0,
+      "skips": 0,
+      "coverage": [
+        "UTF-8 BOM and UTF-16 LE/BE: eight near-sample offsets for valid character data, Probe status and retained text",
+        "UTF-32 LE/BE: eight offsets through the shared byte gate only; no generic UTF-32 extraction claim",
+        "Five encodings: invalid sequences and actual truncated EOF before/after the old sample",
+        "Five encodings: DTD/entity beyond the prolog sample and incompatible declared encoding remain rejected",
+        "Shared archive XML-member gate accepts valid UTF-8 BOM/UTF-16 boundary data and rejects DTD content",
+        "All prior F08/F09 cases remain green",
+        "Mixed nine-file corpus: five failed sources have no Evidence or SearchUnits; four valid neighbors including the two reported boundary cases survive through both intermediate validators, both SearchUnit validators and semantic adapter; original hashes unchanged"
+      ]
+    },
+    {
+      "id": "round-1-green-audit-fixture",
+      "command": "rag/.venv/bin/python3 -B -c 'import subprocess, sys; run = subprocess.run([sys.executable, \"-B\", \"design/local-memory-v1-hardening/runs/f08-f09-adversarial-test.v1.py\"], stdout=subprocess.PIPE, stderr=subprocess.STDOUT, timeout=180); assert len(run.stdout) <= 8 * 1024 * 1024, \"test output budget exceeded\"; sys.stdout.buffer.write(run.stdout); sys.exit(run.returncode)'",
+      "test_methods": 4,
+      "elapsed_seconds_reported_by_unittest": 0.087,
+      "exit_code": 0,
+      "failures": 0,
+      "errors": 0,
+      "skips": 0,
+      "note": "The auditor's v1 file is unchanged. This executor rerun is not independent re-audit."
+    },
+    {
+      "id": "diff-check",
+      "command": "git diff --check",
+      "exit_code": 0
+    }
+  ],
+  "retained_limitations": [
+    "Awaiting same-model separate-context re-audit; not self-approved or product-certified.",
+    "No real model, embedding, safe SQLite publication, generated answer, final answer audit or packaged application test.",
+    "The legacy ASCII-compatible branch is unchanged; this repair does not certify every XML encoding.",
+    "UTF-32 tests cover the byte gate, not generic read_text UTF-32 support.",
+    "DTD/entity rejection remains conservative, including its prior behavior on marker spellings inside comments.",
+    "Initial XML text locator migration and production index rebuild requirements from v1 remain unchanged.",
+    "The 64 KiB decoder work buffer is bounded; total CPU work still scales with input size and broader resource acceptance is separate."
+  ],
+  "commit_created": false,
+  "next_action": "Root freezes a v2 source manifest and requests separate-context re-audit of F08F09-A06 and retained regressions."
+}

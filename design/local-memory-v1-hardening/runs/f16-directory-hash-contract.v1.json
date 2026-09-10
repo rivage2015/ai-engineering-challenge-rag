@@ -1,0 +1,15 @@
+{
+  "schema_version": "1.0",
+  "task_id": "lms-v1-00-hardening-2026-09-09-directory-hash-order",
+  "status": "red_tests_written_source_frozen_for_other_audit",
+  "request_boundary": "A newly reproduced, preexisting bottom-up directory digest ordering defect. This does not relabel or reopen an unresolved required item from the accepted F16 descriptor-read audit; its repair1 history remains intact.",
+  "expected": "A directory hashes its immediate child records using the already computed digest for each child directory. Root depth is0; top-level directories are depth1. All ancestors must reflect a changed descendant digest at unchanged byte length.",
+  "minimal_change": "Change only directory_hashes depth ordering; do not alter inventory schema, traversal, byte/metadata read policies, node/source identity or file hashes.",
+  "gold": "tests/test_path_graph_directory_hashes.py uses6 pure memory cases, literal canonical child arrays and independent hashlib, not producer canonical/hash helpers. Empty/root direct-file/permutation controls accompany nested/empty-directory/three-level cases.",
+  "red": "f16-dirhash-001-red:6 methods,3 failures,0 errors/skips; no production source change yet.",
+  "verification": ["Exact6 golds", "19 descriptor-race regressions", "18 source-bound Validator fixtures", "15 synthetic app E2E plus15 guarded migration/lineage", "Reader generation identity still catches builder-byte changes"],
+  "safety": "30 seconds/1MiB log per suite, tiny synthetic/pure memory inputs only. No personal source/index/model/GUI/credential actions. Wait for current Path Validator artifact freeze to release before source edit.",
+  "audit": "New narrow correctness contract, separate-context auditor and deterministic artifact/source/schema checks, max2 repair rounds. No producer self-approval.",
+  "limits": "Directory digest integrity is not a signed authenticity proof, a global filesystem snapshot or all graph-policy certification. Existing generated graphs with old directory digests require explicit rebuild; no live generation is automatically modified.",
+  "rollback": "Reverse only new directory-depth expression and focused gold fixture if required, preserving previously accepted descriptor/source-binding repairs and user changes."
+}

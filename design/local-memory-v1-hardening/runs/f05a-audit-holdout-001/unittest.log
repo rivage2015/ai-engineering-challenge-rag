@@ -1,0 +1,16 @@
+test_cli_missing_optional_decision_and_deleted_recorded_authority (f05a_audit_target.IndependentReconstructionHoldouts.test_cli_missing_optional_decision_and_deleted_recorded_authority) ... ok
+test_duplicate_ineligible_inventory_and_unused_decision_ids_fail (f05a_audit_target.IndependentReconstructionHoldouts.test_duplicate_ineligible_inventory_and_unused_decision_ids_fail) ... ok
+test_explicit_snapshot_canaries_and_single_reads (f05a_audit_target.IndependentReconstructionHoldouts.test_explicit_snapshot_canaries_and_single_reads) ... ok
+test_mutation_after_inventory_read_uses_snapshot_then_next_validation_fails (f05a_audit_target.IndependentReconstructionHoldouts.test_mutation_after_inventory_read_uses_snapshot_then_next_validation_fails) ... ok
+test_nested_duplicate_keys_in_every_snapshot_fail (f05a_audit_target.IndependentReconstructionHoldouts.test_nested_duplicate_keys_in_every_snapshot_fail) ... ok
+test_nonfinite_values_in_unused_input_fields_fail (f05a_audit_target.IndependentReconstructionHoldouts.test_nonfinite_values_in_unused_input_fields_fail) ... ok
+test_numeric_types_are_not_coerced (f05a_audit_target.IndependentReconstructionHoldouts.test_numeric_types_are_not_coerced) ... ok
+test_reordered_complete_semantic_collections_fail (f05a_audit_target.IndependentReconstructionHoldouts.test_reordered_complete_semantic_collections_fail) ... ok
+test_unreadable_optional_authority_fails_and_guard_assertion_propagates (f05a_audit_target.IndependentReconstructionHoldouts.test_unreadable_optional_authority_fails_and_guard_assertion_propagates) ... ok
+test_valid_unicode_line_separators_and_universal_newlines (f05a_audit_target.IndependentReconstructionHoldouts.test_valid_unicode_line_separators_and_universal_newlines) ... ok
+test_whole_family_omission_cannot_be_resealed_away (f05a_audit_target.IndependentReconstructionHoldouts.test_whole_family_omission_cannot_be_resealed_away) ... ok
+
+----------------------------------------------------------------------
+Ran 11 tests in 0.043s
+
+OK

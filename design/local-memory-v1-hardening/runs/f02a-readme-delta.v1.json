@@ -1,0 +1,9 @@
+{
+  "schema_version": "1.0",
+  "task_id": "lms-v1-00-hardening-2026-09-09-f02a",
+  "path": "distribution/macos-local-memory/README.md",
+  "before_sha256": "693abb0b0443d613caa3880ca0d9edcec0408f89dc19349d1cee7aa87519224b",
+  "after_sha256": "aa088a5b6ac8e2d83398d6adba8e36864d18808415cc002f03fe246b7e630c0b",
+  "isolated_unified_diff": "--- README.pre-f02a\n+++ README.f02a\n@@ -30,7 +30,7 @@\n \n 索引再構築時、Path GraphのファイルNodeから、同じ資料ファミリの版候補とその関係を`document-version-graph.json`に作ります。ファイル名・フォルダ名の明示年と、`current`・`現行`・`下書き`・`旧版`等の明示マーカーを使います。作成日時と更新日時はEvidenceとして保持しますが、コピーで書き換わるため「最新である」という意味Edgeの根拠にはしません。\n \n-一意の明示的な現行マーカーがある場合、または全候補に比較可能な年・バージョンがあり最大値が1候補の場合だけ`active`にします。マーカーと年の矛盾も自動解決しません。それ以外は候補全てを`needs_human_review`とし、Web画面で「どれを現在使う資料にするか」を1つ選ぶまで通常の回答索引へ入れません。人の選択は候補集合全体のSHA-256と選択ファイルのSHA-256に結び付くため、候補追加や内容変更後は自動で再確認に戻ります。`historical`の原本ファイルは削除せず、Path Graphと版グラフに残します。\n+自動選択には明示的な現行マーカーや比較可能な版番号を使いますが、検出した矛盾や下書き・旧版の状態は保留します。年号の大小だけでは「改訂版」か「別年度の記録」か区別できないため、最大年だけを根拠に`active`を決めず、候補全てを`needs_human_review`にします。年の比較で保留した候補を、続けて版番号だけで自動選択することもしません。保留候補はWeb画面で「どれを現在使う資料にするか」を1つ選ぶまで通常の回答索引へ入れません。人の選択は候補集合全体のSHA-256と選択ファイルのSHA-256に結び付くため、候補追加や内容変更後は自動で再確認に戻ります。`historical`の原本ファイルは削除せず、Path Graphと版グラフに残します。現行マーカーが付いた別年度資料の扱い等には課題が残り、独立した年次資料を両方使うための確認・保持機能も未完成です。\n \n PaddleOCRを使うには、固定されたPython 3.12環境と照合済みモデルの一回限りの別途ローカル導入が必要です。導入されていない場合は、PaddleOCRは自動取得せず利用不可として停止します。導入後の推論はローカルで実行し、72依存のlock、2モデルのhash、CPU実行設定が一致しなければfail-closedに停止します。workerは暗黙のdownloadを持たず、macOSの`deny network` sandboxとPython socket guardの二重で推論中のIP通信を禁止します。\n \n",
+  "scope": "Only version-policy paragraph; F18 initialize bullet preserved. Baseline reconstructed from current README with exact HEAD version-policy paragraph and hash-matched to accepted F18 README."
+}

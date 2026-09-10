@@ -1,0 +1,239 @@
+{
+  "schema_version": "1.0",
+  "task_id": "lms-v1-00-hardening-2026-09-09",
+  "status": "active",
+  "phase": "H4_browser_post_fixed_real_question_safe_insufficient_app_signature_stable_commit_push_held",
+  "updated_at_utc": "2026-09-10 10:12:00 UTC",
+  "latest_execution": "19:12 JST fixed real Chrome POST 403 without weakening cross-site protection: a non-empty restored token is accepted only with exact loopback Origin/Referer, same-origin navigation Fetch Metadata, and form content type; external, tokenless and incomplete contexts remain 403. User-specified real local question returned HTTP 200 and a verified insufficient answer because candidate PDF evidence did not directly establish the first greeting. Automated Chrome submission was separately blocked by Chrome ERR_BLOCKED_BY_CLIENT and was not used as product evidence. Found and fixed post-launch app signature invalidation from Python __pycache__ by exporting PYTHONDONTWRITEBYTECODE=1 in launcher. Final rebuilt app installed and launched; health ready, post-launch codesign pass, no bundle __pycache__, source/bundle server and launcher hashes match, DMG/ZIP checksum pass. Fresh 93-test suite: 92 PASS + 1 explicit dependency SKIP, zero failures/errors. Temporary diagnostic server stopped; old apps retained as backups. No commit or push.",
+  "base_commit": "79a69260fb1a42efb3c0e2c0093ed6101470f2a1",
+  "branch": "codex/visual-classification-v1",
+  "plan": "design/local-memory-search-v1-00-hardening-plan-2026-09-09.md",
+  "plan_sha256": "e49801e3af62fb0a4e8f73a1379d105c2ff5b62946606d69ddf2522f4935f456",
+  "automation_id": "v1-00",
+  "commit_authorized": true,
+  "release_authorization": "Latest user explicitly authorized agreed safety implementation, verified app update, commit and push to existing origin. No force push, actual material ingestion or unrelated user changes. See runs/safety-release-scope.v1.md. App shutdown not yet verified.",
+  "protected_user_changes": {
+    "distribution/macos-local-memory/build/build_package.sh": "10989f5f941c1e567a7a8c7fe82f2d5d5d88e66345d4503a1600c7c9827bd02f",
+    "distribution/macos-local-memory/docs/START-HERE.html": "5724d3d4db018f967c8b11cba0e448f529928ca90b4597dc6dc295bc9a202270",
+    "distribution/macos-local-memory/docs/はじめにお読みください.md": "53dc3897f04cb0f8152f78f45aea22be925357377ee44f8900b6f9c2489086d2"
+  },
+  "authorized_release_version_changes": {
+    "approved_at": "2026-09-09 22:09 JST",
+    "app_version": "1.0",
+    "build_number": "7",
+    "distribution/macos-local-memory/build/build_package.sh": "173e8a09a87f780f9982af0d3df63724375edb5245dfcaae6b97529729763460",
+    "distribution/macos-local-memory/docs/START-HERE.html": "20aa78ce73bc46aca60508fe5d67f5bf1799a5e08da0f90926936e0d901eb57b",
+    "distribution/macos-local-memory/docs/はじめにお読みください.md": "13d46a73e0cfd3d01e3c33b71cf6400e435a0d0d2ac20cf9b152e7a907b2da0c"
+  },
+  "completed": [
+    "F05b scoped accepted03:25UTC: immutable generation decision authority through resolver/Reader/Validator/projector/CONFIG registration and full ordered selection. Acceptance runs/f05b-validation-result.v1.json SHA375762997ae8078da54433ffd99bfec1b48c147993291f68d90892a5b46c9685; artifact721db8b3..., report97ced482..., evidenceed8744e4.... Independent18runs/205=202acceptance-control-regression+3residual,0skips/failures. Parent Draft202012/Ruby/210sources/107manifest/13inverse/30historicalattempts/18auditlogs/72aux/goldAST passed. Parentv1 PythonAST runtime mismatch retained, v2 separates schema3.9/frozenAST3.14 without weakening checks. Formalproductrepair0. All F05/V1/formats/Human/freshness/global races remain open.",
+    "F05a scoped audit v2 and parent validation accepted at02:02UTC. Resolver4ca6df75... bootstrapcad0bfee... explicit-input reconstruction and immediate preReader gate only. Independent111=108acceptance/control/regression+3residual witnesses,0skips/expected failures. Parent Draft202012/Ruby/115sources/allreferences/6inverse deltas/24logs/37audit auxiliaries/37executor manifest items passed. Original23gold AST unchanged+2additive methods. Acceptance runs/f05a-validation-result.v1.json SHA66225c3e8120842d0ea2e48d51d40b38c83da4f6e57277aab136ce7716dcf216. Report4863dcd2... evidence57b7aef7... artifact7b7414f3.... Formalrepair0; auditor residual-class metadata correction v1→v2 and executor/parent tool errors retained. WholeF05/V1 incomplete; sourcefreeze releasable for separately contracted F05b.",
+    "Implementation plan reviewed by separate-context auditor and schema/hash validator; product not certified.",
+    "User authorized ongoing implementation and durable resumption.",
+    "Active goal created; 30-minute same-task resume heartbeat v1-00 created.",
+    "Initial version resolver baseline: 11 tests PASS in 1.107 s (Reader test may make read-only Ollama metadata probes; no inference).",
+    "No-truncation baseline: 2 tests PASS.",
+    "User requested Mac stay awake; 12-hour caffeinate assertions verified on AC.",
+    "F03a scoped audit v1 PASS accepted at23:47UTC: same-key eligible unmarked documents now enter marked families and mixed sets hold for human review. Resolver0.1.3 c2b98254..., puretestb4a9176f..., resolver-test7600fef6..., app146a69f2..., README03e4918d.... Independent100=97acceptance/control/collateral+3residual witnesses,0skips/expected failures. Parent Ruby+strictschema/hash97sources/allreferences/4inverse deltas+README/23logs/67nested manifest entries passed; f03a-validation-result.v1.json saved. InitialREDs and2test-fixture corrections retained; formal repair0. F03overall/cross-key/groupdissolution/F05/HITL/freshness/wholeV1 remain open. Sourcefreeze released.",
+    "F08/F09 scoped fix accepted: audit v2 PASS after encoding-boundary repair; 17 permanent + 4 old counterexamples + 2 additional independent cases passed. Schema, artifact/source hashes and graph endpoints verified. Product acceptance remains open.",
+    "Parent H0 selected guards runs 005/006/007/009/010: 15 tests PASS, zero skips. Recovery run008: 2 pass/2 import errors, preserved as failed.",
+    "H0 runner repair1 run014: 11 tests PASS including actual SIGTERM own-child cleanup and false-footer regression; recovery run015 now 4 PASS after explicit ROOT import. Runner v2 awaiting re-audit.",
+    "F15 quote framing scoped audit v1 PASS: 6 permanent + 26 related tests + 2 additional independent cases passed. Schema/artifact/source hashes verified; semantic injection/model-quality remain untested.",
+    "H0 runner v2 scoped independent audit PASS; parent schema/hash/source checks accepted. F01/F07 v3 scoped audit PASS after repair round2, independent 52 executions with zero skips; parent formal/source/endpoint checks verified.",
+    "F16 builder v2 scoped audit PASS at caa1c98d...: real transient ancestor RED reproduced, immediate global invalidation fixed at repair1, independent19 cases each3.14/3.9. Parent formal/source/endpoint checks and historical diff clarification saved.",
+    "F10 final v3 scoped audit PASS after2 repair rounds;47 independent methods no skips, parent schema/hash22sources/endpoints verified. URI lookalikes, terminaldot variants and all-sheetData preflight covered; no universalOPC/native/modelclaim.",
+    "F16 Path Validator scoped audit v1 PASS: explicit root/fullcurrentpath/node-source binding/Pathcodefingerprint; parentformal/hash12sources verified. Directorydigest residual then fixed separately.",
+    "Directoryhash hierarchy ordering scoped audit v1 PASS:4exactgolds+2propertytests, additionalexactUnicodeholdout and combinedregressions. Parentformal/hash11sources verified; previous immutable rootdigestbug evidence kept.",
+    "F04a scoped audit v1 PASS at resolver f42db568... and tests6031c30f...; independent17 resolver/Reader +15 stub E2E +7 acceptance methods, plus1 remaining multi-token gap witness. Parent formal/schema/hash11artifact sources,13 shared/audit sources and all6 logs verified. F04 overall remains open; source freeze released.",
+    "F18 scoped audit v1 PASS: ordinary lineage validation is read-only; explicit initialization refuses existing artifacts. Separate-context68 methods passed, zero skips; parent Ruby/strict Draft202012/schema/task/hash37sources/all references/13 result-log bindings verified. f18-validation-result.v1.json saved. Full package/embedded runtime, global races, every low-level fault and whole V1 remain open. F18 freeze released.",
+    "F02a scoped audit v1 PASS: final year-only supersession branch now holds all candidates with no numeric-version fallthrough. Resolver0.1.2 hash9a744386..., testsb7c323f4.../41540a85..., READMEaa088a5b.... Independent63 executions=60acceptance/control+3residual witnesses, zero skips. Parent strictschema/Ruby/hash52sources/16runinputs/references/3inverse deltas+README/13logs+18auditartifacts passed at22:00UTC. Root collateral13+7+8 andnativeXLSX1 passed. F02entire annual retention/currentmarker/HITL andother findings remain open; sourcefreeze released."
+  ],
+  "in_progress": [
+    {
+      "id": "H0",
+      "owner": "root",
+      "status": "bounded runner accepted; current small test and audit evidence maintained; whole baseline/performance acceptance open",
+      "files": [
+        "design/local-memory-v1-hardening/"
+      ],
+      "next": "Do not upgrade small-fixture PASS to all-formats/product acceptance. Keep ignored runtime logs and design provenance."
+    },
+    {
+      "id": "next-bounded-loop",
+      "owner": "f05a_executor NEW dated-hitl-resolver-design only; f03a_independent_audit NEW dated-hitl-authority-review only; root reproduced pure five tests. No product edits authorized yet; F11a freeze maintained.",
+      "status": "Latest user explicitly prioritizes date-peer Human approval shared across ingestion/search/answers. dated-hitl-red-001:5tests=3FAIL2PASS0errors0skips, log52c1111409180893248821190933a970c3bb3a7342e803f483d00ab76bc792ee. Compact/Japanese dates fail grouping; dated current marker autoaccepts. F11a paused at generator v3 prepared unexecuted and lineage review completed, not accepted. Existing repair budgets retained.",
+      "files": [
+        "design/local-memory-v1-hardening/",
+        "design/local-memory-v1-hardening/runs/f11-next-contract.v1.md"
+      ],
+      "next": "Check live agents; read dated-hitl resolver design and authority review, freeze complete expected cases/compatibility before smallest correction. Must include one-at-time same-work/current-use/answer permission, stale/new-candidate invalidation and no old-index fallback follow-ons. Scope runs/dated-hitl-scope.v1.md; do not claim pure date tests close end-to-end approval. F11a generator v3 remains unexecuted; resume separately without overwriting old evidence or resetting repair budgets."
+    },
+    {
+      "id": "F11-next-contract",
+      "owner": "root; f11_reader_review completed read-only handoff",
+      "status": "contract and three original gap observations plus two source-binding observations saved; product unchanged",
+      "files": ["design/local-memory-v1-hardening/runs/f11-next-*"],
+      "next": "Plan limited notebook saved-output provenance propagation through Reader Evidence and SearchUnit schemas/validators before implementation; app answer path remains a separate required follow-on. Do not claim source/output difference proves stale execution."
+    }
+  ],
+  "findings": [
+    {
+      "id": "F01",
+      "status": "fixed_scoped_audit_pass",
+      "repair_cycles": 2
+    },
+    {
+      "id": "F02",
+      "status": "f02a_year_only_hold_scoped_audit_pass_independent_annual_retention_and_current_marker_semantics_open",
+      "repair_cycles": 0
+    },
+    {
+      "id": "F03",
+      "status": "f03a_same_key_unmarked_inclusion_and_mixed_hold_scoped_audit_pass_cross_key_all_unmarked_identity_and_group_dissolution_open",
+      "repair_cycles": 0
+    },
+    {
+      "id": "F04",
+      "status": "f04a_scoped_audit_pass_multi_token_and_other_signals_open",
+      "repair_cycles": 0
+    },
+    {
+      "id": "F05",
+      "status": "f05a_and_f05b_explicit_reconstruction_complete_selection_and_fixed_snapshot_scoped_audit_pass_human_authenticity_freshness_global_races_and_full_F05_open",
+      "repair_cycles": 0
+    },
+    {
+      "id": "F06",
+      "status": "open",
+      "repair_cycles": 0
+    },
+    {
+      "id": "F07",
+      "status": "fixed_scoped_audit_pass",
+      "repair_cycles": 2
+    },
+    {
+      "id": "F08",
+      "status": "fixed_scoped_audit_pass",
+      "repair_cycles": 1
+    },
+    {
+      "id": "F09",
+      "status": "fixed_scoped_audit_pass",
+      "repair_cycles": 1
+    },
+    {
+      "id": "F10",
+      "status": "fixed_scoped_audit_pass",
+      "repair_cycles": 2
+    },
+    {
+      "id": "F11",
+      "status": "open",
+      "repair_cycles": 0
+    },
+    {
+      "id": "F12",
+      "status": "open",
+      "repair_cycles": 0
+    },
+    {
+      "id": "F13",
+      "status": "open",
+      "repair_cycles": 0
+    },
+    {
+      "id": "F14",
+      "status": "open",
+      "repair_cycles": 0
+    },
+    {
+      "id": "F15",
+      "status": "framing_fixed_scoped_audit_pass_semantic_injection_untested",
+      "repair_cycles": 0
+    },
+    {
+      "id": "F16",
+      "status": "builder_validator_directoryhash_scoped_pass_resource_output_snapshot_limits_open",
+      "repair_cycles": 1
+    },
+    {
+      "id": "F17",
+      "status": "open",
+      "repair_cycles": 0
+    },
+    {
+      "id": "F18",
+      "status": "read_only_revalidation_and_exclusive_initialization_scoped_audit_pass_global_snapshot_and_fault_limits_open",
+      "repair_cycles": 0
+    },
+    {
+      "id": "F19",
+      "status": "open",
+      "repair_cycles": 0
+    },
+    {
+      "id": "F20",
+      "status": "open",
+      "repair_cycles": 0
+    }
+  ],
+  "next_actions": [
+    "Read RESUME/checkpoint, liveagents and Git status. Accepted snapshots remainhistorical as later sharedcodechanges occur.",
+    "F05b locally accepted03:25UTC at validation-result37576299.... F11a10file implementation authorized under gatefc3f2c41..., agent f05a_executor active. Do not run root controls against partial source or duplicate implementation. Await coherentfreeze/results, then root controls and formal audit. Old artifacts stay historical immutable.",
+    "F11 contract-only evidence is ready. Preflight limited Notebook saved-output provenance through Reader Evidence/SearchUnit with strict source binding and declared unverified freshness; then follow-on app propagation before F11 completion. F03-F06/F19 remain separate contracts and actual material classification remains Human-owned.",
+    "Continue remaining Reader F11/F12/F20 and resource/freshness/immutablevalidator F13/F14/F17/F18 with small preflighted independent tasks.",
+    "Heartbeat v1-00 ACTIVE confirmed in actual TOML at11:27JST;20-minute same-task resumption and user-requested short status report even without progress. Existingappgoal API observation blocked, notcomplete. Do not recreate goal or claimfinished."
+  ],
+  "blocked_items": [
+    {
+      "id": "H0-hardware-memory",
+      "reason": "sysctl hw.memsize denied by sandbox; memory capacity not verified. No heavy OCR/model/fuzz runs until a safe budget is established.",
+      "blocks": "heavy real-model/resource tests only"
+    }
+  ],
+  "constraints": {
+    "source_data": "synthetic temporary roots only in initial phases",
+    "network": "no external calls/downloads; no real model calls in focused baseline",
+    "scope": "No product release, push, new OS permissions, paid services, or commit without explicit authorization.",
+    "initial_test_budgets": {
+      "wall_seconds_per_focused_suite": 180,
+      "combined_output_bytes": 8388608,
+      "synthetic_file_bytes": 1048576,
+      "parallel_heavy_models": 0,
+      "quality": "Existing focused regression suite must not regress; exact synthetic expected values must match; all skips listed, never counted as PASS."
+    },
+    "production_performance_thresholds": "Not yet established; required before heavy/performance acceptance. No V1.00 final PASS.",
+    "approval_policy": "User is asleep and cannot approve. Work within current permissions; hold authority-dependent items without bypassing approvals or repeatedly prompting, and continue independent safe items."
+  },
+  "awake_assertion": {
+    "pid": 45757,
+    "tool_session_id": 95473,
+    "command": "/usr/bin/caffeinate -dis -t 43200",
+    "started_at_jst": "2026-09-09 16:02:20",
+    "expires_approximately_jst": "2026-09-10 04:02:20",
+    "power": "AC Power; battery 100%",
+    "verified_assertions": [
+      "PreventUserIdleDisplaySleep",
+      "PreventUserIdleSystemSleep",
+      "PreventSystemSleep"
+    ],
+    "notes": "Temporary assertion only; not permanent settings. Keep lid open. Verify PID command before stopping only this task's caffeinate process.",
+    "last_verified_at_jst": "2026-09-09 16:02:21",
+    "last_verification": "OldPID17714 absent and display/system assertions0 at16:02:13. Renewed temporary12hour caffeinate under user sleep-prevention request; newPID45757 all3assertions active43199seconds at16:02:21. No overlap/permanent setting. Power value above historical, notfreshchecked. Prior OS-wideps denied; no all-process proof."
+  },
+  "app_goal_state_observation": {
+    "observed_at_utc": "2026-09-08 19:31:00 UTC",
+    "status": "blocked",
+    "note": "get_goal returned blocked, unlike the active work checkpoint. No tool state was changed or recreated; continuing safe authorized work in this user turn. Same-task heartbeat is separate; do not claim goal complete."
+  },
+  "automation_verified": {
+    "id": "v1-00",
+    "status": "ACTIVE",
+    "cadence": "20 minutes",
+    "target_thread_id": "01a081b4-a004-72b0-9113-0ef4e33a58ae",
+    "source": "/Users/takashifukutomi/.codex/automations/v1-00/automation.toml",
+    "verified_at_jst": "2026-09-09 11:27",
+    "note": "User requested20-30minute status visibility; existing automation updated earlier to20minutes. ActualTOML ACTIVE/cadence/target rechecked this heartbeat; no duplicate. Report actual work/wait/stop state and next action each run."
+  }
+}

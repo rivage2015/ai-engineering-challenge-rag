@@ -1,0 +1,97 @@
+{
+  "schema_version": "1.0",
+  "audit_id": "f10-xlsx-binding-independent-audit-v3-final-repair2",
+  "task_id": "lms-v1-00-hardening-2026-09-09-f10",
+  "artifact_hash": "0d2ec62aa7b749223479cba69b71c1dd84d1589d603d90b1ab9ab9f384cb4cf1",
+  "auditor_context": {
+    "independence_level": "same_model_separate_context",
+    "source_scope": [
+      "Final repair round 2 of maximum 2. Acceptance is limited to the declared F10 standard-library XLSX workbook/worksheet source-binding and required sheetData preflight repairs plus demonstrated shared-resolver compatibility.",
+      "design/local-memory-v1-hardening/runs/f10-graph-artifact.v3.json and all 22 hashed source/result entries; f10-executor.v3.json treated as claims and evidence pointers, not approval.",
+      "scripts/probe_intermediate_records.py: _resolve_ooxml_target, root officeDocument binding, _xlsx_sheet_context, extract_xlsx_ooxml preflight and projection. Shared DOCX/PPTX/media/chart/diagram caller effects inspected during v2 audit; final delta is one guard condition and two explanatory comments.",
+      "tests/test_xlsx_fallback_binding_hardening.py; tests/test_generic_structured_reader_hardening.py; two original XLSX methods under unchanged f10-legacy-fixture-check.v2.py",
+      "Unchanged f10-adversarial-cases.v1.py and f10-adversarial-dot-cases.v1.py, guarded by unchanged original child wrappers; fresh runs f10-audit-focused-v3, f10-audit-regression-v3, f10-audit-legacy-v3, f10-audit-adversarial-v3 and f10-audit-dot-v3",
+      "design/local-memory-v1-hardening/runs/f10-audit-hashes-before.v3.json and f10-audit-hashes-after.v3.json record complete source/log integrity checks before and after execution.",
+      "Only synthetic small ZIP/text fixtures under repository-owned scratch were executed. No original documents, models, network, OCR, credentials, Keychain or GUI were accessed. No product files were edited by this auditor.",
+      "A same-model separate-context source reviewer found no concrete required residual in the final delta. This procedural review does not substitute for the independently executed tests and hash checks."
+    ]
+  },
+  "status": "pass",
+  "checks": [
+    {
+      "check_id": "F10-V3-A01-ARTIFACT-AND-SOURCE-INTEGRITY",
+      "check_type": "evidence",
+      "target_ids": ["ROOT_BINDING", "SHEET_BINDING", "REGRESSION_STATUS"],
+      "verdict": "pass",
+      "severity": "info",
+      "reason": "The artifact SHA-256 is exactly 0d2ec62aa7b749223479cba69b71c1dd84d1589d603d90b1ab9ab9f384cb4cf1. All 22 artifact source/result hashes and all six saved repair result/log hashes and byte counts match both before and after the independent runs. Current parser 73b9ad531d4e184b47636f0a7558e07cc44688d1499ddd666b8dc58610f830f7 loses only the observed two comments and terminal-segment guard when reconstructed in memory; this yields the prior parser 4429a50030143710786c0ee03a68f3d9243d555d121f832817a300824726a2c3. Inverting the cumulative F10 patch reconstructs base db73270807c3e976fb51f38ff51cc6cd40dd7c0ef3c2d6954fc1f924acd8ab3d. No reconstruction was written to a product source.",
+      "evidence_ids": ["PARSER", "TESTS", "LEGACY_TESTS", "EXECUTOR", "PRIOR_AUDIT", "COUNTEREXAMPLES", "DOT_COUNTEREXAMPLES"],
+      "required_action": null
+    },
+    {
+      "check_id": "F10-V3-A02-SAFE-INDEPENDENT-REPLAYS",
+      "check_type": "safety",
+      "target_ids": ["REGRESSION_STATUS", "LIMITS"],
+      "verdict": "pass",
+      "severity": "info",
+      "reason": "The current two added permanent methods were read and preflighted; existing setup and wrappers remain source/hash verified. Fresh bounded children rerun 23 F10 methods, 17 XML/JSON methods, 2 isolated original XLSX methods, 2 unchanged prior auditor methods and 3 unchanged terminal-dot auditor methods: 47 total, all PASS, zero skips, errors or expected failures. Durations are 0.366032, 0.310557, 0.232546, 0.166713 and 0.170177 seconds. Every run uses a 30-second/1048576-byte supervisor bound, original HTTP/socket/connect_ex/Popen guards and repository scratch. Model-touching full Layer1 setup is bypassed. Integration replaces runtime fingerprint/password discovery/Paddle session and suppresses visual observations. These controls are not represented as an OS sandbox or proof of unrestricted execution safety.",
+      "evidence_ids": ["TESTS", "GENERIC_REGRESSION", "LEGACY_WRAPPER", "GUARD_CHILD", "DOT_GUARD_CHILD", "COUNTEREXAMPLES", "DOT_COUNTEREXAMPLES"],
+      "required_action": null
+    },
+    {
+      "check_id": "F10-V3-A03-URI-REPAIR-CLOSURE",
+      "check_type": "dependency",
+      "target_ids": ["URI_GUARD", "ROOT_BINDING", "SHEET_BINDING", "E_URI_BINDING", "E_ROOT_SHEET"],
+      "verdict": "pass",
+      "severity": "info",
+      "reason": "The final guard at parser line 659 rejects a last path segment of '.' or '..' before POSIX normalization. It closes the v2 directory-ending URI defect for both package root and worksheet binding. The unchanged terminal-dot suite now passes all four previously failing rejection subcases, while the unchanged original absolute-URL lookalike case also passes. Permanent tests extend this to four terminal forms with package-absolute and relative references, keeping the original empty Evidence/Relation rejection assertions. Existing scheme/authority/query/fragment/control/escape guards remain in place. No concrete mandatory residual was found within the submitted whole-part source-binding scope.",
+      "evidence_ids": ["PARSER", "TESTS", "COUNTEREXAMPLES", "DOT_COUNTEREXAMPLES", "PRIOR_AUDIT"],
+      "required_action": null
+    },
+    {
+      "check_id": "F10-V3-A04-SHEETDATA-ATOMIC-PREFLIGHT",
+      "check_type": "dependency",
+      "target_ids": ["CELL_PATH", "SHEET_BINDING", "E_SHEET_CELL"],
+      "verdict": "pass",
+      "severity": "info",
+      "reason": "The all-member worksheet_with_data preflight at parser lines 4123-4139 is unchanged by repair2 and occurs before Evidence projection. It requires a canonical worksheet root and exactly one direct canonical sheetData per bound worksheet. The unchanged valid-first/invalid-second auditor case and permanent late missing/nested/foreign/duplicate sheetData cases freshly pass with empty Reader Evidence/Relations. Only direct canonical worksheet/sheetData/row/c paths are projected. This acceptance covers these binding/sheetData failures; it does not claim general rollback for unrelated later cell/style/media exceptions.",
+      "evidence_ids": ["PARSER", "TESTS", "COUNTEREXAMPLES"],
+      "required_action": null
+    },
+    {
+      "check_id": "F10-V3-A05-PRESERVED-VALID-BINDINGS",
+      "check_type": "coverage",
+      "target_ids": ["COMPAT", "URI_GUARD", "E_COMPAT_TEST"],
+      "verdict": "pass",
+      "severity": "info",
+      "reason": "Fresh permanent and unchanged auditor controls preserve ordinary './file', intermediate '..', package-absolute paths and './part:name.xml', along with exact tested percent-escaped member spelling. Valid workbook order, Japanese names, custom member binding, strict namespaces, hidden state, exact numeric lexemes, saved formula zero/not-recalculated metadata, optional-openpyxl-absence dispatch and partial fallback status pass. The final guard is terminal-specific and does not prohibit the tested nonterminal dot segments. Shared DOCX/PPTX compatibility is limited to the demonstrated conventional resolver paths; full native pipelines and percent/Unicode/query/fragment semantics are not certified.",
+      "evidence_ids": ["PARSER", "TESTS", "DOT_COUNTEREXAMPLES", "LEGACY_TESTS", "LEGACY_WRAPPER", "EXECUTOR"],
+      "required_action": null
+    },
+    {
+      "check_id": "F10-V3-A06-DOWNSTREAM-FAILURE-ISOLATION",
+      "check_type": "evidence",
+      "target_ids": ["VALID_NEIGHBOR", "E_BINDING_ROLLBACK"],
+      "verdict": "pass",
+      "severity": "info",
+      "reason": "The 9-file focused integration freshly passes real intermediate building, batch/streaming intermediate validation, SearchUnit building, batch/streaming search validation and adapter projection. Its seven rejected XLSX files retain failed Documents with zero Evidence/Relation/SearchUnit/adapter Evidence. The valid XLSX remains partial and the text neighbor successful; all nine synthetic source hashes stay unchanged. The direct Reader rejection tests separately cover terminal-dot references. Persisted rollback acceptance is limited to the exercised failed cases and the previously inspected process_file discard boundary.",
+      "evidence_ids": ["TESTS", "BUILDER", "SEARCH", "ADAPTER"],
+      "required_action": null
+    },
+    {
+      "check_id": "F10-V3-A07-HISTORY-AND-ACCEPTANCE-BOUNDARY",
+      "check_type": "intent",
+      "target_ids": ["REGRESSION_STATUS", "LIMITS", "E_LIMIT"],
+      "verdict": "pass",
+      "severity": "info",
+      "reason": "Prior revise reports and failing counterexample/RED logs remain unchanged; the final repair RED still reports 23 methods with eight assertion/subtest failures. They were not relabeled as passes. This final report accepts only the declared F10 source-binding repair at round 2 of maximum 2, after new independent evidence closes the required failures. Full XLSX/OPC/IRI/schema conformance, all cell features, native openpyxl, large-resource performance, models, original documents, safe-index/answer, package build, GUI and whole-product acceptance remain unverified and outside delivery claims. No required unresolved path remains within this scoped contract, so next_action is deliver; the pass is not a new repair loop or executor self-approval.",
+      "evidence_ids": ["EXECUTOR", "PRIOR_AUDIT", "REPAIR_RED", "RED", "LEGACY_RED", "TESTS", "COUNTEREXAMPLES", "DOT_COUNTEREXAMPLES"],
+      "required_action": null
+    }
+  ],
+  "summary": {
+    "blocking_failures": 0,
+    "unresolved_count": 0,
+    "next_action": "deliver"
+  }
+}

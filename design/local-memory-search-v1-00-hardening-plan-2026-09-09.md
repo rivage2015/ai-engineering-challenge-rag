@@ -1,0 +1,306 @@
+# Local Memory Search V1.00 徹底強化計画
+
+作成日: 2026-09-09。状態: **計画案。製品コードの修正・V1.00の合格判定・配布はまだ行っていない。**
+
+調査基点は `79a6926`。現在の配布READMEはapp version 0.6を示しており、ここでの「V1.00」は、これから達成する安定版の目標名である。既存ファイル名の `v1 / v2` とは区別する。V2の意味空間日誌・三層検索は保留し、この計画の完了後に再開する。
+
+## 1. 最終目標を、試験で判定できる約束にする
+
+**いろいろな業務ファイルを安心して預けられ、読めた内容・読めなかった内容・回答の根拠がわかるローカル資料検索にする。**
+
+「あらゆる形式の、あらゆる内容を100%理解する」「未知の脆弱性までゼロ」は保証しない。未対応形式、破損、暗号化、判読不能、サイズ超過は必ず発生し得る。目指すのは、対応範囲を着実に広げながら、そうした入力でも壊れず、漏らさず、読めたふりをしないこと。
+
+V1.00の約束を次の7項目に固定する。
+
+1. **原本を壊さない。** 読取り・変換・試験は原本を書き換えない。Notebook、マクロ、埋込み命令、SQL、シェルを実行しない。
+2. **黙って取りこぼさない。** 発見したファイルと領域を台帳化し、採用、部分読取、未対応、拒否、失敗、判断待ちを説明する。
+3. **意味をすり替えない。** 表の見出し・値・単位、否定、条件、時点、出典位置を保つ。保存済み計算値と再計算結果を混同しない。
+4. **古い資料を勝手に正本にしない。** 年次記録と改訂版を分け、判定できなければ人へ一問ずつ確認する。
+5. **根拠のない断言をしない。** 類似度、Graphの接続、hash一致、複数AIの同意だけでは、内容が正しい証明にしない。
+6. **失敗を局所化する。** 一つの不正ファイル、モデル停止、ディスク不足などで、検証済みの公開索引まで壊さない。ただし公開索引そのものの完全性が不明なら回答を止める。
+7. **後から検証・訂正できる。** 元ファイル・位置・版・索引世代・判定理由・修正履歴へ戻れる。
+
+「どんな入力でも安全に結果を説明できる」と「すべての内容を正しく読める」を別の合格項目にする。前者だけ通して、後者も達成したとは言わない。
+
+## 2. 今回の作業範囲と守るもの
+
+対象は配布アプリの実経路である。原本棚卸し → Reader → 版・安全・来歴検証 → SQLite索引公開 → 質問 → 検索／Graph → 回答監査 → 表示、さらに更新・再起動・復旧・配布までを含む。ルートの `scripts/` は配布時に同梱されるReader等の依存として確認し、大会用の別検索経路と混同しない。
+
+今回作るのは計画とそのレビュー記録。修正の実行は次の段階とする。既存のユーザー変更である `build/build_package.sh`、`docs/START-HERE.html`、`docs/はじめにお読みください.md` は保持する。実装時も個別差分で扱い、無関係な変更をコミットへ混ぜない。
+
+実データの全文棚卸し、重い負荷試験、モデルの追加取得、OS権限変更、クラウド送信、署名・公開・pushはこの計画作成では行わない。実装中も必要になった時点で範囲と費用・副作用を示す。試験のために利用者のDesktop全体を再取込しない。
+
+監査方法は `graph-engineering-agentic-audit`、リポジトリの変更境界・検証・差分・rollback設計は `codex-graph-engineering-adapter` を使う。Graph Engineering Coreの原則自体は変更しない。
+
+## 3. すでに確認できた、最初の修正候補
+
+以下はコード調査と隔離した小さな再現から得た初期所見であり、全領域の監査完了ではない。優先度は本計画での着手・リリース判断用で、CVSS評価ではない。
+
+| ID | 優先度・確認状態 | 問題と影響 | 最初に固定する回帰試験 |
+|---|---|---|---|
+| F01 | P0・接続不備を確認 | 新版グラフはReaderへ渡るが、安全索引projectorの再検証で引数が欠落する。新Validatorは `unexpected_document_version_graph` で停止する。[S1][S2] | 同じ小型CSV集合で、版判定から安全索引公開・質問・最終監査まで通す。版graphを落とした経路は明示的に拒否する。 |
+| F02 | P1・判定規則を確認 | 同名の2024／2025年の年次資料を改訂版とみなし、過去年を通常Readerから除外し得る。[S3] | 改訂手順書と年次実績表を別fixtureにし、後者の2024年を失効させない。 |
+| F03 | P1・候補漏れを確認 | 年・版・状態の印がない資料は版候補に入らない。`業務内容2024.xlsx` と `業務内容.xlsx` はgroup 0になる。[S3] | 無印、拡張子変更、改名、移動、後からの候補追加が、候補集合と人の判断の有効性へ反映される。 |
+| F04 | P1・競合漏れを確認 | `現行/業務_ver1.xlsx` と `業務_ver2.xlsx` で、現行マーカーを優先して版番号の競合を見逃し得る。[S3] | 年、版、draft、現行、廃止が競合したら誤って自動確定しない。 |
+| F05 | P1・検証不足を小型再現 | 版graphの候補を空にして自己hashを再計算したデータが、現行Validatorを通る。自己整合性だけでは候補集合の正しさを検査できない。[S3] | 原本inventoryから候補・判定・完全分割を独立再構築し、自己整合した偽graphも拒否する。 |
+| F06 | P1・経路不足を確認 | 自動判定済み候補はHITL画面に出ず、訂正しにくい。review公開が索引成功より早く、別世代の画面になる余地がある。[S4][S5] | 自動判定も訂正可能にし、候補画面・選択・公開索引を同一世代へ結合する。 |
+| F07 | P1・試験範囲を確認 | 既存の版判定E2Eという名称の試験はReader Validatorまで。安全索引・公開・質問は対象外。[S6] | コンポーネントE2Eと配布アプリ全経路E2Eを命名・実行・証跡で分ける。 |
+| F08 | P1・静的に欠落経路を確認 | 汎用XML Readerはattributeとelement.textを保存するがchild.tailを保存しない。`<p>前<b>中</b>後</p>`の「後」を取りこぼす構造。[S9:6406] | mixed content、空要素、複数childで、原文の文字・順序・位置をgoldと照合する。 |
+| F09 | P1・静的に上書き経路を確認 | 汎用JSON Readerは重複keyの検出なしにjson.loadsを使う。同じkeyの競合を最後の値へ潰し得る。[S9:6362] | 重複keyを持つfixtureを黙ってsuccessにしない。元位置と競合を保持するか明示的に拒否する。 |
+| F10 | P1・静的に結合の弱点を確認 | XLSX標準ライブラリ経路ではsheetのrelationship type・重複ID等の検証が弱く、未解決時にsheet番号からパスを推測する。[S9:4081] | sheet名・ID・memberの対応を原本から検証。関係不明なら推測で別sheetを結び付けない。 |
+| F11 | P1・状態記録の不足を確認 | hidden sheet／slideの表示状態がReader経路によって欠ける。Notebookの保存出力にも未再実行・実行順の説明が不足する。[S9:3823,4273,6670] | 表示状態と保存時点の性質を原文へ結合。hiddenを無条件に機密／無効扱いせず、質問範囲と利用方針に従う。 |
+| F12 | P1・coverage gapを確認、fixture再現は今後 | DOCX／PPTXのoptional-library経路には、fallbackでpartialとされる脚注・変更履歴・継承等の未読検出が揃っていない。[S9:3325,4247] | 同じ難例をlibrary有／無で読み、抽出の有無だけでなく欠落通知を比較する。完全読取の証明がないsuccessを見直す。 |
+| F13 | P1・「最新」要件の不足を確認 | build時は原本hashを検証するが、通常回答は公開SQLite snapshotを使い、毎回原本の編集・追加・削除を確認しない。[S2:2905][S11:1526] | build後の編集・新しい候補追加・削除から質問する。未再確認なら「現在の最新」と断定しない。 |
+| F14 | P1・無期限／無上限経路を確認 | 一部の取込subprocess待機はdeadlineなし。HTTPはbody容量上限があっても読込deadlineとquery同時上限がなく、通常検索は全vector走査。[S5:745][S7:306][S4:2667][S11:569] | hung worker、slow body、同時質問、入力数増加を低い試験上限で再現。cancel・queue制限・旧世代保護を確認する。 |
+| F15 | P1・framing欠陥を確認、モデル乗っ取りは未検証 | 原文やpathをXML風のUNTRUSTED_EVIDENCE区切りへ未escapeで挿入する箇所がある。[S11:1115] | 区切り文字を含む原文・ファイル名を用意。構造化framingと原本照合を検査する。escapeだけで指示注入が解消したとはしない。 |
+| F16 | P1・race余地を静的確認、実際の攻撃成立は未検証 | Path Graphでlstat後に通常openでhashを読む経路があり、その間のsymlink置換などを検査する必要がある。[S12:110] | 一時fixtureのcanaryだけを使い、検査と読取の間で変更する。rootとfileをfd／identityへ固定し、範囲外を開かない。 |
+| F17 | P1・探索範囲と試行上限の不足を確認 | パスワード候補発見はrootのrglobと候補直積を使い、選択manifest外や多数候補へ広がる余地がある。[S9:2396,3305] | 自動推測を明示許可制へ。探索範囲・候補数・試行回数・時間を制限し、非許可文書を読まない。 |
+| F18 | P1・再検証の書換えを確認 | adaptive Validatorは既存lineage成果物を削除・再生成する。通常buildは未公開で実施するが、公開世代の再検証では同時読取・失敗時の危険がある。[S2:1450,2505] | 公開世代は不変とし、検証は別の一時出力で比較する。検証失敗を注入して公開hash／回答を壊さない。 |
+| F19 | P1・競合制御の不足を静的確認 | HITLの選択はread-modify-replaceで、選択からrebuildまで単一の更新lease／revisionに結合されていない。[S4:2693][S3:433] | 同時選択、途中build、二重送信を試験。受理したrevisionと公開世代の一致を確認し、未反映を成功表示しない。 |
+| F20 | P2・dialect契約の不足を小型再現 | semicolon表をcomma固定で一列として読みsuccessになる。合法な一列CSVとも読めるため、普遍的な構文バグではなく、意図を確認せず表構造を確定する問題。[S9:6317] | 区切り候補と列数の不整合を検査。曖昧なら人の設定／確認へ戻し、単にsemicolonを見つけて自動分割しない。 |
+
+既存のテストが通ることと、望ましい仕様であることは別問題である。例えば「年の最大値だけでactiveを決める」試験は、誤った仕様を固定している可能性がある。仕様変更の理由と新しい正解を残して修正し、都合よく失敗試験を削除しない。
+
+Readerの追加小型確認では、XML tail欠落、JSON重複keyのlast-wins、CSV dialect、Notebook保存outputの状態不足を `Probe.extract()` 単体で再現した。例: XML `<p>前<b>中</b>後</p>` は `success` でEvidenceが「前」「中」のみ、JSON `{"status":"old","status":"new"}` は `success` で `/status=new` のみ。Notebookではsourceが `print("new")`、保存outputが `old` の両方を保持するが、未再実行・execution_countの説明がない。`python3 -B`、一時root、視覚観測suppressedを使用した確認であり、下流Validator・SearchUnit・安全索引・回答まで通過したという証拠ではない。H0以降で恒久fixtureと全経路再現へ落とす。
+
+## 4. 監査対象を取りこぼさない地図
+
+| 境界 | 攻撃・故障・誤読の例 | 守る判定 |
+|---|---|---|
+| フォルダ → inventory | 権限不足、symlink循環・外部参照、改名、Unicode正規化、大小文字、cloud placeholder、走査中変更 | 許可root以外を読まない。観測できない範囲を「空」と言わない。 |
+| ファイル → parser | 拡張子偽装、壊れたZIP／XML／PDF、重複member、巨大宣言、圧縮爆弾、外部参照 | 実体・構造・資源上限を検査。任意コードと外部通信を実行しない。 |
+| parser → Evidence | 欠落ページ、行列ずれ、数式cache、隠し行、脚注、変更履歴、文字化け、画像OCR誤り | 出典位置・未読領域・表示と内部値の差を保持。部分読取を完全扱いしない。 |
+| Evidence → 安全Graph | 偽ID、捏造Edge、欠けたfan-in、除外文書の混入、自己hash再計算 | 原本から参照と関係を再検証。未確認をverifiedへ上げない。 |
+| 未公開世代 → 公開世代 | 電源断、容量不足、二重build、古いlease、検証中変更、CONFIG改変 | 完成した同一世代だけ公開。途中成果物を利用しない。 |
+| 質問 → 検索 → 回答 | 同名・別部署、否定、日付境界、数え漏れ、旧版、根拠なし、指示注入 | 対象・時点・範囲を固定。必要根拠が不足すれば留保／確認。 |
+| 回答 → UI／原本表示 | HTML／URL注入、認可外パス、巨大request、別サイトからの操作、機微情報ログ | 表示をescapeし、操作を認可。出典表示は任意コマンド実行にならない。 |
+| ソース → 配布物 → 起動 | 同梱漏れ、依存差、モデル差、旧索引migration、オフライン、署名不足 | ビルド済みアプリでも同じ契約を検証。ソース試験だけで配布合格にしない。 |
+
+脅威主体は「誤って壊れたファイル」「悪意ある文書」「ブラウザの別サイト」「モデルの誤出力」「プロセス・OS・ストレージの障害」を含む。OS管理者や同一利用者権限を完全に奪った攻撃者まで、このアプリだけで防げるとはしない。代わりにtrust root・source root・モデルendpointの境界を明示する。
+
+追加のローカル境界もH0で固定する。HTTPにはloopback／Host制限、CSRF、Origin検査、CSP等がすでにある。一方、CSRF tokenは利用者認証ではなく、ローカルの別processからのアクセスを必ず防ぐものではない。**別のローカル利用者・偶発的な別processへのデータ露出は防ぐ対象**として、起動時capabilityとsessionによるdata／mutation routeの認可を検討する。同一利用者の完全な侵害は対象外でも、認可なしHTTPを無条件に安全とは言わない。[S4:326,358,2597]
+
+Ollamaのloopback接続も「PC外へ送らない」ことと「意図したprocessへ送った」ことを区別する。別processによるportの先取り、モデルdigest偽装、過大responseを試験し、endpoint identity／認証されたprivate接続などの選択肢と容量・deadlineを検討する。Keychainのcross-document graph用trustをbase index全体の改竄耐性と誤認しない。[S5:656,838][S13:129]
+
+ファイル形式のallowlist、実体検査、展開後の制限、最小権限を組み合わせる。拡張子やsignature一つだけで安全判定しない。この方向は[OWASP File Upload](https://cheatsheetseries.owasp.org/cheatsheets/File_Upload_Cheat_Sheet.html)を参考にするが、本アプリへそのままWebアップロード方式を導入するという意味ではない。
+
+## 5. 「形式対応」を拡張子の数ではなく、内容の単位で管理する
+
+### 5.1 現在の入口と、目標を分ける
+
+現行adaptive bridgeのallowlistは `.docx / .xlsx / .pptx / .pdf / .csv / .tsv / .json / .xml / .ipynb / .md / .txt / .py / .toml / .yaml / .yml / .rst / .sql / .sh / .command / .png / .jpg / .jpeg / .tif / .tiff / .bmp`。[S7] これは入口で選択される形式であり、全内容の完全読取を保証する一覧ではない。コード類は文字列として読む。
+
+`.xls / .ods / .doc / .ppt` は版判定候補に出ても、同じ意味Readerで読めるとは限らない。版判定の対応と本文読取の対応をUI・文書とも分ける。旧Office、ODS、HTML、RTF、Pages／Numbers／Keynote、HEIC／WebP等は追加候補として台帳に載せ、実使用と安全な変換手段を確認して優先順を決める。音声・動画・CAD・任意圧縮書庫まで無条件に対応宣言しない。
+
+既存の[日本企業データ形式調査](/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/design/japanese-enterprise-format-survey-final-2026-08-28.md)も候補台帳の入力に再利用する。XLSM／XLSB等の派生形式、メール・添付、DocuWorks、一太郎などを検討から落とさない。ただしこれは過去の調査・優先順位案で、現在のReader対応実績ではない。形式を広げるたびに、対応feature・変換環境・ライセンス・安全性・実機試験を確認する。
+
+### 5.2 対応台帳の必須項目
+
+`format × feature × Reader経路 × dependency環境 × 上限` を一つの対応単位にする。各単位に、検出方法、native／変換／OCR経路、出典locator、正解fixture、失敗fixture、未知部分、利用者向け説明、最終試験日時を付ける。
+
+| 系統 | 読取りの主な試験 | 読めたふりを防ぐ試験 |
+|---|---|---|
+| テキスト／CSV／TSV | UTF-8／BOM／UTF-16／日本語旧encoding、引用符内改行、空列、重複header、長文、数値と単位 | 不正byte、途中切断、列数不一致、末尾欠落、先頭ゼロ、数式の文字列を勝手に実行しない |
+| JSON／XML／設定／コード | ネスト、array順、namespace、本文とキー、コメント、Notebook cell／output位置 | 深さ・要素数超過、重複キー、壊れた構文、外部entity、Notebookコードの不実行 |
+| DOCX | 段落／表の順序、結合セル、header／footer／脚注／text box、画像参照 | tracked changes、altChunk、図表、関係欠落、切抜き・透過の未再現を明示 |
+| XLSX | sheet順、行列・結合、日付系、数式と保存値、空セル、hidden／filter、図表 | cache欠落・古い値、1900／1904日付系、外部参照、桁丸め、表示値との違い、隠れた対象の集計 |
+| PPTX | slide順、title／table／notes、group、chart、SmartArtの明示接続 | master継承、座標transform、発表者notesと投影内容の混同、画像crop、図形から因果を作らない |
+| PDF | text／scan／混在、複数段、縦書き、回転、表、注記、ページ・領域位置 | native文字と見える文字の不一致、不可視文字、暗号化、欠落font、途中ページ失敗、重複OCR |
+| ラスター画像 | 日本語、小文字、低解像度、回転、表、写真、図、複数frame | 否定・小数点・単位の誤読、透過・背景・EXIF、画素爆弾、未処理frameをcompleteにしない |
+| 旧形式／追加形式 | 検出 → 隔離変換 → 上記Readerへ接続 → 元形式位置との結合 | 変換で消えた領域、別ファイル生成、外部link、macro、変換器不在を明示 |
+
+数式は原則再計算しない。値の確定に再計算が必要なら、実行権限・外部link・macro等を別途検討する。最初からOfficeアプリを自動起動して何でも開く方式にはしない。
+
+暗号化文書は「未対応」と「鍵がない」を区別する。周辺資料からの暗黙のパスワード探索を通常取込の前提にせず、現行の候補発見経路も監査する。必要な復号は利用者が提供・承認した資格情報に限定し、パスワードを台帳・ログ・Gitへ残さない。
+
+### 5.3 二軸の状態と領域被覆
+
+「処理状態」と「回答根拠としての適格性」を分ける。例: `complete / partial / unsupported / failed / blocked` と `eligible / tentative / held / excluded`。命名・既存schemaへの対応は実装前に確定し、既存statusを黙って読み替えない。パスの発見だけでEvidenceをeligibleにしない。
+
+ファイル数だけでなく、ページ・sheet・slide・cell範囲・画像・memberごとに `expected / observed / unread / unknown` を記録する。期待件数自体が検出不能なら `coverage_unknown`。壊れた目次を完全性の正解にしない。上限到達・fallback・依存不足・文字化けの理由も原本位置へ結び付ける。
+
+一覧画面では「対象120件、全文読取90件、部分読取20件、未対応7件、確認待ち3件」のように説明できるようにする。数値は表示例であり現在の測定ではない。除外済み原本の内容をログへ漏らさない。
+
+集計・比較・「すべて／ない」という質問では、該当範囲の未読領域が回答を変え得るなら断言を止める。局所的な質問は、対応する領域に十分な根拠があるかで判定する。全件保留にして安全指標だけを良くしない。
+
+## 6. ループエンジニアリングの運転方法
+
+```mermaid
+flowchart TD
+    A[守る仕様と対象を固定] --> B[攻撃・故障・誤読の仮説を作る]
+    B --> C[小さな再現と正解を保存]
+    C --> D[失敗を確認して優先順位を更新]
+    D --> E[最小のコード修正]
+    E --> F[回帰試験と別担当の反証]
+    F --> G{合格条件を満たすか}
+    G -->|いいえ・修正可能| D
+    G -->|判断不足・安全停止| H[未解決を保存して人に確認]
+    G -->|はい| I[修正を記録・統合試験]
+    I --> J[残る攻撃面を再計画]
+    J --> B
+```
+
+これは無制限に同じ修正を繰り返す仕組みではない。個別問題の修正ループ、境界間の統合ループ、配布版の受入ループを分ける。
+
+### 6.1 一つのループで必ず残す記録
+
+1. **契約固定:** issue ID、影響、守る仕様、入力範囲、期待結果、対象commit／dirty差分hash、実行環境、上限、rollback先。
+2. **反証:** 自作の成功例だけでなく、例外・逆条件・境界値・別名・別形式を試す。正解は原本確認／手計算／小さな独立実装で先に固定する。
+3. **再現:** 最小fixture、seed、コマンド、実結果、期待との差。再現不能なものは仮説として保持し、確認済みバグと混ぜない。
+4. **計画更新:** 原因、修正箇所、呼出し元、互換性、影響範囲、追加試験を絞る。今回の問題と無関係な機能追加を混ぜない。
+5. **実装修正:** 一つの不変条件を小さく直す。検証を弱める、timeoutを無制限にする、既知ファイル名をhardcodeする修正は禁止。
+6. **再検証:** 元の再現 → 近傍の境界値 → 正常系 → 関連回帰 → 全経路。必須skip・未実行をPASSに数えない。
+7. **別担当監査:** 実装者が自分で承認しない。契約、差分、原本fixture、結果だけを渡して反証する。LLMは補助で、機械検証・独立した正解を上書きしない。
+8. **決定:** `pass / revise / blocked` と理由を保存。無効なJSON、hash不一致、必要根拠なしはPASSではない。閉じた問題も後続変更で再開できる。
+
+Agentic Auditの同一依頼に対する修正往復は最大2回。必要な問題が残れば `blocked` として、人の判断・追加根拠・設計変更のどれが必要かを示す。同じ失敗を別issueに付け替えて上限を回避しない。計画全体は複数の独立した問題と段階で続けられるが、停止判断を自動で通過へ変えない。
+
+別コンテキストで同じモデルを使った監査は `same_model_separate_context` と記録する。別担当であることは独立した事実証明ではない。判断者を増やすだけでなく、正解fixtureと機械的な不変条件を増やす。
+
+### 6.2 優先度と停止規則
+
+- **P0:** 原本破壊、範囲外読取り／外部漏洩、コード実行、公開索引の完全性破壊、起動・主要取込経路の停止。該当する修正・隔離を最優先し、リリースを止める。
+- **P1:** 黙った読取欠落、誤った版・対象・数値の確定、無根拠回答、確認を迂回する検証抜け。必須対応範囲ではリリースを止める。
+- **P2:** 明示的にpartial／unsupportedとなる対応不足、復旧可能なUX・性能問題。重要業務の必須要件に当たるならP1へ上げる。
+- **P3:** 非阻害の表示・保守性改善。P0／P1を後回しにしない。
+
+原本hash変化、予期しない外部通信、範囲外アクセス、孤児process、資源上限超過、公開世代の破損があれば、その試験群を停止して隔離する。異常な状態で次の攻撃を重ねない。
+
+## 7. 実装順序と段階ごとの出口
+
+| 段階 | 作業 | 成果物と次へ進める条件 |
+|---|---|---|
+| H0 基準線・実行隔離 | 本番経路、対応台帳、環境、依存、dirty差分を固定。既存試験を分類。合成fixture専用root・出力・CONFIG・ポートを用意 | baseline manifest、既知failure一覧、実行／skip一覧。テストが実データ・公開CONFIGへ書かないことを確認 |
+| H1 接続と安全入口 | F01／F07を再現して修正。形式検出、root境界、ZIP/XML等の上限と隔離を先に確認 | 最小の全経路E2Eが成功。危険・無効入力の安全拒否と既存索引維持を確認 |
+| H2 版判定とHITL | F02〜F06。改訂／年次／別資料、無印候補、世代結合、訂正・保留・再確認 | 正本を自動確定できないケースが漏れず人へ戻る。過去時点質問は履歴対応または明示的な未対応で誤答しない |
+| H3 Readerの忠実度 | 現行形式のnative／fallback／OCRを一つずつ。領域被覆、文字化け、表・図・数式・脚注・hidden等 | 全対応単位に正常・境界・失敗のfixtureと明示的な能力表示。新形式は同じ契約を満たしてから追加 |
+| H4 来歴・Graph・回答 | 偽Evidence／偽Edge、除外混入、検索取りこぼし、集計完全性、指示注入、引用、回答監査 | 根拠が十分な問いは答え、根拠不足は留保。構造PASSを内容の真実と混同しない |
+| H5 耐障害・UI・配布 | 二重実行、停止再開、ディスク不足、モデル停止、migration、HTTP境界、オフライン、同梱物 | 配布物を隔離環境で起動し、取込・質問・確認・復旧の受入。原本と既存世代を保護 |
+| H6 反証による最終判定 | 新しい未見fixture、複合攻撃、メタモルフィック／mutation試験、最終対応台帳照合 | 第10節のゲートをすべて評価。未達は該当段階へ戻し、合格対象と残存制約を明記 |
+
+H0の後、静的な監査は並列化できる。ただし共有schema、版方針、Reader入口の契約を先に固定する。実ファイルのfuzz・変換・OCRは隔離と上限を確認した後に実行する。重いローカルモデルは同時起動を原則1件にし、通常利用を圧迫しない。
+
+H1ではper-documentだけでなくjob全体のdeadline・累計展開量・出力量・process回収を固定する。H3へ渡す前に、汎用XMLにもOOXMLと同様のDTD／entity拒否等が適用されているか確認する。既存OOXMLの容量・展開・DTD防御、PDF helperのtimeout、HTTPのCSRF等は再利用・回帰試験し、実装済みなのに「ない」と扱って重複実装しない。
+
+H2の人への確認は、候補のパス、内容プレビュー／差分、明示年・版・draft、観測日時、判定理由を見せる。「この版を現行にする」以外に「別資料」「どれも違う」「保留」を用意する。決定はroot・資料family・候補集合・内容hash・世代に結び付け、自動判断も訂正可能にする。ファイルの作成日だけで有効日を決めない。
+
+H2でfreshness contractを追加する。通常のsnapshot回答には最終観測時刻を表示し、変更が判明したら該当根拠を失効させる。「現在の最新」を求める問いは引用fileの再hashだけでは不十分で、新しい版候補の追加も確認する。対象範囲の再走査／検証済み差分反映ができない場合は、観測時点付き回答または確認待ちにする。watcherは補助にし、イベントの取りこぼしを安全保証に使わない。質問ごとにPC全体を再走査する設計にはしない。
+
+## 8. 試験体系: テスト件数ではなく、破れない条件を見る
+
+### 8.1 試験を四つに分ける
+
+- **決定的な機能試験:** parser、版判定、schema、hash、参照、権限、集計。毎回同じ正解が得られる小型fixtureを中心にする。
+- **配線E2E:** 外部推論をstubにして、Path Graphから最終表示までの本番関数・CLIを通す。stubでしか成立しないなら製品合格ではない。
+- **実機E2E:** 導入済みモデル／OCR／変換器で正常・難例・失敗を確認。モデルdigest、OS、依存、時間、RSS、結果を保存する。
+- **生成品質評価:** 人が原本から正解を定めた未見の業務質問。LLM出力のゆらぎは複数回と信頼区間で示し、1回成功を保証へしない。
+
+既存 `distribution/macos-local-memory/tests/` とルート `tests/` は再利用する。Readerだけ、Graphだけ、mock中心、本番モデル必要などに分類し、必要な試験がどのrunnerに乗るかを台帳化する。過去のREADMEのPASS件数や時間は新しい受入実績に数えない。
+
+最初に使う既存コマンド候補は `python3 -m unittest discover -s distribution/macos-local-memory/tests -p 'test_document_version_resolver.py'`。H0で依存と副作用を確認した専用interpreterへ置き換える。次にpackage／runtime recovery／migration／安全Graphと関連root testsを段階的に実行する。無条件の全suite実行でモデルやGUIを起動しない。新しい全経路試験は既存Reader試験と別に追加する。
+
+### 8.2 攻撃ケースの必須群
+
+1. **形式と構造:** 正常最小、空、途中切断、壊れたheader、偽拡張子、未対応feature、重複ZIP member、関係ID欠落、深いXML／JSON。
+2. **資源:** 個別file／member／展開後合計／member数／深さ／ページ数／画素数／文字数／DB容量／deadlineの境界値。上限−1・上限・上限＋1を小さな試験用上限で再現する。
+3. **意味忠実度:** 否定、有無、ただし書き、例外、未定、0と空、単位、桁、小数点、日付、セル位置、同名項目、並列条件。
+4. **時点・版:** 年次記録、改訂履歴、異なる部署、同年複数版、draft、無印、新旧矛盾、移動・削除・再追加、人の判断後の変更。
+5. **不正な根拠:** 存在しないID、出典違い、hash再計算、Edge捏造、欠けたfan-in、安全除外の再挿入、古い索引／モデル空間の混合。
+6. **指示注入:** 原文・OCR・表cell・ファイル名・Notebook outputからの命令、偽の監査PASS、引用先URLへの誘導。検出語を避けた言い換えも含める。
+7. **状態遷移:** build中の質問、再検証中の質問、二重build、HITL二重送信、CONFIG切替直前後、SIGTERM／強制終了、容量不足、権限変更、source消失。
+8. **UI・権限:** foreign Origin／Host、CSRF、認可なし操作、path traversal、HTML文字、request body過大、出典クリックで許可外file／URLを開かないこと。
+
+指示注入対策は「怪しい文言を検出したら安全」という一段にしない。文書を命令として実行しない権限設計、原本への照合、構造検査、表示制御を重ねる。安全な説明文を過剰に除外するfalse positiveも測る。[OWASP Prompt Injection Prevention](https://cheatsheetseries.owasp.org/cheatsheets/LLM_Prompt_Injection_Prevention_Cheat_Sheet.html)
+
+### 8.3 テスト自体の弱点を攻める
+
+- **Metamorphic:** 無関係な資料の追加、ファイル順変更、意味を保つ名前変更、同一内容の重複、数値の一箇所変更で、期待した部分だけが変わるか。版signalを変える改名など、意味が変わる変換は不変性を要求しない。
+- **差分試験:** nativeとfallback、text PDFと同じ内容のscan PDFなどを比較。差分があっても多数決で正解を決めず、原本表示と独立goldへ戻る。
+- **Mutation:** 安全チェックの一部を隔離コピーで意図的に無効化し、試験が落ちるか確認。製品コードへmutationを残さない。
+- **Holdout:** 新しい構造・語彙・数字・レイアウトのfixtureを監査担当が作る。fixture名や回答のhardcodeで通らないことを確認する。
+- **複合試験:** 全組合せは現実的でないため、全境界値＋pairwiseを基本に、暗号化×巨大宣言、部分読取×集計、版変更×公開切替など重大な3条件以上の組合せを追加する。
+
+fuzzは時間・メモリ・ディスク・process数・seed・入力数を上限付きで実行し、最小化した失敗だけを回帰資産にする。実際の巨大爆弾、マルウェア、外部攻撃先は使わない。隔離環境で低い上限を越える合成入力に置き換える。
+
+### 8.4 ユーザーの業務に直結する質問
+
+合成資料で「分身ロボットカフェの最新の業務手順」「2024年と2025年の違い」「例外時は誰に確認するか」「表の対象行の合計」「資料に書いていない手順」を作る。同名の無関係資料、古い手順、下書き、判読不能ページも混ぜる。
+
+正解は先に原本の位置・必要な最小根拠集合・対象時点・期待する回答／保留／一問確認として固定する。検索で見つけた結果を後から正解にしない。原本不在、抽出失敗、検索漏れ、生成誤り、過剰保留を別の失敗として数える。
+
+## 9. 主な変更箇所と実装時の成果物
+
+以下は変更候補であり、すべてを書き換える指示ではない。各issueで最小差分に絞る。配布物へコピーされたファイルではなく、生成元を直す。
+
+Readerの主な生成元はrootの `scripts/probe_intermediate_records.py` と `scripts/build_intermediate_records.py`。buildはこれらをApp内の `Resources/engine/layer1/scripts/` へコピーし、runtimeはpackaged copyを優先する。checkoutでの試験だけでは、古い同梱Readerの混入を検出できないため、sourceと配布物のhashを照合する。[S10]
+
+| 領域 | 主な対象 | 確認する影響 |
+|---|---|---|
+| 取込契約 | `engine/build_adaptive_semantic_graph.py`、`engine/validate_adaptive_semantic_graph.py`、root `scripts/build_intermediate_records.py`等 | 型検出、領域被覆、status、native／fallback、呼出し元とschema |
+| 版・人の判断 | `engine/document_version_resolver.py`、`app/local_memory_server.py` | source-root、family、世代、候補完全性、誤自動判定の訂正 |
+| 安全な索引 | `engine/build_local_semantic_index.py`、`engine/content_security_gate.py`、そのValidator | version引数、lineage context、独立再構築、原子的公開 |
+| 検索・回答 | `engine/answer_local_memory_v2.py`、`engine/question_evidence_graph.py`、claim／final audit | 同じsnapshot、原文locator、未読範囲、集計・時点・根拠不足 |
+| 稼働・復旧 | `app/bootstrap.py`、server、trust／lease／migration関連 | 中断復旧、モデル差、再検証の副作用、世代切替、timeout後process回収 |
+| 検証・配布 | package tests、root tests、build、README／利用説明 | 同梱漏れ、環境差、対応宣言、実機と配布版の差 |
+
+上表の `engine/`、`app/` は `distribution/macos-local-memory/` 配下。新設候補は能力台帳schema、入力制限共通contract、領域被覆report、hardening test runner、攻撃fixture manifest、全経路E2E。既存に同じ役割がある場合は拡張して重複を避ける。
+
+実装時は各runの `task-contract / environment / source-manifest / findings / plan-delta / test-results / audit-report / validator-result / known-limitations` を、世代・commit・hash付きの追記型証跡として保存する。利用者の資料本文・秘密を公開可能なGit成果物へ含めない。ログは必要最小限のlocatorとhashを既定とし、全文debug保存は明示設定にする。
+
+## 10. V1.00として出せる条件
+
+次は目標値・判定方法であり、現在達成したという報告ではない。
+
+| ゲート | 合格条件 |
+|---|---|
+| G1 安全性 | 指定した攻撃・故障セットで、原本変更、許可外アクセス、推論中の外部送信、文書由来コード実行、未検証索引の公開が0件。未確認は合格に数えない。未知の攻撃への保証にはしない。 |
+| G2 入力の説明責任 | 全fixtureが期待した処理状態へ到達し、部分読取・除外・未対応・失敗・上限を黙ってcompleteにするケースが0件。領域被覆が不明な場合も表示する。 |
+| G3 内容忠実度 | 対応宣言した決定的featureのgolden検査が全件一致。OCR／視覚理解は別の品質基準と不確実性表示を使い、数値・否定・日付の曖昧な読取を単独で確定しない。 |
+| G4 正本・来歴 | 版／HITL／削除／移動／世代変更の必須試験が全件合格。引用の原本位置とhashを検証。自己整合した偽graphを拒否する。 |
+| G5 回答品質 | 必須の決定的業務fixtureに誤った断言が0件。答えられる正常系を全保留しない。生成品質は正答率・未支持主張率・誤った新版選択率・過剰保留率をbaselineと比較し、悪化を隠さない。 |
+| G6 耐障害 | 全公開境界の故障注入で前の有効世代を保持／復旧できる。旧世代の根拠が失効しているなら回答停止・古いsnapshot表示などを明確にし、無条件fallbackしない。 |
+| G7 資源 | 合意した代表コーパスと端末でfile／job上限、cancel期限、RSS／diskの予算内。孤児processと無期限待機がない。数値予算はH0実測後、修正前に固定する。 |
+| G8 配布・説明 | 新規／既存索引／オフラインの配布版受入を実施。必須testのskipなし。対応台帳・UI・README・同梱版が一致する。 |
+| G9 監査完結 | P0／P1の未解決が0件。P2以上の残存制約と影響を列挙し、必須範囲を黙って縮めない。対応範囲の変更は人へ説明し判断を得る。 |
+
+H0で正常系の正答率・処理量・p50／p95時間・RSS・disk・保留率を測り、H1前に品質の非劣化幅と絶対資源上限を固定する。小さなfixtureの100%から母集団の精度を推定しない。生成評価は同じ資料・質問・モデルdigest・token予算を使い、必要サンプル数と許容差を事前に決める。負荷改善のために読取対象を減らした場合、欠落を性能改善に隠さない。
+
+全形式を一斉に増やさず、対応台帳の一単位ごとにこのゲートを適用する。安全に未対応と返すだけでは、その形式の「読取対応」は合格しない。逆に、現在の優先対象に入らない形式を理由に無期限の完成宣言待ちにもせず、対応範囲を明示したV1.00として判断する。
+
+## 11. rollback・実行順・完了時の報告
+
+修正は論理単位のcommit候補に分け、適用前のテスト・適用後のテスト・移行要否を付ける。ユーザーの未コミット変更を保持し、一括stageや破壊的resetを使わない。今回の計画作成ではコミットしない。
+
+DBやschemaの変更は未公開の新世代へ行う。失敗時は新世代だけ保留し、正常性と出典条件を再確認できた既存世代を使う。壊れた索引や失効した正本へ戻すrollbackはしない。新Readerの再検証が公開成果物を書き換える可能性も、同時質問・中断と合わせて試験する。共有schemaを変える場合は旧版互換とmigrationを明示する。
+
+SQLite transactionのatomicityと、rename後の電源断耐性を分ける。DBと親directoryの同期・CONFIG切替順・復旧可能性を点検し、まずprocess停止／write失敗のfault injectionで検証する。利用者のPCを実際に強制電源断する試験は行わず、電源断相当の検証が必要なら専用の隔離環境と別の承認を用意する。process停止試験だけでhardware障害への耐久保証をしない。
+
+最初の実装着手は次の順に限定する。
+
+1. H0: 現状・未コミット差分・環境・試験範囲を固定し、隔離runを用意する。
+2. F01／F07: version graphの引渡し欠落を落ちる試験で固定し、全呼出し元・context・再検証・世代登録を含めて修正する。
+3. H1の入力安全境界を点検してから、F02〜F06と形式別Readerの反証へ進む。
+
+工数や「全体何分で終わるか」は今は断言しない。パス地図作成時間は、本文抽出・OCR・Embedding・回答監査・反証試験の時間ではない。H0と最初の修正ループの実績から、残件数・重さ・実機依存を使って見積りを更新する。
+
+最終報告には、修正ID、対象commit、実行した試験／未実行、対応形式とfeature、実機条件、残存制約、rollback、次の判断を含める。「敵対的監査に耐えた対象範囲」を示し、「すべての穴がなくなった」とは言わない。
+
+## 12. 根拠と計画レビュー
+
+- [S1: 索引projectorの再検証呼出し](/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/distribution/macos-local-memory/engine/build_local_semantic_index.py:833)
+- [S2: 版graph引数の検証](/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/distribution/macos-local-memory/engine/validate_adaptive_semantic_graph.py:2505)
+- [S3: 版候補と自動選択・Validator](/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/distribution/macos-local-memory/engine/document_version_resolver.py:143)
+- [S4: HITL候補表示](/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/distribution/macos-local-memory/app/local_memory_server.py:648)
+- [S5: rebuildでの版graphとReaderの順序](/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/distribution/macos-local-memory/app/bootstrap.py:3624)
+- [S6: 既存のReaderまでの版判定試験](/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/distribution/macos-local-memory/tests/test_document_version_resolver.py:192)
+- [S7: adaptive bridgeのallowlist](/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/distribution/macos-local-memory/engine/build_adaptive_semantic_graph.py:34)
+- [S8: 配布版の対応・制限・現行版](/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/distribution/macos-local-memory/README.md:1)
+- [S9: Reader本体。表中のコロン後の数値は関数の参照行](/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/scripts/probe_intermediate_records.py:3172)
+- [S10: Readerの配布コピー元](/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/distribution/macos-local-memory/build/build_package.sh:40)
+- [S11: 通常回答の検索・prompt・snapshot経路](/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/distribution/macos-local-memory/engine/answer_local_memory_v2.py:569)
+- [S12: Path Graphの原本hash読取](/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/distribution/macos-local-memory/engine/build_path_graph.py:110)
+- [S13: 共通のOllama HTTP呼出し](/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/distribution/macos-local-memory/engine/answer_local_memory.py:129)
+
+外部資料は攻撃面のチェック漏れを減らすための参考であり、本コードに脆弱性が存在する証拠ではない。取込から出力までを分けて調べる観点は[OWASP RAG Security](https://cheatsheetseries.owasp.org/cheatsheets/RAG_Security_Cheat_Sheet.html)も参照した。
+
+この計画書自身も、契約と根拠を固定して別担当が確認する。計画レビューの合格と、製品V1.00の受入合格は別である。製品への実装・全試験は今後の作業。

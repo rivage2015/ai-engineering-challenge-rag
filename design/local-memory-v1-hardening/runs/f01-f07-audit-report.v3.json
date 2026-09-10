@@ -1,0 +1,86 @@
+{
+  "schema_version": "1.0",
+  "audit_id": "lms-v1-00-hardening-2026-09-09-f01-f07-audit-v3",
+  "task_id": "lms-v1-00-hardening-2026-09-09-f01-f07",
+  "artifact_hash": "95eafcac7d360ed6736355c3585b50a864487e4a7c6f54cfa83ab2b0ce8b893e",
+  "auditor_context": {
+    "independence_level": "same_model_separate_context",
+    "source_scope": [
+      "Final re-audit after repair round 2 of 2, limited to F01/F07 and prior required check F01F07-R04. Actual submitted artifact hash and all eight source-manifest hashes matched; BOOTSTRAP, PROJECTOR, VALIDATOR and RESOLVER hashes are unchanged from v2.",
+      "Inspected immutable v3 contract, graph, patch, complete Executor record, prior v2 findings, actual schema fixture diff, both lineage helper consumers and the attested binding metadata path. Independently normalized exactly six successful mock return wrappers and compared the complete resulting Python AST against HEAD; it matched. HEAD schema source SHA-256 b538d8478d8a18433cc5397893445e1bef6ab005a37b7c1f8287bdf24152ee7a.",
+      "Independent Python 3.14.6 executions: complete schema suite 20 passed in 0.082 seconds; focused E2E 15 passed in 1.459 seconds; related lineage/migration 15 passed in 0.372 seconds; unchanged original Auditor counterexamples two passed in 0.217 seconds. Total 52 test executions, zero skips or expected failures. Times are unittest-reported.",
+      "Runner design/local-memory-v1-hardening/runs/f01-f07-audit-runner.v3.py SHA-256 a21d771569fd0d2c859cc1c8d94ee5019315fa7fa88f79485daa4db451342ee1. Each suite ran under a 30-second subprocess supervisor and 1-MiB returned-output bound, with HTTPConnection.connect, urllib OpenerDirector.open and Popen guarded; model/CLI behavior was synthetic and in-process. No real source documents, endpoint, keychain, GUI, production generation or product files were modified.",
+      "Reused unchanged original Auditor fixture f01-f07-adversarial-test.v1.py SHA-256 c96796f678df4714ee6dde78c6e3228c1bece111f91e9f7fa5a63e651ec77d77. Related tests reused inspected F01-003-regression-wrapper.py SHA-256 7729bf35a3fcdefc3c29fae91e27a20f7e77f0c85c110235de47c39f5693df53 in its guarded worker mode; test_semantic_lineage_relations.py SHA-256 1656f08019db1f1910e1a82329048c603b3525980f685e362d9bc30dd8934732.",
+      "Every independent suite checked the artifact, all submitted sources, selected test/runner and shared dependencies before and after; all hashes remained unchanged within each run. Observed shared parser SHA-256 b36632a6acfdcf11491495a18fd6becdf0ce683bbcb7a55f96ba0eaa23c74a94 is newer than the artifact's historical db73270807c3e976fb51f38ff51cc6cd40dd7c0ef3c2d6954fc1f924acd8ab3d observation. These are stable current-integration observations, not reruns of the historical parser snapshot or certification of its F10 changes.",
+      "Other stable observed shared hashes: build_path_graph.py 621746dc0d0ff0857db2c21844e7c042b9bf12debd47b7c145840d89479f8fdd; answer_local_memory.py 33f2b25e9d434e00b216be162d3e60dd8d322409cb108d07e26e455f4a1f34b2; answer_local_memory_v2.py 8677d5d49c37e081ad2c2ab06bd9c4734280ef5d3e4b2941a1fe570061388e60. No test was counted as conclusive across a detected concurrent edit. Python 3.9 diagnostic failures described by Executor were inspected as recorded evidence, not independently rerun or counted as passing acceptance."
+    ]
+  },
+  "status": "pass",
+  "checks": [
+    {
+      "check_id": "F01F07-S01",
+      "check_type": "evidence",
+      "target_ids": ["F01", "F07", "COMPATIBILITY"],
+      "verdict": "pass",
+      "severity": "info",
+      "reason": "The actual artifact SHA-256 and all eight source hashes match. Product source hashes are identical to v2, while the newly changed schema test is now an explicit source. The four independently observed suites all passed with stable pre/post hashes. The separately owned parser changed before these executions, not during them, and its observed hash is recorded rather than attributed to the older snapshot.",
+      "evidence_ids": ["BOOTSTRAP", "PROJECTOR", "VALIDATOR", "RESOLVER", "TESTS", "MIGRATION", "SCHEMA_TESTS", "EXECUTOR"],
+      "required_action": null
+    },
+    {
+      "check_id": "F01F07-S02",
+      "check_type": "dependency",
+      "target_ids": ["COMPATIBILITY", "F07", "BINDING", "LEGACY", "E02"],
+      "verdict": "pass",
+      "severity": "info",
+      "reason": "Required v2 check F01F07-R04 is resolved. Exactly six _attest_lineage_context success mocks now return the original expression under lineage_validation plus document_version_graph: null. Independently removing only these six wrappers yields an AST identical to the original HEAD test file; all other test logic and assertions are preserved. In particular, forged incomplete fan-in and tampered relation-source hash still mutate the original inner state and must trigger their existing ValueErrors. The complete schema suite reaches and passes all 20 tests, including the five methods previously interrupted by KeyError, empty lineage, 43-derived-node fan-in, relation/topology preservation, strict state handling and transactional rollback.",
+      "evidence_ids": ["SCHEMA_TESTS", "PROJECTOR", "EXECUTOR"],
+      "required_action": null
+    },
+    {
+      "check_id": "F01F07-S03",
+      "check_type": "safety",
+      "target_ids": ["BINDING", "F01", "E01"],
+      "verdict": "pass",
+      "severity": "info",
+      "reason": "The metadata TOCTOU correction from v2 remains intact in unchanged product code. The validator returns binding values derived from the explicit input and hashes checked in that invocation. The projector requires the binding field, detaches it from the report, forwards it through security/graph attestation and writes graph_report.document_version_graph to metadata without a later producer-state reread. Both the permanent transient-state-swap E2E and unchanged independent swap/restore counterexample passed; the original attested binding, rather than the substituted state binding, remains published. The independent same-bytes wrong-path registration counterexample also remains rejected.",
+      "evidence_ids": ["VALIDATOR", "PROJECTOR", "BOOTSTRAP", "TESTS", "EXECUTOR"],
+      "required_action": null
+    },
+    {
+      "check_id": "F01F07-S04",
+      "check_type": "coverage",
+      "target_ids": ["F01", "LEGACY", "FAILURE", "F07"],
+      "verdict": "pass",
+      "severity": "info",
+      "reason": "All 15 focused cases passed through the guarded synthetic app workflow. They cover successful explicit version publication/query/final gates, missing and wrong graph rejection, omission without replacement of an existing index, old attestation reports lacking the new field, unknown fields/null version paths, accepted unversioned legacy input and rejected unexpected explicit versions, changed graph/resolver registration, previous-generation retention after failure, human choice followed by source change, and ambiguous questions not promoted by the mock model. These observations support wiring and rejection contracts, not untested model semantics.",
+      "evidence_ids": ["TESTS", "BOOTSTRAP", "PROJECTOR", "VALIDATOR"],
+      "required_action": null
+    },
+    {
+      "check_id": "F01F07-S05",
+      "check_type": "dependency",
+      "target_ids": ["COMPATIBILITY", "BINDING", "LEGACY", "LIMITS"],
+      "verdict": "pass",
+      "severity": "info",
+      "reason": "The binding remains outside the exact-field-set lineage_validation state, so updating mocks does not weaken the stored state schema. Both production helper consumers unpack the wrapper. The two fixture-root resolve() adjustments canonicalize only newly created synthetic TemporaryDirectory paths and do not relax the separate F16 product path policy. The guarded related suite passed all eight lineage and seven migration cases on that combined tree, including failed/tampered binding, cross-document rejection, publication after validation and generation code/artifact identity changes.",
+      "evidence_ids": ["PROJECTOR", "VALIDATOR", "SCHEMA_TESTS", "TESTS", "MIGRATION", "EXECUTOR"],
+      "required_action": null
+    },
+    {
+      "check_id": "F01F07-S06",
+      "check_type": "intent",
+      "target_ids": ["LIMITS", "F07", "COMPATIBILITY"],
+      "verdict": "pass",
+      "severity": "warning",
+      "reason": "The Executor distinguishes its earlier failed runs and unsupported Python 3.9 rollback diagnostic from accepted Python 3.14 runs; this audit does not upgrade those failures or independently certify their root cause. The pass applies only to F01/F07 and the completed mock-contract repair. F02-F06 selection policy, F18 validator publication/mutation, broader filesystem races, same-user compromise, real models, native HTTP/GUI, full migration, packaging, separately owned parser/path-builder hardening and V1.00 product acceptance remain outside this judgment. No further repair round is requested, and prior revise reports remain preserved.",
+      "evidence_ids": ["EXECUTOR", "TESTS", "MIGRATION", "SCHEMA_TESTS"],
+      "required_action": null
+    }
+  ],
+  "summary": {
+    "blocking_failures": 0,
+    "unresolved_count": 0,
+    "next_action": "deliver"
+  }
+}

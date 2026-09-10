@@ -1,0 +1,752 @@
+{
+  "schema_version": "1.0",
+  "task_id": "lms-v1-00-hardening-2026-09-09-f03a-next",
+  "status": "baseline_observations_confirmed_not_product_acceptance",
+  "resolver_sha256": "9a7443862c015ed768007ef5a7b21bd3bc197c9bb7a3d7ed2f7b39b33374359d",
+  "resolver_bytes": 21959,
+  "python": "3.14.6",
+  "executable": "/opt/homebrew/opt/python@3.14/bin/python3.14",
+  "fixture_bytes_cumulative": 26054,
+  "elapsed_seconds": 0.005285,
+  "methods_run": 4,
+  "observations": [
+    {
+      "id": "same_family_unmarked_addition_defect",
+      "added_path": "業務内容.xlsx",
+      "inventory_hash_changed": true,
+      "candidate_set_unchanged": true,
+      "actual_build": {
+        "counts": {
+          "groups": 1,
+          "resolved": 1,
+          "needs_human_review": 0
+        },
+        "groups": [
+          {
+            "group_id": "version_set_e8101fe4d635552c563e221d8cf1a5c1",
+            "status": "resolved",
+            "reason": "human_confirmed_active",
+            "selected": "業務内容_ver1.xlsx",
+            "basis": "human",
+            "candidate_set_sha256": "f09ae325919472e249904e42956f26daf812c7c2507810141417e3416538ac8e",
+            "dispositions": {
+              "業務内容_ver1.xlsx": "active",
+              "業務内容_ver2.xlsx": "historical"
+            }
+          }
+        ],
+        "active_edge_count": 1
+      }
+    },
+    {
+      "id": "same_family_marked_addition_control",
+      "added_path": "業務内容_ver3.xlsx",
+      "inventory_hash_changed": true,
+      "candidate_set_unchanged": false,
+      "actual_build": {
+        "counts": {
+          "groups": 1,
+          "resolved": 0,
+          "needs_human_review": 1
+        },
+        "groups": [
+          {
+            "group_id": "version_set_e8101fe4d635552c563e221d8cf1a5c1",
+            "status": "needs_human_review",
+            "reason": "stale_human_decision",
+            "selected": null,
+            "basis": null,
+            "candidate_set_sha256": "53cf8ef15bc54598b8505d74db76c04e62c128af8539702eb9e94a411fbc018a",
+            "dispositions": {
+              "業務内容_ver1.xlsx": "needs_human_review",
+              "業務内容_ver2.xlsx": "needs_human_review",
+              "業務内容_ver3.xlsx": "needs_human_review"
+            }
+          }
+        ],
+        "active_edge_count": 0
+      }
+    },
+    {
+      "id": "other_family_addition_control",
+      "added_path": "連絡先.xlsx",
+      "inventory_hash_changed": true,
+      "candidate_set_unchanged": true,
+      "actual_build": {
+        "counts": {
+          "groups": 1,
+          "resolved": 1,
+          "needs_human_review": 0
+        },
+        "groups": [
+          {
+            "group_id": "version_set_e8101fe4d635552c563e221d8cf1a5c1",
+            "status": "resolved",
+            "reason": "human_confirmed_active",
+            "selected": "業務内容_ver1.xlsx",
+            "basis": "human",
+            "candidate_set_sha256": "f09ae325919472e249904e42956f26daf812c7c2507810141417e3416538ac8e",
+            "dispositions": {
+              "業務内容_ver1.xlsx": "active",
+              "業務内容_ver2.xlsx": "historical"
+            }
+          }
+        ],
+        "active_edge_count": 1
+      }
+    },
+    {
+      "id": "other_suffix_addition_residual",
+      "added_path": "業務内容.pdf",
+      "inventory_hash_changed": true,
+      "candidate_set_unchanged": true,
+      "actual_build": {
+        "counts": {
+          "groups": 1,
+          "resolved": 1,
+          "needs_human_review": 0
+        },
+        "groups": [
+          {
+            "group_id": "version_set_e8101fe4d635552c563e221d8cf1a5c1",
+            "status": "resolved",
+            "reason": "human_confirmed_active",
+            "selected": "業務内容_ver1.xlsx",
+            "basis": "human",
+            "candidate_set_sha256": "f09ae325919472e249904e42956f26daf812c7c2507810141417e3416538ac8e",
+            "dispositions": {
+              "業務内容_ver1.xlsx": "active",
+              "業務内容_ver2.xlsx": "historical"
+            }
+          }
+        ],
+        "active_edge_count": 1
+      }
+    },
+    {
+      "id": "other_folder_addition_residual",
+      "added_path": "部署B/業務内容.xlsx",
+      "inventory_hash_changed": true,
+      "candidate_set_unchanged": true,
+      "actual_build": {
+        "counts": {
+          "groups": 1,
+          "resolved": 1,
+          "needs_human_review": 0
+        },
+        "groups": [
+          {
+            "group_id": "version_set_e8101fe4d635552c563e221d8cf1a5c1",
+            "status": "resolved",
+            "reason": "human_confirmed_active",
+            "selected": "業務内容_ver1.xlsx",
+            "basis": "human",
+            "candidate_set_sha256": "f09ae325919472e249904e42956f26daf812c7c2507810141417e3416538ac8e",
+            "dispositions": {
+              "業務内容_ver1.xlsx": "active",
+              "業務内容_ver2.xlsx": "historical"
+            }
+          }
+        ],
+        "active_edge_count": 1
+      }
+    },
+    {
+      "id": "marked_content_change_0_control",
+      "actual_build": {
+        "counts": {
+          "groups": 1,
+          "resolved": 0,
+          "needs_human_review": 1
+        },
+        "groups": [
+          {
+            "group_id": "version_set_e8101fe4d635552c563e221d8cf1a5c1",
+            "status": "needs_human_review",
+            "reason": "stale_human_decision",
+            "selected": null,
+            "basis": null,
+            "candidate_set_sha256": "723c8733b62281bcb3dab6a6b59317835343b9b324287ae2f0650a875956ac32",
+            "dispositions": {
+              "業務内容_ver1.xlsx": "needs_human_review",
+              "業務内容_ver2.xlsx": "needs_human_review"
+            }
+          }
+        ],
+        "active_edge_count": 0
+      }
+    },
+    {
+      "id": "marked_content_change_1_control",
+      "actual_build": {
+        "counts": {
+          "groups": 1,
+          "resolved": 0,
+          "needs_human_review": 1
+        },
+        "groups": [
+          {
+            "group_id": "version_set_e8101fe4d635552c563e221d8cf1a5c1",
+            "status": "needs_human_review",
+            "reason": "stale_human_decision",
+            "selected": null,
+            "basis": null,
+            "candidate_set_sha256": "2491335e2dcb3303c621d1d5b05889c9c3b29e2f8cd436d23c677d19cd41b4f3",
+            "dispositions": {
+              "業務内容_ver1.xlsx": "needs_human_review",
+              "業務内容_ver2.xlsx": "needs_human_review"
+            }
+          }
+        ],
+        "active_edge_count": 0
+      }
+    },
+    {
+      "id": "omitted_unmarked_content_change_defect",
+      "group_unchanged": true,
+      "actual_build": {
+        "counts": {
+          "groups": 1,
+          "resolved": 1,
+          "needs_human_review": 0
+        },
+        "groups": [
+          {
+            "group_id": "version_set_e8101fe4d635552c563e221d8cf1a5c1",
+            "status": "resolved",
+            "reason": "human_confirmed_active",
+            "selected": "業務内容_ver1.xlsx",
+            "basis": "human",
+            "candidate_set_sha256": "f09ae325919472e249904e42956f26daf812c7c2507810141417e3416538ac8e",
+            "dispositions": {
+              "業務内容_ver1.xlsx": "active",
+              "業務内容_ver2.xlsx": "historical"
+            }
+          }
+        ],
+        "active_edge_count": 1
+      }
+    },
+    {
+      "id": "inclusion_only_is_insufficient_counterfactual",
+      "execution_kind": "direct resolve_group with manually supplied signal-free candidate; NOT actual build output",
+      "status": "resolved",
+      "reason": "unique_explicit_current_marker",
+      "selected": "現行/手順.csv",
+      "dispositions": {
+        "手順.csv": "historical",
+        "現行/手順.csv": "active"
+      }
+    },
+    {
+      "id": "rename_peer_to_unmarked_defect",
+      "changed_path": "業務内容.xlsx",
+      "old_decision_group_omitted_not_explicitly_invalidated": true,
+      "actual_build": {
+        "counts": {
+          "groups": 0,
+          "resolved": 0,
+          "needs_human_review": 0
+        },
+        "groups": [],
+        "active_edge_count": 0
+      }
+    },
+    {
+      "id": "rename_peer_to_other_family_residual",
+      "changed_path": "手順_ver2.xlsx",
+      "old_decision_group_omitted_not_explicitly_invalidated": true,
+      "actual_build": {
+        "counts": {
+          "groups": 0,
+          "resolved": 0,
+          "needs_human_review": 0
+        },
+        "groups": [],
+        "active_edge_count": 0
+      }
+    },
+    {
+      "id": "move_peer_other_folder_residual",
+      "changed_path": "部署B/業務内容_ver2.xlsx",
+      "old_decision_group_omitted_not_explicitly_invalidated": true,
+      "actual_build": {
+        "counts": {
+          "groups": 0,
+          "resolved": 0,
+          "needs_human_review": 0
+        },
+        "groups": [],
+        "active_edge_count": 0
+      }
+    },
+    {
+      "id": "change_peer_suffix_residual",
+      "changed_path": "業務内容_ver2.pdf",
+      "old_decision_group_omitted_not_explicitly_invalidated": true,
+      "actual_build": {
+        "counts": {
+          "groups": 0,
+          "resolved": 0,
+          "needs_human_review": 0
+        },
+        "groups": [],
+        "active_edge_count": 0
+      }
+    },
+    {
+      "id": "f02a_year_hold_control",
+      "actual_build": {
+        "counts": {
+          "groups": 1,
+          "resolved": 0,
+          "needs_human_review": 1
+        },
+        "groups": [
+          {
+            "group_id": "version_set_e5470c72bb840b3324c49085d57a7907",
+            "status": "needs_human_review",
+            "reason": "year_order_does_not_establish_supersession",
+            "selected": null,
+            "basis": null,
+            "candidate_set_sha256": "9067086b081f86c76cdda8cc295fdaf39ffe5a5550e552c151f67f35ef6efd47",
+            "dispositions": {
+              "実績2024.csv": "needs_human_review",
+              "実績2025.csv": "needs_human_review"
+            }
+          }
+        ],
+        "active_edge_count": 0
+      }
+    },
+    {
+      "id": "f04a_current_conflict_control",
+      "actual_build": {
+        "counts": {
+          "groups": 1,
+          "resolved": 0,
+          "needs_human_review": 1
+        },
+        "groups": [
+          {
+            "group_id": "version_set_178cb6bf3153990068815afa7ccb708b",
+            "status": "needs_human_review",
+            "reason": "current_marker_conflicts_with_latest_version",
+            "selected": null,
+            "basis": null,
+            "candidate_set_sha256": "1e902272e8d24b9f2cd6256f63b0bf029ec8c7f754b73fb4134ca194aa2278d8",
+            "dispositions": {
+              "手順_ver2.csv": "needs_human_review",
+              "現行/手順_ver1.csv": "needs_human_review"
+            }
+          }
+        ],
+        "active_edge_count": 0
+      }
+    },
+    {
+      "id": "numeric_success_control",
+      "actual_build": {
+        "counts": {
+          "groups": 1,
+          "resolved": 1,
+          "needs_human_review": 0
+        },
+        "groups": [
+          {
+            "group_id": "version_set_178cb6bf3153990068815afa7ccb708b",
+            "status": "resolved",
+            "reason": "unique_latest_explicit_version",
+            "selected": "手順_ver2.csv",
+            "basis": "automatic",
+            "candidate_set_sha256": "72ba35fff6a3a55c24f80de7d5fd5f5c64a481b6f72977509edef3d3bf20cfaf",
+            "dispositions": {
+              "手順_ver1.csv": "historical",
+              "手順_ver2.csv": "active"
+            }
+          }
+        ],
+        "active_edge_count": 1
+      }
+    },
+    {
+      "id": "year_basename",
+      "paths": [
+        "業務内容2024.xlsx",
+        "業務内容.xlsx"
+      ],
+      "same_family_key": true,
+      "candidate_flags": [
+        true,
+        false
+      ],
+      "family_keys": [
+        "\u0000業務内容\u0000.xlsx",
+        "\u0000業務内容\u0000.xlsx"
+      ],
+      "actual_build": {
+        "counts": {
+          "groups": 0,
+          "resolved": 0,
+          "needs_human_review": 0
+        },
+        "groups": [],
+        "active_edge_count": 0
+      },
+      "order_invariant": true
+    },
+    {
+      "id": "annual_neutral_words",
+      "paths": [
+        "記録/実績2024.csv",
+        "記録/実績.csv"
+      ],
+      "same_family_key": true,
+      "candidate_flags": [
+        true,
+        false
+      ],
+      "family_keys": [
+        "記録\u0000実績\u0000.csv",
+        "記録\u0000実績\u0000.csv"
+      ],
+      "actual_build": {
+        "counts": {
+          "groups": 0,
+          "resolved": 0,
+          "needs_human_review": 0
+        },
+        "groups": [],
+        "active_edge_count": 0
+      },
+      "order_invariant": true
+    },
+    {
+      "id": "numeric_version",
+      "paths": [
+        "手順_ver1.csv",
+        "手順.csv"
+      ],
+      "same_family_key": true,
+      "candidate_flags": [
+        true,
+        false
+      ],
+      "family_keys": [
+        "\u0000手順\u0000.csv",
+        "\u0000手順\u0000.csv"
+      ],
+      "actual_build": {
+        "counts": {
+          "groups": 0,
+          "resolved": 0,
+          "needs_human_review": 0
+        },
+        "groups": [],
+        "active_edge_count": 0
+      },
+      "order_invariant": true
+    },
+    {
+      "id": "current_marker",
+      "paths": [
+        "現行/手順.csv",
+        "手順.csv"
+      ],
+      "same_family_key": true,
+      "candidate_flags": [
+        true,
+        false
+      ],
+      "family_keys": [
+        "\u0000手順\u0000.csv",
+        "\u0000手順\u0000.csv"
+      ],
+      "actual_build": {
+        "counts": {
+          "groups": 0,
+          "resolved": 0,
+          "needs_human_review": 0
+        },
+        "groups": [],
+        "active_edge_count": 0
+      },
+      "order_invariant": true
+    },
+    {
+      "id": "historical_marker",
+      "paths": [
+        "旧版/手順.csv",
+        "手順.csv"
+      ],
+      "same_family_key": true,
+      "candidate_flags": [
+        true,
+        false
+      ],
+      "family_keys": [
+        "\u0000手順\u0000.csv",
+        "\u0000手順\u0000.csv"
+      ],
+      "actual_build": {
+        "counts": {
+          "groups": 0,
+          "resolved": 0,
+          "needs_human_review": 0
+        },
+        "groups": [],
+        "active_edge_count": 0
+      },
+      "order_invariant": true
+    },
+    {
+      "id": "draft_marker",
+      "paths": [
+        "手順_下書き.csv",
+        "手順.csv"
+      ],
+      "same_family_key": true,
+      "candidate_flags": [
+        true,
+        false
+      ],
+      "family_keys": [
+        "\u0000手順\u0000.csv",
+        "\u0000手順\u0000.csv"
+      ],
+      "actual_build": {
+        "counts": {
+          "groups": 0,
+          "resolved": 0,
+          "needs_human_review": 0
+        },
+        "groups": [],
+        "active_edge_count": 0
+      },
+      "order_invariant": true
+    },
+    {
+      "id": "year_directory",
+      "paths": [
+        "2024/業務内容.xlsx",
+        "業務内容.xlsx"
+      ],
+      "same_family_key": true,
+      "candidate_flags": [
+        true,
+        false
+      ],
+      "family_keys": [
+        "\u0000業務内容\u0000.xlsx",
+        "\u0000業務内容\u0000.xlsx"
+      ],
+      "actual_build": {
+        "counts": {
+          "groups": 0,
+          "resolved": 0,
+          "needs_human_review": 0
+        },
+        "groups": [],
+        "active_edge_count": 0
+      },
+      "order_invariant": true
+    },
+    {
+      "id": "year_kanji_directory_residual",
+      "paths": [
+        "2024年/業務内容.xlsx",
+        "業務内容.xlsx"
+      ],
+      "same_family_key": false,
+      "candidate_flags": [
+        true,
+        false
+      ],
+      "family_keys": [
+        "年\u0000業務内容\u0000.xlsx",
+        "\u0000業務内容\u0000.xlsx"
+      ],
+      "actual_build": {
+        "counts": {
+          "groups": 0,
+          "resolved": 0,
+          "needs_human_review": 0
+        },
+        "groups": [],
+        "active_edge_count": 0
+      },
+      "order_invariant": true
+    },
+    {
+      "id": "suffix_change_residual",
+      "paths": [
+        "業務内容2024.xlsx",
+        "業務内容.pdf"
+      ],
+      "same_family_key": false,
+      "candidate_flags": [
+        true,
+        false
+      ],
+      "family_keys": [
+        "\u0000業務内容\u0000.xlsx",
+        "\u0000業務内容\u0000.pdf"
+      ],
+      "actual_build": {
+        "counts": {
+          "groups": 0,
+          "resolved": 0,
+          "needs_human_review": 0
+        },
+        "groups": [],
+        "active_edge_count": 0
+      },
+      "order_invariant": true
+    },
+    {
+      "id": "meaningful_rename_residual",
+      "paths": [
+        "業務内容2024.xlsx",
+        "業務手順.xlsx"
+      ],
+      "same_family_key": false,
+      "candidate_flags": [
+        true,
+        false
+      ],
+      "family_keys": [
+        "\u0000業務内容\u0000.xlsx",
+        "\u0000業務手順\u0000.xlsx"
+      ],
+      "actual_build": {
+        "counts": {
+          "groups": 0,
+          "resolved": 0,
+          "needs_human_review": 0
+        },
+        "groups": [],
+        "active_edge_count": 0
+      },
+      "order_invariant": true
+    },
+    {
+      "id": "different_family_control",
+      "paths": [
+        "業務内容2024.xlsx",
+        "連絡先.xlsx"
+      ],
+      "same_family_key": false,
+      "candidate_flags": [
+        true,
+        false
+      ],
+      "family_keys": [
+        "\u0000業務内容\u0000.xlsx",
+        "\u0000連絡先\u0000.xlsx"
+      ],
+      "actual_build": {
+        "counts": {
+          "groups": 0,
+          "resolved": 0,
+          "needs_human_review": 0
+        },
+        "groups": [],
+        "active_edge_count": 0
+      },
+      "order_invariant": true
+    },
+    {
+      "id": "different_folder_control",
+      "paths": [
+        "部署A/業務内容2024.xlsx",
+        "部署B/業務内容.xlsx"
+      ],
+      "same_family_key": false,
+      "candidate_flags": [
+        true,
+        false
+      ],
+      "family_keys": [
+        "部署a\u0000業務内容\u0000.xlsx",
+        "部署b\u0000業務内容\u0000.xlsx"
+      ],
+      "actual_build": {
+        "counts": {
+          "groups": 0,
+          "resolved": 0,
+          "needs_human_review": 0
+        },
+        "groups": [],
+        "active_edge_count": 0
+      },
+      "order_invariant": true
+    },
+    {
+      "id": "all_unmarked_copy_control",
+      "paths": [
+        "業務内容.xlsx",
+        "業務内容コピー.xlsx"
+      ],
+      "same_family_key": true,
+      "candidate_flags": [
+        false,
+        false
+      ],
+      "family_keys": [
+        "\u0000業務内容\u0000.xlsx",
+        "\u0000業務内容\u0000.xlsx"
+      ],
+      "actual_build": {
+        "counts": {
+          "groups": 0,
+          "resolved": 0,
+          "needs_human_review": 0
+        },
+        "groups": [],
+        "active_edge_count": 0
+      },
+      "order_invariant": true
+    },
+    {
+      "id": "all_unmarked_neutral_control",
+      "paths": [
+        "業務_内容.xlsx",
+        "業務内容.xlsx"
+      ],
+      "same_family_key": true,
+      "candidate_flags": [
+        false,
+        false
+      ],
+      "family_keys": [
+        "\u0000業務内容\u0000.xlsx",
+        "\u0000業務内容\u0000.xlsx"
+      ],
+      "actual_build": {
+        "counts": {
+          "groups": 0,
+          "resolved": 0,
+          "needs_human_review": 0
+        },
+        "groups": [],
+        "active_edge_count": 0
+      },
+      "order_invariant": true
+    }
+  ],
+  "limitations": [
+    "No product modifications",
+    "I/O adapters and frozen clock only in probe memory",
+    "No Reader/index/UI/CONFIG/model/network/record_decision/validate execution",
+    "Python guard is not OS isolation or F05 certification"
+  ]
+}
+test_human_decision_later_addition (__main__.BaselineObservations.test_human_decision_later_addition) ... ok
+test_inclusion_only_current_marker_counterfactual (__main__.BaselineObservations.test_inclusion_only_current_marker_counterfactual) ... ok
+test_membership_loss_boundaries_and_existing_controls (__main__.BaselineObservations.test_membership_loss_boundaries_and_existing_controls) ... ok
+test_pair_membership_boundaries (__main__.BaselineObservations.test_pair_membership_boundaries) ... ok
+
+----------------------------------------------------------------------
+Ran 4 tests in 0.003s
+
+OK

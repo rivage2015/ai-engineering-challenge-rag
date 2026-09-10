@@ -408,7 +408,9 @@ class SemanticLineageRelationTests(unittest.TestCase):
                 source_root, inventory_path, output, ROOT / "scripts",
             )
 
-            report = validator.validate(output, source_root, inventory_path)
+            report = validator.validate(
+                output, source_root, inventory_path, initialize_lineage=True,
+            )
 
             relations_path = output / validator.LINEAGE_RELATIONS_FILE
             state_path = output / validator.LINEAGE_VALIDATION_FILE
@@ -588,6 +590,11 @@ class SemanticLineageRelationTests(unittest.TestCase):
             finally:
                 connection.close()
 
+            # F18: failed read-only revalidation preserves published lineage.
+            lineage_before_failure = {
+                path: (path.read_bytes(), path.stat().st_ino, path.stat().st_mtime_ns)
+                for path in (relations_path, state_path)
+            }
             evidence[0]["observed_text"] += " tampered"
             (output / "semantic-evidence.jsonl").write_text(
                 "".join(canonical(item) + "\n" for item in evidence),
@@ -595,8 +602,13 @@ class SemanticLineageRelationTests(unittest.TestCase):
             )
             with self.assertRaises(ValueError):
                 validator.validate(output, source_root, inventory_path)
-            self.assertFalse(relations_path.exists())
-            self.assertFalse(state_path.exists())
+            self.assertEqual(
+                lineage_before_failure,
+                {
+                    path: (path.read_bytes(), path.stat().st_ino, path.stat().st_mtime_ns)
+                    for path in (relations_path, state_path)
+                },
+            )
 
     def test_validator_rejects_mixed_search_run_timestamps(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
@@ -652,7 +664,9 @@ class SemanticLineageRelationTests(unittest.TestCase):
             with self.assertRaisesRegex(
                 ValueError, "lineage_search_unit_run_mismatch"
             ):
-                validator.validate(output, source_root, inventory_path)
+                validator.validate(
+                    output, source_root, inventory_path, initialize_lineage=True,
+                )
 
 
 if __name__ == "__main__":

@@ -1,0 +1,43 @@
+{
+  "schema_version": "1.0",
+  "task_id": "lms-v1-00-hardening-2026-09-09-f03a",
+  "status": "authorized_test_first_product_edit_waits_for_parent_red_gate",
+  "task_contract": "design/local-memory-v1-hardening/runs/f03a-task-contract.v1.md",
+  "task_contract_sha256": "1a5244d9fd4c537aeaaec88f44d358e24f1b1d56441beaf4ec60fe2a34e07924",
+  "owner": "root/f02_contract_review",
+  "owned_product_file": "distribution/macos-local-memory/engine/document_version_resolver.py",
+  "owned_new_test": "tests/test_unmarked_version_candidates.py",
+  "limited_existing_test_edit": "distribution/macos-local-memory/tests/test_document_version_resolver.py: exact resolver version assertion 0.1.2 to 0.1.3 only",
+  "before_hashes": {
+    "distribution/macos-local-memory/engine/document_version_resolver.py": "9a7443862c015ed768007ef5a7b21bd3bc197c9bb7a3d7ed2f7b39b33374359d",
+    "distribution/macos-local-memory/tests/test_document_version_resolver.py": "b7c323f48f10488ef2dc245dacc265ad0dd5b77ea37e50b9e4b32504bda7b293",
+    "distribution/macos-local-memory/tests/test_versioned_safe_index_e2e.py": "41540a858d17f8abb322c15353032ec4dd3099eac4e767090f7b9dbabfbcf64a",
+    "distribution/macos-local-memory/README.md": "aa088a5b6ac8e2d83398d6adba8e36864d18808415cc002f03fe246b7e630c0b"
+  },
+  "acceptance": {
+    "resolver_version": "0.1.3",
+    "mixed_reason": "unmarked_candidate_requires_human_review",
+    "policy_candidate_rule": "same_family_valid_documents_with_at_least_one_version_signal",
+    "policy_mixed_signal_action": "needs_human_review",
+    "policy_automatic_rule": "mixed_signal_hold_else_unique_explicit_current_without_year_or_single_version_conflict_else_hold_all_dated_else_comparable_latest_version",
+    "candidate_shape_and_set_hash": "unchanged existing fields; empty signal arrays represent an eligible unmarked candidate; no new candidate field",
+    "family_key": "unchanged",
+    "all_unmarked_and_singleton": "no version group; not certified independent",
+    "mixed_group": "all held before automatic current/year/version branches",
+    "human_and_stale": "unchanged full-set human precedence; stale always held without automatic rescue",
+    "existing_all_marked_semantics": "unchanged F02a/F04a/numeric/current controls; known residuals not acceptance"
+  },
+  "execution_preflight": {
+    "pure_test": "Read-only resolver source <=1MiB preloaded after reviewed stdlib. Actual build with only in-memory IO adapters and fixed clock, actual resolve_group and projection. CLI installs file/network/process guards and 30s alarm; no worker writes, model/network/child process or source-document reads. Unexpected traceback formatter does not load source files.",
+    "focused_existing_suite": "Use reviewed H0 supervisor and existing accepted F04a guard after full reread; one fresh synthetic worker, <=1MiB cumulative source writes and logs, 30s. Models/network/worker subprocess denied. Guard is not OS sandbox proof.",
+    "parent_owned": "New app test/RED, existing E2E controls, README, formal graph artifact and parent validation; do not edit."
+  },
+  "sequence": [
+    "Freeze new pure test gold and hash; run genuine failing acceptance RED on unchanged source with new run ID.",
+    "Notify parent and wait for root-owned app RED and explicit product start signal.",
+    "Recheck before hashes, implement assigned minimal resolver change and one existing test identity assertion only.",
+    "Run guarded pure/focused controls with new IDs; retain every failure; save isolated before/after deltas and summary.",
+    "Freeze artifacts for separate-context audit; do not self-approve. Maximum two audit repair rounds."
+  ],
+  "rollback": "Assigned isolated hunks only after current hash check; saved exact before snapshots. Never reset whole dirty file/worktree, alter old records, touch original/CONFIG/index, commit or push."
+}

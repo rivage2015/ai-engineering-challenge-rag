@@ -1,0 +1,15 @@
+{
+  "schema_version": "1.0",
+  "task_id": "lms-v1-00-hardening-2026-09-09-f02a",
+  "status": "RED_record_consistent_not_product_acceptance",
+  "manifest_source_hashes_matched": 7,
+  "actual_required_red_method_count": 5,
+  "unchanged_control_method_count": 5,
+  "residual_witness_count_not_improvement_acceptance": 1,
+  "errors_skips_expected_failures": 0,
+  "raw_supervisor_status_preserved": "failed",
+  "raw_exit_code_preserved": 1,
+  "log_sha256": "9b01a46b4b24b5dbb60a213e012f682b5c99acc3faf632ec7245a61626b2ec82",
+  "command": "python3 -I -B design/local-memory-v1-hardening/runs/f02a-red-verify.v1.py",
+  "verifier_exit_code": 0
+}

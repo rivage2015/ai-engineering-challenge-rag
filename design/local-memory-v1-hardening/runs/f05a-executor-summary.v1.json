@@ -1,0 +1,50 @@
+{
+  "schema_version": "1.0",
+  "task_id": "lms-v1-00-hardening-2026-09-09-f05a",
+  "status": "implementation_ready_for_independent_audit_not_accepted",
+  "source_freeze": {
+    "resolver_version": "0.1.4",
+    "resolver_sha256": "4ca6df75ced0c44e7da4364509311aad21f81601ba9d42b88efc1f6a9b157734",
+    "old_resolver_test_sha256": "111b9ab6473145dbe0d43904219fb2355d9695e7e018798f1a75c5df11140d03",
+    "pure_test_sha256": "33dc00f8c0cbe2bbf095c9236da32f74ea3ccc87a97f995b05005f999a8028ba"
+  },
+  "changes": [
+    "Validate reconstructs complete version candidates/groups/policy/counts/projection from explicit caller inventory and optional decisions, not graph-held claims.",
+    "One read per authorized byte snapshot is used for parsing and hashing. No writes or graph-controlled path traversal occurs.",
+    "Strict JSON detects duplicate keys, nonfinite constants and overflowing floats; duplicate inventory paths and decision IDs are rejected before collapse.",
+    "Optional explicit validation --decisions and direct caller-path CLI dispatch preserve missing decision-file behavior while returning structured failures for missing required inputs.",
+    "Only existing resolver test change is its version assertion; pure gold original23 methods remain unchanged, with2 additive pre-audit boundary tests."
+  ],
+  "execution": {
+    "before_semantic_red": "8 methods, 26 assertion failures, 0 errors/skips/expected failures at c2b98254; failures are expectedFAIL versus actualPASS.",
+    "interim_green": "23 pure +20 existing resolver methods passed at8fdf93d1.",
+    "pre_audit_review_round_1": "2 additive methods produced2 assertion failures for positive/negative numeric overflow and2 CLI FileNotFoundError errors. Full run25; original23 stayed green. Original and interim snapshots retained.",
+    "final_green": "25 pure +20 existing resolver methods passed, no skips/expected failures, Python3.14.6.",
+    "all_attempted_runs": [
+      "f05a-executor-red-pure-001",
+      "f05a-executor-green-pure-001",
+      "f05a-executor-green-resolver-001",
+      "f05a-executor-review-red-001",
+      "f05a-executor-green-pure-002",
+      "f05a-executor-green-resolver-002"
+    ],
+    "formal_audit_repairs": 0,
+    "gold_fixture_corrections": 0,
+    "additive_gold_methods": 2
+  },
+  "verification": {
+    "git_diff_check": "passed for assigned product/test paths",
+    "reverse_delta_checks": "git apply --reverse --check passed for resolver, old resolver test and additive gold test deltas; no reverse edits applied.",
+    "source_manifest": "f05a-executor-manifest.v1.json includes37 files with bytes/hash and all6 result/log records.",
+    "guard": "Inherited reviewed F04a IO/process restrictions, pure E2E-import replacement with empty lifecycle only, explicit JSON serialization cap; supervisor30s/1MiB logs. Not OS isolation or totalRAM/disk guarantee.",
+    "source_protection": "Resolver before c2b98254 and old test7600fef6 snapshots byte/hash matched before changes; no protected product files, original documents, production CONFIG/index, commit or push were touched by executor."
+  },
+  "known_limits": [
+    "Only standalone resolver and root-owned immediate bootstrap gate; root must independently supply application validation evidence.",
+    "F05 overall and V1 incomplete: downstream full partition revalidation, post-gate graph swaps, immutable decision snapshots, source freshness and F06/F19 remain open.",
+    "Source path strings are unverified diagnostic metadata. Exact byte digests are not source-root or Human-identity attestations.",
+    "Shared deterministic policy primitives are reused; same-model separate-context audit adds procedural separation, not independent facts.",
+    "Snapshot matching does not prove absence of every intervening filesystem change."
+  ],
+  "next": "Root freezes artifact and all sources, obtains separate-context audit and performs deterministic schema/hash/reference/inverse-delta/result-log verification. Executor does not self-approve."
+}

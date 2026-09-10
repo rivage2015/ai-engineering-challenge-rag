@@ -1,0 +1,19 @@
+--- design/local-memory-v1-hardening/runs/f11a-executor-before-adaptive-validator.v1.py	2026-09-09 13:33:00
++++ distribution/macos-local-memory/engine/validate_adaptive_semantic_graph.py	2026-09-09 14:22:37
+@@ -98,7 +98,7 @@
+ ADAPTER_NAME = "layer1-to-local-memory-evidence-adapter"
+ ADAPTER_VERSION = "0.7.0"
+ SEARCH_UNIT_BUILDER = "search-unit-builder"
+-SEARCH_UNIT_BUILDER_VERSION = "0.6.0"
++SEARCH_UNIT_BUILDER_VERSION = "0.7.0"
+ SCHEMA_VERSION = "0.1"
+ QUESTION_SHARD_VERSION = "question-evidence-shard-v1"
+ MAX_QUESTION_EVIDENCE_CHARS = 1_600
+@@ -113,6 +113,7 @@
+     ("intermediate-record-extractor", "0.8.0"),
+     ("intermediate-record-extractor", "0.10.1"),
+     ("intermediate-record-extractor", "0.11.0"),
++    ("intermediate-record-extractor", "0.12.0"),
+ }
+ NATIVE_STRUCTURAL_RULE = "native containment"
+ NATIVE_SMARTART_CONNECTION_RULE = "native SmartArt srcId/destId connection"

@@ -1,0 +1,17 @@
+{
+  "schema_version": "1.0",
+  "task_id": "lms-v1-00-hardening-2026-09-09-f01-f07",
+  "artifact": "f01-f07-graph-artifact.v3.json",
+  "report": "f01-f07-audit-report.v3.json",
+  "actual_artifact_sha256": "95eafcac7d360ed6736355c3585b50a864487e4a7c6f54cfa83ab2b0ce8b893e",
+  "ruby_structural_referential_validator": "PASS",
+  "draft202012_schema_task_hash": "PASS",
+  "all_eight_current_source_hashes": "PASS",
+  "graph_edge_endpoints": "PASS",
+  "audit_status": "pass",
+  "repair_round": 2,
+  "independent_test_executions": 52,
+  "skips": 0,
+  "limits": "Scoped F01/F07 acceptance at this immutable snapshot. The auditor observed stable current shared parser b36632a6acfdcf11491495a18fd6becdf0ce683bbcb7a55f96ba0eaa23c74a94, not the artifact's historical parser. No F02-F06/F18, actual model quality, Python 3.9 compatibility, GUI, packaged product or universal safety acceptance. Deterministic schema/reference checks do not prove the auditor's semantic judgment.",
+  "next_action": "Accept the scoped repair; retain prior revise/failed records. Further independent work may change bootstrap under a separate contract and must recheck combined integration."
+}

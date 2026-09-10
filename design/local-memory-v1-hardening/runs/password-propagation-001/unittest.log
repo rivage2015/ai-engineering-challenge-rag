@@ -1,0 +1,8 @@
+test_direct_probe_failure_is_explicit (password_propagation_tests.PasswordFailurePropagationTests.test_direct_probe_failure_is_explicit) ... ok
+test_failed_document_has_no_evidence_and_next_text_succeeds (password_propagation_tests.PasswordFailurePropagationTests.test_failed_document_has_no_evidence_and_next_text_succeeds) ... ok
+F05b explicit fixture budget: {"explicit_test_bytes": 103, "explicit_test_writes": 3, "max_source_fixture_bytes": 86, "source_fixture_count": 1}
+
+----------------------------------------------------------------------
+Ran 2 tests in 0.003s
+
+OK

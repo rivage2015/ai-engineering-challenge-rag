@@ -1,0 +1,100 @@
+{
+  "schema_version": "1.0",
+  "audit_id": "lms-v1-00-f16-builder-audit-v2",
+  "task_id": "lms-v1-00-hardening-2026-09-09-f16",
+  "artifact_hash": "f2c1e384fd7d03827e478fdfbf10abc12be90ea19e7c8949345364808e3078dc",
+  "auditor_context": {
+    "independence_level": "same_model_separate_context",
+    "source_scope": [
+      "design/local-memory-v1-hardening/runs/f16-graph-artifact.v2.json",
+      "distribution/macos-local-memory/engine/build_path_graph.py",
+      "tests/test_path_graph_confinement.py",
+      "distribution/macos-local-memory/engine/validate_path_graph.py, inspected only as a stable compatibility helper and explicitly unapproved downstream race boundary",
+      "design/local-memory-v1-hardening/runs/f16-executor.v1.json, f16-executor-addendum.v1.json, and f16-executor.v2.json",
+      "artifacts/local-memory-v1-hardening/runs/f16-repair1-001-red/result.json and unittest.log",
+      "artifacts/local-memory-v1-hardening/runs/f16-repair1-002-green314/result.json",
+      "artifacts/local-memory-v1-hardening/runs/f16-repair1-003-green39/result.json",
+      "artifacts/local-memory-v1-hardening/runs/f16-audit-v2-001-py314/started.json, result.json and unittest.log: independent current 19-case execution under Python 3.14.6",
+      "artifacts/local-memory-v1-hardening/runs/f16-audit-v2-002-py39/started.json, result.json and unittest.log: independent current 19-case execution under Python 3.9.6",
+      "Both independent executions used the previously audited supervisor at 30 seconds and 1048576 captured-log bytes. The existing suite's canary-read guards ran in applicable replacement tests. Fixtures used temporary synthetic directories and tiny synthetic files only. No product edits, new test code, network, model, GUI or personal-data execution occurred. The earlier v1 scratch-file tool stall and lack of v1 dynamic testing remain historical facts."
+    ]
+  },
+  "status": "pass",
+  "checks": [
+    {
+      "check_id": "F16-A01-active-ancestor-invalidation",
+      "check_type": "safety",
+      "target_ids": ["TREE", "RECORDS", "E_TREE_RECORDS"],
+      "verdict": "pass",
+      "severity": "info",
+      "reason": "The repair adds a shared invalidate_tree helper that records tree_identity and immediately sets every accumulated record to unresolved with sha256 null. Both the top-of-loop and post-file verify_active failure paths call it and break traversal at the detecting observation. The prior dependence on a later check rediscovering an ancestor change is removed, while ordinary isolated file errors retain per-file handling. The new regression uses actual temporary directory renames, an actual replacement directory inode, and actual no-follow os.stat values, restoring the ancestor in finally before verification continues. The pre-repair log records failure of the all-prior-hashes-unresolved assertion. The auditor independently reran the repaired regression as part of both 19-test suites: it passed, including checks for all hashes absent, unresolved entries, no duplicate groups, incomplete coverage and a blocked answer.",
+      "evidence_ids": ["BUILDER", "TESTS", "REPAIR_EXECUTOR", "REPAIR_RED", "REPAIR_GREEN314", "REPAIR_GREEN39"],
+      "required_action": null
+    },
+    {
+      "check_id": "F16-A02-descriptor-bound-reads",
+      "check_type": "safety",
+      "target_ids": ["ROOT", "FILE", "E_ROOT_FILE", "E_ROOT_TREE", "E_FILE_RECORDS"],
+      "verdict": "pass",
+      "severity": "info",
+      "reason": "Current source retains descriptor-relative root-component opening, directory enumeration and file hashing with O_NOFOLLOW; symlink roots, symlink ancestors and '..' components are rejected without a pathname fallback. A regular file descriptor must match observed identity/revision, reads stop at the observed byte size, and final descriptor and leaf-binding checks gate the hash. The independent runs passed the leaf/directory/root replacement schedules, same-size regular replacement, same-inode mutation with restored mtime, file growth, FIFO replacement, standalone hashing and missing-capability rejection. Applicable canary guards rejected any read of the synthetic outside inode and no guard failed. These observations support the stated builder boundary, not an atomic global snapshot or arbitrary-filesystem immunity.",
+      "evidence_ids": ["BUILDER", "TESTS", "REPAIR_GREEN314", "REPAIR_GREEN39"],
+      "required_action": null
+    },
+    {
+      "check_id": "F16-A03-records-compatibility-and-cleanup",
+      "check_type": "coverage",
+      "target_ids": ["RECORDS", "COMPAT", "E_COMPAT_CHECKS"],
+      "verdict": "pass",
+      "severity": "info",
+      "reason": "The fresh suites reconfirmed schema 1.1, inventory fields and byte-order sorting, stable symlink metadata, expected exact-duplicate groups, compatible CLI artifacts, explicit unreadable-directory handling and absence of an observed hash on failed directory nodes. Descriptor closure passed on exercised success, OSError and unexpected-exception paths. The new invalidation breaks still run the stack-descriptor finally cleanup and outer root-descriptor context cleanup. Stable-fixture use of the existing Path Validator establishes compatibility only; its pathname race remains outside this approval.",
+      "evidence_ids": ["BUILDER", "TESTS", "VALIDATOR", "REPAIR_GREEN314", "REPAIR_GREEN39"],
+      "required_action": null
+    },
+    {
+      "check_id": "F16-A04-independent-execution",
+      "check_type": "evidence",
+      "target_ids": ["CHECKS"],
+      "verdict": "pass",
+      "severity": "info",
+      "reason": "Independent run f16-audit-v2-001-py314 completed 19 tests, zero skips, zero expected failures and exit 0 in 0.116130 supervised seconds, with 3223 log bytes; result SHA-256 344032928e0ef176e5abe92763a808b8428a71ca1d4a596daf72f13174ef2017 and log SHA-256 2206bbf6075b1484107d90ca2c2d4217c6e614e5b8d822aa2ca8c030fc639b1e. Independent run f16-audit-v2-002-py39 completed 19 tests, zero skips, zero expected failures and exit 0 in 0.078358 supervised seconds, with 2079 log bytes; result SHA-256 77a09da0240a4bd66396ebaa2b956ac0b0893c8c6f98fe8c960a5062e1f46cbf and log SHA-256 16c32eaeda43794808c3d2d67eab51afac5526c500bef74ab9bf9bb8f41d245e. Both actual logs were read, their terminal footers and all 19 methods agreed with the records, and their hashes matched metadata. Interpreter versions were directly checked as 3.14.6 and 3.9.6. These new auditor-run paths are listed in source_scope; the referenced TESTS and BUILDER are the artifact's immutable executed sources.",
+      "evidence_ids": ["TESTS", "BUILDER"],
+      "required_action": null
+    },
+    {
+      "check_id": "F16-A05-artifact-source-identity",
+      "check_type": "evidence",
+      "target_ids": ["CHECKS"],
+      "verdict": "pass",
+      "severity": "info",
+      "reason": "The artifact hash is f2c1e384fd7d03827e478fdfbf10abc12be90ea19e7c8949345364808e3078dc. After the independent runs, all twelve source hashes listed by the artifact matched, including current BUILDER caa1c98d02190c18c4fad6cd354a812dc4b06d86d99768773b6169cd2b18d0db, TESTS 0ac4c52be1d56df049e8875b65971f1e5a8c4ae018317e342699f057c9d073cf and unchanged VALIDATOR 1725a7460ee357dc5ae6d1b42e960f57c720a432d910f49bdc98819ba99b968e. The current actual files, their fixed hashes, REPAIR_EXECUTOR and fresh execution evidence establish the reviewed implementation. Approval does not transfer to later source changes.",
+      "evidence_ids": ["BUILDER", "TESTS", "VALIDATOR", "EXECUTOR", "ADDENDUM", "RED", "GREEN314", "GREEN39", "REPAIR_EXECUTOR", "REPAIR_RED", "REPAIR_GREEN314", "REPAIR_GREEN39"],
+      "required_action": null
+    },
+    {
+      "check_id": "F16-A06-historical-patch-snapshot",
+      "check_type": "evidence",
+      "target_ids": ["TREE", "CHECKS"],
+      "verdict": "fail",
+      "severity": "warning",
+      "reason": "The v2 artifact inherits the v1 patch_snapshot and that embedded diff does not include the repair's invalidate_tree helper. It must not be read as the final v2 patch. This is a nonblocking evidence-presentation defect because the current hashed source, repair_response, REPAIR_EXECUTOR and fresh execution directly establish the final behavior. The orchestrator acknowledged that the snapshot is historical and stated it would preserve the immutable artifact and append a clarification. The auditor did not silently rewrite the artifact or use the stale snapshot as current-code evidence.",
+      "evidence_ids": ["BUILDER", "REPAIR_EXECUTOR"],
+      "required_action": "Preserve the v2 artifact and add the planned append-only clarification that patch_snapshot is historical v1; use the current source hash and repair evidence when presenting the final change."
+    },
+    {
+      "check_id": "F16-A07-correction-and-scope",
+      "check_type": "intent",
+      "target_ids": ["COMPAT", "LIMITS"],
+      "verdict": "pass",
+      "severity": "info",
+      "reason": "The original fingerprint overclaim remains explicitly corrected by ADDENDUM and the artifact limits acceptance to newly run builders. This report leaves downstream Path Validator races, existing-generation fingerprint binding and migration, changes after final checks, hard-link or mount provenance, whole-tree resource limits, output publication and full application/model/package acceptance outside the approved scope. Root aliases still require an explicit canonical path choice. The prior required builder invalidation defect is now resolved at repair round 1 of the maximum 2; there is no unresolved required builder check.",
+      "evidence_ids": ["EXECUTOR", "ADDENDUM", "REPAIR_EXECUTOR", "VALIDATOR", "BUILDER"],
+      "required_action": null
+    }
+  ],
+  "summary": {
+    "blocking_failures": 0,
+    "unresolved_count": 0,
+    "next_action": "deliver"
+  }
+}

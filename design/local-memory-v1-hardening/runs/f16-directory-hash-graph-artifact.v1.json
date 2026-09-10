@@ -1,0 +1,156 @@
+{
+  "schema_version": "1.0",
+  "task_id": "lms-v1-00-hardening-2026-09-09-directory-hash-order",
+  "artifact_version": 1,
+  "audit_repair_round": 0,
+  "task_contract": {
+    "requested": "Correct newly reproduced preexisting directory-digest bottom-up ordering while preserving previously accepted source confinement/Validator behavior.",
+    "review_scope": "One depth ordering expression, literal independent golds and combined bounded regressions; no producer self-approval or complete product acceptance.",
+    "max_repair_cycles": 2,
+    "role_separation": "same_model_separate_context",
+    "forbidden": [
+      "product edits by auditor",
+      "personal data/config/index/model/network/GUI",
+      "unbounded tests"
+    ]
+  },
+  "nodes": [
+    {
+      "id": "DEPTH",
+      "text": "Root has depth0; all nonroot child directories are computed before their parent.",
+      "basis": [
+        "BUILDER",
+        "GOLD"
+      ]
+    },
+    {
+      "id": "DIGEST",
+      "text": "Directory digests include actual computed child directory digests; same-length changed descendant digests affect every ancestor including root.",
+      "basis": [
+        "BUILDER",
+        "GOLD",
+        "EXECUTOR"
+      ]
+    },
+    {
+      "id": "GOLD_CASES",
+      "text": "6 pure-memory tests spell canonical child arrays independently;3 assertions failed before fix, all6 pass on eachPython3.14/3.9 after fix.",
+      "basis": [
+        "GOLD",
+        "EXECUTOR"
+      ]
+    },
+    {
+      "id": "REGRESSION",
+      "text": "19 builder,18 Validator,15 synthetic E2E and15 guardedmigration/lineage tests pass on currentcombinedtree,skip0. No sourcepath/schema/byte-read contract intentionallychanged.",
+      "basis": [
+        "BUILDER_TESTS",
+        "VALIDATOR_TESTS",
+        "E2E",
+        "MIGRATION",
+        "RELATED",
+        "EXECUTOR"
+      ]
+    },
+    {
+      "id": "LIMITS",
+      "text": "No signedauthenticity/global snapshot/fullpolicy/model/package guarantee. Existing generateddirectorygraphs needexplicitrebuild; code identity signalsmigration without autowrites.",
+      "basis": [
+        "CONTRACT",
+        "EXECUTOR",
+        "BOOTSTRAP"
+      ]
+    }
+  ],
+  "edges": [
+    {
+      "id": "E_DEPTH",
+      "source": "DEPTH",
+      "target": "DIGEST",
+      "relation": "ensures_children_exist_before_parent_hash",
+      "basis": [
+        "BUILDER",
+        "GOLD"
+      ]
+    },
+    {
+      "id": "E_GOLD",
+      "source": "GOLD_CASES",
+      "target": "DIGEST",
+      "relation": "checks_exact_digest_and_propagation",
+      "basis": [
+        "GOLD",
+        "EXECUTOR"
+      ]
+    },
+    {
+      "id": "E_REGRESSION",
+      "source": "REGRESSION",
+      "target": "LIMITS",
+      "relation": "bounds_current_compatibility_claim",
+      "basis": [
+        "EXECUTOR",
+        "CONTRACT"
+      ]
+    }
+  ],
+  "sources": [
+    {
+      "id": "BUILDER",
+      "path": "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/distribution/macos-local-memory/engine/build_path_graph.py",
+      "sha256": "b29031b8a0ae594bda762795bb6bc79a7080ea8cfe0a147118accf374be94839"
+    },
+    {
+      "id": "GOLD",
+      "path": "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/tests/test_path_graph_directory_hashes.py",
+      "sha256": "9b1735f527e5cfae22f309cafdcd8e2251800db6254e48f24fb9e5f509842821"
+    },
+    {
+      "id": "VALIDATOR",
+      "path": "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/distribution/macos-local-memory/engine/validate_path_graph.py",
+      "sha256": "810b6fe761a399c6527f905e8ffa411c26965e56a29de9fda6e2e8ab79b5bb3d"
+    },
+    {
+      "id": "BOOTSTRAP",
+      "path": "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/distribution/macos-local-memory/app/bootstrap.py",
+      "sha256": "069c36f8d03634583dec27a6647ec100ae90bbbe7408b4275b164ee1b4b16192"
+    },
+    {
+      "id": "BUILDER_TESTS",
+      "path": "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/tests/test_path_graph_confinement.py",
+      "sha256": "30d67727220e565e267e611894a6ba178ceee74920641478f9a074d443808beb"
+    },
+    {
+      "id": "VALIDATOR_TESTS",
+      "path": "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/tests/test_path_graph_validator_binding.py",
+      "sha256": "72f455a674b28f7c313172dd75d53ad7808bd9164028a4caa895846b18c83ee5"
+    },
+    {
+      "id": "MIGRATION",
+      "path": "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/distribution/macos-local-memory/tests/test_reader_generation_migration.py",
+      "sha256": "7d92425d39eb0316687ca9b8b0250768444652dcd39b7dfa9324380396b72d80"
+    },
+    {
+      "id": "E2E",
+      "path": "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/distribution/macos-local-memory/tests/test_versioned_safe_index_e2e.py",
+      "sha256": "c16cc5bfafe493ad4096eadbf84722c8d9f1d476dcb03bfc36bb26959983341b"
+    },
+    {
+      "id": "RELATED",
+      "path": "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/design/local-memory-v1-hardening/runs/F01-003-regression-wrapper.py",
+      "sha256": "7729bf35a3fcdefc3c29fae91e27a20f7e77f0c85c110235de47c39f5693df53"
+    },
+    {
+      "id": "CONTRACT",
+      "path": "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/design/local-memory-v1-hardening/runs/f16-directory-hash-contract.v1.json",
+      "sha256": "0d69a8f14184deb32f346993d6d3dea543b8e9fb7a0cad066686c407bc03cdbf"
+    },
+    {
+      "id": "EXECUTOR",
+      "path": "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/design/local-memory-v1-hardening/runs/f16-directory-hash-executor.v1.json",
+      "sha256": "a56fa2b814efcc4ad8ef0ef9802f2005747a104a95ddc1cda0c8d671339b43f3"
+    }
+  ],
+  "dependency_note": "F04a versionresolver work may begin separately. Auditor must record stable before/after shared resolver/parser hashes for E2E/migration; no conclusion across detected drift. Source files in this artifact are frozen.",
+  "proposed_output": "Independent correctness audit; record any required failure rather than self-approving the one-line fix."
+}

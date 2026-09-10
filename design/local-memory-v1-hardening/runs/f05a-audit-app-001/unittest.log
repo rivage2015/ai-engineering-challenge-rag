@@ -1,0 +1,9 @@
+test_absent_inventory_candidate_fails_before_reader_and_keeps_prior_generation (f05a_target.VersionGraphApplicationGateTests.test_absent_inventory_candidate_fails_before_reader_and_keeps_prior_generation) ... ok
+test_changed_explicit_decision_snapshot_fails_before_reader (f05a_target.VersionGraphApplicationGateTests.test_changed_explicit_decision_snapshot_fails_before_reader) ... ok
+test_empty_resealed_graph_fails_before_reader_and_keeps_prior_generation (f05a_target.VersionGraphApplicationGateTests.test_empty_resealed_graph_fails_before_reader_and_keeps_prior_generation) ... ok
+test_fabricated_active_choice_fails_before_reader_and_keeps_prior_generation (f05a_target.VersionGraphApplicationGateTests.test_fabricated_active_choice_fails_before_reader_and_keeps_prior_generation) ... ok
+
+----------------------------------------------------------------------
+Ran 4 tests in 0.485s
+
+OK

@@ -1,0 +1,35 @@
+{
+  "schema_version": "1.0",
+  "task_id": "lms-v1-00-hardening-2026-09-09-f10",
+  "audit_repair_round": 1,
+  "max_repair_cycles": 2,
+  "artifact_path": "design/local-memory-v1-hardening/runs/f10-graph-artifact.v2.json",
+  "artifact_sha256": "20087e0774f67c9586e537117afd27dce41fedb1274d77f187b059f37058dbb5",
+  "report_path": "design/local-memory-v1-hardening/runs/f10-audit-report.v2.json",
+  "report_sha256": "fbc1e76183b9b88767e6273aa739da57e0ca79fb7af88a54157cebdad5575947",
+  "ruby_reference_validator": {"exit_code": 0, "stdout": "VALID: audit report is structurally and referentially consistent"},
+  "draft_2020_12_validator": {"exit_code": 0, "stdout": "VALID: Draft2020-12 schema"},
+  "audit_decision": "revise",
+  "blocking_failures": 1,
+  "unresolved_count": 0,
+  "source_integrity": {
+    "all_19_artifact_source_hashes_match_before_and_after": true,
+    "all_5_saved_repair_result_and_log_hashes_and_byte_counts_match": true,
+    "parser_after_sha256": "4429a50030143710786c0ee03a68f3d9243d555d121f832817a300824726a2c3",
+    "parser_before_repair_reconstructed_sha256": "b36632a6acfdcf11491495a18fd6becdf0ce683bbcb7a55f96ba0eaa23c74a94",
+    "cumulative_base_reconstructed_sha256": "db73270807c3e976fb51f38ff51cc6cd40dd7c0ef3c2d6954fc1f924acd8ab3d",
+    "product_edits_by_auditor": false,
+    "diagnostic_error_preserved": "f10-audit-hashes.v2.py initially failed its forward-patch uniqueness assertion because the old required-members context was shared by multiple functions. f10-audit-hashes.v2b.py confines the prior F10 patch to extract_xlsx_ooxml in memory and verifies both reconstructed hashes. No product assertion was changed or recounted."
+  },
+  "fresh_runs": [
+    {"id": "f10-audit-focused-v2", "result_sha256": "cd197c8693848a3239dff55b7106f683c23c3a7c93ea8fb88efafed4b9dfb9ba", "status": "passed", "methods": 21, "skips": 0},
+    {"id": "f10-audit-regression-v2", "result_sha256": "21eaed61333abc48f893078b3b2b5a8d0f120905e601ba3c09c11061070d90b6", "status": "passed", "methods": 17, "skips": 0},
+    {"id": "f10-audit-legacy-v2", "result_sha256": "57c0c2ca51ca1383422345d65ee5f5b177bc4eb49cd0d2339dda0d561d92ef0c", "status": "passed", "methods": 2, "skips": 0},
+    {"id": "f10-audit-adversarial-v2", "result_sha256": "40f986fb12f11526a1c920ad8fad345591922943e1d5ecd468cc3968dda5bcf4", "status": "passed", "methods": 2, "skips": 0},
+    {"id": "f10-audit-dot-v1", "result_sha256": "b00f4992818944ecd6244d69319709f08356dbc4aa99761bf95c26ffee6f9de0", "status": "failed", "methods": 3, "failed_rejection_subcases": 4, "passed_control_methods": 1, "skips": 0, "errors": 0, "log_sha256": "2628b86f2b14478da6e500e52cc5ff5331f9d12b2b15cc6cbc807ca643d8bde7"}
+  ],
+  "new_counterexample_path": "design/local-memory-v1-hardening/runs/f10-adversarial-dot-cases.v1.py",
+  "new_counterexample_sha256": "90315824ca74f4300b4c4b000e6406b527ea4435512c939ebdfcf22f2ef12f25",
+  "safe_execution": "All test runs used reviewed synthetic fixtures with repository-local scratch, 30-second and 1048576-byte bounds, HTTP/socket/Popen guards, suppressed visuals and no real runtime/model/credential/original-source interaction.",
+  "acceptance_boundary": "Valid audit JSON and passing existing suites do not override the remaining terminal-dot source-binding defect. Round 2 is the final permitted repair cycle; no universal XLSX/OOXML or product claim is made."
+}

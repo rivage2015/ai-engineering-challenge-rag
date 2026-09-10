@@ -1,0 +1,242 @@
+{
+  "scope": "static AST only; no product/test import or execution",
+  "current_sha256": "ab2256c31b04bc8e8ec9a3c5c294d1e1d98071e38e9969c62bee3718c95bc41e",
+  "initial_gold_sha256": "0b80382980a130cc52a58108ed5d89df5f0bc4249af39a2432d650078a966daa",
+  "initial_complete_AST_unchanged_after_removing_additive_class": true,
+  "method_count": 33,
+  "acceptance_count": 30,
+  "residual_count": 3,
+  "methods": [
+    {
+      "class": "NotebookMetadataBindingTests",
+      "method": "test_g1_probe_emits_literal_six_states_and_preserves_source",
+      "line": 160,
+      "ast_sha256": "21d7045b8f57d6358ca5c772bcec243654cc1570104b6c46ad611b7ad0dc7a2a",
+      "classification": "acceptance"
+    },
+    {
+      "class": "NotebookMetadataBindingTests",
+      "method": "test_g2_missing_state_rejected_native",
+      "line": 173,
+      "ast_sha256": "c7b2ec406ce7819a9e16b2131e9bbdc2884b2ea2ee32207666ca55649479b78d",
+      "classification": "acceptance"
+    },
+    {
+      "class": "NotebookMetadataBindingTests",
+      "method": "test_g2_missing_state_rejected_stream_schema",
+      "line": 176,
+      "ast_sha256": "ac6aa02c6cef32270cb94d19007e0a06e570669a5c73b37dbba8852c8c46aca3",
+      "classification": "acceptance"
+    },
+    {
+      "class": "NotebookMetadataBindingTests",
+      "method": "test_g2_missing_state_rejected_stream_structural",
+      "line": 179,
+      "ast_sha256": "4be7f14f51f93e5339fef9662216df963a74fd41081d95991dffe5f0054a48f5",
+      "classification": "acceptance"
+    },
+    {
+      "class": "NotebookMetadataBindingTests",
+      "method": "test_g2_shape_valid_wrong_count_rejected_native",
+      "line": 182,
+      "ast_sha256": "ec17e25791e31d4445b39d21f3ad76479efe52281ab8b69943de2ac1acae5440",
+      "classification": "acceptance"
+    },
+    {
+      "class": "NotebookMetadataBindingTests",
+      "method": "test_g2_shape_valid_wrong_count_rejected_stream_schema",
+      "line": 185,
+      "ast_sha256": "0ca39bfb565614cbae7b7d36a9b5698d23bf7a0cd5ea237e9bbf0a448e294e00",
+      "classification": "acceptance"
+    },
+    {
+      "class": "NotebookMetadataBindingTests",
+      "method": "test_g2_shape_valid_wrong_count_rejected_stream_structural",
+      "line": 188,
+      "ast_sha256": "8f8840eaa48f13b3e85871f7441749e667e554705bd35aeb4609565148764e0b",
+      "classification": "acceptance"
+    },
+    {
+      "class": "NotebookMetadataBindingTests",
+      "method": "test_g3_direct_search_copies_all_six_literal_states",
+      "line": 191,
+      "ast_sha256": "c5f35580bb5bfb4d5fc260e5074fa4cdd43520505048f8de419f374580e8124a",
+      "classification": "acceptance"
+    },
+    {
+      "class": "NotebookMetadataBindingTests",
+      "method": "test_g6_non_notebook_retains_exact_old_counts",
+      "line": 209,
+      "ast_sha256": "188c015441b20d1a7d1d219dbc0e97f7db09c1f84aa2a470b295f7d5765d3b65",
+      "classification": "acceptance"
+    },
+    {
+      "class": "NotebookMetadataPostAPITests",
+      "method": "test_g1_exact_metadata_only_report_three_paths",
+      "line": 338,
+      "ast_sha256": "56808e95becc57fe4cce80ccf43d03e19cd070049d582f0b6b08245abfd8d5f4",
+      "classification": "acceptance"
+    },
+    {
+      "class": "NotebookMetadataPostAPITests",
+      "method": "test_g1_equal_zero_null_raw_and_multiple_outputs",
+      "line": 341,
+      "ast_sha256": "7caa5cbe90dae1e2ad03e76c6b810449f2db8ce06f17254cdca814c70c834dce",
+      "classification": "acceptance"
+    },
+    {
+      "class": "NotebookMetadataPostAPITests",
+      "method": "test_g1_long_text_retains_one_direct_unit_and_whitespace_emits_none",
+      "line": 380,
+      "ast_sha256": "17df706adf8438332b067767d2dc4dc6ae63e7ff1ab77eacb6e43c4c7f193692",
+      "classification": "acceptance"
+    },
+    {
+      "class": "NotebookMetadataPostAPITests",
+      "method": "test_g2_wrong_pointer_role_locator_ordinal_and_bool_fail",
+      "line": 399,
+      "ast_sha256": "623c0f3051e3316666e7627296fa7c3b2259cbf869d3ce6e4b6af106b69cea2a",
+      "classification": "acceptance"
+    },
+    {
+      "class": "NotebookMetadataPostAPITests",
+      "method": "test_g2_parser_extension_and_state_omission_cannot_opt_out",
+      "line": 421,
+      "ast_sha256": "1dff6a31f623af76f1756924f5f46c48677fc377745a4a3d1c8ee4fc52c8a6c2",
+      "classification": "acceptance"
+    },
+    {
+      "class": "NotebookMetadataPostAPITests",
+      "method": "test_g2_unrelated_text_state_injection_rejected",
+      "line": 432,
+      "ast_sha256": "8ec8bc37ae2b338602d94c725419251d2b1e934ff81e6999fe41c0d9a1678d6f",
+      "classification": "acceptance"
+    },
+    {
+      "class": "NotebookMetadataPostAPITests",
+      "method": "test_g3_same_id_context_mutations_rejected_by_both_search_validators",
+      "line": 440,
+      "ast_sha256": "94a240b487016c11a21dae70bd772a0707949e85e13c1bc70912aec9bc6843fa",
+      "classification": "acceptance"
+    },
+    {
+      "class": "NotebookMetadataPostAPITests",
+      "method": "test_g4_invalid_count_types_and_malformed_json_raise_controlled_errors",
+      "line": 469,
+      "ast_sha256": "6aaf7c19e94cc6e5dce77ec27a2439474817535c3520b997c60b01a821264549",
+      "classification": "acceptance"
+    },
+    {
+      "class": "NotebookMetadataPostAPITests",
+      "method": "test_g4_byte_token_depth_and_number_limits_precede_parse",
+      "line": 486,
+      "ast_sha256": "0d018edf248cabd2d6c9920f78dbc1602fe770f24c73231d6894a977639aee7d",
+      "classification": "acceptance"
+    },
+    {
+      "class": "NotebookMetadataPostAPITests",
+      "method": "test_g4_source_mismatch_and_missing_file_are_failures",
+      "line": 518,
+      "ast_sha256": "820d59b2be507ecdceb092d2eea20a261716de285ee36c30be205bb59820567e",
+      "classification": "acceptance"
+    },
+    {
+      "class": "NotebookMetadataPostAPITests",
+      "method": "test_g4_each_validation_uses_one_bounded_source_snapshot",
+      "line": 537,
+      "ast_sha256": "6020155ad844424ab23c2fc38686dfb3e6595176ade715344cef95e0d9a29901",
+      "classification": "acceptance"
+    },
+    {
+      "class": "NotebookMetadataPostAPITests",
+      "method": "test_g4_probe_digest_and_facts_share_the_read_snapshot",
+      "line": 613,
+      "ast_sha256": "8bb8b07bf700af51c055cfbefb5ba769b7d56341ff54636a6e6e1d1c380ecfc6",
+      "classification": "acceptance"
+    },
+    {
+      "class": "NotebookMetadataPostAPITests",
+      "method": "test_g4_validators_reject_b_facts_bound_to_an_a_snapshot",
+      "line": 621,
+      "ast_sha256": "3ba8be54cd3c14c4474ccfbe37332aaa45d367fb9a08a5cf59971792cf118bca",
+      "classification": "acceptance"
+    },
+    {
+      "class": "NotebookMetadataPostAPITests",
+      "method": "test_g4_path_cache_cannot_reuse_a_previous_calls_metadata",
+      "line": 637,
+      "ast_sha256": "b9b7b10f83be2eeab95179a55d5a9e82d02173b084af9bb4cfb4461a0d5530fa",
+      "classification": "acceptance"
+    },
+    {
+      "class": "NotebookMetadataPostAPITests",
+      "method": "test_g5_missing_code_and_execute_result_counts_are_checked_but_unverified",
+      "line": 654,
+      "ast_sha256": "d1f91b0d7f5f84c385cddeeedfc938e725fde38ce3cdaa29cf725858b3ae92bf",
+      "classification": "acceptance"
+    },
+    {
+      "class": "NotebookMetadataPostAPITests",
+      "method": "test_g5_rootless_reports_unverified_and_old_counts_wrapper_raises",
+      "line": 671,
+      "ast_sha256": "acc945934ef492d2601935870133b063cdbdc348917f13d4f5f8e1c02e9962e3",
+      "classification": "acceptance"
+    },
+    {
+      "class": "NotebookMetadataPostAPITests",
+      "method": "test_g5_rootless_known_malformed_state_is_not_hidden",
+      "line": 685,
+      "ast_sha256": "8398f1b28b9b34d5a3db2d4387d665a8ba895d601d4ff3383704574e56ee58bb",
+      "classification": "acceptance"
+    },
+    {
+      "class": "NotebookMetadataPostAPITests",
+      "method": "test_g5_partial_and_failed_records_never_return_pass",
+      "line": 690,
+      "ast_sha256": "d46452b26509436d759756b0cb99e95e44c6e36d6461061789059399bc92d77f",
+      "classification": "acceptance"
+    },
+    {
+      "class": "NotebookMetadataPostAPITests",
+      "method": "test_g5_empty_notebook_is_zero_checked_unverified",
+      "line": 698,
+      "ast_sha256": "4616f27f26452a4dc6c1b0d344888a745739503be0db29f967a76e1d78f72d2f",
+      "classification": "acceptance"
+    },
+    {
+      "class": "NotebookMetadataPostAPITests",
+      "method": "test_g5_cli_pass_unverified_and_fail_envelopes",
+      "line": 704,
+      "ast_sha256": "5ea6335556d8a6e2d2b9993708d92b85dbe6c048ed1dafd8d63591fcf483c8f9",
+      "classification": "acceptance"
+    },
+    {
+      "class": "NotebookMetadataPostAPITests",
+      "method": "test_g6_versions_and_old_notebook_have_no_silent_upgrade",
+      "line": 745,
+      "ast_sha256": "80b97adc9def8b73b3e2db51515039c557e0522c37d76a5aad5c0f3c8751c6ad",
+      "classification": "acceptance"
+    },
+    {
+      "class": "NotebookMetadataPostAPITests",
+      "method": "test_residual_metadata_only_allows_coherent_raw_text_replacement",
+      "line": 760,
+      "ast_sha256": "626aedacd1a9bb4ab4ef316e6c88c34e9e0b2cb379e9b633d9d4db44e5a428b5",
+      "classification": "residual"
+    },
+    {
+      "class": "NotebookMetadataPostAPITests",
+      "method": "test_residual_nonzero_record_removal_does_not_claim_membership",
+      "line": 769,
+      "ast_sha256": "70610818f9515a07937e3cba8debaf751d95e5960d6e8520f8bb239e7adfe92c",
+      "classification": "residual"
+    },
+    {
+      "class": "NotebookMetadataPostAPITests",
+      "method": "test_residual_search_only_coherent_state_forgery_is_not_original_attestation",
+      "line": 776,
+      "ast_sha256": "7226769605e21359e41887ffe65effce84da209fc0f8e34187e297aed05dd57a",
+      "classification": "residual"
+    }
+  ]
+}

@@ -1,0 +1,13 @@
+{
+  "source_root": "/private/tmp/f04a-fixtures-je1f5_t0/versioned-safe-e2e-ko_jdkm0/source",
+  "workspace": "/private/tmp/f04a-fixtures-je1f5_t0/versioned-safe-e2e-ko_jdkm0/workspace",
+  "embedding_model": "synthetic-embedding",
+  "answer_model": "synthetic-answer",
+  "audit_model": "synthetic-answer",
+  "sequential_model_loading": false,
+  "cross_document_semantic_graph_shadow_enabled": false,
+  "cross_document_semantic_graph_storage_enabled": false,
+  "cross_document_semantic_graph_query_candidate_enabled": false,
+  "cross_document_semantic_graph_independent_edge_audit_enabled": false,
+  "cross_document_semantic_graph_answer_promotion_enabled": false
+}

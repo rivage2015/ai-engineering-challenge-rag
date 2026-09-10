@@ -1,0 +1,108 @@
+{
+  "schema_version": "1.0",
+  "task_id": "lms-v1-00-hardening-2026-09-09-f16-validator",
+  "artifact_version": 1,
+  "audit_repair_round": 0,
+  "executor": "root",
+  "status": "ready_for_independent_audit",
+  "self_approved": false,
+  "contract": "f16-validator-followup-contract.v1.json and f16-validator-preflight.v1.json",
+  "changes": [
+    "Explicit external source_root required for source verification; CLI --source-root required, bootstrap supplies its selected source. Missing/relative/mismatched context fails before source reads; no alias resolution.",
+    "Malformed/duplicate JSON or inventory paths, duplicate inventory records, unobserved source claims, unsupported graph schema and structural inconsistencies fail. Untrusted inventory/source node paths are checked before source traversal.",
+    "Current complete tree observed through the audited no-follow FD builder observer, with no graph-provided full pathname reopen. Full path set and inventory metadata/hashes checked against actual observations.",
+    "Separate node/source path, locator, type, raw metadata and hash comparisons prevent rehashed forged node data from being attested by an unchanged inventory; parent/duplicate-edge checks retained.",
+    "Path builder+Validator code identity included in Reader generation resource contract; two byte-change cases added to existing migration assertion. No automatic rebuild/answer-time policy change.",
+    "Existing builder tests change only2 direct Validator calls to explicit root; package tests change only2 root canonicalizations and2 CLI root arguments. All prior assertions remain."
+  ],
+  "source_hashes": {
+    "distribution/macos-local-memory/engine/validate_path_graph.py": "810b6fe761a399c6527f905e8ffa411c26965e56a29de9fda6e2e8ab79b5bb3d",
+    "distribution/macos-local-memory/engine/build_path_graph.py": "caa1c98d02190c18c4fad6cd354a812dc4b06d86d99768773b6169cd2b18d0db",
+    "distribution/macos-local-memory/app/bootstrap.py": "069c36f8d03634583dec27a6647ec100ae90bbbe7408b4275b164ee1b4b16192",
+    "tests/test_path_graph_validator_binding.py": "72f455a674b28f7c313172dd75d53ad7808bd9164028a4caa895846b18c83ee5",
+    "tests/test_path_graph_confinement.py": "30d67727220e565e267e611894a6ba178ceee74920641478f9a074d443808beb",
+    "distribution/macos-local-memory/tests/test_reader_generation_migration.py": "7d92425d39eb0316687ca9b8b0250768444652dcd39b7dfa9324380396b72d80",
+    "distribution/macos-local-memory/tests/test_package.py": "f98596239852363a77c991b2a886b8d455a31b6def656667197412e298799296",
+    "distribution/macos-local-memory/tests/test_versioned_safe_index_e2e.py": "c16cc5bfafe493ad4096eadbf84722c8d9f1d476dcb03bfc36bb26959983341b",
+    "design/local-memory-v1-hardening/runs/F01-003-regression-wrapper.py": "7729bf35a3fcdefc3c29fae91e27a20f7e77f0c85c110235de47c39f5693df53",
+    "design/local-memory-v1-hardening/runs/f16-validator-followup-contract.v1.json": "20710bd03cd10c4ef90cd4ffca0de1c5b7762da0d2ebb5ae6ccc67e363ae8f63",
+    "design/local-memory-v1-hardening/runs/f16-validator-preflight.v1.json": "0ef12168721de3f839e561b955aa666c741ee246602276136bdfe9179fde5b0e",
+    "scripts/probe_intermediate_records.py": "4429a50030143710786c0ee03a68f3d9243d555d121f832817a300824726a2c3"
+  },
+  "runs": [
+    {
+      "id": "f16-validator-001-red",
+      "status": "failed",
+      "tests": 14,
+      "skips": 0,
+      "elapsed_seconds": 0.12225,
+      "log_sha256": "30acca963e80b6076ad72397b9b15dcaa299cde16464dd9e96c2b3561efeb0a3",
+      "result_path": "artifacts/local-memory-v1-hardening/runs/f16-validator-001-red/result.json"
+    },
+    {
+      "id": "f16-validator-002-legacy-red",
+      "status": "failed",
+      "tests": 3,
+      "skips": 0,
+      "elapsed_seconds": 0.108322,
+      "log_sha256": "314a1825209f8dff656ae54e5fa491eff3d96d9da0b89f8a50941d809486cf4c",
+      "result_path": "artifacts/local-memory-v1-hardening/runs/f16-validator-002-legacy-red/result.json"
+    },
+    {
+      "id": "f16-validator-004-green314",
+      "status": "passed",
+      "tests": 18,
+      "skips": 0,
+      "elapsed_seconds": 0.185589,
+      "log_sha256": "6bfc26e7123c7d33f92371c9f8d50acf61b755b54d3729328929417d72784e14",
+      "result_path": "artifacts/local-memory-v1-hardening/runs/f16-validator-004-green314/result.json"
+    },
+    {
+      "id": "f16-validator-005-builder-regression",
+      "status": "passed",
+      "tests": 19,
+      "skips": 0,
+      "elapsed_seconds": 0.120331,
+      "log_sha256": "1896b20081034533440a5206a75b165102879da3a0d30b550b4e0afde2be9865",
+      "result_path": "artifacts/local-memory-v1-hardening/runs/f16-validator-005-builder-regression/result.json"
+    },
+    {
+      "id": "f16-validator-006-e2e-regression",
+      "status": "passed",
+      "tests": 15,
+      "skips": 0,
+      "elapsed_seconds": 1.603093,
+      "log_sha256": "8c0cce9656c75c0e5e4259d269ecf342fa6930ad04fc654aeec96a48705f2037",
+      "result_path": "artifacts/local-memory-v1-hardening/runs/f16-validator-006-e2e-regression/result.json"
+    },
+    {
+      "id": "f16-validator-007-migration-lineage",
+      "status": "passed",
+      "tests": 15,
+      "skips": 0,
+      "elapsed_seconds": 0.491731,
+      "log_sha256": "c5d31859a0c085996d1c5b94944f78d0a04290a968daf7877442fa563ad060b1",
+      "result_path": "artifacts/local-memory-v1-hardening/runs/f16-validator-007-migration-lineage/result.json"
+    },
+    {
+      "id": "f16-validator-008-green39",
+      "status": "passed",
+      "tests": 18,
+      "skips": 0,
+      "elapsed_seconds": 0.130143,
+      "log_sha256": "9e101f379c3640bff9f984a47b697d7f53551dee21b7c62f1da21709ef6a3c87",
+      "result_path": "artifacts/local-memory-v1-hardening/runs/f16-validator-008-green39/result.json"
+    }
+  ],
+  "scope_counts": "18 focused cases on each Python3.14/3.9;19 builder regression,15 synthetic app E2E and15 guarded lineage/migration cases on3.14. Zero skips. The18-case3.9 pass is not an app3.9 support claim.",
+  "safety": "All run IDs fresh,30s/1MiB supervisor limits. Synthetic TemporaryDirectory sources/canaries only; focused HTTP/Popen guards, real CLI parser in-process. E2E/related wrapper guards and synthetic model/runtime responses reused unchanged. No personal source/index/model/GUI/Keychain/packaging.",
+  "limits": [
+    "Shared observer enumeration and directory_hashes are code reuse, not independent algorithmic source reconstruction. New graph field comparisons and gold/race fixtures are separately asserted.",
+    "No global filesystem snapshot after final checks, whole-tree count/byte/deadline or memory certification; hashing all files adds IO and was measured only on small fixtures.",
+    "No graph descriptive-field/full edge-policy/duplicate_groups summary certification. No F02-F06/F18/HITL fix.",
+    "Two edited package test callers are statically checked, not executed as complete package/native openpyxl cases in this slice. Full package/GUI/native models remain untested.",
+    "Old baseline001 mostly fails missing new keyword API; diagnostic002 uses old two-arg API and shows2 actual false-PASS cases plus1 valid control. Neither failed run was upgraded.",
+    "Parser was separately frozen at4429a500... during recorded final integration. Its pendingF10 re-audit is independent; any later shared source change requires stable current-run verification."
+  ],
+  "rollback": "Reverse only new Path Validator diff, bootstrap2resource entries+1call argument, migration2mutation entries+condition, package4compat edits and builder test2call changes. Keep priorF01/F07/F16/F10 and all user modifications."
+}

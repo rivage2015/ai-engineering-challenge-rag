@@ -1,0 +1,102 @@
+{
+  "schema_version": "1.0",
+  "task_id": "lms-v1-00-hardening-2026-09-09-f16",
+  "artifact_version": 1,
+  "status": "executor_green_awaiting_independent_audit",
+  "audit_repair_round": 0,
+  "source_before": {
+    "path": "distribution/macos-local-memory/engine/build_path_graph.py",
+    "sha256": "a5c34aa063ea6f67a484832e6c5045d4617ca4498613cd22ccb51f8de6bccbb3"
+  },
+  "source_after": [
+    {
+      "path": "distribution/macos-local-memory/engine/build_path_graph.py",
+      "sha256": "621746dc0d0ff0857db2c21844e7c042b9bf12debd47b7c145840d89479f8fdd"
+    },
+    {
+      "path": "tests/test_path_graph_confinement.py",
+      "sha256": "3e942bd0a391ba48e352e28cc4ebd9e62e4d9ec7acead1953addc3ad52c3eb4a"
+    }
+  ],
+  "changes": [
+    "Bind root path components with openat-style dir_fd + O_DIRECTORY + O_NOFOLLOW, preserving the supplied spelling without resolve(). Reject symlink components and parent traversal. Fail closed if required facilities are unavailable.",
+    "Enumerate names through open directory descriptors. No pathname-based recursive scandir or normal Path.open is used for original-file content.",
+    "Before and after bounded-to-observed-size file hashing, compare dev/inode/type/mode/size/mtime_ns/ctime_ns/nlink and final no-follow pathname binding. O_NONBLOCK avoids FIFO replacement hangs.",
+    "Check active ancestor descriptor identity and binding while walking. Detected ancestor changes abort this traversal, invalidate recorded hashes, leave unresolved statuses and incomplete/blocked coverage.",
+    "Keep stable schema1.1/inventory fields and deterministic bytes ordering. Builder version0.3.0; changed builder code participates in existing rebuild fingerprints."
+  ],
+  "runs": [
+    {
+      "run_id": "f16-red-01",
+      "python": "3.14.6",
+      "status": "failed",
+      "tests": 5,
+      "failures": 4,
+      "skips": 0,
+      "elapsed_seconds": 0.113363,
+      "result_sha256": "bf2c3685bc535e345d8f5569300d2fb9a5451152e3165b919e7dbb631f1d6422",
+      "log_sha256": "2d628eebc60bf365653e8324560ec9e69d747c5a16d5f3ca692b64d391fdae92"
+    },
+    {
+      "run_id": "f16-green-01",
+      "python": "3.14.6",
+      "status": "passed",
+      "tests": 5,
+      "skips": 0,
+      "elapsed_seconds": 0.107583,
+      "log_sha256": "749cd0861744c32fa52226e982e3c7f0f750dd82730ad0e7f539607cec9696bf"
+    },
+    {
+      "run_id": "f16-green-02",
+      "python": "3.14.6",
+      "status": "passed",
+      "tests": 16,
+      "skips": 0,
+      "elapsed_seconds": 0.120507,
+      "log_sha256": "b830b991909ffd73292c04ca4a4cd8321e933b929dc071e8d9388dc2620329f3"
+    },
+    {
+      "run_id": "f16-green-03",
+      "python": "3.14.6",
+      "status": "passed",
+      "tests": 18,
+      "skips": 0,
+      "elapsed_seconds": 0.115769,
+      "result_sha256": "d151e179c4f2cc25def6c11c8c7bf1f1f1b2894bb12c6d0881afb43b995911d3",
+      "log_sha256": "358e59e1d10feca720107ac82de48025971f016e725e8ec5cc6db27b5b7ecc49"
+    },
+    {
+      "run_id": "f16-green-py39-01",
+      "python": "3.9.6",
+      "status": "passed",
+      "tests": 18,
+      "skips": 0,
+      "elapsed_seconds": 0.105292,
+      "result_sha256": "3f68574ef29a942b774267c1db22e72fad674b269f412f2315b8c33a813066f2",
+      "log_sha256": "18ac4deeb09d3c8f3b59ad0b3fa9418d8d58c7c390aa40631971ecd2d7f3dc13"
+    }
+  ],
+  "verification": [
+    "Each suite bounded at30sec/1MiB captured log; files at most synthetic small bytes; no model, network, CONFIG, GUI, secret store, or real personal files.",
+    "Direct os.read and Path.open guards reject the outside canary inode, rather than merely checking that its hash is absent.",
+    "Tests cover leaf/directory post-lstat swaps, same-size replacement, leaf/directory/root post-open swaps, same-inode write with mtime restoration, growth, active-directory membership change, FIFO replacement, missing OS capability, closed descriptors after success/OSError/unexpected exception, stable CLI output, unreadable directories.",
+    "Stable synthetic inventories and graph artifacts are checked by the existing path Validator; this is compatibility only, not validation-race certification.",
+    "git diff --check passed for owned product/test files."
+  ],
+  "compatibility_notes": [
+    "The root and every supplied ancestor must be an actual directory, with no symlink aliases. On macOS, /var/folders/... fixtures need to intentionally use their canonical /private/var/folders/... root. No hidden resolve is reintroduced in the builder.",
+    "Root informed executor that F01 direct CLI fixtures needed two explicit canonical-root adjustments in the F01-owned test; bootstrap routes already canonicalize source. Other unexamined alias-based callers/fixtures may require the same explicit choice.",
+    "Public enumerate_entries(Path), sha256_file(Path), inventory_records, make_graph and CLI signatures remain usable; sha256_file accepts new internal keyword context. No Validator or bootstrap source edits made by this executor.",
+    "Unresolved directory nodes no longer expose a source hash as observed; root node is unresolved whenever coverage has errors."
+  ],
+  "residual_limits": [
+    "This is not an atomic global filesystem snapshot. A completed file/directory can change after its final check, especially after its directory frame closes or during later publication. Answer-time freshness and final-generation revalidation remain separate F13 work.",
+    "No-follow confinement covers this builder only. validate_path_graph.py and other Readers/Validators still contain pathname reopen sequences and require separately owned repairs before any end-to-end race-safety claim.",
+    "Descriptor capability refers to the initially opened directory objects. Hard links, mount/privileged filesystem remapping, hostile filesystem metadata guarantees, and same-account compromise are not universal provenance protection.",
+    "No whole-tree item/byte/depth/deadline budget is implemented here. Name lists and records remain in memory, open descriptors scale with active depth, and blocking filesystem I/O can still require process supervision. F14 remains open.",
+    "Output-directory symlink handling, atomic publication of multiple output files, source/output overlap, unusual non-UTF8 filenames, and full app/model/GUI/package acceptance are not certified by this change.",
+    "Ancestor changes conservatively invalidate the entire observed generation, including otherwise unaffected files; this trades availability for explicit uncertainty."
+  ],
+  "rollback": "Only inspect and reverse this isolated builder diff and owned new test/evidence files if directed. Do not reset the shared worktree, alter originals, or touch other agents/user changes.",
+  "proposed_next": "Separate-context adversarial audit of the immutable artifact and source hashes; parent repeat selected synthetic tests and validate report. Executor does not self-approve."
+}

@@ -1,0 +1,15 @@
+test_g1_probe_emits_literal_six_states_and_preserves_source (f11a_executor_metadata_tests.NotebookMetadataBindingTests) ... ok
+test_g2_missing_state_rejected_native (f11a_executor_metadata_tests.NotebookMetadataBindingTests) ... ok
+test_g2_missing_state_rejected_stream_schema (f11a_executor_metadata_tests.NotebookMetadataBindingTests) ... ok
+test_g2_missing_state_rejected_stream_structural (f11a_executor_metadata_tests.NotebookMetadataBindingTests) ... ok
+test_g2_shape_valid_wrong_count_rejected_native (f11a_executor_metadata_tests.NotebookMetadataBindingTests) ... ok
+test_g2_shape_valid_wrong_count_rejected_stream_schema (f11a_executor_metadata_tests.NotebookMetadataBindingTests) ... ok
+test_g2_shape_valid_wrong_count_rejected_stream_structural (f11a_executor_metadata_tests.NotebookMetadataBindingTests) ... ok
+test_g3_direct_search_copies_all_six_literal_states (f11a_executor_metadata_tests.NotebookMetadataBindingTests) ... ok
+test_g6_non_notebook_retains_exact_old_counts (f11a_executor_metadata_tests.NotebookMetadataBindingTests) ... ok
+F05b explicit fixture budget: {"explicit_test_bytes": 9642, "explicit_test_writes": 10, "max_source_fixture_bytes": 1090, "source_fixture_count": 9}
+
+----------------------------------------------------------------------
+Ran 9 tests in 0.160s
+
+OK

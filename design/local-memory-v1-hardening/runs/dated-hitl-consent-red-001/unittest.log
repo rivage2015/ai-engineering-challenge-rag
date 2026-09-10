@@ -1,0 +1,158 @@
+{"mode": "red", "resolver_sha256": "11218cc2b5170ba59a69203bcc549a50dc6eb6f88e487d191fb55a76048973a8", "test_sha256": "f85d05c018dabac206e5f7308b57b6742e96a7ad0214689828d224881179086d", "methods": ["test_current_confirmation_is_explicit_not_truthy_or_defaulted", "test_defer_cannot_reuse_an_old_selected_path", "test_independent_annual_relation_cannot_force_other_record_obsolete", "test_matching_legacy_dated_record_is_not_new_consent", "test_missing_or_stale_displayed_candidate_revision_is_held", "test_missing_relation_is_not_inferred_from_same_family", "test_old_writer_needs_display_proof_before_decision_store_access", "test_undated_legacy_selection_remains_a_compatibility_control", "test_use_permission_is_explicit_not_truthy_or_defaulted", "test_version_tag_alone_cannot_upgrade_legacy"], "fixture_definition_bytes": 1705, "original_document_reads": false, "actual_store_io": false, "post_api_not_baseline_red": false}
+test_current_confirmation_is_explicit_not_truthy_or_defaulted (dated_consent_fixed_test.DatedConsentSeedTests.test_current_confirmation_is_explicit_not_truthy_or_defaulted) ... 
+  test_current_confirmation_is_explicit_not_truthy_or_defaulted (dated_consent_fixed_test.DatedConsentSeedTests.test_current_confirmation_is_explicit_not_truthy_or_defaulted) (value=None) ... FAIL
+  test_current_confirmation_is_explicit_not_truthy_or_defaulted (dated_consent_fixed_test.DatedConsentSeedTests.test_current_confirmation_is_explicit_not_truthy_or_defaulted) (value=False) ... FAIL
+  test_current_confirmation_is_explicit_not_truthy_or_defaulted (dated_consent_fixed_test.DatedConsentSeedTests.test_current_confirmation_is_explicit_not_truthy_or_defaulted) (value=1) ... FAIL
+  test_current_confirmation_is_explicit_not_truthy_or_defaulted (dated_consent_fixed_test.DatedConsentSeedTests.test_current_confirmation_is_explicit_not_truthy_or_defaulted) (value='true') ... FAIL
+test_defer_cannot_reuse_an_old_selected_path (dated_consent_fixed_test.DatedConsentSeedTests.test_defer_cannot_reuse_an_old_selected_path) ... FAIL
+test_independent_annual_relation_cannot_force_other_record_obsolete (dated_consent_fixed_test.DatedConsentSeedTests.test_independent_annual_relation_cannot_force_other_record_obsolete) ... FAIL
+test_matching_legacy_dated_record_is_not_new_consent (dated_consent_fixed_test.DatedConsentSeedTests.test_matching_legacy_dated_record_is_not_new_consent) ... FAIL
+test_missing_or_stale_displayed_candidate_revision_is_held (dated_consent_fixed_test.DatedConsentSeedTests.test_missing_or_stale_displayed_candidate_revision_is_held) ... 
+  test_missing_or_stale_displayed_candidate_revision_is_held (dated_consent_fixed_test.DatedConsentSeedTests.test_missing_or_stale_displayed_candidate_revision_is_held) (label='missing') ... FAIL
+  test_missing_or_stale_displayed_candidate_revision_is_held (dated_consent_fixed_test.DatedConsentSeedTests.test_missing_or_stale_displayed_candidate_revision_is_held) (label='stale') ... FAIL
+test_missing_relation_is_not_inferred_from_same_family (dated_consent_fixed_test.DatedConsentSeedTests.test_missing_relation_is_not_inferred_from_same_family) ... FAIL
+test_old_writer_needs_display_proof_before_decision_store_access (dated_consent_fixed_test.DatedConsentSeedTests.test_old_writer_needs_display_proof_before_decision_store_access) ... FAIL
+test_undated_legacy_selection_remains_a_compatibility_control (dated_consent_fixed_test.DatedConsentSeedTests.test_undated_legacy_selection_remains_a_compatibility_control) ... ok
+test_use_permission_is_explicit_not_truthy_or_defaulted (dated_consent_fixed_test.DatedConsentSeedTests.test_use_permission_is_explicit_not_truthy_or_defaulted) ... 
+  test_use_permission_is_explicit_not_truthy_or_defaulted (dated_consent_fixed_test.DatedConsentSeedTests.test_use_permission_is_explicit_not_truthy_or_defaulted) (value=None) ... FAIL
+  test_use_permission_is_explicit_not_truthy_or_defaulted (dated_consent_fixed_test.DatedConsentSeedTests.test_use_permission_is_explicit_not_truthy_or_defaulted) (value=False) ... FAIL
+  test_use_permission_is_explicit_not_truthy_or_defaulted (dated_consent_fixed_test.DatedConsentSeedTests.test_use_permission_is_explicit_not_truthy_or_defaulted) (value=1) ... FAIL
+  test_use_permission_is_explicit_not_truthy_or_defaulted (dated_consent_fixed_test.DatedConsentSeedTests.test_use_permission_is_explicit_not_truthy_or_defaulted) (value='true') ... FAIL
+test_version_tag_alone_cannot_upgrade_legacy (dated_consent_fixed_test.DatedConsentSeedTests.test_version_tag_alone_cannot_upgrade_legacy) ... FAIL
+
+======================================================================
+FAIL: test_current_confirmation_is_explicit_not_truthy_or_defaulted (dated_consent_fixed_test.DatedConsentSeedTests.test_current_confirmation_is_explicit_not_truthy_or_defaulted) (value=None)
+----------------------------------------------------------------------
+AssertionError: 'resolved' != 'needs_human_review'
+- resolved
++ needs_human_review
+
+
+======================================================================
+FAIL: test_current_confirmation_is_explicit_not_truthy_or_defaulted (dated_consent_fixed_test.DatedConsentSeedTests.test_current_confirmation_is_explicit_not_truthy_or_defaulted) (value=False)
+----------------------------------------------------------------------
+AssertionError: 'resolved' != 'needs_human_review'
+- resolved
++ needs_human_review
+
+
+======================================================================
+FAIL: test_current_confirmation_is_explicit_not_truthy_or_defaulted (dated_consent_fixed_test.DatedConsentSeedTests.test_current_confirmation_is_explicit_not_truthy_or_defaulted) (value=1)
+----------------------------------------------------------------------
+AssertionError: 'resolved' != 'needs_human_review'
+- resolved
++ needs_human_review
+
+
+======================================================================
+FAIL: test_current_confirmation_is_explicit_not_truthy_or_defaulted (dated_consent_fixed_test.DatedConsentSeedTests.test_current_confirmation_is_explicit_not_truthy_or_defaulted) (value='true')
+----------------------------------------------------------------------
+AssertionError: 'resolved' != 'needs_human_review'
+- resolved
++ needs_human_review
+
+
+======================================================================
+FAIL: test_defer_cannot_reuse_an_old_selected_path (dated_consent_fixed_test.DatedConsentSeedTests.test_defer_cannot_reuse_an_old_selected_path)
+----------------------------------------------------------------------
+AssertionError: 'resolved' != 'needs_human_review'
+- resolved
++ needs_human_review
+
+
+======================================================================
+FAIL: test_independent_annual_relation_cannot_force_other_record_obsolete (dated_consent_fixed_test.DatedConsentSeedTests.test_independent_annual_relation_cannot_force_other_record_obsolete)
+----------------------------------------------------------------------
+AssertionError: 'resolved' != 'needs_human_review'
+- resolved
++ needs_human_review
+
+
+======================================================================
+FAIL: test_matching_legacy_dated_record_is_not_new_consent (dated_consent_fixed_test.DatedConsentSeedTests.test_matching_legacy_dated_record_is_not_new_consent)
+----------------------------------------------------------------------
+AssertionError: 'resolved' != 'needs_human_review'
+- resolved
++ needs_human_review
+
+
+======================================================================
+FAIL: test_missing_or_stale_displayed_candidate_revision_is_held (dated_consent_fixed_test.DatedConsentSeedTests.test_missing_or_stale_displayed_candidate_revision_is_held) (label='missing')
+----------------------------------------------------------------------
+AssertionError: 'resolved' != 'needs_human_review'
+- resolved
++ needs_human_review
+
+
+======================================================================
+FAIL: test_missing_or_stale_displayed_candidate_revision_is_held (dated_consent_fixed_test.DatedConsentSeedTests.test_missing_or_stale_displayed_candidate_revision_is_held) (label='stale')
+----------------------------------------------------------------------
+AssertionError: 'resolved' != 'needs_human_review'
+- resolved
++ needs_human_review
+
+
+======================================================================
+FAIL: test_missing_relation_is_not_inferred_from_same_family (dated_consent_fixed_test.DatedConsentSeedTests.test_missing_relation_is_not_inferred_from_same_family)
+----------------------------------------------------------------------
+AssertionError: 'resolved' != 'needs_human_review'
+- resolved
++ needs_human_review
+
+
+======================================================================
+FAIL: test_old_writer_needs_display_proof_before_decision_store_access (dated_consent_fixed_test.DatedConsentSeedTests.test_old_writer_needs_display_proof_before_decision_store_access)
+----------------------------------------------------------------------
+AssertionError: Lists differ: ['read_decision_store', 'write_decision_store'] != []
+
+First list contains 2 additional elements.
+First extra element 0:
+'read_decision_store'
+
+- ['read_decision_store', 'write_decision_store']
++ [] : dated writer reached store without displayed proof
+
+======================================================================
+FAIL: test_use_permission_is_explicit_not_truthy_or_defaulted (dated_consent_fixed_test.DatedConsentSeedTests.test_use_permission_is_explicit_not_truthy_or_defaulted) (value=None)
+----------------------------------------------------------------------
+AssertionError: 'resolved' != 'needs_human_review'
+- resolved
++ needs_human_review
+
+
+======================================================================
+FAIL: test_use_permission_is_explicit_not_truthy_or_defaulted (dated_consent_fixed_test.DatedConsentSeedTests.test_use_permission_is_explicit_not_truthy_or_defaulted) (value=False)
+----------------------------------------------------------------------
+AssertionError: 'resolved' != 'needs_human_review'
+- resolved
++ needs_human_review
+
+
+======================================================================
+FAIL: test_use_permission_is_explicit_not_truthy_or_defaulted (dated_consent_fixed_test.DatedConsentSeedTests.test_use_permission_is_explicit_not_truthy_or_defaulted) (value=1)
+----------------------------------------------------------------------
+AssertionError: 'resolved' != 'needs_human_review'
+- resolved
++ needs_human_review
+
+
+======================================================================
+FAIL: test_use_permission_is_explicit_not_truthy_or_defaulted (dated_consent_fixed_test.DatedConsentSeedTests.test_use_permission_is_explicit_not_truthy_or_defaulted) (value='true')
+----------------------------------------------------------------------
+AssertionError: 'resolved' != 'needs_human_review'
+- resolved
++ needs_human_review
+
+
+======================================================================
+FAIL: test_version_tag_alone_cannot_upgrade_legacy (dated_consent_fixed_test.DatedConsentSeedTests.test_version_tag_alone_cannot_upgrade_legacy)
+----------------------------------------------------------------------
+AssertionError: 'resolved' != 'needs_human_review'
+- resolved
++ needs_human_review
+
+
+----------------------------------------------------------------------
+Ran 10 tests in 0.001s
+
+FAILED (failures=16)

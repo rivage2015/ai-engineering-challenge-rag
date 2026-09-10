@@ -1,0 +1,49 @@
+test_current_marker_conflicts_with_higher_numeric_version (f04a_resolver_tests.DocumentVersionResolverTests) ... 
+======================================================================
+FAIL: test_current_marker_conflicts_with_higher_numeric_version (f04a_resolver_tests.DocumentVersionResolverTests) (current='現行/業務_ver1.xlsx', other='業務_ver2.xlsx')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/distribution/macos-local-memory/tests/test_document_version_resolver.py", line 130, in test_current_marker_conflicts_with_higher_numeric_version
+    self.assertEqual("needs_human_review", group["status"])
+AssertionError: 'needs_human_review' != 'resolved'
+- needs_human_review
++ resolved
+
+
+======================================================================
+FAIL: test_current_marker_conflicts_with_higher_numeric_version (f04a_resolver_tests.DocumentVersionResolverTests) (current='現行/業務_ver1.2.xlsx', other='業務_ver1.10.xlsx')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/distribution/macos-local-memory/tests/test_document_version_resolver.py", line 130, in test_current_marker_conflicts_with_higher_numeric_version
+    self.assertEqual("needs_human_review", group["status"])
+AssertionError: 'needs_human_review' != 'resolved'
+- needs_human_review
++ resolved
+
+
+======================================================================
+FAIL: test_current_marker_conflicts_with_higher_numeric_version (f04a_resolver_tests.DocumentVersionResolverTests) (current='現行/業務_ver1.2.xlsx', other='業務_ver1.10_下書き.xlsx')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/distribution/macos-local-memory/tests/test_document_version_resolver.py", line 130, in test_current_marker_conflicts_with_higher_numeric_version
+    self.assertEqual("needs_human_review", group["status"])
+AssertionError: 'needs_human_review' != 'resolved'
+- needs_human_review
++ resolved
+
+
+======================================================================
+FAIL: test_current_marker_conflicts_with_higher_numeric_version (f04a_resolver_tests.DocumentVersionResolverTests) (current='現行/業務_ver1.2.xlsx', other='旧版/業務_ver1.10.xlsx')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/distribution/macos-local-memory/tests/test_document_version_resolver.py", line 130, in test_current_marker_conflicts_with_higher_numeric_version
+    self.assertEqual("needs_human_review", group["status"])
+AssertionError: 'needs_human_review' != 'resolved'
+- needs_human_review
++ resolved
+
+
+----------------------------------------------------------------------
+Ran 1 test in 0.005s
+
+FAILED (failures=4)

@@ -1,0 +1,65 @@
+test_new_app_generation_materializes_empty_decision_snapshot (f05b_target.DecisionSnapshotApplicationTests.test_new_app_generation_materializes_empty_decision_snapshot) ... FAIL
+test_projector_rejects_omitted_authority_before_index_changes (f05b_target.DecisionSnapshotApplicationTests.test_projector_rejects_omitted_authority_before_index_changes) ... FAIL
+test_reader_rejects_omitted_authority_before_source_entry (f05b_target.DecisionSnapshotApplicationTests.test_reader_rejects_omitted_authority_before_source_entry) ... FAIL
+test_reader_rejects_resealed_active_after_initial_gate (f05b_target.DecisionSnapshotApplicationTests.test_reader_rejects_resealed_active_after_initial_gate) ... FAIL
+test_validator_rejects_coherent_eligible_contact_omission (f05b_target.DecisionSnapshotApplicationTests.test_validator_rejects_coherent_eligible_contact_omission) ... FAIL
+test_validator_rejects_omitted_authority (f05b_target.DecisionSnapshotApplicationTests.test_validator_rejects_omitted_authority) ... FAIL
+
+======================================================================
+FAIL: test_new_app_generation_materializes_empty_decision_snapshot (f05b_target.DecisionSnapshotApplicationTests.test_new_app_generation_materializes_empty_decision_snapshot)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/tests/test_decision_snapshot_e2e.py", line 74, in test_new_app_generation_materializes_empty_decision_snapshot
+    self.assertTrue(snapshot.is_file(), "new app generation must capture a fixed decision snapshot")
+    ~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: False is not true : new app generation must capture a fixed decision snapshot
+
+======================================================================
+FAIL: test_projector_rejects_omitted_authority_before_index_changes (f05b_target.DecisionSnapshotApplicationTests.test_projector_rejects_omitted_authority_before_index_changes)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/tests/test_decision_snapshot_e2e.py", line 223, in test_projector_rejects_omitted_authority_before_index_changes
+    self.assertFalse(accepted, "projector reached embedding with omitted version authority")
+    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: True is not false : projector reached embedding with omitted version authority
+
+======================================================================
+FAIL: test_reader_rejects_omitted_authority_before_source_entry (f05b_target.DecisionSnapshotApplicationTests.test_reader_rejects_omitted_authority_before_source_entry)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/tests/test_decision_snapshot_e2e.py", line 93, in test_reader_rejects_omitted_authority_before_source_entry
+    self.assertFalse(accepted, "versioned Reader accepted omitted authority and reached source access")
+    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: True is not false : versioned Reader accepted omitted authority and reached source access
+
+======================================================================
+FAIL: test_reader_rejects_resealed_active_after_initial_gate (f05b_target.DecisionSnapshotApplicationTests.test_reader_rejects_resealed_active_after_initial_gate)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/tests/test_decision_snapshot_e2e.py", line 154, in test_reader_rejects_resealed_active_after_initial_gate
+    self.assertFalse(observed.exception.accepted, "resealed false selection passed Reader after real initial validation")
+    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: True is not false : resealed false selection passed Reader after real initial validation
+
+======================================================================
+FAIL: test_validator_rejects_coherent_eligible_contact_omission (f05b_target.DecisionSnapshotApplicationTests.test_validator_rejects_coherent_eligible_contact_omission)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/tests/test_decision_snapshot_e2e.py", line 195, in test_validator_rejects_coherent_eligible_contact_omission
+    self.assertFalse(observed.exception.accepted, "coherently omitted eligible Contact was accepted by Validator")
+    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: True is not false : coherently omitted eligible Contact was accepted by Validator
+
+======================================================================
+FAIL: test_validator_rejects_omitted_authority (f05b_target.DecisionSnapshotApplicationTests.test_validator_rejects_omitted_authority)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/tests/test_decision_snapshot_e2e.py", line 102, in test_validator_rejects_omitted_authority
+    with self.assertRaisesRegex(ValueError, "version_decision_authority_required"):
+         ~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: ValueError not raised
+
+----------------------------------------------------------------------
+Ran 6 tests in 0.669s
+
+FAILED (failures=6)

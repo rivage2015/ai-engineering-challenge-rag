@@ -1,0 +1,68 @@
+# F05b independent audit coverage and limits
+
+Task `local-memory-v1-f05b-snapshot-complete-selection`; artifact SHA256 `721db8b316bd22101ddcc9738d4006684eb50d9270af4a05e64c6b58af73b987`; formal repair round 0. This record uses the Adapter and Agentic Audit skills. The separate same-model context is procedural separation, not model diversity. Only the contract, frozen artifact/source packet and independent synthetic observations were used, not private executor reasoning.
+
+## Executed result boundary
+
+All 18 independent supervised runs passed, with 205 reported methods, zero skips, expected failures, timeouts or failed attempts. Count 202 acceptance/control/regression methods separately from the three residual witnesses below. Of the 205, 20 methods are independently authored holdouts (original 13 plus supplemental 7), frozen with literal gold and root-reviewed guard before import. Supplement acceptance does not alter the original holdout, root controls, product, or old gold.
+
+| Audit run suffix (`f05b-audit-…-001`) | Methods | Role |
+|---|---:|---|
+| pure | 28 | F05b exact attestation API, modes, strict inputs, Human, same-read/detachment |
+| app | 6 | Unchanged root semantic RED oracles now GREEN |
+| controls | 16 | Root post-API controls |
+| holdout | 13 | Independent capture, old-generation, downstream reads and literal types |
+| supplement | 7 | Independent legacy/current registration, expected-read ordering, strict context and full inventory |
+| path | 2 | Static generation and 01-path directory links |
+| resolver | 20 | Existing resolver/Reader semantics |
+| e2e | 17 | Real dispatched app/CLI, projection, query/final audit under model stubs |
+| migration | 7 | Migration and byte-bound registration regression |
+| focused | 13 | Immutable lineage and nonrepair |
+| runtime | 4 | Only reviewed storage/model-ready/shadow orchestration methods |
+| f05a-pure | 25 | F05a reconstruction/wrapper regression |
+| gate | 4 | Real initial app pre-Reader gate, not downstream proof |
+| unmarked | 4 | F03a Human/mixed-candidate app regression |
+| unmarked-pure | 19 | 17 acceptance/control plus 2 residual witnesses |
+| year | 11 | 10 acceptance/control plus 1 residual witness |
+| lineage | 8 | Focused relation/lineage regression |
+| security | 1 | Native Python 3.9 security partition control, not skipped |
+
+Result, started metadata and terminal-log hashes are in `f05b-audit-integrity-result.v1.json` and the evidence packet. Other runs use isolated Python 3.14. All commands are retained; test method count is not a count of documents, branches, subtests or format coverage.
+
+## Completed remaining-boundary matrix
+
+`A1–A8` and `C1–C5` below refer to the exact method mapping in immutable `f05b-audit-holdouts-gold.v1.md`; `S1–S7` refer, in order, to `f05b-audit-supplement-gold.v1.md`. Full test source and logs remain hash-bound. Artifact evidence IDs refer to existing artifact sources; independent auxiliary evidence is identified by exact paths in the formal report's source_scope/evidence packet, not invented source IDs.
+
+| Contract boundary / graph targets | Actual evidence and discriminating observation | Scope or limitation |
+|---|---|---|
+| Capture exact single-generation authority — N_CAPTURE, E_CAPTURE_ATTEST | root empty snapshot/control commands; A1 copies noncanonical whitespace and two Human groups byte-for-byte; A8 changes shared bytes before actual second model-ready pipeline yet both descriptors and output snapshot remain literal D0. BOOTSTRAP diff shows the sole capture before resolver and the same local descriptor passed onward. | Same-generation explicit capture, not atomic snapshot of all files or an OS immutability claim. A8 alone does not count internal capture calls. |
+| Strict full capture / capacity — N_CAPTURE | A2's seven malformed/duplicate-key/nonfinite payloads and A3 shared symlink/directory fail after actual Path validation and before resolver. S7 adds duplicate group IDs and synthetic PermissionError. Root capacity control and pure 127/128/129 test enforce small boundary; S7 checks named oversize/no-truncation guidance and preserved old generation. | Production default 1 MiB, max 64 MiB is a declared resource policy, not user data measurement. No FIFO created; actual O_NONBLOCK/fstat regular-file logic and directory/link controls inspected. |
+| Exclusive create and trusted static path — N_CAPTURE, N_REGISTER, E_CAPTURE_REGISTER | root existing regular target plus A4 directory/symlink/dangling targets survive; A5 rejects exact descriptor omissions/types/alternate generation/shared/`..`/extra fields before commands; A6 swaps 01-path for an identical-byte other-directory link and is rejected. Independent path2 covers static generation and 01-path links. | Final-component no-follow plus two specified directory checks only; all ancestors, already-open descriptors, global races and leases are outside this guarantee. |
+| Attestation exact modes, full reconstruction, detached results — N_ATTEST | pure28 exact success/FAIL-only payloads, no_decisions/explicit_decisions/snapshot, wrong/missing hash/path and unknown modes; F05a-pure25 retains wrapper/malformed/duplicate/nonfinite reconstruction negatives. Failed attestation returns no usable groups/inventory/binding; a later payload mutation cannot alter another invocation. | Explicit_decisions absence remains the legacy wrapper behavior, not an app fallback. Failure-shape/mode TypeError is not original semantic RED. |
+| Same read and substitution — N_ATTEST, E_ATTEST_SELECTION | pure single-open plus literal late substitution replaces graph, inventory and snapshot only after reads; result exactly matches the original verified payload. A/C1/C2 independently count one Python open for each input per Reader/Validator invocation and literal selection; C3 rejects wrong expected hash before source open. | Three independent files are not an atomic filesystem transaction. Audit hooks trace Python path-open events, not all kernel FD activity. Actual implementation uses attributable absolute paths and observed counts are 1, never waived from 0. |
+| Full inventory before Reader filter — N_SELECTION, E_ATTEST_SELECTION | root actual Contact omission patch affects only producer selector, then is restored before consumer; full inventory still contains Contact, real shorter outputs exist, and Validator rejects. S6 uses .doc families accepted by resolver but unsupported by Reader: exact Contact-only selection passes; resealed deletion of the unsupported family fails full reconstruction. | .doc parser never runs; no new format support claim. Existing allowlists/NFC sorting/sensitivity rules are reused, not redefined. |
+| Exact manifest, counts and five limitations — N_SELECTION | root6 post-initial-gate false-active rejection before source entry; root16 order/duplicate/hash attacks; C4 strict float/bool/extra-zero/missing count/state inventory digest attacks. C1/C2 canonical gold is Contact,Guide_ver2; integer2; all seven specified counters and five limits. Static validator comparisons occur against independently reconstructed selection before later lineage work. | Earlier Python equality-only root literals are not alone the strict-type proof. Manifest membership is distinct from completeness, and initial F05a gate is not reused as downstream proof. |
+| Exact projector contexts and detached publication — N_PROJECT, E_SELECTION_PROJECT | S5 exact three context forms plus partial/null/type/extra negatives fail through actual _attest_lineage_context before Path.resolve/validator loading. Existing E2E bare PASS rejection, omitted authority before embedding/index replacement, and post-attestation producer binding substitution retain verified SQLite binding. Normal actual dispatched query/final audit remains accepted only for known supported gold. | No real inference quality or arbitrary serialized graph correctness inferred from stub success. The same context-check helper gates security lineage context. |
+| New registration cannot downgrade — N_REGISTER, E_CAPTURE_REGISTER | root new-registration removal of graph plus nested authority fails with real trusted args forwarded; root fresh canary rejects without canary open/stat/resolve. S1 explicit legacy success plus default/False and app descriptor None/omission rejection; S2 reaches actual new registration and omits descriptor, retaining old generation/CONFIG/index. | Intentional required-keyword TypeError is only an API shape negative; root's graph omission is the semantic companion. No exact bool-only requirement invented for low-level legacy opt-in. |
+| CONFIG anchor and expected digest read order — N_REGISTER | Root changes ONLY supplied CONFIG registration sha while every generation byte is current: named hash-mismatch before snapshot open. Root coherent same-selection Human D1 forgery retains registered D0/CONFIG and fails. S3 sees actual expected D0 kwargs from registered contract before any snapshot open, then exactly one attestation read and no shared access. | Earlier saved-state canary can fail at registered-state hash and is not credited as later path-comparison reachability; fresh-registration canary supplies that control. D1 self-consistency alone does not authenticate it. |
+| Old format, migration and byte preservation — N_REGISTER | S4 actual frozen historical bootstrap serializer emits schema0.1/builder0.4 version binding; historical status=current, current status=migration before snapshot/shared reads, with full owned generation unchanged and no snapshot repaired. A7 successful next D1 build retains complete D0 file-map and old index. Migration7/focused13 and A2–A6 retain publication/lineage on failures. | S4 uses current synthetic stage resources with real old-format serializer/status, not replay of an entire old application or a user archive. Old generation preservation and changing current CONFIG to legitimate D1 are distinct. |
+| Human/stale and partial semantics — N_ATTEST, N_SELECTION | pure tests select either Human candidate; added candidate, selected and nonselected source changes return stale hold. Resolver20/unmarked4+19/year11 retain their literal behavior. Parser/adapter code hashes are unchanged in source packet; Reader delta changes selection/authority only, and bounded model-ready runtime control preserves complete_with_limits/partial_documents state. | No native OCR/Office/PDF partial-parse quality retest; parser semantics preservation is scoped unchanged-code plus focused regression, not all-format acceptance. |
+| Honest history, source deltas and safety — N_CONTROLS, E_CONTROLS_LIMITS | Independent byte patch implementation reconstructs both directions for 12 source/test deltas plus README. All210 source hashes,107 executor manifest entries,30 old result/log terminals and18 audit terminals verified. Original root6 assertion RED and unchanged test bytes; controls7→10→13→16 and pure26→27→28 retain every original method AST. | Integrity is not semantic proof. All old failed attempts, SyntaxError-before-methods and one skip remain visible below. |
+
+## Correction and failure history retained
+
+The historical 30 attempts include original root6 assertion failures, static directory-link 2 assertion failures, focused13 with one error-code assertion failure, runtime SyntaxError with methods=null, and security completed_with_skips=1 followed by native non-skipped success. They are not rewritten as PASS or counted in the 205 independent methods. Runtime syntax source and old diff serialization failures remain in the 210-source packet. Three corrected diff v2 files restore trimmed context whitespace without weakening final source/test gold. Independent bidirectional reconstruction succeeded on final deltas. The initial root controls run lacked complete explicit-fixture budgeting and is not a budget-proof run; later budgeted runs and independent runs supply that proof.
+
+Auditor runner v1 was never executed; before/after direct JSON save was replaced by stdout-for-apply_patch in v2 at root request, retaining v1. Runner v3 only adds reviewed supplementary target/hash/approval. Original 13 holdouts needed no fixture or oracle correction; supplementary seven also passed on first attempt. Formal product repair remains 0.
+
+## Residuals and hard limits
+
+Exactly three observed residual witnesses are not acceptance:
+
+- `ResidualWitnessTests.test_cross_key_moves_renames_and_suffix_changes_leave_old_group_omitted` (UNMARKED_TEST).
+- `ResidualWitnessTests.test_year_kanji_parent_is_not_silently_normalized_more_broadly` (UNMARKED_TEST).
+- `CurrentMarkerResidualWitnessTests.test_current_marker_year_residual_is_observable` (YEAR_TEST).
+
+F06/F19 Human/root authenticity, publication leases/revision, source identity/freshness, whole-tree drift, cross-key/year retention and all-ancestor/global races remain open. This audit does not accept all F05, all V1, all formats, model quality, package/GUI/release or unlimited resource safety.
+
+All independent workers used reviewed synthetic temporary fixtures, stub model/HTTP/process dispatch and 30 seconds/1 MiB logs. Root F05b budget counts direct writes from listed acceptance/fixture sources; it is not a universal count of collateral-test or product-generated artifacts. Original inherited guards/manual preflight bound legacy collateral cases. Observed pure explicit fixture bytes 240233, original holdouts69706, supplement24294; all below1MiB. No model, network, production CONFIG/index/source, GUI, installation, extra permission, product/test edit, commit or push was performed. A read-only file lookup used an incorrect root test path once and was corrected to the existing distribution path; it was not a test attempt.

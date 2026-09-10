@@ -1,0 +1,26 @@
+{
+  "task_id": "lms-v1-00-hardening-2026-09-09-f05a",
+  "artifact_sha256": "7b7414f3e58a62b6eb34fc71534da11eec51c1dd58c316326ba03e9ab436bf61",
+  "created_at_utc": "2026-09-09T01:59:48.922522+00:00",
+  "type": "auditor_evidence_metadata_correction_before_final_handoff",
+  "original_report": {
+    "path": "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/design/local-memory-v1-hardening/runs/f05a-audit-report.v1.json",
+    "sha256": "abcba38370198842719be602b1a0bfb84d365c85a49a48b6e9ba608a71343152"
+  },
+  "original_evidence": {
+    "path": "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/design/local-memory-v1-hardening/runs/f05a-audit-evidence.v1.json",
+    "sha256": "a75243f82defeeacbe516aa4c6ff10f76543d54030bf8fa98616d7f21d3c3980"
+  },
+  "field": "residual_test_names[2]",
+  "before": "YearOnlySupersessionTests.test_current_marker_year_residual_is_observable",
+  "after": "CurrentMarkerResidualWitnessTests.test_current_marker_year_residual_is_observable",
+  "reason": "Final self-review compared source class declarations and detected an incorrect class qualifier. The method identity and 1 year residual count were already correct. The original v1 files and builder are retained unchanged, and v2 evidence derives all residual names from frozen test AST classes.",
+  "unchanged": [
+    "artifact and all 115 source hashes",
+    "all eight independent test runs",
+    "111 total / 108 acceptance-control-regression / 3 residual methods",
+    "all scoped check verdicts",
+    "formal repair round 0"
+  ],
+  "product_or_test_edits": false
+}

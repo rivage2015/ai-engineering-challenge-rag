@@ -1,0 +1,7 @@
+# F05b actual initial RED assessment
+
+Root, 2026-09-09 11:22 JST. Reviewed full `f05b-root-red-v1/unittest.log`, SHA-256 `e13c9fc6f88ec8a60a7718695884c9f38e683a2f7075c94ca24b3690ff244b5a`. Six methods ran in 0.669s; terminal FAILED(failures=6), no errors/skips/expected failures. Supervisor exit1, elapsed0.856293s, 6135-byte log. All5 product hashes matched frozen before values immediately before execution. No product edits have been released.
+
+All six are genuine semantic assertion REDs under the frozen gold, not missing keyword, syntax, environment or late model errors: missing fixed snapshot; projector reached embedding without authority; Reader reached source entry without authority; a resealed false-active group reached Reader source entry after actual initial resolver PASS; coherent Contact omission was accepted by actual Validator after producer selector restoration; omitted Validator authority raised no error. Prior publication/source preservation assertions executed before the last two acceptance assertions as written. Projector's after-rejection preservation assertions are not reached on RED; do not claim they already passed.
+
+These tests establish scoped current defects and first attack checkpoints, not the full post-API controls or product acceptance. Retain frozen gold/test bytes and failed log. Executor may implement only after freezing its PhaseA tests and receiving explicit root release; all existing fixture modifications need before/delta preservation. Formal F05b audit repairs remain zero.

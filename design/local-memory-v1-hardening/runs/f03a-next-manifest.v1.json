@@ -1,0 +1,139 @@
+{
+  "schema_version": "1.0",
+  "task_id": "lms-v1-00-hardening-2026-09-09-f03a-next",
+  "status": "contract_and_baseline_ready_not_product_acceptance",
+  "source_checks": [
+    {
+      "path": "distribution/macos-local-memory/engine/document_version_resolver.py",
+      "expected_sha256": "9a7443862c015ed768007ef5a7b21bd3bc197c9bb7a3d7ed2f7b39b33374359d",
+      "actual_sha256": "9a7443862c015ed768007ef5a7b21bd3bc197c9bb7a3d7ed2f7b39b33374359d",
+      "unchanged": true
+    },
+    {
+      "path": "distribution/macos-local-memory/tests/test_document_version_resolver.py",
+      "expected_sha256": "b7c323f48f10488ef2dc245dacc265ad0dd5b77ea37e50b9e4b32504bda7b293",
+      "actual_sha256": "b7c323f48f10488ef2dc245dacc265ad0dd5b77ea37e50b9e4b32504bda7b293",
+      "unchanged": true
+    },
+    {
+      "path": "distribution/macos-local-memory/tests/test_versioned_safe_index_e2e.py",
+      "expected_sha256": "41540a858d17f8abb322c15353032ec4dd3099eac4e767090f7b9dbabfbcf64a",
+      "actual_sha256": "41540a858d17f8abb322c15353032ec4dd3099eac4e767090f7b9dbabfbcf64a",
+      "unchanged": true
+    },
+    {
+      "path": "distribution/macos-local-memory/engine/build_adaptive_semantic_graph.py",
+      "expected_sha256": "19b5c55c64959dc136cd4d6b2081151ed1e39560874fb083e9796edb8812adfa",
+      "actual_sha256": "19b5c55c64959dc136cd4d6b2081151ed1e39560874fb083e9796edb8812adfa",
+      "unchanged": true
+    },
+    {
+      "path": "distribution/macos-local-memory/engine/validate_adaptive_semantic_graph.py",
+      "expected_sha256": "49138ecc11bde5709f129e879cbc5140717dca716a8563ebafe77dda4e37187d",
+      "actual_sha256": "49138ecc11bde5709f129e879cbc5140717dca716a8563ebafe77dda4e37187d",
+      "unchanged": true
+    },
+    {
+      "path": "distribution/macos-local-memory/engine/build_local_semantic_index.py",
+      "expected_sha256": "2bfaf8174e8249087d720e49070c9812ce9ecf93b21dd5276f057e145965dfb2",
+      "actual_sha256": "2bfaf8174e8249087d720e49070c9812ce9ecf93b21dd5276f057e145965dfb2",
+      "unchanged": true
+    },
+    {
+      "path": "distribution/macos-local-memory/app/bootstrap.py",
+      "expected_sha256": "df720a40bb0f8f6123cb0f171b829ca1f4f26761f1e24878fa415b5ff70919a3",
+      "actual_sha256": "df720a40bb0f8f6123cb0f171b829ca1f4f26761f1e24878fa415b5ff70919a3",
+      "unchanged": true
+    },
+    {
+      "path": "distribution/macos-local-memory/app/local_memory_server.py",
+      "expected_sha256": "3acb859916ccb9fb1a1c26cc0ebfa511bea2d8114fa83103ace40183fa899ee6",
+      "actual_sha256": "3acb859916ccb9fb1a1c26cc0ebfa511bea2d8114fa83103ace40183fa899ee6",
+      "unchanged": true
+    },
+    {
+      "path": "distribution/macos-local-memory/README.md",
+      "expected_sha256": "aa088a5b6ac8e2d83398d6adba8e36864d18808415cc002f03fe246b7e630c0b",
+      "actual_sha256": "aa088a5b6ac8e2d83398d6adba8e36864d18808415cc002f03fe246b7e630c0b",
+      "unchanged": true
+    },
+    {
+      "path": "scripts/run_local_memory_hardening_tests.py",
+      "expected_sha256": "6b3bde90b6ed649a82325f6b5ad9661756bef7b6e0303fa74c2d045fb26eb4a9",
+      "actual_sha256": "6b3bde90b6ed649a82325f6b5ad9661756bef7b6e0303fa74c2d045fb26eb4a9",
+      "unchanged": true
+    },
+    {
+      "path": "tests/test_year_only_supersession.py",
+      "expected_sha256": "70a1226cb30daa6692533d2c6f1fe270fe301a8f759c0db56a142acbc945b8c0",
+      "actual_sha256": "70a1226cb30daa6692533d2c6f1fe270fe301a8f759c0db56a142acbc945b8c0",
+      "unchanged": true
+    },
+    {
+      "path": "design/local-memory-v1-hardening/RESUME.md",
+      "expected_sha256": "acd40a12d192a6e06eaaae21ef0cda6867330ceff94df436e285ae30e434506f",
+      "actual_sha256": "acd40a12d192a6e06eaaae21ef0cda6867330ceff94df436e285ae30e434506f",
+      "unchanged": true
+    },
+    {
+      "path": "design/local-memory-v1-hardening/checkpoint.json",
+      "expected_sha256": "0b444fc7da4520fc285a89dbdf886449f2d0a0450df166ef10c6049d8ba99973",
+      "actual_sha256": "0b444fc7da4520fc285a89dbdf886449f2d0a0450df166ef10c6049d8ba99973",
+      "unchanged": true
+    },
+    {
+      "path": "design/local-memory-search-v1-00-hardening-plan-2026-09-09.md",
+      "expected_sha256": "e49801e3af62fb0a4e8f73a1379d105c2ff5b62946606d69ddf2522f4935f456",
+      "actual_sha256": "e49801e3af62fb0a4e8f73a1379d105c2ff5b62946606d69ddf2522f4935f456",
+      "unchanged": true
+    },
+    {
+      "path": "design/local-memory-v1-hardening/runs/f02a-validation-result.v1.json",
+      "expected_sha256": "353a0d09a501fd707268b393713b8ef45687eeeff90c389529431636b8578398",
+      "actual_sha256": "353a0d09a501fd707268b393713b8ef45687eeeff90c389529431636b8578398",
+      "unchanged": true
+    }
+  ],
+  "artifacts": [
+    {
+      "path": "design/local-memory-v1-hardening/runs/f03a-next-contract.v1.md",
+      "sha256": "e6a95c15898184f7cc699b4a53f7bb16ab96b4ce591cefd4d123daeb61347263",
+      "bytes": 15442
+    },
+    {
+      "path": "design/local-memory-v1-hardening/runs/f03a-next-preflight.v1.json",
+      "sha256": "f7f39bdd857ee5e8a1b73175bacee11d24ed74a4273a451dcfc4c3f01b2617da",
+      "bytes": 5789
+    },
+    {
+      "path": "design/local-memory-v1-hardening/runs/f03a-next-probe.v1.py",
+      "sha256": "27224242d263034c3414b932c7f3dc557d537eab797b7c6579d72ef02878cb69",
+      "bytes": 13900
+    },
+    {
+      "path": "design/local-memory-v1-hardening/runs/f03a-next-run.v1.py",
+      "sha256": "2d47c0a10d884b4a5f4411491bf574135627b39a6445e5e9f7a1b84ca943ebe8",
+      "bytes": 950
+    },
+    {
+      "path": "design/local-memory-v1-hardening/runs/f03a-next-baseline-001/started.json",
+      "sha256": "0221279f74d500193f3ab39eb098282b983bef78a1e488a0911467cfcdeab1c6",
+      "bytes": 683
+    },
+    {
+      "path": "design/local-memory-v1-hardening/runs/f03a-next-baseline-001/result.json",
+      "sha256": "7b5bce19e9a0773bb83a67b733a9d3e68aab172c1970d3c0c5a50fe8c3f96208",
+      "bytes": 1147
+    },
+    {
+      "path": "design/local-memory-v1-hardening/runs/f03a-next-baseline-001/unittest.log",
+      "sha256": "39ce1c65eec0feda10ba0cc84966aed27e1d638fb667903938390f4e47d4f75a",
+      "bytes": 20458
+    }
+  ],
+  "baseline_observation_count": 30,
+  "baseline_methods": 4,
+  "product_files_modified_by_this_phase": [],
+  "next": "Parent-owned implementation authorization and frozen acceptance tests required. Observer PASS proves baseline reproduction only.",
+  "git_diff_check": "PASS (read-only check, exit 0; not product acceptance)"
+}

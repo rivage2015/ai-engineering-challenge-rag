@@ -1,0 +1,14 @@
+{
+  "schema_version": "1.0",
+  "task_id": "lms-v1-00-h0-test-supervisor",
+  "artifact": "h0-runner-graph-artifact.v1.json",
+  "report": "h0-runner-audit-report.v1.json",
+  "actual_artifact_sha256": "f73ba0c008d74992e5bb162d3fea0570587995b4ce05bec02953325c62ab7fef",
+  "ruby_structural_referential_validator": "PASS",
+  "draft202012_schema_task_hash_sources_at_v1_entry": "PASS",
+  "audit_status": "revise",
+  "required_repairs": 2,
+  "unresolved_import_contract": 1,
+  "action": "Root repair round1: terminal summary classification, SIGTERM/SIGHUP own-group cleanup and explicit root imports; re-audit v2 requested.",
+  "auditor_execution_limit": "v1 audit was static only; a tool write waited and was interrupted, no test process was started. Root subsequently reproduced mandatory defects in run013, then green run014 and recovery015."
+}

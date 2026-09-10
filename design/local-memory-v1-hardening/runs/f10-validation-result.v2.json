@@ -1,0 +1,13 @@
+{
+  "schema_version": "1.0",
+  "task_id": "lms-v1-00-hardening-2026-09-09-f10",
+  "artifact": "f10-graph-artifact.v2.json",
+  "report": "f10-audit-report.v2.json",
+  "actual_artifact_sha256": "20087e0774f67c9586e537117afd27dce41fedb1274d77f187b059f37058dbb5",
+  "ruby_structural_referential_validator": "PASS",
+  "draft202012_schema_task_hash": "PASS",
+  "all_nineteen_source_hashes": "PASS",
+  "audit_status": "revise",
+  "required_repairs": ["F10-V2-A05-TERMINAL-DOT-URI-BINDING"],
+  "next_action": "Final allowed repair round2: preserve directory-ending meaning of terminal dot/dotdot URI segments. Keep prior original counterexamples, dot variants and valid controls. Any remaining required failure after round2 stays blocked; do not relabel for further retries."
+}

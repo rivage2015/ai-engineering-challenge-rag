@@ -1,0 +1,22 @@
+{
+  "schema_version": "1.0",
+  "task_id": "lms-v1-00-hardening-2026-09-09-f16-validator",
+  "status": "red_reproduced_implementation_waits_for_builder_freeze_release",
+  "owner": "root",
+  "scope": "Explicit source-root authority, complete descriptor-bound current inventory, and source binding of submitted path nodes; Reader resource identity and directly affected caller compatibility.",
+  "reproduction": {
+    "f16-validator-001-red": "14 methods, failed. Most errors are the intentionally absent source_root keyword API; this is not reported as14 distinct product exploits. The missing-root guard detects old source IO.",
+    "f16-validator-002-legacy-red": "Old two-argument API invoked through diagnostic wrapper: added-file and rehashed forged-node tests FAIL because old Validator returns PASS. Stable unchanged fixture PASS.3 methods total,2 failures,0 errors/skips."
+  },
+  "implementation_contract": [
+    "Missing/relative external source-root or mismatched graph scope returns FAIL before source IO; do not resolve aliases silently. graph/inventory input reads are distinct from source reads.",
+    "Validate canonical relative paths, inventory duplicates/types, graph structural fields/hash/scope before source traversal. Preserve malformed inputs as FAIL, not an exception or implicit valid empty graph.",
+    "Reuse the newly audited descriptor-bound observer for safe current read operations, not builder make_graph as a semantic oracle. Compare the full current path set and inventory fields; independently check graph nodes/paths/hashes against observations. Shared observer and directory-hash routines do not constitute algorithmically independent source enumeration.",
+    "Require observed graph/root/entry state, truthful source path/locator/hash/type, and existing edge parent/duplicate checks. Do not certify every descriptive/summary field or all graph policy semantics under this slice.",
+    "Add explicit --source-root to bootstrap and two directly affected package test calls; extend resource identity with builder/Validator bytes. Update only directly affected fixture calls to new authority contract; preserve assertions.",
+    "No product configuration or index is rebuilt automatically; changed identity exposes existing migration-required policy. No answer-time freshness policy change here."
+  ],
+  "safety": "Only tiny owned canonical TemporaryDirectory roots and synthetic outside canaries. New focused suite guards HTTP/Popen; source/graph bytes before/after compared.30 seconds/1MiB logs per run. No model/network/GUI/Keychain/personal source or package build.",
+  "limits": ["No global atomic filesystem snapshot", "No whole-tree resource budget certification", "No output-path publication race fix", "No guarantee against same-user code replacement", "No actual model or full-product acceptance"],
+  "rollback": "Reverse only this new Validator/caller/resource-identity diff and its new fixtures, preserving F01/F07, repaired F16 builder, F10 and protected user changes. Never reset the working tree."
+}

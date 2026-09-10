@@ -1,0 +1,124 @@
+test_answer_policy_keeps_active_and_holds_other_candidates (f04a_resolver_tests.DocumentVersionResolverTests) ... ok
+test_current_marker_conflicts_with_higher_numeric_version (f04a_resolver_tests.DocumentVersionResolverTests) ... ok
+test_current_marker_newest_or_equal_version_remains_selected (f04a_resolver_tests.DocumentVersionResolverTests) ... ok
+test_current_version_conflict_is_invariant_to_candidate_order (f04a_resolver_tests.DocumentVersionResolverTests) ... ok
+test_explicit_versions_are_compared_when_year_is_absent (f04a_resolver_tests.DocumentVersionResolverTests) ... ok
+test_graph_hash_tampering_fails_validation (f04a_resolver_tests.DocumentVersionResolverTests) ... ok
+test_human_decision_is_hash_bound_and_reused (f04a_resolver_tests.DocumentVersionResolverTests) ... ok
+test_human_version_choice_precedes_conflict_and_stale_choice_stays_held (f04a_resolver_tests.DocumentVersionResolverTests) ... ok
+test_latest_draft_requires_human_review (f04a_resolver_tests.DocumentVersionResolverTests) ... ok
+test_multiple_current_markers_still_require_review (f04a_resolver_tests.DocumentVersionResolverTests) ... ok
+test_reader_end_to_end_indexes_only_active_version (f04a_resolver_tests.DocumentVersionResolverTests) ... FAIL
+test_reader_holds_current_version_conflict_and_keeps_unrelated_source (f04a_resolver_tests.DocumentVersionResolverTests) ... FAIL
+test_status_conflict_requires_human_review (f04a_resolver_tests.DocumentVersionResolverTests) ... ok
+test_tampered_graph_cannot_record_human_decision (f04a_resolver_tests.DocumentVersionResolverTests) ... ok
+test_unique_current_folder_can_resolve_without_dates (f04a_resolver_tests.DocumentVersionResolverTests) ... ok
+test_unique_latest_explicit_year_is_selected (f04a_resolver_tests.DocumentVersionResolverTests) ... ok
+test_year_directories_and_lifecycle_directories_share_a_family (f04a_resolver_tests.DocumentVersionResolverTests) ... ok
+
+======================================================================
+FAIL: test_reader_end_to_end_indexes_only_active_version (f04a_resolver_tests.DocumentVersionResolverTests)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/scripts/build_intermediate_records.py", line 1102, in process_file
+    extractor.extract(path)
+  File "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/scripts/probe_intermediate_records.py", line 3237, in extract
+    self.extract_delimited(path)
+  File "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/scripts/probe_intermediate_records.py", line 6382, in extract_delimited
+    doc = self.add_document(path, "python-csv")
+  File "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/scripts/probe_intermediate_records.py", line 2606, in add_document
+    "media_type": mimetypes.guess_type(path.name)[0] or "application/octet-stream",
+  File "/Library/Developer/CommandLineTools/Library/Frameworks/Python3.framework/Versions/3.9/lib/python3.9/mimetypes.py", line 291, in guess_type
+    init()
+  File "/Library/Developer/CommandLineTools/Library/Frameworks/Python3.framework/Versions/3.9/lib/python3.9/mimetypes.py", line 364, in init
+    db.read(file)
+  File "/Library/Developer/CommandLineTools/Library/Frameworks/Python3.framework/Versions/3.9/lib/python3.9/mimetypes.py", line 205, in read
+    with open(filename, encoding='utf-8') as fp:
+  File "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/design/local-memory-v1-hardening/runs/f04a-executor-run.v1.py", line 67, in audit
+    raise AssertionError("F04a read outside reviewed code/runtime/fixtures: " + path)
+AssertionError: F04a read outside reviewed code/runtime/fixtures: /etc/apache2/mime.types
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/distribution/macos-local-memory/tests/test_document_version_resolver.py", line 306, in test_reader_end_to_end_indexes_only_active_version
+    result = builder.build(source, inventory, output, tools, graph)
+  File "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/distribution/macos-local-memory/engine/build_adaptive_semantic_graph.py", line 382, in build
+    run_tool("intermediate", [
+  File "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/design/local-memory-v1-hardening/runs/f04a-executor-run.v1.py", line 117, in <lambda>
+    target.builder.run_tool = lambda _label, command, _tools, _log: harness.run_cli(command)
+  File "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/distribution/macos-local-memory/tests/test_versioned_safe_index_e2e.py", line 149, in run_cli
+    result = module.main()
+  File "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/scripts/build_intermediate_records.py", line 1273, in main
+    entry, extraction_error = process_file(
+  File "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/scripts/build_intermediate_records.py", line 1107, in process_file
+    extractor.record_failure(path, error)
+  File "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/scripts/probe_intermediate_records.py", line 2657, in record_failure
+    document = existing or self.add_document(path, f"{path.suffix.lower().lstrip('.') or 'unknown'}-parser")
+  File "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/scripts/probe_intermediate_records.py", line 2606, in add_document
+    "media_type": mimetypes.guess_type(path.name)[0] or "application/octet-stream",
+  File "/Library/Developer/CommandLineTools/Library/Frameworks/Python3.framework/Versions/3.9/lib/python3.9/mimetypes.py", line 291, in guess_type
+    init()
+  File "/Library/Developer/CommandLineTools/Library/Frameworks/Python3.framework/Versions/3.9/lib/python3.9/mimetypes.py", line 364, in init
+    db.read(file)
+  File "/Library/Developer/CommandLineTools/Library/Frameworks/Python3.framework/Versions/3.9/lib/python3.9/mimetypes.py", line 205, in read
+    with open(filename, encoding='utf-8') as fp:
+  File "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/design/local-memory-v1-hardening/runs/f04a-executor-run.v1.py", line 67, in audit
+    raise AssertionError("F04a read outside reviewed code/runtime/fixtures: " + path)
+AssertionError: F04a read outside reviewed code/runtime/fixtures: /etc/apache2/mime.types
+
+======================================================================
+FAIL: test_reader_holds_current_version_conflict_and_keeps_unrelated_source (f04a_resolver_tests.DocumentVersionResolverTests)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/scripts/build_intermediate_records.py", line 1102, in process_file
+    extractor.extract(path)
+  File "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/scripts/probe_intermediate_records.py", line 3245, in extract
+    self.extract_plain_text(path)
+  File "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/scripts/probe_intermediate_records.py", line 6541, in extract_plain_text
+    doc = self.add_document(path, parser)
+  File "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/scripts/probe_intermediate_records.py", line 2606, in add_document
+    "media_type": mimetypes.guess_type(path.name)[0] or "application/octet-stream",
+  File "/Library/Developer/CommandLineTools/Library/Frameworks/Python3.framework/Versions/3.9/lib/python3.9/mimetypes.py", line 291, in guess_type
+    init()
+  File "/Library/Developer/CommandLineTools/Library/Frameworks/Python3.framework/Versions/3.9/lib/python3.9/mimetypes.py", line 364, in init
+    db.read(file)
+  File "/Library/Developer/CommandLineTools/Library/Frameworks/Python3.framework/Versions/3.9/lib/python3.9/mimetypes.py", line 205, in read
+    with open(filename, encoding='utf-8') as fp:
+  File "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/design/local-memory-v1-hardening/runs/f04a-executor-run.v1.py", line 67, in audit
+    raise AssertionError("F04a read outside reviewed code/runtime/fixtures: " + path)
+AssertionError: F04a read outside reviewed code/runtime/fixtures: /etc/apache2/mime.types
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/distribution/macos-local-memory/tests/test_document_version_resolver.py", line 347, in test_reader_holds_current_version_conflict_and_keeps_unrelated_source
+    result = builder.build(source, inventory, output, builder.default_tools_dir(), graph)
+  File "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/distribution/macos-local-memory/engine/build_adaptive_semantic_graph.py", line 382, in build
+    run_tool("intermediate", [
+  File "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/design/local-memory-v1-hardening/runs/f04a-executor-run.v1.py", line 117, in <lambda>
+    target.builder.run_tool = lambda _label, command, _tools, _log: harness.run_cli(command)
+  File "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/distribution/macos-local-memory/tests/test_versioned_safe_index_e2e.py", line 149, in run_cli
+    result = module.main()
+  File "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/scripts/build_intermediate_records.py", line 1273, in main
+    entry, extraction_error = process_file(
+  File "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/scripts/build_intermediate_records.py", line 1107, in process_file
+    extractor.record_failure(path, error)
+  File "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/scripts/probe_intermediate_records.py", line 2657, in record_failure
+    document = existing or self.add_document(path, f"{path.suffix.lower().lstrip('.') or 'unknown'}-parser")
+  File "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/scripts/probe_intermediate_records.py", line 2606, in add_document
+    "media_type": mimetypes.guess_type(path.name)[0] or "application/octet-stream",
+  File "/Library/Developer/CommandLineTools/Library/Frameworks/Python3.framework/Versions/3.9/lib/python3.9/mimetypes.py", line 291, in guess_type
+    init()
+  File "/Library/Developer/CommandLineTools/Library/Frameworks/Python3.framework/Versions/3.9/lib/python3.9/mimetypes.py", line 364, in init
+    db.read(file)
+  File "/Library/Developer/CommandLineTools/Library/Frameworks/Python3.framework/Versions/3.9/lib/python3.9/mimetypes.py", line 205, in read
+    with open(filename, encoding='utf-8') as fp:
+  File "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/design/local-memory-v1-hardening/runs/f04a-executor-run.v1.py", line 67, in audit
+    raise AssertionError("F04a read outside reviewed code/runtime/fixtures: " + path)
+AssertionError: F04a read outside reviewed code/runtime/fixtures: /etc/apache2/mime.types
+
+----------------------------------------------------------------------
+Ran 17 tests in 0.306s
+
+FAILED (failures=2)

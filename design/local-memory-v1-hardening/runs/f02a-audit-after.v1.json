@@ -1,0 +1,132 @@
+{
+  "phase": "after_independent_audit_runs",
+  "task_id": "lms-v1-00-hardening-2026-09-09-f02a-implementation",
+  "all_frozen_inputs_unchanged": true,
+  "files": [
+    {
+      "path": "distribution/macos-local-memory/engine/document_version_resolver.py",
+      "sha256": "9a7443862c015ed768007ef5a7b21bd3bc197c9bb7a3d7ed2f7b39b33374359d",
+      "matches_before": true
+    },
+    {
+      "path": "distribution/macos-local-memory/tests/test_document_version_resolver.py",
+      "sha256": "b7c323f48f10488ef2dc245dacc265ad0dd5b77ea37e50b9e4b32504bda7b293",
+      "matches_before": true
+    },
+    {
+      "path": "distribution/macos-local-memory/tests/test_versioned_safe_index_e2e.py",
+      "sha256": "41540a858d17f8abb322c15353032ec4dd3099eac4e767090f7b9dbabfbcf64a",
+      "matches_before": true
+    },
+    {
+      "path": "distribution/macos-local-memory/README.md",
+      "sha256": "aa088a5b6ac8e2d83398d6adba8e36864d18808415cc002f03fe246b7e630c0b",
+      "matches_before": true
+    },
+    {
+      "path": "distribution/macos-local-memory/engine/validate_adaptive_semantic_graph.py",
+      "sha256": "49138ecc11bde5709f129e879cbc5140717dca716a8563ebafe77dda4e37187d",
+      "matches_before": true
+    },
+    {
+      "path": "distribution/macos-local-memory/app/bootstrap.py",
+      "sha256": "df720a40bb0f8f6123cb0f171b829ca1f4f26761f1e24878fa415b5ff70919a3",
+      "matches_before": true
+    },
+    {
+      "path": "tests/test_year_only_supersession.py",
+      "sha256": "70a1226cb30daa6692533d2c6f1fe270fe301a8f759c0db56a142acbc945b8c0",
+      "matches_before": true
+    },
+    {
+      "path": "design/local-memory-v1-hardening/runs/f04a-executor-run.v1.py",
+      "sha256": "7c6953d3e92c46ede699b81690a138fb50e74e51b79fc37d14f9fc44d6c4391b",
+      "matches_before": true
+    },
+    {
+      "path": "scripts/run_local_memory_hardening_tests.py",
+      "sha256": "6b3bde90b6ed649a82325f6b5ad9661756bef7b6e0303fa74c2d045fb26eb4a9",
+      "matches_before": true
+    },
+    {
+      "path": "design/local-memory-v1-hardening/runs/f02a-task-contract.v1.json",
+      "sha256": "96d9a257256b8c9524eb611dc6ac154a4aa0d8b9e6d2dcd2eec8b769ac07580e",
+      "matches_before": true
+    },
+    {
+      "path": "design/local-memory-v1-hardening/runs/f02a-implementation-contract.v1.json",
+      "sha256": "f91621a1de962a221c685a8e523dc7df2a475b447110ba13f2ac18ea487418c5",
+      "matches_before": true
+    },
+    {
+      "path": "design/local-memory-v1-hardening/runs/f02a-red-result.v1.json",
+      "sha256": "18744e4627be6ff298314f1fb1ede4ee26ecc257bf01c1ef82f9ea05cbd97bce",
+      "matches_before": true
+    },
+    {
+      "path": "design/local-memory-v1-hardening/runs/f02a-red-001/result.json",
+      "sha256": "48a97398206956552fe5ac00db7405d9694fa22418c8cff5f3a7c8bfd9ec5b03",
+      "matches_before": true
+    },
+    {
+      "path": "design/local-memory-v1-hardening/runs/f02a-red-001/unittest.log",
+      "sha256": "9b01a46b4b24b5dbb60a213e012f682b5c99acc3faf632ec7245a61626b2ec82",
+      "matches_before": true
+    },
+    {
+      "path": "design/local-memory-v1-hardening/runs/f02a-readme-clarification.v1.json",
+      "sha256": "aabdd66dc37bc344102d6487f7eb049baca27f54602a659706ca21aaf88d94f3",
+      "matches_before": true
+    },
+    {
+      "path": "design/local-memory-v1-hardening/runs/f02a-adversarial-holdouts.v1.py",
+      "sha256": "d8a40066b528070d9a10bdebb88ea44d5be2a8e4efeea5c8a80d09b57a7d1fee",
+      "matches_before": true
+    }
+  ],
+  "results": [
+    {
+      "run_id": "f02a-audit-holdouts-001",
+      "result_sha256": "17a2063b8b5f475c24e3b02ac6994b10e5328801548614ed12f3c9237cf39705",
+      "log_sha256": "7e5e5a076b49824dd7159603fde3eed733f410d7d9e1b6fdf3f44cf668efeabd",
+      "log_bytes": 2891,
+      "tests_reported": 15,
+      "status": "passed",
+      "elapsed_seconds": 0.595721
+    },
+    {
+      "run_id": "f02a-audit-replay-001-pure",
+      "result_sha256": "a2396ec48cae49980d9e163b1b84909d8a7f2fb3abd0d9312f5de8d9e409a66d",
+      "log_sha256": "b2974789ebb8ac01827cceaf328a979b65000061b70bf78a4fdb332ba033c8a9",
+      "log_bytes": 1945,
+      "tests_reported": 11,
+      "status": "passed",
+      "elapsed_seconds": 0.06164
+    },
+    {
+      "run_id": "f02a-audit-replay-002-resolver",
+      "result_sha256": "eb4a45cd5f8ce3bdef745a7a656a26baf7cde452ef8ce571f4505a1188eb368f",
+      "log_sha256": "ff53d5ef8d6f41096c67a1cad5bb93dda48e1a04357fee6b4d25a862154f4af4",
+      "log_bytes": 3455,
+      "tests_reported": 20,
+      "status": "passed",
+      "elapsed_seconds": 0.274965
+    },
+    {
+      "run_id": "f02a-audit-replay-003-e2e",
+      "result_sha256": "e9b7c4d8b27e0018f66113e22620f7d395b7d1d25cc1fb53db4c5959f7eaa7ba",
+      "log_sha256": "8a86089cf62c7d2235b4134fab72a14ef1095cfa5d87edf8467797f3dedb78fc",
+      "log_bytes": 2868,
+      "tests_reported": 17,
+      "status": "passed",
+      "elapsed_seconds": 1.909685
+    }
+  ],
+  "resolver_changed_function_names": [
+    "automatic_selection",
+    "build"
+  ],
+  "other_resolver_functions_ast_unchanged": true,
+  "formal_artifact_pending": true,
+  "no_claim_of_real_model_or_annual_retention_acceptance": true
+}

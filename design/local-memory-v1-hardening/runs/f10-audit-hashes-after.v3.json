@@ -1,0 +1,178 @@
+{
+  "stage": "after",
+  "artifact_sha256": "0d2ec62aa7b749223479cba69b71c1dd84d1589d603d90b1ab9ab9f384cb4cf1",
+  "artifact_matches_contract": true,
+  "source_hashes": [
+    {
+      "id": "PARSER",
+      "actual_sha256": "73b9ad531d4e184b47636f0a7558e07cc44688d1499ddd666b8dc58610f830f7",
+      "matches": true
+    },
+    {
+      "id": "TESTS",
+      "actual_sha256": "7886789fe3038ec71e14ba0fd5f129ad3fe3d961e2dd286b67d42a14e45a1221",
+      "matches": true
+    },
+    {
+      "id": "LEGACY_TESTS",
+      "actual_sha256": "63619ca448d88352beca3ee8e4679b25f762b3a12298398603c33f03f9f7255e",
+      "matches": true
+    },
+    {
+      "id": "BUILDER",
+      "actual_sha256": "7312ebdffc7221ef989195afd03bdbbe34f945582cb25b9020d64b19316bdabe",
+      "matches": true
+    },
+    {
+      "id": "SEARCH",
+      "actual_sha256": "a14ffa6f5c4b04fd63ed3b95ba8b6892ca5c11f1cee050b323861c009c6eaaa1",
+      "matches": true
+    },
+    {
+      "id": "ADAPTER",
+      "actual_sha256": "0ef2f634966e9be671628889b82e13baf8b57d14a6b649d7ffaee981279f9214",
+      "matches": true
+    },
+    {
+      "id": "GENERIC_REGRESSION",
+      "actual_sha256": "d1aa3c26a729be1896cdea8998e60e4785c715fb26a69be46172fb5dd1facda2",
+      "matches": true
+    },
+    {
+      "id": "RED",
+      "actual_sha256": "76d197a5bd87523e4a6bc5edb75b93bdbab7606bc9cb6d98393abb16cd1d74ba",
+      "matches": true
+    },
+    {
+      "id": "GREEN",
+      "actual_sha256": "ee173e15b5fea6aebaef5d201a0288854b4da4bf38d15fa54a214fc5e1b8cd1f",
+      "matches": true
+    },
+    {
+      "id": "REGRESSION",
+      "actual_sha256": "bf41c081e461037fb863756834f71c3d09ae88818b452a37d3a497db80fa36b1",
+      "matches": true
+    },
+    {
+      "id": "LEGACY_RED",
+      "actual_sha256": "6dafb3c9c7683e7814265f020d739320556a4985da4af77578189381cfbedc6f",
+      "matches": true
+    },
+    {
+      "id": "LEGACY_GREEN",
+      "actual_sha256": "405a37620084a7f93cce0bb7a84f8248afc2c6de7b19d9b494df92a1ee0d9029",
+      "matches": true
+    },
+    {
+      "id": "LEGACY_WRAPPER",
+      "actual_sha256": "f136c2858c73dde790ad9c1fb985415c64bed198577886c39bfc8bbaf6893cc1",
+      "matches": true
+    },
+    {
+      "id": "EXECUTOR",
+      "actual_sha256": "c0dd214adf9d0d6d8a451faa702f5892c15d2e9a0057dd66878c41b7b5a8666e",
+      "matches": true
+    },
+    {
+      "id": "PRIOR_AUDIT",
+      "actual_sha256": "fbc1e76183b9b88767e6273aa739da57e0ca79fb7af88a54157cebdad5575947",
+      "matches": true
+    },
+    {
+      "id": "COUNTEREXAMPLES",
+      "actual_sha256": "9842dfb62256d9fdfd902f75bc4a6c623b06105c3dff3346c2282f0dae0b67ec",
+      "matches": true
+    },
+    {
+      "id": "GUARD_CHILD",
+      "actual_sha256": "d9e27bb14a6b47a5ec686eac29378c9822407d5ad2c7bef2659ff7f20736e678",
+      "matches": true
+    },
+    {
+      "id": "REPAIR_RED",
+      "actual_sha256": "ec18687c2577bbeb09c6e316156b4dc5d7081250ecd6634897b95d22606af9cf",
+      "matches": true
+    },
+    {
+      "id": "COUNTEREXAMPLES_GREEN",
+      "actual_sha256": "5601e8211d24a4eaa02e095e820f8ee2da96194190661838f27b08c14e8279b8",
+      "matches": true
+    },
+    {
+      "id": "DOT_COUNTEREXAMPLES",
+      "actual_sha256": "90315824ca74f4300b4c4b000e6406b527ea4435512c939ebdfcf22f2ef12f25",
+      "matches": true
+    },
+    {
+      "id": "DOT_GUARD_CHILD",
+      "actual_sha256": "674157bfbe42eb8880a8889fbb0dca63f575d7e8c6f0f880326bfff47a45c1c8",
+      "matches": true
+    },
+    {
+      "id": "DOT_GREEN",
+      "actual_sha256": "99e4003afabb4094f8538f970537dc4e43689488432e4ff14a98605c49e1aff1",
+      "matches": true
+    }
+  ],
+  "saved_logs": [
+    {
+      "path": "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/artifacts/local-memory-v1-hardening/runs/f10-014-repair2-red/result.json",
+      "status": "failed",
+      "tests_reported": 23,
+      "skips": 0,
+      "result_matches": true,
+      "log_matches": true,
+      "bytes_match": true
+    },
+    {
+      "path": "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/artifacts/local-memory-v1-hardening/runs/f10-015-repair2-green/result.json",
+      "status": "passed",
+      "tests_reported": 23,
+      "skips": 0,
+      "result_matches": true,
+      "log_matches": true,
+      "bytes_match": true
+    },
+    {
+      "path": "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/artifacts/local-memory-v1-hardening/runs/f10-016-repair2-f08-f09/result.json",
+      "status": "passed",
+      "tests_reported": 17,
+      "skips": 0,
+      "result_matches": true,
+      "log_matches": true,
+      "bytes_match": true
+    },
+    {
+      "path": "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/artifacts/local-memory-v1-hardening/runs/f10-017-repair2-legacy/result.json",
+      "status": "passed",
+      "tests_reported": 2,
+      "skips": 0,
+      "result_matches": true,
+      "log_matches": true,
+      "bytes_match": true
+    },
+    {
+      "path": "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/artifacts/local-memory-v1-hardening/runs/f10-018-repair2-original-counterexamples/result.json",
+      "status": "passed",
+      "tests_reported": 2,
+      "skips": 0,
+      "result_matches": true,
+      "log_matches": true,
+      "bytes_match": true
+    },
+    {
+      "path": "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/artifacts/local-memory-v1-hardening/runs/f10-019-repair2-dot-counterexamples/result.json",
+      "status": "passed",
+      "tests_reported": 3,
+      "skips": 0,
+      "result_matches": true,
+      "log_matches": true,
+      "bytes_match": true
+    }
+  ],
+  "cumulative_base_sha256_reconstructed": "db73270807c3e976fb51f38ff51cc6cd40dd7c0ef3c2d6954fc1f924acd8ab3d",
+  "cumulative_base_matches": true,
+  "source_before_repair_sha256_reconstructed": "4429a50030143710786c0ee03a68f3d9243d555d121f832817a300824726a2c3",
+  "source_before_repair_matches": true,
+  "scope": "Only this audit hash-result file is generated; product/prior artifacts unchanged."
+}

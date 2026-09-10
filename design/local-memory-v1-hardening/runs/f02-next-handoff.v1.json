@@ -1,0 +1,61 @@
+{
+  "schema_version": "1.0",
+  "task_id": "lms-v1-00-hardening-2026-09-09-f02-next-contract",
+  "status": "design_review_complete_not_implemented",
+  "next_action": "Root reviews the immutable proposed contract and establishes a fresh bounded implementation task; do not mark F02 complete.",
+  "auditor_status": "No independent implementation audit or product acceptance was performed by this subtask.",
+  "artifacts": [
+    {
+      "path": "design/local-memory-v1-hardening/runs/f02-next-contract.v1.md",
+      "sha256": "2e3dbeb5d665403853321968d1abd65919ece61ac34f23033171bdf3ced0f6b2"
+    },
+    {
+      "path": "design/local-memory-v1-hardening/runs/f02-next-probe.v1.py",
+      "sha256": "38649a6a2e73f92f07bc920a309dd395a59af013f0b511044457ee03a9129a17"
+    },
+    {
+      "path": "design/local-memory-v1-hardening/runs/f02-next-probe-result.v1.json",
+      "sha256": "f7e84f53d45d57cf17c0789da2d2ecc99f2a3dafa9fac315a161b2adbb52bebd"
+    },
+    {
+      "path": "design/local-memory-v1-hardening/runs/f02-next-source-manifest.v1.json",
+      "sha256": "428c979303f7aae526454fc1bf2b0e10aabe4d1bf2eb96185461bf8a8ba78929"
+    }
+  ],
+  "verification": {
+    "probe_exit_code": 0,
+    "probe_python": "3.14.6",
+    "probe_synthetic_fixture_bytes": 3588,
+    "probe_elapsed_seconds": 0.004178,
+    "probe_observation_groups": 9,
+    "runtime_io_denial_enabled_after_preloading": true,
+    "os_isolation_certification": false,
+    "product_tests_run": false,
+    "product_or_permanent_test_files_edited_by_this_subtask": false,
+    "three_proposed_target_hashes_rechecked_unchanged": true,
+    "git_diff_check_for_existing_three_target_paths": "exit_0",
+    "allowed_new_artifact_prefix": "design/local-memory-v1-hardening/runs/f02-next-"
+  },
+  "contract_locator_errata_preserved_without_rewriting_v1": [
+    {"symbol": "family_key", "contract_line_anchor": 95, "verified_line_anchor": 94},
+    {"symbol": "resolve_group", "contract_line_anchor": 261, "verified_line_anchor": 263},
+    {"symbol": "graph_projection", "contract_line_anchor": 321, "verified_line_anchor": 320},
+    {"symbol": "record_decision", "contract_line_anchor": 449, "verified_line_anchor": 447}
+  ],
+  "exact_proposed_selection_change_anchor": {
+    "path": "distribution/macos-local-memory/engine/document_version_resolver.py",
+    "line": 241,
+    "current_return_reason": "unique_latest_explicit_year",
+    "proposed_return_reason": "year_order_does_not_establish_supersession",
+    "proposed_selected": null,
+    "proposed_conflicts": "all candidate relative paths",
+    "fallthrough_to_version_branch_allowed": false
+  },
+  "key_limits": [
+    "F02a stops one unsupported automatic supersession branch. Independent annual retention is not implemented and F02 remains open.",
+    "Existing explicit current markers may still select across years; annual/current identity is a recorded residual, not accepted annual behavior.",
+    "F03 unmarked/moved/renamed candidate discovery, F04 residual signals, F05 independent partition validation, F06/F19 generation and decision semantics remain open.",
+    "All-held input raises adaptive_reader_no_supported_files and writes blocked_no_supported_files; empty publication must not become a successful normal annual workflow.",
+    "No files, models, network, GUI, real source documents, production indexes, commits or publication were used by the probe beyond preloading the inspected resolver source and stdlib."
+  ]
+}

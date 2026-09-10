@@ -1,0 +1,20 @@
+{
+  "schema_version": "1.0",
+  "observed_date": "2026-09-09",
+  "head": "79a69260fb1a42efb3c0e2c0093ed6101470f2a1",
+  "worktree": "dirty_shared_workspace; all pre-existing and parallel changes preserved",
+  "product_files_edited_by_this_task": [],
+  "source_hashes_sha256": {
+    "design/local-memory-search-v1-00-hardening-plan-2026-09-09.md": "e49801e3af62fb0a4e8f73a1379d105c2ff5b62946606d69ddf2522f4935f456",
+    "distribution/macos-local-memory/engine/document_version_resolver.py": "a1780dc59d23b0c3b5423ca3264841d9261facbaf7dba0701b139049543d0e1b",
+    "distribution/macos-local-memory/tests/test_document_version_resolver.py": "fb15dfad9dc742e5a387aebca1c1ff86894b39392010f327a1a109a1bf0e7125",
+    "distribution/macos-local-memory/engine/build_adaptive_semantic_graph.py": "19b5c55c64959dc136cd4d6b2081151ed1e39560874fb083e9796edb8812adfa",
+    "distribution/macos-local-memory/engine/validate_adaptive_semantic_graph.py": "1a3aff494b724882a600adc6978fda3e0f3955da6e2f11291180a92d7f898e1a",
+    "distribution/macos-local-memory/app/local_memory_server.py": "3acb859916ccb9fb1a1c26cc0ebfa511bea2d8114fa83103ace40183fa899ee6",
+    "distribution/macos-local-memory/app/bootstrap.py": "0856989a86d2be19cb0761fee51e10da3aa7c8694ecde9c4e128d725c0d7081a",
+    "distribution/macos-local-memory/tests/test_versioned_safe_index_e2e.py": "c16cc5bfafe493ad4096eadbf84722c8d9f1d476dcb03bfc36bb26959983341b"
+  },
+  "scope_note": "Read-time identities only; shared bootstrap/validator files may change after this observation. Recheck ownership and hashes before any implementation.",
+  "skill_applied": "codex-graph-engineering-adapter",
+  "audit_status": "not_independently_audited_by_this_task"
+}

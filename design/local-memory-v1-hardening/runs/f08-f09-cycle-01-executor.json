@@ -1,0 +1,117 @@
+{
+  "schema_version": "1.0",
+  "task_id": "lms-v1-00-hardening-2026-09-09-f08-f09",
+  "executor": "fix_xml_json_readers",
+  "status": "awaiting_separate_audit",
+  "issue_ids": ["F08", "F09"],
+  "repair_cycle": 1,
+  "base_commit": "79a69260fb1a42efb3c0e2c0093ed6101470f2a1",
+  "date": "2026-09-09",
+  "product_acceptance": "not_evaluated",
+  "scope": {
+    "production_files": ["scripts/probe_intermediate_records.py"],
+    "production_functions": ["read_text optional byte_validator hook", "Probe.extract_json", "Probe.extract_xml"],
+    "test_files": ["tests/test_generic_structured_reader_hardening.py"],
+    "core_changed": false,
+    "schemas_changed": false,
+    "committed": false,
+    "public_index_changed": false,
+    "personal_documents_used": false
+  },
+  "source_hashes": {
+    "baseline_probe_sha256": "6eb876ba0c5364142abd0d8fee2a9767e64a205d024ddcfb298a143d049e90ad",
+    "repaired_probe_sha256": "155b62aebe2ea786afd74a95e167997c9b9cfcfa52f5099176c9bc13df09e7f7",
+    "test_sha256": "08b62feffba0e70330312779d699225ac63aa878be9caea5ceabe71111fb43f8"
+  },
+  "environment": {
+    "interpreter": "rag/.venv/bin/python3",
+    "python_version": "3.9.6",
+    "write_bytecode": false,
+    "source_roots": "TemporaryDirectory lms-f08-f09-* synthetic fixtures only",
+    "visual_observation_mode": "suppressed",
+    "processing_fingerprint": "synthetic stub; no runtime or Ollama metadata probe",
+    "paddle_build_session": "nullcontext stub",
+    "password_discovery": "empty tuple stub",
+    "ollama_json": "AssertionError guard",
+    "network_requests": 0,
+    "model_requests": 0
+  },
+  "budget": {
+    "focused_suite_wall_seconds": 180,
+    "combined_output_bytes": 8388608,
+    "synthetic_file_bytes": 1048576,
+    "fixture_file_size_assertion": true,
+    "green_wrapper_timeout_seconds": 180,
+    "green_wrapper_checks_output_bytes": true
+  },
+  "runs": [
+    {
+      "phase": "RED",
+      "command": "rag/.venv/bin/python3 -B -m unittest discover -s tests -p test_generic_structured_reader_hardening.py -v",
+      "test_methods": 10,
+      "elapsed_seconds_reported_by_unittest": 0.037,
+      "exit_code": 1,
+      "failures_including_subtests": 10,
+      "errors_including_subtests": 6,
+      "notes": [
+        "JSON duplicate keys silently succeeded in six subcases, including nested objects, arrays, escaped keys and identical repeated values.",
+        "XML mixed content emitted only the initial text inside each element, losing all three fixture tails.",
+        "Whitespace text nodes were absent.",
+        "Six unsafe XML tests reached the mocked parser before any safety check, causing TypeError from the mock result; these errors are not counted as passing rejection tests.",
+        "Initial attempted interpreter name python3.9.6 was absent; resolved existing python3 symlink and verified Python 3.9.6."
+      ]
+    },
+    {
+      "phase": "GREEN-initial",
+      "test_methods": 10,
+      "elapsed_seconds_reported_by_unittest": 0.109,
+      "exit_code": 0,
+      "skips": 0
+    },
+    {
+      "phase": "GREEN-expanded",
+      "command": "rag/.venv/bin/python3 -B -c 'import subprocess, sys; run = subprocess.run([sys.executable, \"-B\", \"-m\", \"unittest\", \"discover\", \"-s\", \"tests\", \"-p\", \"test_generic_structured_reader_hardening.py\", \"-v\"], stdout=subprocess.PIPE, stderr=subprocess.STDOUT, timeout=180); assert len(run.stdout) <= 8 * 1024 * 1024, \"test output budget exceeded\"; sys.stdout.buffer.write(run.stdout); sys.exit(run.returncode)'",
+      "test_methods": 13,
+      "elapsed_seconds_reported_by_unittest": 0.102,
+      "exit_code": 0,
+      "failures": 0,
+      "errors": 0,
+      "skips": 0,
+      "stages_exercised": [
+        "Probe.extract",
+        "build_intermediate_records.main and transactional process_file",
+        "validate_intermediate_records",
+        "validate_intermediate_records_streaming",
+        "build_search_units",
+        "validate_search_units",
+        "validate_search_units_streaming",
+        "adapt_layer1_to_local_memory.adapt"
+      ]
+    },
+    {
+      "phase": "diff-check",
+      "command": "git diff --check",
+      "exit_code": 0
+    }
+  ],
+  "expected_contracts": [
+    "XML text and child tails are emitted in document order, with parent-bound text()[n] locators; nonempty whitespace is retained as raw_text.",
+    "DTD/entity declarations are rejected by the existing encoding-aware validate_xml_bytes before ElementTree parsing.",
+    "Duplicate JSON object names at every depth fail before any document Evidence is emitted; no duplicate value wins.",
+    "The production file transaction retains one failed Document with original source hash and a reason, and no Evidence or Relation for that failed source.",
+    "The mixed integration corpus retains valid neighbors and marks failed sources unresolved/extraction_failed in the semantic adapter with no Evidence IDs.",
+    "Large structured files still use the explicitly partial bounded text stream without native structure interpretation."
+  ],
+  "limitations": [
+    "No independent auditor result yet; executor does not approve its own work.",
+    "No real embedding, safe SQLite publication, answer generation, final answer audit or packaged app run in this subtask.",
+    "Shared test_layer1_pipeline class setup invokes subprocess fingerprinting, so its whole class was not launched. Relevant encoding, transaction and structural-reader cases are covered by this isolated suite; this is not a claim that the full existing suite passed.",
+    "XML path strings remain the Reader's existing expanded-name/global-child-index locator convention, not a general XPath API. Initial text locators changed from text() to text()[1].",
+    "XML parser normalization of entity spelling, CDATA markup and line endings is unchanged; raw_text is parser-observed character data, not raw XML source bytes.",
+    "The reused XML gate may conservatively reject forbidden declaration spellings inside comments; its broad semantics were not changed.",
+    "Large partial fallback does not claim to validate JSON duplicates or XML DTD structure; it stores literal text and does not expand entities.",
+    "Malformed encoding, deep nesting, reader-wide allocation limits, comments/processing-instruction coverage, JSON nonfinite values and arbitrary XML feature completeness are not certified here.",
+    "Code-hash fingerprint invalidation is statically present for probe_intermediate_records.py, but no production index rebuild or fingerprint migration was performed."
+  ],
+  "next_action": "Separate-context auditor reviews the scoped diff, fixture gold, run record, and untested boundaries before root decides issue status."
+}

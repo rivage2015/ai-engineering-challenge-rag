@@ -1,0 +1,9 @@
+test_existing_step6_config_requires_reader_migration_without_mutation (f18_target.ReaderGenerationMigrationTests) ... ok
+test_current_generation_matches_code_processing_and_schema_bytes (f18_target.ReaderGenerationMigrationTests) ... ok
+test_builder_adapter_processing_or_schema_byte_change_requires_migration (f18_target.ReaderGenerationMigrationTests) ... ok
+F05b explicit fixture budget: {"explicit_test_bytes": 134, "explicit_test_writes": 5, "max_source_fixture_bytes": 44, "source_fixture_count": 2}
+
+----------------------------------------------------------------------
+Ran 3 tests in 0.428s
+
+OK

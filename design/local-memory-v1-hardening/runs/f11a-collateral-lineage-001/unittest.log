@@ -1,0 +1,21 @@
+test_unsharded_table_row_promotes_exact_stable_fan_in (f18_target.SemanticLineageRelationTests) ... ERROR
+test_native_section_contains_requires_real_heading_evidence (f18_target.SemanticLineageRelationTests) ... ok
+test_full_validator_publishes_only_after_pass (f18_target.SemanticLineageRelationTests) ... ok
+F05b explicit fixture budget: {"explicit_test_bytes": 3560, "explicit_test_writes": 3, "max_source_fixture_bytes": 28, "source_fixture_count": 1}
+
+======================================================================
+ERROR: test_unsharded_table_row_promotes_exact_stable_fan_in (f18_target.SemanticLineageRelationTests)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/tests/test_semantic_lineage_relations.py", line 168, in test_unsharded_table_row_promotes_exact_stable_fan_in
+    relations, coverage = validator.derive_verified_lineage_relations(
+  File "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/distribution/macos-local-memory/engine/validate_adaptive_semantic_graph.py", line 1291, in derive_verified_lineage_relations
+    fail(
+  File "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/distribution/macos-local-memory/engine/validate_adaptive_semantic_graph.py", line 1574, in fail
+    raise ValueError(message)
+ValueError: lineage_search_unit_provenance_invalid:su_d59a0eeffdd8f7a32a06d66ff2aeb9fe
+
+----------------------------------------------------------------------
+Ran 3 tests in 0.287s
+
+FAILED (errors=1)

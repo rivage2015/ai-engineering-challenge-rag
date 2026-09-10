@@ -1,0 +1,20 @@
+--- design/local-memory-v1-hardening/runs/f11a-image-repair-before-search-stream.v1.py	2026-09-09 16:02:55
++++ scripts/validate_search_units_streaming.py	2026-09-09 16:06:50
+@@ -506,7 +506,16 @@
+                 document_row = connection.execute("SELECT record_json FROM documents WHERE id=?", (source_document_id,)).fetchone()
+                 if document_row is not None:
+                     notebook_documents[source_document_id] = json.loads(document_row[0])
+-            errors.extend(notebook_search_unit_contract_errors(item, label, notebook_sources, notebook_documents))
++            def notebook_parent_lookup(evidence_id: str) -> dict[str, Any] | None:
++                row = connection.execute(
++                    "SELECT record_json FROM evidence WHERE id=?", (evidence_id,),
++                ).fetchone()
++                return json.loads(row[0]) if row is not None else None
++
++            errors.extend(notebook_search_unit_contract_errors(
++                item, label, notebook_sources, notebook_documents,
++                parent_lookup=notebook_parent_lookup,
++            ))
+             try:
+                 connection.execute(
+                     "INSERT INTO units VALUES (?, ?, ?, ?, ?, ?)",

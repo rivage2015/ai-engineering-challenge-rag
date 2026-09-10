@@ -1,0 +1,15 @@
+test_native_current_012_exact_types_allowed (f11a_regression_gold.ProjectorProducerIdentityTests.test_native_current_012_exact_types_allowed) ... ok
+test_native_historical_versions_preserved (f11a_regression_gold.ProjectorProducerIdentityTests.test_native_historical_versions_preserved) ... ok
+test_native_unknown_versions_and_fabricated_producers_rejected (f11a_regression_gold.ProjectorProducerIdentityTests.test_native_unknown_versions_and_fabricated_producers_rejected) ... ok
+test_smartart_current_012_exact_producer_allowed (f11a_regression_gold.ProjectorProducerIdentityTests.test_smartart_current_012_exact_producer_allowed) ... ok
+test_smartart_historical_versions_and_support_preserved (f11a_regression_gold.ProjectorProducerIdentityTests.test_smartart_historical_versions_and_support_preserved) ... ok
+test_smartart_current_012_support_is_verified (f11a_regression_gold.ProjectorProducerIdentityTests.test_smartart_current_012_support_is_verified) ... ok
+test_smartart_unknown_versions_and_fabricated_producers_rejected (f11a_regression_gold.ProjectorProducerIdentityTests.test_smartart_unknown_versions_and_fabricated_producers_rejected) ... ok
+test_smartart_current_012_mismatched_support_rejected (f11a_regression_gold.ProjectorProducerIdentityTests.test_smartart_current_012_mismatched_support_rejected) ... ok
+test_smartart_historical_mismatched_support_rejected (f11a_regression_gold.ProjectorProducerIdentityTests.test_smartart_historical_mismatched_support_rejected) ... ok
+F05b explicit fixture budget: {"explicit_test_bytes": 0, "explicit_test_writes": 0, "max_source_fixture_bytes": 0, "source_fixture_count": 0}
+
+----------------------------------------------------------------------
+Ran 9 tests in 0.001s
+
+OK

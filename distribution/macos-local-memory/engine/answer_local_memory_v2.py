@@ -37,8 +37,10 @@ if QUESTION_GRAPH_SPEC is None or QUESTION_GRAPH_SPEC.loader is None:
 question_graph = importlib.util.module_from_spec(QUESTION_GRAPH_SPEC)
 QUESTION_GRAPH_SPEC.loader.exec_module(question_graph)
 
-ENGINE_CACHE_VERSION = "v2-speed-6-question-graph-routing"
-REQUIRED_QUESTION_GRAPH_OPERATIONS = frozenset(("aggregate_count", "record_lookup"))
+ENGINE_CACHE_VERSION = "v2-speed-7-ordered-section-graph"
+REQUIRED_QUESTION_GRAPH_OPERATIONS = frozenset((
+    "aggregate_count", "record_lookup", "ordered_section_lookup",
+))
 TEMPORAL_TIMEZONE = "Asia/Tokyo"
 TEMPORAL_PRECISION = "day"
 TEMPORAL_BOUNDARY = "inclusive"
@@ -614,6 +616,7 @@ def retrieve_hybrid(index_path: Path, query: str, top_k: int, timeout: int) -> t
     candidates = [
         item for item in candidates
         if not any(pattern.search(item["text"]) for pattern in base.INSTRUCTION_LIKE_PATTERNS)
+        and not question_graph.SENSITIVE_VALUE_SURFACE.search(item["text"])
     ]
     candidates = rerank_with_document_support(candidates)
     results = []
@@ -726,7 +729,7 @@ def question_graph_primary_evidence_ids(
     if operation == "record_lookup":
         branch = question_graph_branch(artifact, item_id)
         raw_ids = branch.get("selected_evidence_ids", []) if branch else []
-    elif operation == "aggregate_count" or not isinstance(artifact.get("intent"), dict):
+    elif operation in {"aggregate_count", "ordered_section_lookup"} or not isinstance(artifact.get("intent"), dict):
         raw_ids = artifact.get("selected_evidence_ids", [])
     else:
         raw_ids = []
@@ -1175,7 +1178,7 @@ supportedでは、Evidenceが直接示す値だけをsupported_valueへ転記し
         f"label={item['label']}\n"
         f"REQUIRED_CLAIM={item['required_claim']}\n"
         "<UNTRUSTED_EVIDENCE>\n"
-        f"{context}\n"
+        f"{base.escape_evidence_quotation(context)}\n"
         "</UNTRUSTED_EVIDENCE>\n"
         f"FINAL_TASK: REQUIRED_CLAIM『{item['required_claim']}』を上記Evidenceだけで監査してください。"
     )
@@ -1236,7 +1239,9 @@ supportedでは直接示された値だけをsupported_valueへ転記し、suppo
     schema["properties"]["audits"]["maxItems"] = len(field_inputs)
     user = (
         f"<AUDIT_ITEMS>\n{claims}\n</AUDIT_ITEMS>\n"
-        f"<UNTRUSTED_EVIDENCE>\n{context}\n</UNTRUSTED_EVIDENCE>"
+        "<UNTRUSTED_EVIDENCE>\n"
+        f"{base.escape_evidence_quotation(context)}\n"
+        "</UNTRUSTED_EVIDENCE>"
     )
     outer = base.post_json(
         base.OLLAMA_CHAT_URL,

@@ -1,0 +1,84 @@
+{
+  "schema_version": "1.0",
+  "audit_id": "lms-v1-00-hardening-2026-09-09-f15-framing-audit-v1",
+  "task_id": "lms-v1-00-hardening-2026-09-09-f15-framing",
+  "artifact_hash": "5c309d11ddd2676b5bb370a9e007facfb8ec96454be78f49e0f9f684ba0ef36d",
+  "auditor_context": {
+    "independence_level": "same_model_separate_context",
+    "source_scope": [
+      "Immutable F15 task contract, graph, diff snapshot and all five source-manifest entries; all five source hashes matched",
+      "Source review of all context-to-model assembly sites in BASE and FIELDS, field retry/batched paths, packet construction and remapping, and the cited disabled-cache predicate",
+      "Independent reruns: framing suite 6 tests (0.002 seconds), final-gate suite 15 tests (0.009 seconds), Graph-executor suite 11 tests (0.002 seconds); all passed, no skips",
+      "Independent adversarial fixture design/local-memory-v1-hardening/runs/f15-adversarial-test.v1.py, SHA-256 c1a0116e1522ef232f1930ca444c649257fc52d59de341ac146369686f43fee7; two additional tests passed with no skips in 0.001 seconds",
+      "Every invocation used /opt/homebrew/bin/python3 -B with a 30-second subprocess timeout and 1-MiB output bound. New model calls were captured through post_json before HTTP; existing regression mocks and temporary inputs were reviewed before execution. No product code, personal data, real model or HTTP endpoint was used or modified"
+    ]
+  },
+  "status": "pass",
+  "checks": [
+    {
+      "check_id": "F15-A01",
+      "check_type": "intent",
+      "target_ids": ["F15", "LIMITS"],
+      "verdict": "pass",
+      "severity": "info",
+      "reason": "The patch repairs serialization of literal source text inside prompt markers. It explicitly avoids claiming semantic prompt-injection immunity, real-model quality improvement, or universal XML validity. The production diff adds one escaping helper, applies it at the four cited context boundaries, and gives answerability context the same quoted framing. It does not alter source selection, deterministic answer rules, indexes or persistent user state.",
+      "evidence_ids": ["BASE", "FIELDS", "TESTS"],
+      "required_action": null
+    },
+    {
+      "check_id": "F15-A02",
+      "check_type": "evidence",
+      "target_ids": ["REGRESSION", "COVERAGE"],
+      "verdict": "pass",
+      "severity": "info",
+      "reason": "All five source-manifest hashes matched, and the actual submitted artifact hash is recorded above. The six framing, fifteen final-gate and eleven Graph-executor tests independently passed. Two separate counterexamples also passed, exercising more literal entity spellings at every boundary and a complete batched response with original-ID remapping. These are deterministic captured/mocked checks, not actual model or product acceptance.",
+      "evidence_ids": ["BASE", "FIELDS", "TESTS", "FINAL_TESTS", "GRAPH_TESTS"],
+      "required_action": null
+    },
+    {
+      "check_id": "F15-A03",
+      "check_type": "coverage",
+      "target_ids": ["F15", "COVERAGE", "E02"],
+      "verdict": "pass",
+      "severity": "info",
+      "reason": "generate_answer, audit_answerability, audit_field and audit_fields_batched all escape their assembled context once immediately before placing it inside the quote markers. Source path, serialized locator, body and REPORTED supplement text are inside that assembled context; they are not reinserted elsewhere by these four call sites. Single-field retries call the same escaped audit_field path. Independent payload capture found exactly one opening/closing pair per intended frame despite malicious closing tags in each source location. User questions and planner claim fields are separate task inputs, not unescaped copies of Evidence context.",
+      "evidence_ids": ["BASE", "FIELDS", "TESTS"],
+      "required_action": null
+    },
+    {
+      "check_id": "F15-A04",
+      "check_type": "basis",
+      "target_ids": ["ORIGINAL", "E01"],
+      "verdict": "pass",
+      "severity": "info",
+      "reason": "html.escape(context, quote=False) escapes ampersands before angle brackets and leaves the raw context/source structures untouched. Exactly one html.unescape restored the original selected context, including literal named/numeric/hex entities, nested entity spellings, XML-like comments/CDATA, apostrophes, quotes, Japanese, emoji and empty text. Captured payloads also survived JSON wire-string roundtrips unchanged. In the added two-field batch test, E1/E2 responses remapped to their original Evidence IDs and retained original literal supported values, while input records and packet mappings remained unmodified.",
+      "evidence_ids": ["BASE", "FIELDS", "TESTS"],
+      "required_action": null
+    },
+    {
+      "check_id": "F15-A05",
+      "check_type": "coverage",
+      "target_ids": ["ORIGINAL", "LIMITS", "REGRESSION"],
+      "verdict": "pass",
+      "severity": "warning",
+      "reason": "The repair preserves the context already selected by each builder and performs no additional truncation after escaping. FIELDS.compact_context still selects complete bounded packets, and the maximal ampersand case remains reversible with unchanged IDs. BASE.context_for has a preexisting prefix-truncation policy that this patch does not change; this audit must not be presented as a new guarantee that all BASE-selected packets contain their entire original source. Escaped prompt text may grow to five times its character length, and model context-window/token/performance behavior remains untested as explicitly stated in the artifact.",
+      "evidence_ids": ["BASE", "FIELDS", "TESTS"],
+      "required_action": null
+    },
+    {
+      "check_id": "F15-A06",
+      "check_type": "safety",
+      "target_ids": ["LIMITS", "REGRESSION"],
+      "verdict": "pass",
+      "severity": "warning",
+      "reason": "Literal marker containment does not establish that a model will ignore source instructions or interpret escaped values correctly. Security partitioning, original-evidence binding and deterministic final gates remain necessary, and the existing final/Graph regressions passed without weakening those gates. The cited cached_record_matches_answer_graph predicate still returns false unconditionally, so this patch does not silently reuse old cached answer records through that predicate. Arbitrary control-character XML validity, actual model response fidelity, broader injection paths and production acceptance are not certified. No blocking regression or missing required literal-context call site was found within the submitted scope.",
+      "evidence_ids": ["BASE", "FIELDS", "FINAL_TESTS", "GRAPH_TESTS"],
+      "required_action": null
+    }
+  ],
+  "summary": {
+    "blocking_failures": 0,
+    "unresolved_count": 0,
+    "next_action": "deliver"
+  }
+}

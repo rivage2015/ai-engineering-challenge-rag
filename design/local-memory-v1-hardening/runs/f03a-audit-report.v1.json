@@ -1,0 +1,229 @@
+{
+  "schema_version": "1.0",
+  "audit_id": "lms-v1-00-hardening-2026-09-09-f03a-independent-audit-v1",
+  "task_id": "lms-v1-00-hardening-2026-09-09-f03a",
+  "artifact_hash": "b5d7d0f487be6efafb6a1dca7f024ba303ed52ba791ed6cae9a9dc6e877dbd14",
+  "auditor_context": {
+    "independence_level": "same_model_separate_context",
+    "source_scope": [
+      "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/design/local-memory-v1-hardening/runs/f03a-task-contract.v1.md",
+      "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/design/local-memory-v1-hardening/runs/f03a-graph-artifact.v1.json",
+      "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/design/local-memory-v1-hardening/runs/f03a-audit-sources-before.v1.json",
+      "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/design/local-memory-v1-hardening/runs/f03a-audit-sources-after.v1.json",
+      "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/design/local-memory-v1-hardening/runs/f03a-audit-run.v1.py",
+      "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/design/local-memory-v1-hardening/runs/f03a-audit-holdouts.v1.py",
+      "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/design/local-memory-v1-hardening/runs/f03a-audit-evidence.v1.json",
+      "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/design/local-memory-v1-hardening/runs/f03a-audit-pure-001/result.json",
+      "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/design/local-memory-v1-hardening/runs/f03a-audit-resolver-001/result.json",
+      "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/design/local-memory-v1-hardening/runs/f03a-audit-year-001/result.json",
+      "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/design/local-memory-v1-hardening/runs/f03a-audit-app-001/result.json",
+      "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/design/local-memory-v1-hardening/runs/f03a-audit-e2e-001/result.json",
+      "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/design/local-memory-v1-hardening/runs/f03a-audit-focused-001/result.json",
+      "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/design/local-memory-v1-hardening/runs/f03a-audit-migration-001/result.json",
+      "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/design/local-memory-v1-hardening/runs/f03a-audit-holdout-001/result.json"
+    ]
+  },
+  "status": "pass",
+  "checks": [
+    {
+      "check_id": "C_FROZEN_REFERENCES",
+      "check_type": "evidence",
+      "target_ids": [
+        "N_DISCOVERY",
+        "N_POLICY",
+        "N_HUMAN",
+        "N_APP",
+        "N_LIMITS"
+      ],
+      "verdict": "pass",
+      "severity": "blocking",
+      "reason": "The exact artifact SHA-256 and all 97 declared source hashes match before and after independent execution. Source IDs, all node/edge bases and all four edge endpoints exist. Source snapshots and separately hashed audit runs are retained in source_scope.",
+      "evidence_ids": [
+        "CONTRACT",
+        "RESOLVER",
+        "RESOLVER_BEFORE",
+        "PURE_TEST",
+        "APP_TEST",
+        "E2E_TEST"
+      ],
+      "required_action": null
+    },
+    {
+      "check_id": "C_DISCOVERY",
+      "check_type": "coverage",
+      "target_ids": [
+        "N_DISCOVERY",
+        "E_SET_TO_POLICY"
+      ],
+      "verdict": "pass",
+      "severity": "blocking",
+      "reason": "The candidate change preserves eligibility and fields, then groups at least two eligible same-key peers only with a marked member. Independent real-file resolver holdouts cover all 10 suffixes across five signal categories, exact source hashes, multiple families and input orders. Unmarked-only, singleton and unrelated-family controls remain ungrouped.",
+      "evidence_ids": [
+        "CONTRACT",
+        "RESOLVER",
+        "RESOLVER_DELTA",
+        "PURE_TEST",
+        "PURE_GREEN"
+      ],
+      "required_action": null
+    },
+    {
+      "check_id": "C_MIXED_POLICY",
+      "check_type": "basis",
+      "target_ids": [
+        "N_POLICY",
+        "E_SET_TO_POLICY"
+      ],
+      "verdict": "pass",
+      "severity": "blocking",
+      "reason": "The mixed-set guard precedes current/year/version automatic branches. Every held member remains needs_human_review; no historical disposition or active_version edge is created. Independent all-marked differential checks over 66 pairs match the saved before resolver's groups and projection exactly; existing resolver20 and year11 controls also pass.",
+      "evidence_ids": [
+        "RESOLVER",
+        "RESOLVER_BEFORE",
+        "RESOLVER_DELTA",
+        "RESOLVER_TEST",
+        "YEAR_TEST",
+        "RESOLVER_GREEN",
+        "YEAR_GREEN"
+      ],
+      "required_action": null
+    },
+    {
+      "check_id": "C_HUMAN_BINDING",
+      "check_type": "dependency",
+      "target_ids": [
+        "N_HUMAN",
+        "E_SET_TO_HUMAN"
+      ],
+      "verdict": "pass",
+      "severity": "blocking",
+      "reason": "A valid existing full-set and selected-source binding selects either marked or unmarked members before automatic policy. Independent holdouts confirm selected/unselected unmarked removal and same-key plain-to-marked rename invalidate the decision while a family remains formed; wrong selected source and missing selection stay held with the existing exact reasons. Candidate hash field representation is preserved.",
+      "evidence_ids": [
+        "RESOLVER",
+        "RESOLVER_BEFORE",
+        "PURE_TEST",
+        "APP_TEST",
+        "PURE_GREEN",
+        "APP_GREEN"
+      ],
+      "required_action": null
+    },
+    {
+      "check_id": "C_READER_AND_APP",
+      "check_type": "edge",
+      "target_ids": [
+        "N_APP",
+        "E_POLICY_TO_READER",
+        "E_HUMAN_TO_READER"
+      ],
+      "verdict": "pass",
+      "severity": "blocking",
+      "reason": "Reader policy excludes held dispositions and admits active or ungrouped records. Independently rerun app4 and unchanged E2E17 confirm safe SQLite/graph binding, unrelated evidence, valid unmarked Human selection, source-byte preservation, and prepared prior CONFIG/index retention on an all-held failed rebuild. The extra unmarked-only same-family app fixture reaches the real Reader and safe SQLite. Existing normal query and final audit pass with stub inference only.",
+      "evidence_ids": [
+        "READER",
+        "BOOTSTRAP",
+        "PROJECTOR",
+        "APP_TEST",
+        "E2E_TEST",
+        "APP_GREEN",
+        "E2E_GREEN"
+      ],
+      "required_action": null
+    },
+    {
+      "check_id": "C_GOLD_AND_RED",
+      "check_type": "evidence",
+      "target_ids": [
+        "N_LIMITS",
+        "N_DISCOVERY"
+      ],
+      "verdict": "pass",
+      "severity": "warning",
+      "reason": "Both gold corrections change only fixture names to satisfy the unchanged existing family_key. Exact path/hash, hold, permutation and stale-decision assertions remain. Original RED and both post-fix failures are retained as failures. Final-gold RED is explicitly retrospective against the exact saved before bytes; it is not a new preimplementation chronology claim. Original year/version/current RED evidence remains present.",
+      "evidence_ids": [
+        "CONTRACT",
+        "PURE_INITIAL",
+        "PURE_CORRECTION1",
+        "PURE_TEST",
+        "GOLD_DELTA1",
+        "GOLD_DELTA2",
+        "GOLD_NOTE1",
+        "GOLD_NOTE2",
+        "PURE_RED_INITIAL",
+        "PURE_GREEN_FAILED1",
+        "PURE_GREEN_FAILED2",
+        "PURE_RED_FINAL",
+        "ROOT_RED"
+      ],
+      "required_action": null
+    },
+    {
+      "check_id": "C_COUNTS_AND_COLLATERAL",
+      "check_type": "calculation",
+      "target_ids": [
+        "N_APP",
+        "N_LIMITS"
+      ],
+      "verdict": "pass",
+      "severity": "blocking",
+      "reason": "All 15 historical/current required records match their actual terminal counts, statuses and log hashes; historical failures remain failures. Eight new independent runs pass: pure19, resolver20, year11, app4, E2E17, focused13, migration7, holdouts9 = 100 methods, zero skips or expected failures. Three explicit residual witnesses are separated, leaving 97 acceptance/control/collateral methods. Existing lineage8 and Python3.9 security1 are inspected prior collateral, not new independent reruns.",
+      "evidence_ids": [
+        "PURE_GREEN",
+        "RESOLVER_GREEN",
+        "YEAR_GREEN",
+        "APP_GREEN",
+        "E2E_GREEN",
+        "FOCUSED_GREEN",
+        "MIGRATION_GREEN",
+        "LINEAGE_GREEN",
+        "SECURITY_GREEN",
+        "SUPERVISOR"
+      ],
+      "required_action": null
+    },
+    {
+      "check_id": "C_EXECUTION_SAFETY",
+      "check_type": "safety",
+      "target_ids": [
+        "N_APP",
+        "N_LIMITS"
+      ],
+      "verdict": "pass",
+      "severity": "warning",
+      "reason": "Preflighted small synthetic suites use Python3.14, one worker per invocation, a 30-second deadline and 1 MiB logs. Reviewed app stages use in-process CLI dispatch and stub inference with network/process guards. Audit writes are new f03a-audit files and synthetic temporary fixtures only; frozen source hashes are unchanged. The guard is not OS isolation, and its source-byte interception is limited to Path.write_text under source paths; reviewed fixtures also remain small.",
+      "evidence_ids": [
+        "CONTRACT",
+        "GUARD",
+        "DISPATCHER",
+        "SUPERVISOR",
+        "APP_TEST",
+        "E2E_TEST"
+      ],
+      "required_action": null
+    },
+    {
+      "check_id": "C_SCOPE_AND_LIMITS",
+      "check_type": "intent",
+      "target_ids": [
+        "N_LIMITS"
+      ],
+      "verdict": "pass",
+      "severity": "warning",
+      "reason": "Acceptance is limited to F03a same-key eligible unmarked inclusion and mixed-set hold. README and artifact retain cross-key moves/renames/suffixes, all-unmarked identity, group dissolution, copy normalization quirks, annual intent, forged-graph reconstruction, review publication/lease and current-source freshness as open. Same-model separate contexts are procedural separation only. No whole F03, V1, package, GUI, model-quality or release acceptance is inferred.",
+      "evidence_ids": [
+        "CONTRACT",
+        "README",
+        "README_DELTA",
+        "PURE_TEST",
+        "GOLD_NOTE1",
+        "GOLD_NOTE2"
+      ],
+      "required_action": null
+    }
+  ],
+  "summary": {
+    "blocking_failures": 0,
+    "unresolved_count": 0,
+    "next_action": "deliver"
+  }
+}

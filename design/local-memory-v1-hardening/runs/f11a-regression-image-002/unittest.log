@@ -1,0 +1,9 @@
+test_producer_visual_text_keeps_provisional_pipeline_and_metadata_scope (f11a_regression_gold.NotebookVisualBoundaryGold) ... ok
+test_native_output_cannot_opt_out_using_visual_labels_or_parent (f11a_regression_gold.NotebookVisualBoundaryGold) ... ok
+test_visual_state_parent_and_origin_forgery_remain_rejected (f11a_regression_gold.NotebookVisualBoundaryGold) ... ok
+F05b explicit fixture budget: {"explicit_test_bytes": 145538, "explicit_test_writes": 45, "max_source_fixture_bytes": 392, "source_fixture_count": 3}
+
+----------------------------------------------------------------------
+Ran 3 tests in 0.244s
+
+OK

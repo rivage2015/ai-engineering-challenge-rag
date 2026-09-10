@@ -1,0 +1,77 @@
+test_ambiguous_graph_question_is_not_promoted_by_mock_model (f04a_isolated.VersionedSafeIndexE2E) ... FAIL
+test_application_build_query_and_final_audit (f04a_isolated.VersionedSafeIndexE2E) ... FAIL
+test_failed_rebuild_retains_previous_published_generation (f04a_isolated.VersionedSafeIndexE2E) ... ok
+test_human_choice_rebuild_and_source_change_remain_version_bound (f04a_isolated.VersionedSafeIndexE2E) ... ok
+test_legacy_reader_rejects_unexpected_explicit_version_graph (f04a_isolated.VersionedSafeIndexE2E) ... ok
+test_legacy_unversioned_reader_remains_explicitly_supported (f04a_isolated.VersionedSafeIndexE2E) ... ok
+test_lineage_context_rejects_unknown_keys_and_null_version (f04a_isolated.VersionedSafeIndexE2E) ... ok
+test_lineage_context_requires_explicit_version_attestation_result (f04a_isolated.VersionedSafeIndexE2E) ... ok
+test_missing_version_graph_is_rejected (f04a_isolated.VersionedSafeIndexE2E) ... ok
+test_post_attestation_state_swap_cannot_change_published_binding (f04a_isolated.VersionedSafeIndexE2E)
+A transient producer-state swap must not become trusted metadata. ... ok
+test_registration_detects_changed_version_artifact (f04a_isolated.VersionedSafeIndexE2E) ... ok
+test_resolver_code_change_invalidates_reader_registration (f04a_isolated.VersionedSafeIndexE2E) ... ok
+test_versioned_build_publishes_safe_index (f04a_isolated.VersionedSafeIndexE2E) ... ok
+test_versioned_reader_omission_never_replaces_existing_index (f04a_isolated.VersionedSafeIndexE2E) ... ok
+test_wrong_version_graph_is_rejected (f04a_isolated.VersionedSafeIndexE2E) ... ok
+
+======================================================================
+FAIL: test_ambiguous_graph_question_is_not_promoted_by_mock_model (f04a_isolated.VersionedSafeIndexE2E)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/distribution/macos-local-memory/tests/test_versioned_safe_index_e2e.py", line 402, in test_ambiguous_graph_question_is_not_promoted_by_mock_model
+    result = self.application_query("業務内容のownerを教えてください")
+  File "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/distribution/macos-local-memory/tests/test_versioned_safe_index_e2e.py", line 389, in application_query
+    return server.answer_query(query)
+  File "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/distribution/macos-local-memory/app/local_memory_server.py", line 2373, in answer_query
+    generated = subprocess.run(command, capture_output=True, text=True, timeout=900, check=True)
+  File "/Library/Developer/CommandLineTools/Library/Frameworks/Python3.framework/Versions/3.9/lib/python3.9/unittest/mock.py", line 1093, in __call__
+    return self._mock_call(*args, **kwargs)
+  File "/Library/Developer/CommandLineTools/Library/Frameworks/Python3.framework/Versions/3.9/lib/python3.9/unittest/mock.py", line 1097, in _mock_call
+    return self._execute_mock_call(*args, **kwargs)
+  File "/Library/Developer/CommandLineTools/Library/Frameworks/Python3.framework/Versions/3.9/lib/python3.9/unittest/mock.py", line 1158, in _execute_mock_call
+    result = effect(*args, **kwargs)
+  File "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/distribution/macos-local-memory/tests/test_versioned_safe_index_e2e.py", line 387, in dispatched_process
+    return subprocess.CompletedProcess(command, 0, self.run_cli(command), "")
+  File "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/distribution/macos-local-memory/tests/test_versioned_safe_index_e2e.py", line 149, in run_cli
+    result = module.main()
+  File "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/distribution/macos-local-memory/engine/answer_local_memory_v2.py", line 1530, in main
+    reference_date = current_tokyo_date()
+  File "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/distribution/macos-local-memory/engine/answer_local_memory_v2.py", line 268, in current_tokyo_date
+    return datetime.now(ZoneInfo(TEMPORAL_TIMEZONE)).date().isoformat()
+  File "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/design/local-memory-v1-hardening/runs/f04a-executor-run.v1.py", line 77, in audit
+    raise AssertionError("F04a read outside reviewed code/runtime/fixtures: " + path)
+AssertionError: F04a read outside reviewed code/runtime/fixtures: /usr/share/zoneinfo/Asia/Tokyo
+
+======================================================================
+FAIL: test_application_build_query_and_final_audit (f04a_isolated.VersionedSafeIndexE2E)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/distribution/macos-local-memory/tests/test_versioned_safe_index_e2e.py", line 392, in test_application_build_query_and_final_audit
+    result = self.application_query("業務内容に書かれた語句を教えてください")
+  File "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/distribution/macos-local-memory/tests/test_versioned_safe_index_e2e.py", line 389, in application_query
+    return server.answer_query(query)
+  File "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/distribution/macos-local-memory/app/local_memory_server.py", line 2373, in answer_query
+    generated = subprocess.run(command, capture_output=True, text=True, timeout=900, check=True)
+  File "/Library/Developer/CommandLineTools/Library/Frameworks/Python3.framework/Versions/3.9/lib/python3.9/unittest/mock.py", line 1093, in __call__
+    return self._mock_call(*args, **kwargs)
+  File "/Library/Developer/CommandLineTools/Library/Frameworks/Python3.framework/Versions/3.9/lib/python3.9/unittest/mock.py", line 1097, in _mock_call
+    return self._execute_mock_call(*args, **kwargs)
+  File "/Library/Developer/CommandLineTools/Library/Frameworks/Python3.framework/Versions/3.9/lib/python3.9/unittest/mock.py", line 1158, in _execute_mock_call
+    result = effect(*args, **kwargs)
+  File "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/distribution/macos-local-memory/tests/test_versioned_safe_index_e2e.py", line 387, in dispatched_process
+    return subprocess.CompletedProcess(command, 0, self.run_cli(command), "")
+  File "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/distribution/macos-local-memory/tests/test_versioned_safe_index_e2e.py", line 149, in run_cli
+    result = module.main()
+  File "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/distribution/macos-local-memory/engine/answer_local_memory_v2.py", line 1530, in main
+    reference_date = current_tokyo_date()
+  File "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/distribution/macos-local-memory/engine/answer_local_memory_v2.py", line 268, in current_tokyo_date
+    return datetime.now(ZoneInfo(TEMPORAL_TIMEZONE)).date().isoformat()
+  File "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/design/local-memory-v1-hardening/runs/f04a-executor-run.v1.py", line 77, in audit
+    raise AssertionError("F04a read outside reviewed code/runtime/fixtures: " + path)
+AssertionError: F04a read outside reviewed code/runtime/fixtures: /usr/share/zoneinfo/Asia/Tokyo
+
+----------------------------------------------------------------------
+Ran 15 tests in 2.706s
+
+FAILED (failures=2)

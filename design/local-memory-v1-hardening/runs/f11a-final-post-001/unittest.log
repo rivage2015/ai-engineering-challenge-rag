@@ -1,0 +1,27 @@
+test_g1_exact_metadata_only_report_three_paths (f11a_executor_post_tests.NotebookMetadataPostAPITests) ... ok
+test_g1_equal_zero_null_raw_and_multiple_outputs (f11a_executor_post_tests.NotebookMetadataPostAPITests) ... ok
+test_g1_long_text_retains_one_direct_unit_and_whitespace_emits_none (f11a_executor_post_tests.NotebookMetadataPostAPITests) ... ok
+test_g2_wrong_pointer_role_locator_ordinal_and_bool_fail (f11a_executor_post_tests.NotebookMetadataPostAPITests) ... ok
+test_g2_parser_extension_and_state_omission_cannot_opt_out (f11a_executor_post_tests.NotebookMetadataPostAPITests) ... ok
+test_g2_unrelated_text_state_injection_rejected (f11a_executor_post_tests.NotebookMetadataPostAPITests) ... ok
+test_g3_same_id_context_mutations_rejected_by_both_search_validators (f11a_executor_post_tests.NotebookMetadataPostAPITests) ... ok
+test_g4_invalid_count_types_and_malformed_json_raise_controlled_errors (f11a_executor_post_tests.NotebookMetadataPostAPITests) ... ok
+test_g4_byte_token_depth_and_number_limits_precede_parse (f11a_executor_post_tests.NotebookMetadataPostAPITests) ... ok
+test_g4_source_mismatch_and_missing_file_are_failures (f11a_executor_post_tests.NotebookMetadataPostAPITests) ... ok
+test_g4_each_validation_uses_one_bounded_source_snapshot (f11a_executor_post_tests.NotebookMetadataPostAPITests) ... ok
+test_g4_probe_digest_and_facts_share_the_read_snapshot (f11a_executor_post_tests.NotebookMetadataPostAPITests) ... ok
+test_g4_validators_reject_b_facts_bound_to_an_a_snapshot (f11a_executor_post_tests.NotebookMetadataPostAPITests) ... ok
+test_g4_path_cache_cannot_reuse_a_previous_calls_metadata (f11a_executor_post_tests.NotebookMetadataPostAPITests) ... ok
+test_g5_missing_code_and_execute_result_counts_are_checked_but_unverified (f11a_executor_post_tests.NotebookMetadataPostAPITests) ... ok
+test_g5_rootless_reports_unverified_and_old_counts_wrapper_raises (f11a_executor_post_tests.NotebookMetadataPostAPITests) ... ok
+test_g5_rootless_known_malformed_state_is_not_hidden (f11a_executor_post_tests.NotebookMetadataPostAPITests) ... ok
+test_g5_partial_and_failed_records_never_return_pass (f11a_executor_post_tests.NotebookMetadataPostAPITests) ... ok
+test_g5_empty_notebook_is_zero_checked_unverified (f11a_executor_post_tests.NotebookMetadataPostAPITests) ... ok
+test_g5_cli_pass_unverified_and_fail_envelopes (f11a_executor_post_tests.NotebookMetadataPostAPITests) ... ok
+test_g6_versions_and_old_notebook_have_no_silent_upgrade (f11a_executor_post_tests.NotebookMetadataPostAPITests) ... ok
+F05b explicit fixture budget: {"explicit_test_bytes": 69927, "explicit_test_writes": 68, "max_source_fixture_bytes": 9222, "source_fixture_count": 21}
+
+----------------------------------------------------------------------
+Ran 21 tests in 0.593s
+
+OK

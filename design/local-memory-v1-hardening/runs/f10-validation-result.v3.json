@@ -1,0 +1,16 @@
+{
+  "schema_version": "1.0",
+  "task_id": "lms-v1-00-hardening-2026-09-09-f10",
+  "artifact": "f10-graph-artifact.v3.json",
+  "report": "f10-audit-report.v3.json",
+  "actual_artifact_sha256": "0d2ec62aa7b749223479cba69b71c1dd84d1589d603d90b1ab9ab9f384cb4cf1",
+  "ruby_structural_referential_validator": "PASS",
+  "draft202012_schema_task_hash": "PASS",
+  "all_twenty_two_source_hashes_and_edge_endpoints": "PASS",
+  "audit_status": "pass",
+  "repair_round": 2,
+  "independent_tests": 47,
+  "skips": 0,
+  "limits": "XLSX standard-library fallback source-binding and specified whole-part URI subset only. No universal XLSX/OPC conformance, all cell features, native openpyxl, complete Reader transaction, realmodel, safe-index/answer or packaged product acceptance. Prior failures and unchanged counterexamples are retained.",
+  "next_action": "Accept scoped F10 repair at final allowed round. Preserve the immutable parser snapshot and rerun focused compatibility when future Reader work changes shared code."
+}

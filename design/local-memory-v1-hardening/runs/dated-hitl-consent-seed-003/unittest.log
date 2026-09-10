@@ -1,0 +1,16 @@
+{"mode": "seed", "resolver_sha256": "53e7458acd3eaf781652c4cc5bf5771003f4074257ede9988e5ceddee7c54dc7", "test_sha256": "f85d05c018dabac206e5f7308b57b6742e96a7ad0214689828d224881179086d", "methods": ["test_current_confirmation_is_explicit_not_truthy_or_defaulted", "test_defer_cannot_reuse_an_old_selected_path", "test_independent_annual_relation_cannot_force_other_record_obsolete", "test_matching_legacy_dated_record_is_not_new_consent", "test_missing_or_stale_displayed_candidate_revision_is_held", "test_missing_relation_is_not_inferred_from_same_family", "test_old_writer_needs_display_proof_before_decision_store_access", "test_undated_legacy_selection_remains_a_compatibility_control", "test_use_permission_is_explicit_not_truthy_or_defaulted", "test_version_tag_alone_cannot_upgrade_legacy"], "fixture_definition_bytes": 1705, "original_document_reads": false, "actual_store_io": false, "post_api_not_baseline_red": false}
+test_current_confirmation_is_explicit_not_truthy_or_defaulted (dated_consent_fixed_test.DatedConsentSeedTests.test_current_confirmation_is_explicit_not_truthy_or_defaulted) ... ok
+test_defer_cannot_reuse_an_old_selected_path (dated_consent_fixed_test.DatedConsentSeedTests.test_defer_cannot_reuse_an_old_selected_path) ... ok
+test_independent_annual_relation_cannot_force_other_record_obsolete (dated_consent_fixed_test.DatedConsentSeedTests.test_independent_annual_relation_cannot_force_other_record_obsolete) ... ok
+test_matching_legacy_dated_record_is_not_new_consent (dated_consent_fixed_test.DatedConsentSeedTests.test_matching_legacy_dated_record_is_not_new_consent) ... ok
+test_missing_or_stale_displayed_candidate_revision_is_held (dated_consent_fixed_test.DatedConsentSeedTests.test_missing_or_stale_displayed_candidate_revision_is_held) ... ok
+test_missing_relation_is_not_inferred_from_same_family (dated_consent_fixed_test.DatedConsentSeedTests.test_missing_relation_is_not_inferred_from_same_family) ... ok
+test_old_writer_needs_display_proof_before_decision_store_access (dated_consent_fixed_test.DatedConsentSeedTests.test_old_writer_needs_display_proof_before_decision_store_access) ... ok
+test_undated_legacy_selection_remains_a_compatibility_control (dated_consent_fixed_test.DatedConsentSeedTests.test_undated_legacy_selection_remains_a_compatibility_control) ... ok
+test_use_permission_is_explicit_not_truthy_or_defaulted (dated_consent_fixed_test.DatedConsentSeedTests.test_use_permission_is_explicit_not_truthy_or_defaulted) ... ok
+test_version_tag_alone_cannot_upgrade_legacy (dated_consent_fixed_test.DatedConsentSeedTests.test_version_tag_alone_cannot_upgrade_legacy) ... ok
+
+----------------------------------------------------------------------
+Ran 10 tests in 0.001s
+
+OK

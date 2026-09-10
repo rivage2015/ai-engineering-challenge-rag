@@ -1,0 +1,44 @@
+{
+  "schema_version": "1.0",
+  "task_id": "lms-v1-00-hardening-2026-09-09-f10",
+  "audit_repair_round": 2,
+  "max_repair_cycles": 2,
+  "artifact_path": "design/local-memory-v1-hardening/runs/f10-graph-artifact.v3.json",
+  "artifact_sha256": "0d2ec62aa7b749223479cba69b71c1dd84d1589d603d90b1ab9ab9f384cb4cf1",
+  "report_path": "design/local-memory-v1-hardening/runs/f10-audit-report.v3.json",
+  "report_sha256": "84c339121af3e1b51593d9fdcc8877100fb8df9af3e021d70b259137609111d4",
+  "ruby_reference_validator": {"exit_code": 0, "stdout": "VALID: audit report is structurally and referentially consistent"},
+  "draft_2020_12_validator": {"exit_code": 0, "stdout": "VALID: Draft2020-12 schema"},
+  "audit_decision": "pass",
+  "blocking_failures": 0,
+  "unresolved_count": 0,
+  "next_action": "deliver",
+  "source_integrity": {
+    "all_22_artifact_source_hashes_match_before_and_after": true,
+    "all_6_saved_repair_result_and_log_hashes_and_byte_counts_match": true,
+    "parser_after_sha256": "73b9ad531d4e184b47636f0a7558e07cc44688d1499ddd666b8dc58610f830f7",
+    "parser_before_repair_reconstructed_sha256": "4429a50030143710786c0ee03a68f3d9243d555d121f832817a300824726a2c3",
+    "cumulative_base_reconstructed_sha256": "db73270807c3e976fb51f38ff51cc6cd40dd7c0ef3c2d6954fc1f924acd8ab3d",
+    "before_record_path": "design/local-memory-v1-hardening/runs/f10-audit-hashes-before.v3.json",
+    "before_record_sha256": "905d544133c7c19c2dc4961e127311014533c149baa9c6a8e0925db97c709049",
+    "after_record_path": "design/local-memory-v1-hardening/runs/f10-audit-hashes-after.v3.json",
+    "after_record_sha256": "29e95ad6058c9b196f37babb95ae131000281bf2a55f8cd3f336e23c8e3b7bec",
+    "product_edits_by_auditor": false,
+    "prior_counterexample_scripts_changed": false,
+    "prior_audit_or_failure_logs_relabeled": false
+  },
+  "fresh_runs": [
+    {"id": "f10-audit-focused-v3", "result_sha256": "8f95ff7bb65de51fc6dde2a0c63e3dbef78ecfe784750b2873240ffc00f2b143", "status": "passed", "methods": 23, "skips": 0, "log_sha256": "e94b10f0ed9ad8ab4eb0526ab945484640b7474d88ceb000981f7bf9244dee5c"},
+    {"id": "f10-audit-regression-v3", "result_sha256": "efecad80ec65027b9aaf88879752a815c120282e03f6ae1cfe2b7655415352bc", "status": "passed", "methods": 17, "skips": 0, "log_sha256": "496bb160f0b0423dfd4cd031ee2ff7d795a83825415079c27919dd1082c701ca"},
+    {"id": "f10-audit-legacy-v3", "result_sha256": "62a789064f3aac01b0a3840a92ed44d1f85b45e25fdf62b6f5d2a290a93d0921", "status": "passed", "methods": 2, "skips": 0, "log_sha256": "0715aebde50cd065c3b2ec44f361a89c140cbcad027be2aed59ccaf0c500aa22"},
+    {"id": "f10-audit-adversarial-v3", "result_sha256": "72ac43f1f2824c44bab6540242db3a5452f8c85280669093128157fad54d8e85", "status": "passed", "methods": 2, "skips": 0, "log_sha256": "d5d2a5e8b7b33e0bc45ba9ad9d6d6d3292bc246091eccc3e0a1a8684abda0326"},
+    {"id": "f10-audit-dot-v3", "result_sha256": "4a3ccc45afd8f8b41c93359742272ae2bc2d1022bb55c26f2c9bdebb142b52f9", "status": "passed", "methods": 3, "skips": 0, "log_sha256": "f819b139d7afcd0747c6586553b24885439df4514afaa2de92289759cb9e51b9"}
+  ],
+  "fresh_method_total": 47,
+  "safe_execution": "Reviewed synthetic fixtures under repository-owned scratch; each child 30 seconds and 1048576 bytes; HTTP/socket/Popen guards, suppressed visuals, no real models, network, credentials, GUI or original documents.",
+  "audit_script_hashes": {
+    "f10-audit-run.v3.py": "1941df8f9fa183048ba7e2d7980e4cda6666e9db5bbbef3cfa1d6c685c944c4f",
+    "f10-audit-hashes.v3.py": "8abf45bc0ac4c50249c1e978c519379b2b9874089bd6d93e230500a0a5cfdc74"
+  },
+  "acceptance_boundary": "Final scoped F10 source-binding implementation pass. Neither the passing tests nor valid audit JSON certify full XLSX/OPC/IRI or all cell features, native openpyxl, model safety, large-resource performance, safe-index/answer, packaging, GUI or whole-product completion. Prior failed runs and revise reports remain unchanged."
+}

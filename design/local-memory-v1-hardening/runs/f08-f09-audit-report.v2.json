@@ -1,0 +1,95 @@
+{
+  "schema_version": "1.0",
+  "audit_id": "lms-v1-00-hardening-2026-09-09-f08-f09-audit-v2",
+  "task_id": "lms-v1-00-hardening-2026-09-09-f08-f09",
+  "artifact_hash": "d7f8c8184dd8f87aeb142a6c53c609a2b0c068e002607b77db5a2b99a9dce14d",
+  "auditor_context": {
+    "independence_level": "same_model_separate_context",
+    "source_scope": [
+      "Re-audit after repair round 1; immutable v2 task contract, graph, patch and all six source-manifest entries; all source hashes matched",
+      "Focused review of strict incremental decoding in validate_xml_bytes, its shared OOXML caller, and retained F08 text/tail and F09 duplicate-key behavior; prior v1 report and fixture retained unchanged",
+      "Independent permanent-suite rerun: tests/test_generic_structured_reader_hardening.py, 17 tests passed, no skips, unittest reported 0.133 seconds",
+      "Independent unchanged v1 counterexample rerun: f08-f09-adversarial-test.v1.py, four tests passed, no skips, 0.102 seconds; SHA-256 a787bbac8a3802cac9c469201e5779231b557e701a8e56e8bcf4723efe4cd29d",
+      "Additional pure-byte/shared-archive counterexamples: design/local-memory-v1-hardening/runs/f08-f09-adversarial-test.v2.py, two tests passed, no skips, 0.022 seconds; SHA-256 f430329c7638cf381b1634cd9ed6ca97771de8e574d0422a0dcc57856f2da04c",
+      "Each invocation used rag/.venv/bin/python -B, 30-second subprocess timeout and 1-MiB output bound. Files were synthetic temporary inputs or in-memory ZIP members below 1 MiB. Model/HTTP/fingerprint/Paddle behavior remained guarded or stubbed as in the approved fixture. No product source or real user state was edited"
+    ]
+  },
+  "status": "pass",
+  "checks": [
+    {
+      "check_id": "F08F09-R01",
+      "check_type": "evidence",
+      "target_ids": ["VALIDATION", "COMPAT"],
+      "verdict": "pass",
+      "severity": "info",
+      "reason": "The v2 artifact and all six recorded source hashes matched the audited files. The prior v1 adversarial fixture hash is unchanged. All 17 permanent tests, four original counterexamples, and two additional continuation/shared-gate tests independently passed with no skips under the bounded synthetic environment. This report supersedes the v1 readiness decision only for the submitted v2 code; it does not rewrite the prior failure record.",
+      "evidence_ids": ["PARSER", "TESTS", "EXECUTOR", "BUILDER", "SEARCH", "ADAPTER"],
+      "required_action": null
+    },
+    {
+      "check_id": "F08F09-R02",
+      "check_type": "coverage",
+      "target_ids": ["COMPAT", "XML_SAFETY", "F08", "E11"],
+      "verdict": "pass",
+      "severity": "info",
+      "reason": "The v1 blocking check F08F09-A06 is resolved. In the BOM/signature-selected branch, a strict incremental decoder treats the 2048-byte prolog boundary as a nonfinal fragment, carries incomplete characters/surrogates into subsequent chunks, and finalizes only at actual EOF. Both original valid UTF-8 BOM Japanese and UTF-16 surrogate fixtures now retain their expected mixed text and success status. Permanent tests vary eight nearby offsets across UTF-8 and UTF-16 LE/BE; UTF-32 tests are correctly limited to byte-gate compatibility rather than claiming generic Reader support.",
+      "evidence_ids": ["PARSER", "TESTS", "EXECUTOR"],
+      "required_action": null
+    },
+    {
+      "check_id": "F08F09-R03",
+      "check_type": "safety",
+      "target_ids": ["XML_SAFETY", "E10", "COMPAT"],
+      "verdict": "pass",
+      "severity": "info",
+      "reason": "The repair does not merely ignore the sampled decoding error. It strictly consumes remaining bytes in 64-KiB chunks and performs final=True at EOF. Permanent cases reject invalid sequences and actual truncation before/after the sample; additional independent cases cross multiple continuation chunks in UTF-8, UTF-16 LE/BE and UTF-32 LE/BE and still reject invalid final units beyond those chunks. Full-buffer DTD/entity scans and declared/storage-encoding compatibility checks remain in place. The unchanged ASCII-compatible branch and universal encoding correctness are not certified by these results.",
+      "evidence_ids": ["PARSER", "TESTS", "EXECUTOR"],
+      "required_action": null
+    },
+    {
+      "check_id": "F08F09-R04",
+      "check_type": "coverage",
+      "target_ids": ["XML_SAFETY", "COMPAT"],
+      "verdict": "pass",
+      "severity": "info",
+      "reason": "Because validate_xml_bytes is shared with OOXML archive validation, the audit also exercised the actual archive gate using small stored ZIP members. Permanent cases accept valid UTF-8 BOM/UTF-16 boundary data and reject DTD-bearing members. Additional independent archive cases pass across two continuation boundaries for five storage encodings and eight offsets. Late DTD/entity declarations remain rejected. No new regression was found in this shared gate within the tested contract; complete Office parsing/rendering is outside this repair's acceptance.",
+      "evidence_ids": ["PARSER", "TESTS"],
+      "required_action": null
+    },
+    {
+      "check_id": "F08F09-R05",
+      "check_type": "coverage",
+      "target_ids": ["F08", "ROLLBACK", "E08"],
+      "verdict": "pass",
+      "severity": "info",
+      "reason": "The text/tail algorithm was not altered by the boundary repair. Reruns preserve mixed-content order, parent text()[n] locators, nonempty whitespace, namespaces, distinct repeated children and diagnostic partial status. The pretty-printed independent corpus passes both intermediate validators, SearchUnit construction and both validators, and semantic adaptation with exact raw whitespace/text evidence. The expanded mixed permanent corpus also retains the two formerly rejected boundary files as valid neighbors while keeping failed inputs isolated.",
+      "evidence_ids": ["PARSER", "TESTS", "BUILDER", "SEARCH", "ADAPTER"],
+      "required_action": null
+    },
+    {
+      "check_id": "F08F09-R06",
+      "check_type": "safety",
+      "target_ids": ["F09", "ROLLBACK", "E09"],
+      "verdict": "pass",
+      "severity": "info",
+      "reason": "The JSON object_pairs_hook still rejects repeated decoded object names before document/evidence emission, including nested objects, arrays, escaped equivalent names and repeated identical values. Separate objects with equal key names remain valid. Independent depth-64 and UTF-8 BOM/UTF-16/CP932 cases still reject duplicates. Transactional integration retains failed Documents with no Evidence/Relation/SearchUnit contamination, valid neighboring files survive, and synthetic original hashes remain unchanged. Literal large-file fallback stays explicitly partial rather than claiming native duplicate validation.",
+      "evidence_ids": ["PARSER", "TESTS", "BUILDER", "SEARCH", "ADAPTER"],
+      "required_action": null
+    },
+    {
+      "check_id": "F08F09-R07",
+      "check_type": "intent",
+      "target_ids": ["LIMITS", "COMPAT", "VALIDATION"],
+      "verdict": "pass",
+      "severity": "warning",
+      "reason": "Acceptance is limited to F08/F09 and the repaired sampled-decoding regression. XML locators remain the Reader convention, parsed character data does not reconstruct original markup bytes, and changed code/locator identities still require affected derived artifacts to be rebuilt. Nonfinite JSON, comments/processing instructions, broad encoding/depth/resource limits, real-model quality, safe SQLite/answer runs, old-index migration and packaged V1.00 acceptance remain explicitly outside this result. The added decoder buffer is bounded, but total work still scales with input bytes.",
+      "evidence_ids": ["EXECUTOR", "PARSER", "BUILDER"],
+      "required_action": null
+    }
+  ],
+  "summary": {
+    "blocking_failures": 0,
+    "unresolved_count": 0,
+    "next_action": "deliver"
+  }
+}

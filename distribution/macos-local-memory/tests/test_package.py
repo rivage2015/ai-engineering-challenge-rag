@@ -923,7 +923,7 @@ class PackageTests(unittest.TestCase):
 
     def test_path_to_semantic_graph_without_external_dependencies(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
-            base = Path(temporary)
+            base = Path(temporary).resolve()
             source = base / "source"
             source.mkdir()
             (source / "memo.txt").write_text("講演のテーマはAIエージェントとハルシネーション対策。", encoding="utf-8")
@@ -933,7 +933,7 @@ class PackageTests(unittest.TestCase):
             path_out = base / "path"
             semantic_out = base / "semantic"
             subprocess.run([os.sys.executable, str(ENGINE / "build_path_graph.py"), str(source), "--output-dir", str(path_out)], check=True, capture_output=True)
-            subprocess.run([os.sys.executable, str(ENGINE / "validate_path_graph.py"), str(path_out / "path-evidence-graph.json"), str(path_out / "path-source-inventory.jsonl")], check=True, capture_output=True)
+            subprocess.run([os.sys.executable, str(ENGINE / "validate_path_graph.py"), str(path_out / "path-evidence-graph.json"), str(path_out / "path-source-inventory.jsonl"), "--source-root", str(source)], check=True, capture_output=True)
             subprocess.run([os.sys.executable, str(ENGINE / "build_semantic_graph.py"), "--inventory", str(path_out / "path-source-inventory.jsonl"), "--source-root", str(source), "--output-dir", str(semantic_out)], check=True, capture_output=True)
             subprocess.run([os.sys.executable, str(ENGINE / "validate_semantic_graph.py"), "--output-dir", str(semantic_out)], check=True, capture_output=True)
             evidence = [json.loads(line) for line in (semantic_out / "semantic-evidence.jsonl").read_text(encoding="utf-8").splitlines()]
@@ -973,7 +973,7 @@ class PackageTests(unittest.TestCase):
         from openpyxl import Workbook
 
         with tempfile.TemporaryDirectory() as temporary:
-            base = Path(temporary)
+            base = Path(temporary).resolve()
             source_root = base / "source"
             source_root.mkdir()
             workbook_path = source_root / "two-sheets.xlsx"
@@ -1000,6 +1000,7 @@ class PackageTests(unittest.TestCase):
                 os.sys.executable, str(ENGINE / "validate_path_graph.py"),
                 str(path_output / "path-evidence-graph.json"),
                 str(path_output / "path-source-inventory.jsonl"),
+                "--source-root", str(source_root),
             ], check=True, capture_output=True, text=True)
             build = subprocess.run([
                 os.sys.executable, str(ENGINE / "build_adaptive_semantic_graph.py"),
@@ -1011,6 +1012,7 @@ class PackageTests(unittest.TestCase):
             self.assertNotIn("beta-field", build.stdout + build.stderr)
             validate = subprocess.run([
                 os.sys.executable, str(ENGINE / "validate_adaptive_semantic_graph.py"),
+                "--initialize-lineage",
                 "--output-dir", str(semantic_output), "--source-root", str(source_root),
                 "--inventory", str(path_output / "path-source-inventory.jsonl"),
             ], check=False, capture_output=True, text=True)
@@ -1079,7 +1081,7 @@ class PackageTests(unittest.TestCase):
         self.assertEqual(dependency_check.returncode, 0, dependency_check.stderr)
 
         with tempfile.TemporaryDirectory() as temporary:
-            base = Path(temporary)
+            base = Path(temporary).resolve()
             source_root = base / "source"
             source_root.mkdir()
             workbook_path = source_root / "fallback.xlsx"
@@ -1119,6 +1121,7 @@ class PackageTests(unittest.TestCase):
             self.assertTrue(any(item.get("adapter", {}).get("source_record_type") == "formula" for item in evidence))
             validation = subprocess.run([
                 *reader_command, str(ENGINE / "validate_adaptive_semantic_graph.py"),
+                "--initialize-lineage",
                 "--output-dir", str(semantic_output), "--source-root", str(source_root),
                 "--inventory", str(path_output / "path-source-inventory.jsonl"),
             ], check=False, capture_output=True, text=True)
@@ -1148,7 +1151,7 @@ class PackageTests(unittest.TestCase):
         self.assertEqual(dependency_check.returncode, 0, dependency_check.stderr)
 
         with tempfile.TemporaryDirectory() as temporary:
-            base = Path(temporary)
+            base = Path(temporary).resolve()
             source_root = base / "source"
             source_root.mkdir()
             docx_path = source_root / "fallback.docx"
@@ -1305,6 +1308,7 @@ class PackageTests(unittest.TestCase):
             validation = subprocess.run([
                 *reader_command,
                 str(ENGINE / "validate_adaptive_semantic_graph.py"),
+                "--initialize-lineage",
                 "--output-dir",
                 str(semantic_output),
                 "--source-root",
@@ -1323,7 +1327,7 @@ class PackageTests(unittest.TestCase):
 
     def test_adaptive_reader_keeps_readable_documents_when_one_extraction_fails(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
-            base = Path(temporary)
+            base = Path(temporary).resolve()
             source_root = base / "source"
             source_root.mkdir()
             (source_root / "readable.txt").write_text("readable-marker", encoding="utf-8")
@@ -1355,6 +1359,7 @@ class PackageTests(unittest.TestCase):
             self.assertEqual({item["status"] for item in documents}, {"extracted", "extraction_failed"})
             subprocess.run([
                 os.sys.executable, str(ENGINE / "validate_adaptive_semantic_graph.py"),
+                "--initialize-lineage",
                 "--output-dir", str(semantic_output), "--source-root", str(source_root),
                 "--inventory", str(path_output / "path-source-inventory.jsonl"),
             ], check=True, capture_output=True, text=True)
@@ -1429,7 +1434,10 @@ class PackageTests(unittest.TestCase):
         self.assertIn('"semantic_path": str(semantic)', build_body[publish:])
         self.assertIn('"security_path": str(security)', build_body[publish:])
         self.assertIn('"index_path": str(index)', build_body[publish:])
-        self.assertIn('if not generation_published and generation.exists():', build_body)
+        self.assertIn(
+            'if not generation_published and not preserve_snapshot_target and generation.exists():',
+            build_body,
+        )
         self.assertIn('shutil.rmtree(generation)', build_body)
 
     def test_cross_document_graph_step_3_is_candidate_only(self) -> None:
@@ -3249,8 +3257,8 @@ class PackageTests(unittest.TestCase):
 
     def test_package_build_is_versioned_portable_and_publish_after_verify(self) -> None:
         package = (ROOT / "build" / "build_package.sh").read_text(encoding="utf-8")
-        self.assertIn('PACKAGE_VERSION="0.6"', package)
-        self.assertIn('PACKAGE_BUILD="6"', package)
+        self.assertIn('PACKAGE_VERSION="1.0"', package)
+        self.assertIn('PACKAGE_BUILD="8"', package)
         self.assertIn(
             'DMG_NAME="Local-Memory-Search-v${PACKAGE_VERSION}-macOS-unsigned.dmg"',
             package,
@@ -3404,6 +3412,61 @@ class PackageTests(unittest.TestCase):
             {"status": "forbidden"},
             403,
         )
+
+        stale_token = post_handler(
+            urllib.parse.urlencode({
+                server.UI_CSRF_FIELD: "csrf-from-previous-server",
+                "query": "受付では何と言いますか",
+            }),
+            Origin="http://127.0.0.1:8765",
+            **{"Sec-Fetch-Site": "same-origin"},
+        )
+        stale_token.do_POST()
+        stale_token.send_json.assert_not_called()
+        stale_token.send.assert_called_once()
+        stale_page, stale_status = stale_token.send.call_args.args
+        self.assertEqual(stale_status, 403)
+        stale_html = stale_page.decode("utf-8")
+        self.assertIn("質問画面が更新されました", stale_html)
+        self.assertIn("質問はまだ検索に送られていません", stale_html)
+        self.assertNotIn("受付では何と言いますか", stale_html)
+
+        restored_no_store_form = post_handler(
+            urllib.parse.urlencode({
+                server.UI_CSRF_FIELD: "csrf-from-previous-server",
+                "query": "受付では何と言いますか",
+            }),
+            Origin="http://127.0.0.1:8765",
+            Referer="http://127.0.0.1:8765/",
+            **{
+                "Content-Type": "application/x-www-form-urlencoded",
+                "Sec-Fetch-Site": "same-origin",
+                "Sec-Fetch-Mode": "navigate",
+                "Sec-Fetch-Dest": "document",
+            },
+        )
+        restored_no_store_form.path = "/__csrf_probe"
+        restored_no_store_form.do_POST()
+        restored_no_store_form.send_json.assert_not_called()
+        restored_no_store_form.send.assert_called_once()
+        _not_found_page, restored_status = (
+            restored_no_store_form.send.call_args.args
+        )
+        self.assertEqual(restored_status, 404)
+
+        stale_cross_site = post_handler(
+            urllib.parse.urlencode({
+                server.UI_CSRF_FIELD: "csrf-from-previous-server",
+            }),
+            Origin="https://attacker.example",
+            **{"Sec-Fetch-Site": "cross-site"},
+        )
+        stale_cross_site.do_POST()
+        stale_cross_site.send_json.assert_called_once_with(
+            {"status": "forbidden"},
+            403,
+        )
+        stale_cross_site.send.assert_not_called()
 
         valid = post_handler(
             encoded_token,
@@ -4505,6 +4568,7 @@ class PackageTests(unittest.TestCase):
         self.assertIn("旧版を終了してから", text)
         self.assertIn("launcher_lease.py", text)
         self.assertIn("PYTHON_BOOTSTRAP_LOCK_FILE", text)
+        self.assertIn("export PYTHONDONTWRITEBYTECODE=1", text)
         self.assertIn("zmodload zsh/system", text)
         self.assertIn(
             "zsystem flock -t 120 -i 0.25 -f "

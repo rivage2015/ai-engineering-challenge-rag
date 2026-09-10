@@ -1,0 +1,78 @@
+{
+  "schema_version": "1.0",
+  "audit_id": "lms-v1-00-f16-builder-audit-v1",
+  "task_id": "lms-v1-00-hardening-2026-09-09-f16",
+  "artifact_hash": "0361afa5a5f24deee5e68314624e65f9c45f512bedbd940d594150ca1bd6bb16",
+  "auditor_context": {
+    "independence_level": "same_model_separate_context",
+    "source_scope": [
+      "design/local-memory-v1-hardening/runs/f16-graph-artifact.v1.json",
+      "distribution/macos-local-memory/engine/build_path_graph.py",
+      "tests/test_path_graph_confinement.py",
+      "design/local-memory-v1-hardening/runs/f16-executor.v1.json",
+      "design/local-memory-v1-hardening/runs/f16-executor-addendum.v1.json",
+      "artifacts/local-memory-v1-hardening/runs/f16-green-03/result.json",
+      "artifacts/local-memory-v1-hardening/runs/f16-green-py39-01/result.json",
+      "Targeted read-only inspection of pathname hashing in distribution/macos-local-memory/engine/validate_path_graph.py and reader-resource identity references in app/bootstrap.py; those components were not approved or modified.",
+      "Static audit only: no new dynamic test or counterexample was executed. An apply_patch invocation preparing a synthetic counterexample under /private/tmp remained inside the tool for approximately 927 seconds and was interrupted. No test process or exec session was started. The proposed race schedule below is a source-derived counterexample, not a dynamically reproduced exploit."
+    ]
+  },
+  "status": "revise",
+  "checks": [
+    {
+      "check_id": "F16-A01-active-ancestor-invalidation",
+      "check_type": "safety",
+      "target_ids": ["TREE", "RECORDS", "E_TREE_RECORDS"],
+      "verdict": "fail",
+      "severity": "blocking",
+      "reason": "enumerate_entries calls verify_active both at the top of its loop and immediately after sha256_file. Only the top-of-loop exception handler invalidates all existing entries. If the post-file verify_active detects a changed root ancestor, the inner source_observation exception handler only clears the current record and continues. A root ancestor above the selected root is checked for identity, not full revision. Therefore a source-derived schedule can rename that ancestor, replace its original binding with a symlink, allow the post-file no-follow stat to observe the changed binding, and restore the original directory before the next loop. The first check raises SourceChangedError, but the next loop can accept the restored identities. Earlier entries retain observed status and hashes; earlier identical files can still appear in duplicate_groups. Coverage remains incomplete and answer_projection remains blocked because an error was recorded, but the promised immediate invalidation of earlier hashes after any detected active-ancestor change is not satisfied. The existing tests cover persistent root/directory changes and newly added members, but not a detected ancestor rebinding restored before the next iteration. This finding is based on the control flow; it was not executed dynamically.",
+      "evidence_ids": ["BUILDER", "TESTS"],
+      "required_action": "Make every active-ancestor verification failure irreversibly invalidate the current enumeration generation immediately, including the verify_active call after hashing. Clear all accumulated source hashes, mark their records unresolved, record the identity failure, and stop traversal without relying on another filesystem observation to rediscover it. Keep ordinary isolated file read errors separately handled. Add a deterministic tiny regression that records two identical files, triggers a real ancestor rebinding during the post-file verification of a later file, restores the binding before the next loop, and requires all hashes to be absent, all recorded entries unresolved, no duplicate groups, incomplete coverage, and a blocked answer. A smaller injected one-shot active-verification failure may supplement but should not replace the filesystem schedule."
+    },
+    {
+      "check_id": "F16-A02-descriptor-bound-reads",
+      "check_type": "safety",
+      "target_ids": ["ROOT", "FILE", "E_ROOT_FILE", "E_ROOT_TREE"],
+      "verdict": "pass",
+      "severity": "info",
+      "reason": "Within the declared builder scope, root components are opened with directory descriptors and O_NOFOLLOW, symlink roots and '..' components are rejected, directory enumeration uses descriptors, and regular file bytes are read from an O_NOFOLLOW descriptor matched against no-follow metadata. Hashing reads at most the initially observed size and compares file identity/revision and final leaf binding. O_NONBLOCK addresses FIFO replacement, and unavailable required capabilities raise rather than silently falling back. Source inspection found no reopening of a full source pathname for file bytes in the changed builder. This is a static path-binding assessment, not fresh runtime verification or a guarantee against all filesystem races.",
+      "evidence_ids": ["BUILDER", "TESTS"],
+      "required_action": null
+    },
+    {
+      "check_id": "F16-A03-recorded-tests-and-compatibility",
+      "check_type": "coverage",
+      "target_ids": ["COMPAT", "CHECKS", "E_COMPAT_CHECKS"],
+      "verdict": "pass",
+      "severity": "info",
+      "reason": "The reviewed tests contain synthetic schedules for leaf/directory/root replacement, same-inode changes, bounded growth reads, FIFO replacement, capability failure, descriptor closure, stable CLI output, explicit unreadable-directory state, deterministic inventory ordering, symlink metadata and duplicate groups. GREEN314 and GREEN39 each record 18 tests, zero skips and passed. Those result records were read and their artifact-listed hashes matched. They are executor evidence, not an independent rerun, and they do not cover F16-A01. The builder retains schema version 1.1 and the inventory fields while explicitly changing alias acceptance and builder version.",
+      "evidence_ids": ["BUILDER", "TESTS", "GREEN314", "GREEN39"],
+      "required_action": null
+    },
+    {
+      "check_id": "F16-A04-artifact-source-identity",
+      "check_type": "evidence",
+      "target_ids": ["CHECKS"],
+      "verdict": "pass",
+      "severity": "info",
+      "reason": "The submitted artifact SHA-256 is 0361afa5a5f24deee5e68314624e65f9c45f512bedbd940d594150ca1bd6bb16. All eight listed source hashes matched at inspection: BUILDER, TESTS, VALIDATOR, EXECUTOR, ADDENDUM, RED, GREEN314 and GREEN39. The frozen builder hash is 621746dc0d0ff0857db2c21844e7c042b9bf12debd47b7c145840d89479f8fdd and test hash is 3e942bd0a391ba48e352e28cc4ebd9e62e4d9ec7acead1953addc3ad52c3eb4a. The orchestrator continued to hold the source freeze during the tool interruption. This report applies to that immutable source state; any repair or other source change requires a new artifact revision.",
+      "evidence_ids": ["BUILDER", "TESTS", "VALIDATOR", "EXECUTOR", "ADDENDUM", "RED", "GREEN314", "GREEN39"],
+      "required_action": null
+    },
+    {
+      "check_id": "F16-A05-correction-and-scope",
+      "check_type": "intent",
+      "target_ids": ["COMPAT", "LIMITS"],
+      "verdict": "pass",
+      "severity": "info",
+      "reason": "EXECUTOR and ADDENDUM were both read. The artifact explicitly states that ADDENDUM overrides the earlier claim that changed builder code participates in existing rebuild fingerprints, and limits the submission to newly executed builder runs. It preserves the separate work for existing-generation fingerprint binding, downstream Validator pathname races, changes after final checks, whole-tree resource bounds, output publication, alias compatibility and full application acceptance. The F16-A01 finding concerns a change already detected by the active builder, so the documented final-check freshness limit does not excuse it. No end-to-end no-follow or product PASS claim is approved by this report.",
+      "evidence_ids": ["EXECUTOR", "ADDENDUM", "VALIDATOR", "BUILDER"],
+      "required_action": null
+    }
+  ],
+  "summary": {
+    "blocking_failures": 1,
+    "unresolved_count": 0,
+    "next_action": "revise"
+  }
+}

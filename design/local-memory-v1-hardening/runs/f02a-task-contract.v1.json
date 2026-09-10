@@ -1,0 +1,89 @@
+{
+  "schema_version": "1.0",
+  "task_id": "lms-v1-00-hardening-2026-09-09-f02a",
+  "phase": "preimplementation_red_only",
+  "created_at_utc": "2026-09-08 21:33:38 UTC",
+  "status": "frozen_before_test_execution",
+  "parent_design": {
+    "path": "design/local-memory-v1-hardening/runs/f02-next-contract.v1.md",
+    "sha256": "2e3dbeb5d665403853321968d1abd65919ece61ac34f23033171bdf3ced0f6b2",
+    "locator_errata": "design/local-memory-v1-hardening/runs/f02-next-handoff.v1.json"
+  },
+  "authority": {
+    "root_instruction": "Prepare immutable F02a contract and genuine failing regression tests while F18 freezes existing resolver, tests and E2E sources. No implementation yet.",
+    "allowed_new_files": [
+      "tests/test_year_only_supersession.py",
+      "design/local-memory-v1-hardening/runs/f02a-*"
+    ],
+    "product_changes_authorized_in_this_slice": false,
+    "existing_test_changes_authorized_in_this_slice": false,
+    "commit_push_release_allowed": false
+  },
+  "before_sources": [
+    {
+      "path": "distribution/macos-local-memory/engine/document_version_resolver.py",
+      "sha256": "f42db568267befe8a041d036242795599544ba6a46236866a643b91d4f93811b"
+    },
+    {
+      "path": "distribution/macos-local-memory/tests/test_document_version_resolver.py",
+      "sha256": "b42fa5abafe2175ca29b26efe9a10d2626aca2d2321087f4bc798961fdf7116c"
+    },
+    {
+      "path": "distribution/macos-local-memory/tests/test_versioned_safe_index_e2e.py",
+      "sha256": "03d5dc06b47548c09a8f38348a5cbd0c8f29efbdd1a4565083ea6b660f8db771"
+    },
+    {
+      "path": "scripts/run_local_memory_hardening_tests.py",
+      "sha256": "6b3bde90b6ed649a82325f6b5ad9661756bef7b6e0303fa74c2d045fb26eb4a9"
+    }
+  ],
+  "invariant": "A filename or directory year order alone does not establish supersession. The existing final unique_latest_explicit_year return must eventually hold all candidates, preserve candidate membership, select nothing and emit no active_version edge.",
+  "proposed_later_reason": "year_order_does_not_establish_supersession",
+  "not_a_classification": "These fixtures test unknown relationship identity. No filename word establishes independent annual records, revisions or user intent.",
+  "required_red_methods": [
+    "YearOnlySupersessionTests.test_basename_year_order_is_held",
+    "YearOnlySupersessionTests.test_neutral_words_do_not_prove_supersession",
+    "YearOnlySupersessionTests.test_year_directories_are_held",
+    "YearOnlySupersessionTests.test_year_version_inverse_is_held_without_fallthrough",
+    "YearOnlySupersessionTests.test_candidate_permutation_preserves_complete_hold"
+  ],
+  "unchanged_control_methods": [
+    "YearOnlySupersessionTests.test_version_only_numeric_order_remains_selected",
+    "YearOnlySupersessionTests.test_f04a_single_version_conflict_remains_held",
+    "YearOnlySupersessionTests.test_hash_bound_human_choice_can_select_older_year",
+    "YearOnlySupersessionTests.test_stale_human_choice_holds_changed_or_added_candidates",
+    "YearOnlySupersessionTests.test_existing_draft_and_tied_year_holds_remain"
+  ],
+  "residual_witness_methods_not_improvement_acceptance": [
+    "CurrentMarkerResidualWitnessTests.test_current_marker_year_residual_is_observable"
+  ],
+  "expected_baseline": {
+    "tests_run": 11,
+    "failures": 5,
+    "errors": 0,
+    "skips": 0,
+    "expected_failures": 0,
+    "successful_unchanged_control_methods": 5,
+    "successful_residual_witness_methods": 1,
+    "result": "RED_defect_reproduced_not_acceptance"
+  },
+  "runtime_limits": {
+    "timeout_seconds": 30,
+    "max_log_bytes": 1048576,
+    "max_synthetic_fixture_bytes": 1048576,
+    "max_resolver_source_bytes": 1048576,
+    "test_body": "Pure resolver functions only; no build, validate, record_decision, Reader, index or UI execution.",
+    "runtime_guards": "Dedicated CLI installs audit-hook denial after source and stdlib loading. Deny open, directory enumeration, socket, subprocess, ctypes, process and filesystem mutations. Supervisor may create one bounded test child and write only the newly reserved f02a run directory.",
+    "not_an_os_sandbox_certification": true
+  },
+  "failure_policy": "Run once to preserve actual RED. Guard failure, timeout, missing result, skip, wrong failure identity/count or unplanned source drift must not be converted to PASS. A baseline unexpected success is a source-state change requiring inspection.",
+  "later_implementation_boundary": "After F18 release and explicit root assignment, replace only the year branch final successful return, update resolver version/policy and the two existing test fixtures. Do not fall through into the version branch. Preserve F04a and do not rewrite this frozen RED contract/result.",
+  "open_dependencies": [
+    "F03 candidate completeness and independent identity",
+    "F04 current markers, multiple version tokens and other remaining signals",
+    "F05 independent partition validation",
+    "F06/F19 independent-record HITL, generation binding and selection revision",
+    "Normal confirmed annual retention and temporal-answer support"
+  ],
+  "rollback": "Only remove or revise this task new files through an explicit bounded follow-up; preserve immutable RED evidence. Do not reset or edit frozen product/old test files. Any later product rollback reverses only F02a differences after F18 integration."
+}

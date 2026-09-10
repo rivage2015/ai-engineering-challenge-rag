@@ -1,0 +1,23 @@
+test_all_year_candidates_held_failure_preserves_previous_public_generation (f04a_isolated.VersionedSafeIndexE2E.test_all_year_candidates_held_failure_preserves_previous_public_generation) ... ok
+test_ambiguous_graph_question_is_not_promoted_by_mock_model (f04a_isolated.VersionedSafeIndexE2E.test_ambiguous_graph_question_is_not_promoted_by_mock_model) ... ok
+test_application_build_query_and_final_audit (f04a_isolated.VersionedSafeIndexE2E.test_application_build_query_and_final_audit) ... ok
+test_failed_rebuild_retains_previous_published_generation (f04a_isolated.VersionedSafeIndexE2E.test_failed_rebuild_retains_previous_published_generation) ... ok
+test_human_choice_rebuild_and_source_change_remain_version_bound (f04a_isolated.VersionedSafeIndexE2E.test_human_choice_rebuild_and_source_change_remain_version_bound) ... ok
+test_legacy_reader_rejects_unexpected_explicit_version_graph (f04a_isolated.VersionedSafeIndexE2E.test_legacy_reader_rejects_unexpected_explicit_version_graph) ... ok
+test_legacy_unversioned_reader_remains_explicitly_supported (f04a_isolated.VersionedSafeIndexE2E.test_legacy_unversioned_reader_remains_explicitly_supported) ... ok
+test_lineage_context_rejects_unknown_keys_and_null_version (f04a_isolated.VersionedSafeIndexE2E.test_lineage_context_rejects_unknown_keys_and_null_version) ... ok
+test_lineage_context_requires_explicit_version_attestation_result (f04a_isolated.VersionedSafeIndexE2E.test_lineage_context_requires_explicit_version_attestation_result) ... ok
+test_missing_version_graph_is_rejected (f04a_isolated.VersionedSafeIndexE2E.test_missing_version_graph_is_rejected) ... ok
+test_post_attestation_state_swap_cannot_change_published_binding (f04a_isolated.VersionedSafeIndexE2E.test_post_attestation_state_swap_cannot_change_published_binding)
+A transient producer-state swap must not become trusted metadata. ... ok
+test_registration_detects_changed_version_artifact (f04a_isolated.VersionedSafeIndexE2E.test_registration_detects_changed_version_artifact) ... ok
+test_resolver_code_change_invalidates_reader_registration (f04a_isolated.VersionedSafeIndexE2E.test_resolver_code_change_invalidates_reader_registration) ... ok
+test_versioned_build_publishes_safe_index (f04a_isolated.VersionedSafeIndexE2E.test_versioned_build_publishes_safe_index) ... ok
+test_versioned_reader_omission_never_replaces_existing_index (f04a_isolated.VersionedSafeIndexE2E.test_versioned_reader_omission_never_replaces_existing_index) ... ok
+test_wrong_version_graph_is_rejected (f04a_isolated.VersionedSafeIndexE2E.test_wrong_version_graph_is_rejected) ... ok
+test_year_only_build_holds_candidates_and_keeps_unrelated_evidence (f04a_isolated.VersionedSafeIndexE2E.test_year_only_build_holds_candidates_and_keeps_unrelated_evidence) ... ok
+
+----------------------------------------------------------------------
+Ran 17 tests in 2.329s
+
+OK

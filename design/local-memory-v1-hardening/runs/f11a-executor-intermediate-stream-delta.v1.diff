@@ -1,0 +1,112 @@
+--- design/local-memory-v1-hardening/runs/f11a-executor-before-intermediate-stream.v1.py	2026-09-09 13:32:59
++++ scripts/validate_intermediate_records_streaming.py	2026-09-09 14:20:53
+@@ -14,7 +14,10 @@
+ 
+ from lexical_search_common import canonical_json, digest_file
+ from intermediate_build_integrity import validate_managed_build_integrity
+-from probe_intermediate_records import digest_value, normalize_text, stable_id
++from probe_intermediate_records import (
++    digest_value, is_notebook_document, normalize_text, stable_id,
++    notebook_binding_report, notebook_document_binding,
++)
+ from validate_intermediate_records import (
+     ALLOWED,
+     published_schema_validators,
+@@ -382,12 +385,12 @@
+     """)
+ 
+ 
+-def validate(
++def validate_report(
+     directory: Path,
+     source_root: Path | None = None,
+     *,
+     published_schema: bool = True,
+-) -> dict[str, int]:
++) -> dict[str, Any]:
+     if (directory / "build-state.json").is_file():
+         validate_managed_build_integrity(directory)
+     schema_validators = published_schema_validators() if published_schema else {
+@@ -395,6 +398,7 @@
+     }
+     errors: list[str] = []
+     counts = {"document": 0, "evidence": 0, "relation": 0}
++    bindings = []
+     with tempfile.TemporaryDirectory(prefix="aiec-intermediate-validation-") as temporary:
+         connection = sqlite3.connect(Path(temporary) / "ids.sqlite3")
+         initialize(connection)
+@@ -440,7 +444,7 @@
+                 )
+             except sqlite3.IntegrityError:
+                 errors.append(f"{label}: duplicate document id {record_id}")
+-            if source_root is not None:
++            if source_root is not None and not is_notebook_document(record):
+                 root = source_root.resolve()
+                 source_path = (root / source.get("relative_path", "")).resolve()
+                 try:
+@@ -613,15 +617,39 @@
+             "WHERE e.id IS NULL LIMIT 100"
+         ):
+             errors.append(f"{relation_id}: dangling supporting Evidence {evidence_id}")
++        # One bounded Notebook snapshot at a time; existing SQLite Evidence
++        # storage avoids retaining an all-source metadata/JSON cache.
++        for (document_json,) in connection.execute("SELECT record_json FROM documents"):
++            document = json.loads(document_json)
++            try:
++                bindings.append(notebook_document_binding(
++                    document,
++                    (json.loads(row[0]) for row in connection.execute(
++                        "SELECT record_json FROM evidence WHERE document_id=?",
++                        (document["document_id"],),
++                    )),
++                    source_root,
++                ))
++            except ValueError as exc:
++                errors.append(f"{document.get('document_id')}: {exc}")
+         connection.close()
+ 
+     if errors:
+         preview = errors[:100]
+         suffix = f"\n- ... {len(errors) - 100} more" if len(errors) > 100 else ""
+         raise ValueError("validation failed:\n- " + "\n- ".join(preview) + suffix)
+-    return counts
++    return notebook_binding_report(counts, bindings)
+ 
+ 
++def validate(
++    directory: Path, source_root: Path | None = None, *, published_schema: bool = True,
++) -> dict[str, int]:
++    report = validate_report(directory, source_root, published_schema=published_schema)
++    if report["status"] != "PASS":
++        raise ValueError("notebook_metadata_binding_unverified: " + ",".join(report["notebook_metadata_binding"]["reason_codes"]))
++    return report["counts"]
++
++
+ def main() -> None:
+     parser = argparse.ArgumentParser(description=__doc__)
+     parser.add_argument("directory", type=Path)
+@@ -637,14 +665,18 @@
+             import jsonschema  # noqa: F401
+         except ImportError:
+             published_schema = False
+-    print(canonical_json({
+-        "status": "ok",
+-        "schema_validation": "draft202012" if published_schema else "structural_contract_only",
+-        "counts": validate(
++    schema_label = "draft202012" if published_schema else "structural_contract_only"
++    try:
++        report = validate_report(
+             args.directory.resolve(), args.root.resolve() if args.root else None,
+             published_schema=published_schema,
+-        ),
+-    }))
++        )
++    except ValueError as exc:
++        print(canonical_json({"status": "FAIL", "error": str(exc)[:512], "schema_validation": schema_label}))
++        raise SystemExit(1)
++    print(canonical_json({**report, "schema_validation": schema_label}))
++    if report["status"] != "PASS":
++        raise SystemExit(2)
+ 
+ 
+ if __name__ == "__main__":

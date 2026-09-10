@@ -1,0 +1,292 @@
+{
+  "schema_version": "1.0",
+  "task_id": "lms-v1-00-hardening-2026-09-09-f05a",
+  "status": "executor_handoff_for_independent_audit_not_self_approval",
+  "source_stable": true,
+  "formal_audit_repairs": 0,
+  "files": [
+    {
+      "path": "distribution/macos-local-memory/engine/document_version_resolver.py",
+      "sha256": "4ca6df75ced0c44e7da4364509311aad21f81601ba9d42b88efc1f6a9b157734",
+      "bytes": 28148
+    },
+    {
+      "path": "distribution/macos-local-memory/tests/test_document_version_resolver.py",
+      "sha256": "111b9ab6473145dbe0d43904219fb2355d9695e7e018798f1a75c5df11140d03",
+      "bytes": 22360
+    },
+    {
+      "path": "tests/test_version_graph_reconstruction.py",
+      "sha256": "33dc00f8c0cbe2bbf095c9236da32f74ea3ccc87a97f995b05005f999a8028ba",
+      "bytes": 23961
+    },
+    {
+      "path": "design/local-memory-v1-hardening/runs/f05a-task-contract.v1.md",
+      "sha256": "89960be4254752ba3ae387610359c3f6f8200cb57c3d7a9190398c723473e4df",
+      "bytes": 10843
+    },
+    {
+      "path": "design/local-memory-v1-hardening/runs/f04a-executor-run.v1.py",
+      "sha256": "7c6953d3e92c46ede699b81690a138fb50e74e51b79fc37d14f9fc44d6c4391b",
+      "bytes": 7818
+    },
+    {
+      "path": "scripts/run_local_memory_hardening_tests.py",
+      "sha256": "6b3bde90b6ed649a82325f6b5ad9661756bef7b6e0303fa74c2d045fb26eb4a9",
+      "bytes": 9437
+    },
+    {
+      "path": "design/local-memory-v1-hardening/runs/f05a-executor-gold-test.v1.py",
+      "sha256": "85d67ee49f80d3a5492404e8ba885e40b7ed0e19a9c453e5e40da254c833e15b",
+      "bytes": 22644
+    },
+    {
+      "path": "design/local-memory-v1-hardening/runs/f05a-executor-green-pure-001/unittest.log",
+      "sha256": "b433a5af8d96cf6549904667f23024a2b48a5d78f73a428e40e70d3ae8abb6b5",
+      "bytes": 3680
+    },
+    {
+      "path": "design/local-memory-v1-hardening/runs/f05a-executor-green-pure-001/started.json",
+      "sha256": "3a4278326b3f071ffd9d81081d68982350038dd429ca2f159c6f8dcc1f5af0c9",
+      "bytes": 749
+    },
+    {
+      "path": "design/local-memory-v1-hardening/runs/f05a-executor-green-pure-001/result.json",
+      "sha256": "f233dfd4efbc8288b139477b9970b8cc2f2e716c5af7e841f43cdaac06e1e862",
+      "bytes": 1219
+    },
+    {
+      "path": "design/local-memory-v1-hardening/runs/f05a-executor-pre-review-resolver.v1.py",
+      "sha256": "8fdf93d10cd0e4178c0942206bf14598688672d4b0fea795572a6e044aa882bf",
+      "bytes": 27964
+    },
+    {
+      "path": "design/local-memory-v1-hardening/runs/f05a-executor-red-pure-001/unittest.log",
+      "sha256": "9632269bfb28485a096876be403a575acdf7bdf8e01e1540f9ec98703287eaeb",
+      "bytes": 29082
+    },
+    {
+      "path": "design/local-memory-v1-hardening/runs/f05a-executor-red-pure-001/started.json",
+      "sha256": "375800b713e9c1a713842c59470146beb7fd5fb671abe275f55d0d9917ff63ab",
+      "bytes": 746
+    },
+    {
+      "path": "design/local-memory-v1-hardening/runs/f05a-executor-red-pure-001/result.json",
+      "sha256": "12ccd0fb76fa715102937090ee5bb1eacb45845802b5504c448678d727008e82",
+      "bytes": 1213
+    },
+    {
+      "path": "design/local-memory-v1-hardening/runs/f05a-executor-before-resolver.v1.py",
+      "sha256": "c2b98254ec28a82e8cc7b5ef3f5e780739bcc1b6983ef2a9252609156d4b672f",
+      "bytes": 22678
+    },
+    {
+      "path": "design/local-memory-v1-hardening/runs/f05a-executor-gold-test.v2.py",
+      "sha256": "33dc00f8c0cbe2bbf095c9236da32f74ea3ccc87a97f995b05005f999a8028ba",
+      "bytes": 23961
+    },
+    {
+      "path": "design/local-memory-v1-hardening/runs/f05a-executor-resolver-delta.v1.diff",
+      "sha256": "289e8e2e191e5c9befc28f0ed187359ec61756cb48cb350fc48b5320d9bfd585",
+      "bytes": 11778
+    },
+    {
+      "path": "design/local-memory-v1-hardening/runs/f05a-executor-run.v1.py",
+      "sha256": "dbe737f7f5b6b3ceb48117f2cc95917a4c94b906bb8d1d19d030e31f2f21c3a7",
+      "bytes": 3134
+    },
+    {
+      "path": "design/local-memory-v1-hardening/runs/f05a-executor-review-red-001/unittest.log",
+      "sha256": "9021b2c20081689e3af005f75f0be413e8032a5fdec5180ee77275e1ab4ffa1b",
+      "bytes": 10557
+    },
+    {
+      "path": "design/local-memory-v1-hardening/runs/f05a-executor-review-red-001/started.json",
+      "sha256": "d7ec41af9b6fa3c815a0fe6fafdd634dd14dfba19208ceaa5abac1e53a87dcba",
+      "bytes": 749
+    },
+    {
+      "path": "design/local-memory-v1-hardening/runs/f05a-executor-review-red-001/result.json",
+      "sha256": "719304ea0a712f0101674c9b6f22f8fe2928679f60040b19240fc0c6db3f1d3e",
+      "bytes": 1220
+    },
+    {
+      "path": "design/local-memory-v1-hardening/runs/f05a-executor-resolver-test-delta.v1.diff",
+      "sha256": "a3d0cbc998889a0a77a41bcdc57baac2a5d16b46ede017c2ff3b46d61cc28254",
+      "bytes": 643
+    },
+    {
+      "path": "design/local-memory-v1-hardening/runs/f05a-executor-gold-additive.v2.diff",
+      "sha256": "81538919554f0c1ed6aba6250b61bb6188aad0256bc78833eea456e1b0f684ad",
+      "bytes": 1688
+    },
+    {
+      "path": "design/local-memory-v1-hardening/runs/f05a-executor-preflight.v1.md",
+      "sha256": "9f39bdb8cad9b91bff9e4f95848c6bf090b2d0d97d9526c3bb4d9316f84af6cb",
+      "bytes": 15267
+    },
+    {
+      "path": "design/local-memory-v1-hardening/runs/f05a-executor-green-resolver-002/unittest.log",
+      "sha256": "614d3c7612bd42e6b9c722cf3f2b9c8c23256aa12f0b44c3e3bcadadf6332111",
+      "bytes": 3455
+    },
+    {
+      "path": "design/local-memory-v1-hardening/runs/f05a-executor-green-resolver-002/started.json",
+      "sha256": "cc80efb4928af481b6f982e2cff259a070b551408f958c717bc2a1fa459b7bea",
+      "bytes": 757
+    },
+    {
+      "path": "design/local-memory-v1-hardening/runs/f05a-executor-green-resolver-002/result.json",
+      "sha256": "c18d25124630bf42af38ee46c899ca4692dbd5fab2358c46329f8f87c3f63eaa",
+      "bytes": 1231
+    },
+    {
+      "path": "design/local-memory-v1-hardening/runs/f05a-executor-before-resolver-test.v1.py",
+      "sha256": "7600fef6fa1978c6f07042ce9418e20efa88b47d0cc523b1a647cb0a1ad35c9a",
+      "bytes": 22360
+    },
+    {
+      "path": "design/local-memory-v1-hardening/runs/f05a-executor-green-resolver-001/unittest.log",
+      "sha256": "e3f02504b0dc5cc21945330298f2e1583af8f0197b42586fb02d12f2880fe5a7",
+      "bytes": 3455
+    },
+    {
+      "path": "design/local-memory-v1-hardening/runs/f05a-executor-green-resolver-001/started.json",
+      "sha256": "f7a24cda748f478376b06d8bffe08bad8685955cac9a8e91e24b4815912a53c7",
+      "bytes": 757
+    },
+    {
+      "path": "design/local-memory-v1-hardening/runs/f05a-executor-green-resolver-001/result.json",
+      "sha256": "d56605642e12949cec380b3bb4d0891597068f49172c6a748543fed91d46fa5a",
+      "bytes": 1231
+    },
+    {
+      "path": "design/local-memory-v1-hardening/runs/f05a-executor-gold.v1.json",
+      "sha256": "f7b51abe64414e111e605906f578aa2fefe3783a77d0e2586618fa19e9dc5c02",
+      "bytes": 2476
+    },
+    {
+      "path": "design/local-memory-v1-hardening/runs/f05a-executor-preflight.v2.md",
+      "sha256": "f84fec9537c6acbb0f87dcc7bc30117583201661e1856da42f8152993d22327b",
+      "bytes": 11554
+    },
+    {
+      "path": "design/local-memory-v1-hardening/runs/f05a-executor-green-pure-002/unittest.log",
+      "sha256": "cc9590e2d7bff1bc9fe9bd22d7632ac7795fcc87a9e7c3aae6ebd92ddbc8dae8",
+      "bytes": 4026
+    },
+    {
+      "path": "design/local-memory-v1-hardening/runs/f05a-executor-green-pure-002/started.json",
+      "sha256": "13f8dbf5286899863722c8ea994f67bf24b47ebe256348f39a3696b9adc0ef53",
+      "bytes": 749
+    },
+    {
+      "path": "design/local-memory-v1-hardening/runs/f05a-executor-green-pure-002/result.json",
+      "sha256": "f174ed2b06553de3bc969cc18706d3e8e7477d594e4774d57aaac980064a5778",
+      "bytes": 1219
+    },
+    {
+      "path": "design/local-memory-v1-hardening/runs/f05a-executor-gold.v2.json",
+      "sha256": "fece275a1217029672c7908d5312764454ca6d8393da3451654f5943e2e8ff3f",
+      "bytes": 1402
+    }
+  ],
+  "runs": [
+    {
+      "path": "design/local-memory-v1-hardening/runs/f05a-executor-red-pure-001/result.json",
+      "status": "failed",
+      "tests": 8,
+      "elapsed_seconds": 0.12623,
+      "skips": 0,
+      "expected_failures": 0,
+      "log_path": "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/design/local-memory-v1-hardening/runs/f05a-executor-red-pure-001/unittest.log",
+      "log_sha256": "9632269bfb28485a096876be403a575acdf7bdf8e01e1540f9ec98703287eaeb",
+      "log_bytes": 29082,
+      "source_snapshot": "before"
+    },
+    {
+      "path": "design/local-memory-v1-hardening/runs/f05a-executor-green-pure-001/result.json",
+      "status": "passed",
+      "tests": 23,
+      "elapsed_seconds": 0.196405,
+      "skips": 0,
+      "expected_failures": 0,
+      "log_path": "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/design/local-memory-v1-hardening/runs/f05a-executor-green-pure-001/unittest.log",
+      "log_sha256": "b433a5af8d96cf6549904667f23024a2b48a5d78f73a428e40e70d3ae8abb6b5",
+      "log_bytes": 3680,
+      "source_snapshot": "pre_review"
+    },
+    {
+      "path": "design/local-memory-v1-hardening/runs/f05a-executor-green-resolver-001/result.json",
+      "status": "passed",
+      "tests": 20,
+      "elapsed_seconds": 0.277565,
+      "skips": 0,
+      "expected_failures": 0,
+      "log_path": "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/design/local-memory-v1-hardening/runs/f05a-executor-green-resolver-001/unittest.log",
+      "log_sha256": "e3f02504b0dc5cc21945330298f2e1583af8f0197b42586fb02d12f2880fe5a7",
+      "log_bytes": 3455,
+      "source_snapshot": "pre_review"
+    },
+    {
+      "path": "design/local-memory-v1-hardening/runs/f05a-executor-review-red-001/result.json",
+      "status": "failed",
+      "tests": 25,
+      "elapsed_seconds": 0.193475,
+      "skips": 0,
+      "expected_failures": 0,
+      "log_path": "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/design/local-memory-v1-hardening/runs/f05a-executor-review-red-001/unittest.log",
+      "log_sha256": "9021b2c20081689e3af005f75f0be413e8032a5fdec5180ee77275e1ab4ffa1b",
+      "log_bytes": 10557,
+      "source_snapshot": "pre_review"
+    },
+    {
+      "path": "design/local-memory-v1-hardening/runs/f05a-executor-green-pure-002/result.json",
+      "status": "passed",
+      "tests": 25,
+      "elapsed_seconds": 0.185206,
+      "skips": 0,
+      "expected_failures": 0,
+      "log_path": "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/design/local-memory-v1-hardening/runs/f05a-executor-green-pure-002/unittest.log",
+      "log_sha256": "cc9590e2d7bff1bc9fe9bd22d7632ac7795fcc87a9e7c3aae6ebd92ddbc8dae8",
+      "log_bytes": 4026,
+      "source_snapshot": "final"
+    },
+    {
+      "path": "design/local-memory-v1-hardening/runs/f05a-executor-green-resolver-002/result.json",
+      "status": "passed",
+      "tests": 20,
+      "elapsed_seconds": 0.254861,
+      "skips": 0,
+      "expected_failures": 0,
+      "log_path": "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/design/local-memory-v1-hardening/runs/f05a-executor-green-resolver-002/unittest.log",
+      "log_sha256": "614d3c7612bd42e6b9c722cf3f2b9c8c23256aa12f0b44c3e3bcadadf6332111",
+      "log_bytes": 3455,
+      "source_snapshot": "final"
+    }
+  ],
+  "isolated_deltas": [
+    [
+      "distribution/macos-local-memory/engine/document_version_resolver.py",
+      "design/local-memory-v1-hardening/runs/f05a-executor-before-resolver.v1.py",
+      "design/local-memory-v1-hardening/runs/f05a-executor-resolver-delta.v1.diff"
+    ],
+    [
+      "distribution/macos-local-memory/tests/test_document_version_resolver.py",
+      "design/local-memory-v1-hardening/runs/f05a-executor-before-resolver-test.v1.py",
+      "design/local-memory-v1-hardening/runs/f05a-executor-resolver-test-delta.v1.diff"
+    ],
+    [
+      "tests/test_version_graph_reconstruction.py",
+      "design/local-memory-v1-hardening/runs/f05a-executor-gold-test.v1.py",
+      "design/local-memory-v1-hardening/runs/f05a-executor-gold-additive.v2.diff"
+    ]
+  ],
+  "limits": [
+    "Standalone validator+immediate bootstrap gate only; root owns and independently tests bootstrap.",
+    "No full F05/fullReaderpartition/immutabledecisiongeneration/UIintent/lease/freshness/wholeV1 acceptance.",
+    "Reconstruction independent of submitted graph reuses existing trusted policy primitives; independent auditor holdouts required.",
+    "No original document reading or source-root path identity claim; metadata paths unverified.",
+    "Python test guard not OS sandbox or global resource/fault guarantee."
+  ]
+}

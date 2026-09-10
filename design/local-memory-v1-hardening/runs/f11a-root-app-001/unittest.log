@@ -1,0 +1,157 @@
+test_unverified_notebook_stops_actual_bridge_and_preserves_public_generation (f11a_app_controls.NotebookApplicationTests.test_unverified_notebook_stops_actual_bridge_and_preserves_public_generation) ... ERROR
+test_changed_reader_contract_holds_old_generation_without_mutating_it (f11a_app_controls.NotebookApplicationTests.test_changed_reader_contract_holds_old_generation_without_mutating_it) ... ERROR
+test_explicit_rebuild_creates_new_generation_and_keeps_previous_bytes (f11a_app_controls.NotebookApplicationTests.test_explicit_rebuild_creates_new_generation_and_keeps_previous_bytes) ... ERROR
+test_probe_and_schemas_are_in_existing_package_copy_contract (f11a_app_controls.NotebookApplicationTests.test_probe_and_schemas_are_in_existing_package_copy_contract) ... ok
+F05b explicit fixture budget: {"explicit_test_bytes": 192, "explicit_test_writes": 9, "max_source_fixture_bytes": 64, "source_fixture_count": 3}
+
+======================================================================
+ERROR: test_unverified_notebook_stops_actual_bridge_and_preserves_public_generation (f11a_app_controls.NotebookApplicationTests.test_unverified_notebook_stops_actual_bridge_and_preserves_public_generation)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/tests/test_notebook_metadata_application.py", line 33, in test_unverified_notebook_stops_actual_bridge_and_preserves_public_generation
+    self.bootstrap.build_index()
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~^^
+  File "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/distribution/macos-local-memory/app/bootstrap.py", line 195, in serialized
+    return function(*args, **kwargs)
+  File "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/distribution/macos-local-memory/app/bootstrap.py", line 3819, in build_index
+    run([
+    ~~~^^
+        sys.executable, str(ENGINE / "build_local_semantic_index.py"),
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    ...<8 lines>...
+        "--output", str(index),
+        ^^^^^^^^^^^^^^^^^^^^^^^
+    ], log)
+    ^^^^^^^
+  File "/opt/homebrew/Cellar/python@3.14/3.14.6/Frameworks/Python.framework/Versions/3.14/lib/python3.14/unittest/mock.py", line 1176, in __call__
+    return self._mock_call(*args, **kwargs)
+           ~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^
+  File "/opt/homebrew/Cellar/python@3.14/3.14.6/Frameworks/Python.framework/Versions/3.14/lib/python3.14/unittest/mock.py", line 1180, in _mock_call
+    return self._execute_mock_call(*args, **kwargs)
+           ~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^
+  File "/opt/homebrew/Cellar/python@3.14/3.14.6/Frameworks/Python.framework/Versions/3.14/lib/python3.14/unittest/mock.py", line 1247, in _execute_mock_call
+    result = effect(*args, **kwargs)
+  File "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/distribution/macos-local-memory/tests/test_versioned_safe_index_e2e.py", line 149, in run_cli
+    result = module.main()
+  File "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/distribution/macos-local-memory/engine/build_local_semantic_index.py", line 2657, in main
+    graph_report = project_verified_structural_graph(
+        connection,
+    ...<4 lines>...
+        security_context=graph_context["security"],
+    )
+  File "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/distribution/macos-local-memory/engine/build_local_semantic_index.py", line 2035, in project_verified_structural_graph
+    attested = _attest_security_context(
+        documents,
+    ...<3 lines>...
+        security_context,
+    )
+  File "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/distribution/macos-local-memory/engine/build_local_semantic_index.py", line 1308, in _attest_security_context
+    lineage_attestation = _attest_lineage_context(
+        full_documents, full_evidence, relations, lineage_context,
+    )
+  File "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/distribution/macos-local-memory/engine/build_local_semantic_index.py", line 964, in _attest_lineage_context
+    raise ValueError("graph_structural_attested_relations_mismatch")
+ValueError: graph_structural_attested_relations_mismatch
+
+======================================================================
+ERROR: test_changed_reader_contract_holds_old_generation_without_mutating_it (f11a_app_controls.NotebookApplicationTests.test_changed_reader_contract_holds_old_generation_without_mutating_it)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/tests/test_notebook_metadata_application.py", line 97, in test_changed_reader_contract_holds_old_generation_without_mutating_it
+    self.bootstrap.build_index()
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~^^
+  File "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/distribution/macos-local-memory/app/bootstrap.py", line 195, in serialized
+    return function(*args, **kwargs)
+  File "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/distribution/macos-local-memory/app/bootstrap.py", line 3819, in build_index
+    run([
+    ~~~^^
+        sys.executable, str(ENGINE / "build_local_semantic_index.py"),
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    ...<8 lines>...
+        "--output", str(index),
+        ^^^^^^^^^^^^^^^^^^^^^^^
+    ], log)
+    ^^^^^^^
+  File "/opt/homebrew/Cellar/python@3.14/3.14.6/Frameworks/Python.framework/Versions/3.14/lib/python3.14/unittest/mock.py", line 1176, in __call__
+    return self._mock_call(*args, **kwargs)
+           ~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^
+  File "/opt/homebrew/Cellar/python@3.14/3.14.6/Frameworks/Python.framework/Versions/3.14/lib/python3.14/unittest/mock.py", line 1180, in _mock_call
+    return self._execute_mock_call(*args, **kwargs)
+           ~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^
+  File "/opt/homebrew/Cellar/python@3.14/3.14.6/Frameworks/Python.framework/Versions/3.14/lib/python3.14/unittest/mock.py", line 1247, in _execute_mock_call
+    result = effect(*args, **kwargs)
+  File "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/distribution/macos-local-memory/tests/test_versioned_safe_index_e2e.py", line 149, in run_cli
+    result = module.main()
+  File "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/distribution/macos-local-memory/engine/build_local_semantic_index.py", line 2657, in main
+    graph_report = project_verified_structural_graph(
+        connection,
+    ...<4 lines>...
+        security_context=graph_context["security"],
+    )
+  File "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/distribution/macos-local-memory/engine/build_local_semantic_index.py", line 2035, in project_verified_structural_graph
+    attested = _attest_security_context(
+        documents,
+    ...<3 lines>...
+        security_context,
+    )
+  File "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/distribution/macos-local-memory/engine/build_local_semantic_index.py", line 1308, in _attest_security_context
+    lineage_attestation = _attest_lineage_context(
+        full_documents, full_evidence, relations, lineage_context,
+    )
+  File "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/distribution/macos-local-memory/engine/build_local_semantic_index.py", line 964, in _attest_lineage_context
+    raise ValueError("graph_structural_attested_relations_mismatch")
+ValueError: graph_structural_attested_relations_mismatch
+
+======================================================================
+ERROR: test_explicit_rebuild_creates_new_generation_and_keeps_previous_bytes (f11a_app_controls.NotebookApplicationTests.test_explicit_rebuild_creates_new_generation_and_keeps_previous_bytes)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/tests/test_notebook_metadata_application.py", line 113, in test_explicit_rebuild_creates_new_generation_and_keeps_previous_bytes
+    self.bootstrap.build_index()
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~^^
+  File "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/distribution/macos-local-memory/app/bootstrap.py", line 195, in serialized
+    return function(*args, **kwargs)
+  File "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/distribution/macos-local-memory/app/bootstrap.py", line 3819, in build_index
+    run([
+    ~~~^^
+        sys.executable, str(ENGINE / "build_local_semantic_index.py"),
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    ...<8 lines>...
+        "--output", str(index),
+        ^^^^^^^^^^^^^^^^^^^^^^^
+    ], log)
+    ^^^^^^^
+  File "/opt/homebrew/Cellar/python@3.14/3.14.6/Frameworks/Python.framework/Versions/3.14/lib/python3.14/unittest/mock.py", line 1176, in __call__
+    return self._mock_call(*args, **kwargs)
+           ~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^
+  File "/opt/homebrew/Cellar/python@3.14/3.14.6/Frameworks/Python.framework/Versions/3.14/lib/python3.14/unittest/mock.py", line 1180, in _mock_call
+    return self._execute_mock_call(*args, **kwargs)
+           ~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^
+  File "/opt/homebrew/Cellar/python@3.14/3.14.6/Frameworks/Python.framework/Versions/3.14/lib/python3.14/unittest/mock.py", line 1247, in _execute_mock_call
+    result = effect(*args, **kwargs)
+  File "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/distribution/macos-local-memory/tests/test_versioned_safe_index_e2e.py", line 149, in run_cli
+    result = module.main()
+  File "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/distribution/macos-local-memory/engine/build_local_semantic_index.py", line 2657, in main
+    graph_report = project_verified_structural_graph(
+        connection,
+    ...<4 lines>...
+        security_context=graph_context["security"],
+    )
+  File "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/distribution/macos-local-memory/engine/build_local_semantic_index.py", line 2035, in project_verified_structural_graph
+    attested = _attest_security_context(
+        documents,
+    ...<3 lines>...
+        security_context,
+    )
+  File "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/distribution/macos-local-memory/engine/build_local_semantic_index.py", line 1308, in _attest_security_context
+    lineage_attestation = _attest_lineage_context(
+        full_documents, full_evidence, relations, lineage_context,
+    )
+  File "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/distribution/macos-local-memory/engine/build_local_semantic_index.py", line 964, in _attest_lineage_context
+    raise ValueError("graph_structural_attested_relations_mismatch")
+ValueError: graph_structural_attested_relations_mismatch
+
+----------------------------------------------------------------------
+Ran 4 tests in 0.450s
+
+FAILED (errors=3)

@@ -1,0 +1,127 @@
+{
+  "schema_version": "1.0",
+  "task_id": "lms-v1-00-hardening-2026-09-09-f02-next-contract",
+  "status": "baseline_observations_confirmed_not_product_acceptance",
+  "source": "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/distribution/macos-local-memory/engine/document_version_resolver.py",
+  "source_sha256": "f42db568267befe8a041d036242795599544ba6a46236866a643b91d4f93811b",
+  "python": "3.14.6",
+  "executable": "/opt/homebrew/opt/python@3.14/bin/python3.14",
+  "elapsed_seconds": 0.004178,
+  "wall_seconds_limit": 30,
+  "synthetic_fixture_bytes": 3588,
+  "synthetic_fixture_limit": 1048576,
+  "runtime_io_guard": "deny open, directory enumeration, socket, subprocess, ctypes, process and filesystem mutation after source/stdlib preloading",
+  "observations": [
+    {
+      "id": "annual_named",
+      "status": "resolved",
+      "selected": "記録/実績2025.csv",
+      "reason": "unique_latest_explicit_year",
+      "dispositions": {
+        "記録/実績2024.csv": "historical",
+        "記録/実績2025.csv": "active"
+      },
+      "active_edge_count": 1,
+      "order_invariant": true
+    },
+    {
+      "id": "neutral_named",
+      "status": "resolved",
+      "selected": "記録/資料2025.csv",
+      "reason": "unique_latest_explicit_year",
+      "dispositions": {
+        "記録/資料2024.csv": "historical",
+        "記録/資料2025.csv": "active"
+      },
+      "active_edge_count": 1,
+      "order_invariant": true
+    },
+    {
+      "id": "annual_directories",
+      "status": "resolved",
+      "selected": "2025年/記録.csv",
+      "reason": "unique_latest_explicit_year",
+      "dispositions": {
+        "2024年/記録.csv": "historical",
+        "2025年/記録.csv": "active"
+      },
+      "active_edge_count": 1,
+      "order_invariant": true
+    },
+    {
+      "id": "year_version_inverse",
+      "status": "resolved",
+      "selected": "手順2025_ver1.csv",
+      "reason": "unique_latest_explicit_year",
+      "dispositions": {
+        "手順2024_ver2.csv": "historical",
+        "手順2025_ver1.csv": "active"
+      },
+      "active_edge_count": 1,
+      "order_invariant": true
+    },
+    {
+      "id": "current_year_residual",
+      "status": "resolved",
+      "selected": "現行/実績2025.csv",
+      "reason": "unique_explicit_current_marker",
+      "dispositions": {
+        "実績2024.csv": "historical",
+        "現行/実績2025.csv": "active"
+      },
+      "active_edge_count": 1,
+      "order_invariant": true
+    },
+    {
+      "id": "version_normal",
+      "status": "resolved",
+      "selected": "手順_ver1.10.csv",
+      "reason": "unique_latest_explicit_version",
+      "dispositions": {
+        "手順_ver1.10.csv": "active",
+        "手順_ver1.2.csv": "historical"
+      },
+      "active_edge_count": 1,
+      "order_invariant": true
+    },
+    {
+      "id": "f04a_control",
+      "status": "needs_human_review",
+      "selected": null,
+      "reason": "current_marker_conflicts_with_latest_version",
+      "dispositions": {
+        "手順_ver2.csv": "needs_human_review",
+        "現行/手順_ver1.csv": "needs_human_review"
+      },
+      "active_edge_count": 0,
+      "order_invariant": true
+    },
+    {
+      "id": "unmarked_f03_residual",
+      "candidate_count": 1,
+      "unmarked_candidate": null
+    },
+    {
+      "id": "human_and_stale_control",
+      "human_status": "resolved",
+      "human_selected": "記録/実績2024.csv",
+      "human_basis": "human",
+      "stale_status": "needs_human_review",
+      "stale_reason": "stale_human_decision",
+      "stale_selected": null,
+      "stale_active_edge_count": 0
+    }
+  ],
+  "not_run": [
+    "product changes",
+    "product tests",
+    "resolver build/validate/record_decision",
+    "Reader/index/question execution",
+    "HITL UI/runtime",
+    "models/network/GUI/real data",
+    "OS isolation certification"
+  ],
+  "command": "python3 -I -B design/local-memory-v1-hardening/runs/f02-next-probe.v1.py",
+  "command_exit_code": 0,
+  "observed_at_utc": "2026-09-08 21:15:04 UTC"
+}

@@ -1,0 +1,37 @@
+{
+  "schema_version": "1.0",
+  "task_id": "lms-v1-f11a-binding-preflight-2026-09-09",
+  "status": "gap_reproduced_not_product_acceptance",
+  "product_changed": false,
+  "tests": 2,
+  "validator_calls_per_test": 3,
+  "skips": 0,
+  "elapsed_seconds": 0.422249,
+  "interpreter": "rag/.venv/bin/python (3.9.6, existing jsonschema)",
+  "observations": [
+    "Current textual Notebook Evidence without saved execution facts passes both source_root validators.",
+    "False candidate notebook_state native metadata also passes in-memory and streaming validators, including streaming published_schema false, with original source bytes, Evidence IDs and content hashes unchanged.",
+    "Candidate notebook_state is not a supported product field; this does not demonstrate it reaches current app answers. It demonstrates the source-binding requirement for the planned new contract."
+  ],
+  "post_run_source_hashes": {
+    "scripts/probe_intermediate_records.py": "73b9ad531d4e184b47636f0a7558e07cc44688d1499ddd666b8dc58610f830f7",
+    "scripts/validate_intermediate_records.py": "0fc6f8bb42fae82ae0bec3b84ca319907bc2436aa58a1d59426f9ea525d4ab69",
+    "scripts/validate_intermediate_records_streaming.py": "d998ec20f3511583603fbf4199160c47772c98f65e53e2274a23dc1f0a6e7f9f",
+    "schemas/evidence.schema.json": "81db1ba15565b890fa885806d013854380267ec37d578b1bf7997fd86cac5bc5",
+    "schemas/document.schema.json": "0c7d441fda25c39378fa7cf1014c12e4de0817ca65b33eba95df4b9da4f10d1c",
+    "schemas/relation.schema.json": "00a1e9848a53b7f195bb8b1037f386ff5e1d4080d32c0e550a85c786d50b2b1a",
+    "scripts/build_intermediate_records.py": "7312ebdffc7221ef989195afd03bdbbe34f945582cb25b9020d64b19316bdabe",
+    "scripts/build_search_units.py": "a14ffa6f5c4b04fd63ed3b95ba8b6892ca5c11f1cee050b323861c009c6eaaa1",
+    "distribution/macos-local-memory/engine/validate_adaptive_semantic_graph.py": "49138ecc11bde5709f129e879cbc5140717dca716a8563ebafe77dda4e37187d"
+  },
+  "run_sources": {
+    "design/local-memory-v1-hardening/runs/f11-next-fixture.v1.ipynb": "123ff664e24f2cea7c3caac841e139f8574e7b2f9667701dd16e63f5086d80ad",
+    "design/local-memory-v1-hardening/runs/f11a-binding-observe.v1.py": "fb8ec5d60d014e0eb1a219e4962a7effce3e46367c7184ef5731d2308e7d6ca0",
+    "design/local-memory-v1-hardening/runs/f11a-binding-run.v1.py": "70ec50422eaee790cec0a2a8b7312f34bbcd1314946095555d53327b22d0ce90",
+    "design/local-memory-v1-hardening/runs/f04a-executor-run.v1.py": "7c6953d3e92c46ede699b81690a138fb50e74e51b79fc37d14f9fc44d6c4391b",
+    "design/local-memory-v1-hardening/runs/f11a-binding-observation-001/result.json": "24fe521866cd675773e957662b03ff78d31c8de1b2f01981675c8c8d8dbd31e6",
+    "design/local-memory-v1-hardening/runs/f11a-binding-observation-001/unittest.log": "2b0eb5074d27828d4552b798e04dbecb1246d6008b4337aa426f034da97feeac"
+  },
+  "limits": "30s wall, 1MiB log; reviewed fixed small source and owned temp output; no model/network/GUI/real data. Not an OS sandbox or full resource acceptance.",
+  "next": "Implement only after strict field/source-binding/generation migration contract. F11 whole remains open. No separate audit PASS claimed for investigation."
+}

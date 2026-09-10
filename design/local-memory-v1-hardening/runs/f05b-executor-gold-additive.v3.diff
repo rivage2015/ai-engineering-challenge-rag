@@ -1,0 +1,49 @@
+--- tests/test_decision_snapshot_attestation.py
++++ tests/test_decision_snapshot_attestation.py
+@@ -399,6 +399,46 @@
+     def test_legacy_validate_human_explicit_input_keeps_status_only_shape(self):
+         self.human_snapshot()
+         self.assertEqual({"status": "PASS", "errors": []}, resolver.validate(self.graph_path, self.inventory, self.snapshot))
++
++    def test_snapshot_symlink_directory_and_dangling_link_fail_read_only(self):
++        self.empty_snapshot()
++        raw = self.snapshot.read_bytes()
++        expected = sha(raw)
++        for kind in ("symlink", "directory", "dangling"):
++            with self.subTest(kind=kind):
++                path = self.base / kind
++                if kind == "directory":
++                    path.mkdir()
++                else:
++                    path.symlink_to(self.snapshot if kind == "symlink" else self.base / "absent")
++                before = path.lstat()
++                self.failure(resolver.attest(self.graph_path, self.inventory, decision_mode="snapshot",
++                                             decisions_path=path, expected_decisions_sha256=expected))
++                self.assertEqual(before, path.lstat())
++                self.assertEqual(raw, self.snapshot.read_bytes())
++
++    def test_late_input_substitution_cannot_replace_verified_snapshot_payload(self):
++        self.human_snapshot()
++        original = {path: path.read_bytes() for path in (self.graph_path, self.inventory, self.snapshot)}
++        expected = resolver.attest(self.graph_path, self.inventory, decision_mode="snapshot",
++                                   decisions_path=self.snapshot, expected_decisions_sha256=sha(original[self.snapshot]))
++        self.exact_success(expected, selected="Guide.csv", reason="human_confirmed_active")
++        reconstruct = resolver._validation_components
++        substituted = []
++        def swap_after_all_reads(records, decisions):
++            substituted.append(True)
++            self.write_inventory([record("Contact.txt", "c")])
++            self.write(self.graph_path, b'{"synthetic_replacement":true}', 65536)
++            self.write(self.snapshot, b'{"decisions":[]}\n', 8192)
++            return reconstruct(records, decisions)
++        with mock.patch.object(resolver, "_validation_components", side_effect=swap_after_all_reads):
++            report = resolver.attest(self.graph_path, self.inventory, decision_mode="snapshot",
++                                     decisions_path=self.snapshot, expected_decisions_sha256=sha(original[self.snapshot]))
++        self.assertEqual([True], substituted)
++        self.assertEqual(expected, report)
++        self.assertEqual(sha(original[self.inventory]), report["inventory"]["sha256"])
++        self.assertEqual("Guide.csv", report["version"]["groups"][0]["selected_relative_path"])
++        self.assertTrue(all(path.read_bytes() != raw for path, raw in original.items()))
+ 
+ 
+ if __name__ == "__main__":

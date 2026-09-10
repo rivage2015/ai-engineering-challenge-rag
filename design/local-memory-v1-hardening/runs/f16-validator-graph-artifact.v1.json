@@ -1,0 +1,210 @@
+{
+  "schema_version": "1.0",
+  "task_id": "lms-v1-00-hardening-2026-09-09-f16-validator",
+  "artifact_version": 1,
+  "audit_repair_round": 0,
+  "task_contract": {
+    "requested": "Close the separate Path Validator source-read authority/race and current-path-set boundary, bind submitted node source observations, and fingerprint the changed Path components in Reader generation identity.",
+    "review_scope": "Specified source-root authority and structural file-source attestations at validation time; no full graph policy or atomically fresh global filesystem claim.",
+    "max_repair_cycles": 2,
+    "role_separation": "same_model_separate_context",
+    "forbidden": [
+      "product edits by auditor",
+      "personal source or active config/index/model/GUI/credential use",
+      "unbounded tests",
+      "automatic rebuild or commit/push"
+    ],
+    "test_budget": {
+      "wall_seconds": 30,
+      "log_bytes": 1048576,
+      "synthetic_bytes": 1048576
+    }
+  },
+  "nodes": [
+    {
+      "id": "AUTHORITY",
+      "text": "External absolute source_root is required; missing, mismatched or malformed context cannot cause graph-selected source traversal.",
+      "basis": [
+        "VALIDATOR",
+        "TESTS",
+        "BOOTSTRAP"
+      ]
+    },
+    {
+      "id": "INPUTS",
+      "text": "Canonical relative paths, duplicate records/JSON, required inventory statuses/metadata and graph structural checks precede current-source traversal.",
+      "basis": [
+        "VALIDATOR",
+        "TESTS"
+      ]
+    },
+    {
+      "id": "OBSERVATIONS",
+      "text": "Current full path set and bytes are observed with shared FD-bound no-follow traversal; missing/new paths or detected changes cause failure.",
+      "basis": [
+        "OBSERVER",
+        "VALIDATOR",
+        "TESTS"
+      ]
+    },
+    {
+      "id": "NODE_BINDING",
+      "text": "Submitted node path/locator/type/raw metadata/hash are compared with current source observations; a rehashed forged node is not attested by unchanged inventory.",
+      "basis": [
+        "VALIDATOR",
+        "TESTS",
+        "EXECUTOR"
+      ]
+    },
+    {
+      "id": "GENERATION",
+      "text": "Bootstrap supplies source authority and fingerprints Path builder+Validator bytes; existing migration policy exposes code drift without an automatic rebuild.",
+      "basis": [
+        "BOOTSTRAP",
+        "MIGRATION",
+        "TESTS"
+      ]
+    },
+    {
+      "id": "REGRESSION",
+      "text": "18 focused cases pass on each3.14/3.9,19 builder+15 E2E+15 guarded lineage/migration pass on3.14, skip0. Package caller edits are statically reviewed only.",
+      "basis": [
+        "TESTS",
+        "BUILDER_TESTS",
+        "E2E",
+        "RELATED_WRAPPER",
+        "PACKAGE_TESTS",
+        "EXECUTOR"
+      ]
+    },
+    {
+      "id": "LIMITS",
+      "text": "Shared observer/directory hashes are not independently reconstructed enumeration. No global snapshot, full resource budget, all graph summaries, real models, native package tests, full app3.9 or product acceptance.",
+      "basis": [
+        "CONTRACT",
+        "PREFLIGHT",
+        "EXECUTOR"
+      ]
+    }
+  ],
+  "edges": [
+    {
+      "id": "E_AUTH",
+      "source": "AUTHORITY",
+      "target": "OBSERVATIONS",
+      "relation": "constrains_read_scope",
+      "basis": [
+        "VALIDATOR",
+        "BOOTSTRAP"
+      ]
+    },
+    {
+      "id": "E_INPUTS",
+      "source": "INPUTS",
+      "target": "OBSERVATIONS",
+      "relation": "gates_source_io",
+      "basis": [
+        "VALIDATOR",
+        "TESTS"
+      ]
+    },
+    {
+      "id": "E_BINDING",
+      "source": "OBSERVATIONS",
+      "target": "NODE_BINDING",
+      "relation": "provides_checked_current_values",
+      "basis": [
+        "VALIDATOR",
+        "TESTS"
+      ]
+    },
+    {
+      "id": "E_DRIFT",
+      "source": "GENERATION",
+      "target": "REGRESSION",
+      "relation": "requires_migration_and_integration_regression",
+      "basis": [
+        "BOOTSTRAP",
+        "MIGRATION",
+        "E2E"
+      ]
+    },
+    {
+      "id": "E_LIMITS",
+      "source": "LIMITS",
+      "target": "REGRESSION",
+      "relation": "bounds_acceptance_claim",
+      "basis": [
+        "EXECUTOR",
+        "CONTRACT"
+      ]
+    }
+  ],
+  "sources": [
+    {
+      "id": "VALIDATOR",
+      "path": "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/distribution/macos-local-memory/engine/validate_path_graph.py",
+      "sha256": "810b6fe761a399c6527f905e8ffa411c26965e56a29de9fda6e2e8ab79b5bb3d"
+    },
+    {
+      "id": "OBSERVER",
+      "path": "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/distribution/macos-local-memory/engine/build_path_graph.py",
+      "sha256": "caa1c98d02190c18c4fad6cd354a812dc4b06d86d99768773b6169cd2b18d0db"
+    },
+    {
+      "id": "BOOTSTRAP",
+      "path": "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/distribution/macos-local-memory/app/bootstrap.py",
+      "sha256": "069c36f8d03634583dec27a6647ec100ae90bbbe7408b4275b164ee1b4b16192"
+    },
+    {
+      "id": "TESTS",
+      "path": "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/tests/test_path_graph_validator_binding.py",
+      "sha256": "72f455a674b28f7c313172dd75d53ad7808bd9164028a4caa895846b18c83ee5"
+    },
+    {
+      "id": "BUILDER_TESTS",
+      "path": "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/tests/test_path_graph_confinement.py",
+      "sha256": "30d67727220e565e267e611894a6ba178ceee74920641478f9a074d443808beb"
+    },
+    {
+      "id": "MIGRATION",
+      "path": "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/distribution/macos-local-memory/tests/test_reader_generation_migration.py",
+      "sha256": "7d92425d39eb0316687ca9b8b0250768444652dcd39b7dfa9324380396b72d80"
+    },
+    {
+      "id": "PACKAGE_TESTS",
+      "path": "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/distribution/macos-local-memory/tests/test_package.py",
+      "sha256": "f98596239852363a77c991b2a886b8d455a31b6def656667197412e298799296"
+    },
+    {
+      "id": "E2E",
+      "path": "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/distribution/macos-local-memory/tests/test_versioned_safe_index_e2e.py",
+      "sha256": "c16cc5bfafe493ad4096eadbf84722c8d9f1d476dcb03bfc36bb26959983341b"
+    },
+    {
+      "id": "RELATED_WRAPPER",
+      "path": "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/design/local-memory-v1-hardening/runs/F01-003-regression-wrapper.py",
+      "sha256": "7729bf35a3fcdefc3c29fae91e27a20f7e77f0c85c110235de47c39f5693df53"
+    },
+    {
+      "id": "CONTRACT",
+      "path": "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/design/local-memory-v1-hardening/runs/f16-validator-followup-contract.v1.json",
+      "sha256": "20710bd03cd10c4ef90cd4ffca0de1c5b7762da0d2ebb5ae6ccc67e363ae8f63"
+    },
+    {
+      "id": "PREFLIGHT",
+      "path": "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/design/local-memory-v1-hardening/runs/f16-validator-preflight.v1.json",
+      "sha256": "0ef12168721de3f839e561b955aa666c741ee246602276136bdfe9179fde5b0e"
+    },
+    {
+      "id": "EXECUTOR",
+      "path": "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/design/local-memory-v1-hardening/runs/f16-validator-executor.v1.json",
+      "sha256": "b0d259feacfea5ae3c856f42b64546d88ad30bbd16edfb000c0939e4648dcedc"
+    }
+  ],
+  "observed_shared_dependency_hashes": {
+    "scripts/probe_intermediate_records.py": "4429a50030143710786c0ee03a68f3d9243d555d121f832817a300824726a2c3"
+  },
+  "dependency_note": "Parser belongs to separately running F10 audit/repair. This hash describes executor runs, not a freeze of that independent task. Auditor must record actual stable before/after shared hashes for each replay; a changed-during-run replay is inconclusive. Do not claim future parser safety from these tests.",
+  "proposed_output": "Independent scoped audit, with counterexamples rather than approval assumed. All previous failed results and immutable accepted F01/F07/F16 snapshots remain preserved."
+}

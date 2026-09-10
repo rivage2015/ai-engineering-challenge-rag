@@ -6,11 +6,13 @@ from __future__ import annotations
 import argparse
 import copy
 import hashlib
+import importlib.util
 import json
 import os
 import re
+import secrets
+import stat
 import statistics
-import tempfile
 import unicodedata
 import urllib.parse
 from collections import Counter, defaultdict
@@ -96,7 +98,7 @@ OCR_ENGINE_BY_PASS = {
 ADAPTER_NAME = "layer1-to-local-memory-evidence-adapter"
 ADAPTER_VERSION = "0.7.0"
 SEARCH_UNIT_BUILDER = "search-unit-builder"
-SEARCH_UNIT_BUILDER_VERSION = "0.6.0"
+SEARCH_UNIT_BUILDER_VERSION = "0.7.0"
 SCHEMA_VERSION = "0.1"
 QUESTION_SHARD_VERSION = "question-evidence-shard-v1"
 MAX_QUESTION_EVIDENCE_CHARS = 1_600
@@ -111,6 +113,7 @@ NATIVE_STRUCTURAL_PRODUCERS = {
     ("intermediate-record-extractor", "0.8.0"),
     ("intermediate-record-extractor", "0.10.1"),
     ("intermediate-record-extractor", "0.11.0"),
+    ("intermediate-record-extractor", "0.12.0"),
 }
 NATIVE_STRUCTURAL_RULE = "native containment"
 NATIVE_SMARTART_CONNECTION_RULE = "native SmartArt srcId/destId connection"
@@ -156,6 +159,29 @@ def is_rfc3339_timestamp(value: object) -> bool:
 
 def canonical(value: Any) -> str:
     return json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+
+
+def canonical_layer1_input_paths(values: list[str]) -> list[str]:
+    """Project manifest spellings onto Layer 1's NFC path boundary."""
+    return [unicodedata.normalize("NFC", value) for value in values]
+
+
+def inventory_files_by_layer1_path(
+    inventory_files: dict[str, dict[str, Any]],
+) -> dict[str, dict[str, Any]]:
+    """Index raw inventory spellings by Layer 1's NFC representation.
+
+    Retain each original inventory record so later source binding can use the
+    actual filesystem spelling. Refuse normalization collisions instead of
+    silently choosing one source.
+    """
+    indexed: dict[str, dict[str, Any]] = {}
+    for raw_relative, item in inventory_files.items():
+        relative = unicodedata.normalize("NFC", raw_relative)
+        if relative in indexed:
+            raise ValueError("inventory_path_normalization_collision")
+        indexed[relative] = item
+    return indexed
 
 
 def stable_id(prefix: str, value: Any) -> str:
@@ -1447,47 +1473,99 @@ def derive_verified_lineage_relations(
     return relations, coverage
 
 
-def _clear_lineage_artifacts(output: Path) -> None:
-    for name in (LINEAGE_RELATIONS_FILE, LINEAGE_VALIDATION_FILE):
-        (output / name).unlink(missing_ok=True)
-
-
 def _publish_lineage_artifacts(
     output: Path,
     relations: list[dict[str, Any]],
     validation_state: dict[str, Any],
 ) -> None:
+    """Initialize an unpublished generation without replacing existing files.
+
+    The caller must request initialization explicitly. Directory-relative
+    exclusive creation/linking and inode-bound cleanup avoid overwriting an
+    existing or concurrently created artifact. This is not a two-file atomic
+    publication protocol; the enclosing generation is still unpublished.
+    """
     relation_bytes = "".join(
         canonical(record) + "\n" for record in relations
     ).encode("utf-8")
     state_bytes = (canonical(validation_state) + "\n").encode("utf-8")
-    destinations = (
-        (output / LINEAGE_RELATIONS_FILE, relation_bytes),
-        (output / LINEAGE_VALIDATION_FILE, state_bytes),
-    )
-    temporary_paths: list[Path] = []
+    destinations = ((LINEAGE_RELATIONS_FILE, relation_bytes), (LINEAGE_VALIDATION_FILE, state_bytes))
+    directory = os.open(output, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+    temporary_files: dict[str, tuple[int, int]] = {}
+    created_files: dict[str, tuple[int, int]] = {}
+
+    def remove_owned(files: dict[str, tuple[int, int]]) -> None:
+        for name, identity in files.items():
+            try:
+                current = os.stat(name, dir_fd=directory, follow_symlinks=False)
+            except FileNotFoundError:
+                continue
+            if (current.st_dev, current.st_ino) == identity:
+                os.unlink(name, dir_fd=directory)
+
     try:
-        for destination, payload in destinations:
-            descriptor, temporary_name = tempfile.mkstemp(
-                prefix=f".{destination.name}.", suffix=".tmp", dir=output,
+        for name, _payload in destinations:
+            try:
+                os.stat(name, dir_fd=directory, follow_symlinks=False)
+            except FileNotFoundError:
+                continue
+            raise FileExistsError("lineage_initialization_requires_absent_artifacts")
+        for name, payload in destinations:
+            temporary = f".{name}.{secrets.token_hex(16)}.tmp"
+            descriptor = os.open(
+                temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW,
+                0o600, dir_fd=directory,
             )
-            temporary = Path(temporary_name)
-            temporary_paths.append(temporary)
             with os.fdopen(descriptor, "wb") as handle:
+                observed = os.fstat(handle.fileno())
+                identity = (observed.st_dev, observed.st_ino)
+                temporary_files[temporary] = identity
                 handle.write(payload)
                 handle.flush()
                 os.fsync(handle.fileno())
-        for temporary, (destination, _payload) in zip(
-            temporary_paths, destinations,
-        ):
-            os.replace(temporary, destination)
-        temporary_paths.clear()
+            # Register the expected inode before linking, so an interruption
+            # immediately after a successful link can still clean our file.
+            created_files[name] = identity
+            os.link(
+                temporary, name, src_dir_fd=directory, dst_dir_fd=directory,
+                follow_symlinks=False,
+            )
     except BaseException:
-        _clear_lineage_artifacts(output)
+        remove_owned(created_files)
         raise
     finally:
-        for temporary in temporary_paths:
-            temporary.unlink(missing_ok=True)
+        try:
+            remove_owned(temporary_files)
+        finally:
+            os.close(directory)
+
+
+def _compare_lineage_artifacts(
+    output: Path, relations: list[dict[str, Any]], validation_state: dict[str, Any],
+) -> None:
+    """Compare reconstructed payloads without repairing the inspected tree."""
+    payloads = (
+        (LINEAGE_RELATIONS_FILE, "".join(canonical(record) + "\n" for record in relations).encode("utf-8")),
+        (LINEAGE_VALIDATION_FILE, (canonical(validation_state) + "\n").encode("utf-8")),
+    )
+    directory = os.open(output, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+    try:
+        for name, expected in payloads:
+            try:
+                descriptor = os.open(name, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=directory)
+            except OSError as exc:
+                raise ValueError("lineage_artifact_missing_or_unreadable") from exc
+            with os.fdopen(descriptor, "rb") as handle:
+                before = os.fstat(handle.fileno())
+                fail(not stat.S_ISREG(before.st_mode), "lineage_artifact_not_regular")
+                actual = handle.read(len(expected) + 1)
+                after = os.fstat(handle.fileno())
+                bound = os.stat(name, dir_fd=directory, follow_symlinks=False)
+                identity = lambda item: (item.st_dev, item.st_ino, item.st_mode, item.st_size, item.st_mtime_ns, item.st_ctime_ns)
+                fail(identity(before) != identity(after) or identity(after) != identity(bound), "lineage_artifact_changed_during_read")
+                fail(actual != expected, "lineage_artifact_payload_mismatch")
+    finally:
+        os.close(directory)
 
 
 def read_jsonl(path: Path) -> list[dict[str, Any]]:
@@ -2507,13 +2585,17 @@ def validate(
     source_root: Path,
     inventory: Path,
     version_graph: Path | None = None,
+    *,
+    initialize_lineage: bool = False,
+    version_authority_mode: str | None = None,
+    version_decisions_path: Path | None = None,
+    version_decisions_sha256: str | None = None,
 ) -> dict[str, Any]:
     output = output.resolve(strict=True)
     source_root = source_root.resolve(strict=True)
     inventory = inventory.resolve(strict=True)
-    # A failed revalidation must never leave a stale PASS artifact available
-    # to a later graph projection.
-    _clear_lineage_artifacts(output)
+    # Validation never repairs/deletes an inspected generation. Every caller
+    # must honor this invocation's failure, not fall back to a saved PASS.
     state = json.loads((output / "adaptive-reader-state.json").read_text(encoding="utf-8"))
     fail(state.get("builder") != "adaptive-layer1-semantic-bridge", "builder_invalid")
     fail(state.get("status") not in {"complete", "complete_with_limits"}, "build_status_invalid")
@@ -2526,36 +2608,20 @@ def validate(
     )
     fail(state.get("requires_content_security_gate") is not True, "security_gate_requirement_invalid")
     fail(Path(state.get("source_root", "")).resolve() != source_root, "source_root_mismatch")
-    fail(state.get("source_inventory", {}).get("sha256") != sha256_file(inventory), "source_inventory_hash_mismatch")
-    version_binding = state.get("document_version_graph")
-    version_value = None
+    spec = importlib.util.spec_from_file_location(
+        "_validator_reader_selection", Path(__file__).with_name("build_adaptive_semantic_graph.py"))
+    reader = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(reader)
+    selection = reader.select_attested_inventory(
+        inventory, version_graph, version_authority_mode=version_authority_mode,
+        version_decisions_path=version_decisions_path, version_decisions_sha256=version_decisions_sha256,
+    )
+    fail(state.get("source_inventory", {}).get("sha256") != selection["inventory_sha256"], "source_inventory_hash_mismatch")
+    version_binding = selection["document_version_graph"]
     if version_graph is None:
-        fail(version_binding is not None, "unexpected_document_version_graph")
-    else:
-        version_graph = version_graph.resolve(strict=True)
-        fail(not isinstance(version_binding, dict), "document_version_graph_binding_missing")
-        fail(
-            version_binding.get("sha256") != sha256_file(version_graph),
-            "document_version_graph_hash_mismatch",
-        )
-        version_value = json.loads(version_graph.read_text(encoding="utf-8"))
-        version_core = {
-            key: value for key, value in version_value.items()
-            if key != "graph_sha256"
-        }
-        fail(
-            version_value.get("graph_sha256") != sha256_text(canonical(version_core)),
-            "document_version_graph_integrity_invalid",
-        )
-        fail(
-            version_binding.get("graph_sha256") != version_value.get("graph_sha256"),
-            "document_version_graph_identity_mismatch",
-        )
-        fail(
-            version_value.get("source", {}).get("inventory_sha256")
-            != sha256_file(inventory),
-            "document_version_graph_inventory_mismatch",
-        )
+        fail(state.get("document_version_graph") is not None, "unexpected_document_version_graph")
+    fail(canonical(state.get("document_version_graph")) != canonical(version_binding),
+         "document_version_graph_binding_mismatch")
 
     for stage in state.get("stages", {}).values():
         stage_path = output / stage.get("path", "")
@@ -2572,33 +2638,31 @@ def validate(
     paths = manifest.get("paths", [])
     fail(not isinstance(paths, list) or not paths or len(paths) != len(set(paths)), "manifest_paths_invalid")
     fail(len(paths) != state.get("selected_file_count"), "selected_file_count_mismatch")
-    inventory_records = read_jsonl(inventory)
+    inventory_records = selection["inventory_records"]
+    fail(canonical(paths) != canonical([item["relative_path"] for item in selection["selected"]]), "manifest_complete_selection_mismatch")
+    fail(manifest.get("source_inventory_sha256") != selection["inventory_sha256"], "manifest_inventory_hash_mismatch")
+    fail(canonical(state.get("selection_counts")) != canonical(selection["selection_counts"]), "selection_counts_mismatch")
+    fail(canonical(state.get("selected_file_count")) != canonical(len(selection["selected"])), "selected_file_count_mismatch")
+    for field, expected in reader.selection_limitations(selection["selection_counts"]).items():
+        fail(canonical(state.get("limitations", {}).get(field)) != canonical(expected), "selection_limitation_mismatch:" + field)
     inventory_files = {
         item["relative_path"]: item
         for item in inventory_records
         if item.get("kind") == "file" and isinstance(item.get("relative_path"), str)
     }
     fail(not set(paths) <= set(inventory_files), "manifest_path_missing_from_inventory")
-    if isinstance(version_value, dict):
-        held_version_paths = {
-            item.get("relative_path")
-            for group in version_value.get("groups", [])
-            if isinstance(group, dict)
-            for item in group.get("candidates", [])
-            if isinstance(item, dict)
-            and item.get("disposition") in {"historical", "needs_human_review"}
-        }
-        fail(
-            bool(set(paths) & held_version_paths),
-            "held_document_version_in_answer_manifest",
-        )
+    layer1_inventory_files = inventory_files_by_layer1_path(inventory_files)
 
     intermediate_state = json.loads((output / "layer1-intermediate" / "build-state.json").read_text(encoding="utf-8"))
     fail(
         intermediate_state.get("build_status") not in {"complete", "complete_with_failures"},
         "intermediate_build_not_terminal",
     )
-    fail(intermediate_state.get("input_paths") != paths, "intermediate_input_manifest_mismatch")
+    layer1_paths = canonical_layer1_input_paths(paths)
+    fail(
+        intermediate_state.get("input_paths") != layer1_paths,
+        "intermediate_input_manifest_mismatch",
+    )
     validation_state = json.loads((output / "layer1-validation-state.json").read_text(encoding="utf-8"))
     fail(validation_state.get("status") != "pass", "intermediate_validation_status_invalid")
     fail(
@@ -2903,16 +2967,20 @@ def validate(
         by_document[item["document_id"]].append(item["evidence_id"])
 
     state_entries = intermediate_state.get("entries", {})
-    fail(set(state_entries) != set(paths), "intermediate_entry_coverage_mismatch")
-    fail({item["source"]["relative_path"] for item in documents} != set(paths), "document_path_coverage_mismatch")
+    fail(set(state_entries) != set(layer1_paths), "intermediate_entry_coverage_mismatch")
+    fail(
+        {item["source"]["relative_path"] for item in documents}
+        != set(layer1_paths),
+        "document_path_coverage_mismatch",
+    )
     for document in documents:
         relative = document["source"]["relative_path"]
         entry = state_entries.get(relative, {})
-        inventory_item = inventory_files[relative]
+        inventory_item = layer1_inventory_files[relative]
         fail(document["document_id"] != entry.get("document_id"), "document_id_lineage_mismatch")
         fail(document["source"].get("sha256") != inventory_item.get("sha256"), "document_inventory_hash_mismatch")
         fail(document["source"].get("size_bytes") != inventory_item.get("size_bytes"), "document_inventory_size_mismatch")
-        path = bound_source(source_root, relative)
+        path = bound_source(source_root, inventory_item["relative_path"])
         fail(path.stat().st_size != document["source"].get("size_bytes"), "source_size_mismatch")
         fail(sha256_file(path) != document["source"].get("sha256"), "source_hash_mismatch")
         fail(document.get("evidence_ids", []) != by_document.get(document["document_id"], []), "document_evidence_order_mismatch")
@@ -2982,9 +3050,16 @@ def validate(
         },
         "coverage": lineage_coverage,
     }
-    _publish_lineage_artifacts(output, relations, validation_state)
+    if initialize_lineage:
+        _publish_lineage_artifacts(output, relations, validation_state)
+    else:
+        _compare_lineage_artifacts(output, relations, validation_state)
     return {
         "status": "PASS",
+        # Return only the binding actually checked in this invocation. Build
+        # a detached value from the explicit resolved input and checked hashes,
+        # not a later producer-state reread (or unchecked extra producer keys).
+        "document_version_graph": copy.deepcopy(version_binding),
         "build_status": state["status"],
         "documents": len(documents),
         "evidence": len(evidence),
@@ -3007,9 +3082,17 @@ def main() -> int:
     parser.add_argument("--source-root", required=True, type=Path)
     parser.add_argument("--inventory", required=True, type=Path)
     parser.add_argument("--version-graph", type=Path)
+    parser.add_argument("--version-authority-mode", choices=("no_decisions", "snapshot"))
+    parser.add_argument("--version-decisions", type=Path)
+    parser.add_argument("--version-decisions-sha256")
+    parser.add_argument("--initialize-lineage", action="store_true", help="Create absent lineage artifacts only in a new unpublished generation; never overwrite.")
     args = parser.parse_args()
     print(json.dumps(validate(
-        args.output_dir, args.source_root, args.inventory, args.version_graph
+        args.output_dir, args.source_root, args.inventory, args.version_graph,
+        initialize_lineage=args.initialize_lineage,
+        version_authority_mode=args.version_authority_mode,
+        version_decisions_path=args.version_decisions,
+        version_decisions_sha256=args.version_decisions_sha256,
     ), ensure_ascii=False, sort_keys=True))
     return 0
 

@@ -1,0 +1,8 @@
+# F18 契約の実装前監査補足
+
+正式artifact凍結前のcaller reviewで明示した留保を、初期契約とは別に保存する。途中で初期契約本文へ一時追記したが、初期bytesへ戻し、この追記を独立した証跡とする。まだ正式監査round 0提出前である。
+
+- `initialize_lineage=True` は書込み意図であって未公開の証明ではない。fresh generationの責任はcallerにあり、bootstrapの `mkdir(exist_ok=False)` と専用generation経路で保証する。両lineageを消した公開directoryへcallerが故意にflagを渡す場合を、このAPIだけでは識別できない。
+- READMEの既存lineage説明直後へ、通常検証と初期化のAPI区別を1行追加する。ユーザーが既に変更していたbuild scriptと利用説明3ファイルは触らない。
+- 比較は一時ファイルへ書く代わりに、独立deriveした正規bytesをメモリ内で作り、既存2fileと照合する。全入力のglobal atomic snapshot、すべての同時変更／power loss／SIGKILLの回収は主張しない。
+- 既存projectorは検証失敗を例外として返す。同じ関数の後続read/use間の全race解消は本差分の新規保証ではない。必要なら監査で境界と反例を別途記録する。

@@ -1,0 +1,88 @@
+{
+  "schema_version": "1.0",
+  "task_id": "lms-v1-f11a-notebook-metadata-2026-09-09",
+  "status": "preimplementation_bytes_preserved",
+  "method": "source bytes read in bounded text chunks and added using apply_patch; SHA-256 equality checked before tests and after initial semantic RED",
+  "sources": [
+    {
+      "source_id": "probe",
+      "path": "scripts/probe_intermediate_records.py",
+      "sha256": "73b9ad531d4e184b47636f0a7558e07cc44688d1499ddd666b8dc58610f830f7",
+      "before_path": "design/local-memory-v1-hardening/runs/f11a-executor-before-probe.v1.py",
+      "before_sha256": "73b9ad531d4e184b47636f0a7558e07cc44688d1499ddd666b8dc58610f830f7",
+      "bytes_equal_by_sha256": true
+    },
+    {
+      "source_id": "managed",
+      "path": "scripts/build_intermediate_records.py",
+      "sha256": "7312ebdffc7221ef989195afd03bdbbe34f945582cb25b9020d64b19316bdabe",
+      "before_path": "design/local-memory-v1-hardening/runs/f11a-executor-before-managed.v1.py",
+      "before_sha256": "7312ebdffc7221ef989195afd03bdbbe34f945582cb25b9020d64b19316bdabe",
+      "bytes_equal_by_sha256": true
+    },
+    {
+      "source_id": "intermediate-native",
+      "path": "scripts/validate_intermediate_records.py",
+      "sha256": "0fc6f8bb42fae82ae0bec3b84ca319907bc2436aa58a1d59426f9ea525d4ab69",
+      "before_path": "design/local-memory-v1-hardening/runs/f11a-executor-before-intermediate-native.v1.py",
+      "before_sha256": "0fc6f8bb42fae82ae0bec3b84ca319907bc2436aa58a1d59426f9ea525d4ab69",
+      "bytes_equal_by_sha256": true
+    },
+    {
+      "source_id": "intermediate-stream",
+      "path": "scripts/validate_intermediate_records_streaming.py",
+      "sha256": "d998ec20f3511583603fbf4199160c47772c98f65e53e2274a23dc1f0a6e7f9f",
+      "before_path": "design/local-memory-v1-hardening/runs/f11a-executor-before-intermediate-stream.v1.py",
+      "before_sha256": "d998ec20f3511583603fbf4199160c47772c98f65e53e2274a23dc1f0a6e7f9f",
+      "bytes_equal_by_sha256": true
+    },
+    {
+      "source_id": "search-builder",
+      "path": "scripts/build_search_units.py",
+      "sha256": "a14ffa6f5c4b04fd63ed3b95ba8b6892ca5c11f1cee050b323861c009c6eaaa1",
+      "before_path": "design/local-memory-v1-hardening/runs/f11a-executor-before-search-builder.v1.py",
+      "before_sha256": "a14ffa6f5c4b04fd63ed3b95ba8b6892ca5c11f1cee050b323861c009c6eaaa1",
+      "bytes_equal_by_sha256": true
+    },
+    {
+      "source_id": "search-native",
+      "path": "scripts/validate_search_units.py",
+      "sha256": "bd673618bdf7c56a3e0c6c19330ad8b3ff0fcb69d7b0d4f4930808fa5289394d",
+      "before_path": "design/local-memory-v1-hardening/runs/f11a-executor-before-search-native.v1.py",
+      "before_sha256": "bd673618bdf7c56a3e0c6c19330ad8b3ff0fcb69d7b0d4f4930808fa5289394d",
+      "bytes_equal_by_sha256": true
+    },
+    {
+      "source_id": "search-stream",
+      "path": "scripts/validate_search_units_streaming.py",
+      "sha256": "40dbaa9b8b50d060b26bd672322830d87fdb26fb0ae2a356694a85a75edfcdd1",
+      "before_path": "design/local-memory-v1-hardening/runs/f11a-executor-before-search-stream.v1.py",
+      "before_sha256": "40dbaa9b8b50d060b26bd672322830d87fdb26fb0ae2a356694a85a75edfcdd1",
+      "bytes_equal_by_sha256": true
+    },
+    {
+      "source_id": "evidence-schema",
+      "path": "schemas/evidence.schema.json",
+      "sha256": "81db1ba15565b890fa885806d013854380267ec37d578b1bf7997fd86cac5bc5",
+      "before_path": "design/local-memory-v1-hardening/runs/f11a-executor-before-evidence-schema.v1.json",
+      "before_sha256": "81db1ba15565b890fa885806d013854380267ec37d578b1bf7997fd86cac5bc5",
+      "bytes_equal_by_sha256": true
+    },
+    {
+      "source_id": "search-schema",
+      "path": "schemas/search-unit.schema.json",
+      "sha256": "47ed1bf91425c59f87c9672470b0684fddb935e103d845123e54346dd72fae9f",
+      "before_path": "design/local-memory-v1-hardening/runs/f11a-executor-before-search-schema.v1.json",
+      "before_sha256": "47ed1bf91425c59f87c9672470b0684fddb935e103d845123e54346dd72fae9f",
+      "bytes_equal_by_sha256": true
+    },
+    {
+      "source_id": "adaptive-validator",
+      "path": "distribution/macos-local-memory/engine/validate_adaptive_semantic_graph.py",
+      "sha256": "17c5de11a6f8f958ea5d1db447840f5653128ef24314fad193a610f824c5a106",
+      "before_path": "design/local-memory-v1-hardening/runs/f11a-executor-before-adaptive-validator.v1.py",
+      "before_sha256": "17c5de11a6f8f958ea5d1db447840f5653128ef24314fad193a610f824c5a106",
+      "bytes_equal_by_sha256": true
+    }
+  ]
+}

@@ -1,0 +1,7 @@
+test_capture_rejects_static_generation_directory_symlink (f05b_path_tests.StaticSnapshotPathTests.test_capture_rejects_static_generation_directory_symlink) ... ok
+test_capture_rejects_static_path_directory_symlink (f05b_path_tests.StaticSnapshotPathTests.test_capture_rejects_static_path_directory_symlink) ... ok
+
+----------------------------------------------------------------------
+Ran 2 tests in 0.032s
+
+OK

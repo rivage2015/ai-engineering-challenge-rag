@@ -52,7 +52,8 @@ class ReaderGenerationMigrationTests(unittest.TestCase):
     def setUp(self) -> None:
         self.bootstrap = load_bootstrap()
         self.temporary = tempfile.TemporaryDirectory(prefix="reader-migration-")
-        self.root = Path(self.temporary.name)
+        self.root = Path(self.temporary.name).resolve()
+        self.bootstrap.DOCUMENT_VERSION_DECISIONS = self.root / "absent-shared-decisions.json"
 
     def tearDown(self) -> None:
         self.temporary.cleanup()
@@ -103,6 +104,17 @@ class ReaderGenerationMigrationTests(unittest.TestCase):
             text=True,
         )
         self.assertEqual(process.returncode, 0, process.stderr)
+        # Current app Readers are version-bound, including when the tiny
+        # fixture has no competing versions. Mirror the production build.
+        resolver = load_module(
+            "migration_version_resolver", ENGINE / "document_version_resolver.py"
+        )
+        snapshot = self.bootstrap.capture_decision_snapshot(paths, self.bootstrap.DEFAULT_DECISION_SNAPSHOT_BYTES)
+        resolver.build(
+            paths / "path-source-inventory.jsonl",
+            paths / "document-version-graph.json",
+            Path(snapshot["path"]),
+        )
         with (self.root / "semantic-pipeline.log").open("w", encoding="utf-8") as log:
             self.bootstrap.run_semantic_pipeline(
                 source,
@@ -110,10 +122,12 @@ class ReaderGenerationMigrationTests(unittest.TestCase):
                 semantic,
                 security,
                 log,
+                decision_snapshot=snapshot,
             )
         registration = self.bootstrap.write_reader_generation_contract(
             semantic,
             generation.name,
+            decision_snapshot=snapshot,
         )
         index = generation / "safe-answer-index.sqlite3"
         index.write_bytes(b"current-index")
@@ -194,6 +208,8 @@ class ReaderGenerationMigrationTests(unittest.TestCase):
         config, _semantic = self._current_config()
         current = self.bootstrap._current_reader_resource_contract()
         mutations = {
+            "path_builder": ("path_builder", "sha256"),
+            "path_validator": ("path_validator", "sha256"),
             "builder": ("adaptive_builder", "sha256"),
             "adapter": ("adapter", "sha256"),
             "processing": ("processing_code", "probe_intermediate_records.py"),
@@ -202,7 +218,7 @@ class ReaderGenerationMigrationTests(unittest.TestCase):
         for label, (group, key) in mutations.items():
             with self.subTest(resource=label):
                 changed = copy.deepcopy(current)
-                if group in {"adaptive_builder", "adapter"}:
+                if group in {"path_builder", "path_validator", "adaptive_builder", "adapter"}:
                     changed[group][key] = "f" * 64
                 else:
                     changed[group][key]["sha256"] = "f" * 64

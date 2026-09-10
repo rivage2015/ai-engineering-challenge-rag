@@ -1,0 +1,189 @@
+--- before/document_version_resolver.py
++++ distribution/macos-local-memory/engine/document_version_resolver.py
+@@ -5,8 +5,9 @@
+ modifies source documents.  Signal-free peers are included within existing
+ marked filename families; mixed marked/unmarked families require human review.
+ Explicit path status markers and numeric versions may select one active
+-candidate only within all-marked families under a deterministic policy. Filename years
+-alone never establish replacement.  Ambiguity is preserved as
++candidate only within undated, all-marked families under a deterministic policy.
++Calendar-valid dates and date-like 202/203 numeric runs propose families, never
++prove replacement or approve use. Ambiguity is preserved as
+ ``needs_human_review`` and a human decision is reusable only while the complete
+ candidate set and selected source hash remain unchanged.
+ """
+@@ -22,19 +23,25 @@
+ import stat
+ import tempfile
+ import unicodedata
+-from datetime import datetime
++from datetime import date, datetime
+ from pathlib import Path
+ from typing import Any, Iterable
+ 
+ 
+ SCHEMA_VERSION = "1.0"
+-RESOLVER_VERSION = "0.1.4"
++RESOLVER_VERSION = "0.1.5"
+ MAX_DECISION_SNAPSHOT_BYTES = 67_108_864
+ DOCUMENT_SUFFIXES = {
+     ".csv", ".doc", ".docx", ".ods", ".pdf", ".ppt", ".pptx",
+     ".tsv", ".xls", ".xlsx",
+ }
+ YEAR = re.compile(r"(?<!\d)(20\d{2})(?!\d)")
++# Match the whole numeric compound before calendar validation. Invalid/unknown
++# compounds must not fall back to stripping only their leading four-digit year.
++DATE_LIKE = re.compile(
++    r"(?<!\d)(?:202|203)[0-9]*"
++    r"(?:年度|年[0-9]+月(?:[0-9]+日?)?|(?:[-_.][0-9]+)+)?(?!\d)"
++)
+ VERSION_TOKEN = re.compile(r"(?i)(?:ver(?:sion)?[._ -]*\d+(?:[._-]\d+)*)")
+ VERSION_VALUE = re.compile(r"(?i)ver(?:sion)?[._ -]*(\d+(?:[._-]\d+)*)")
+ COPY_TOKEN = re.compile(r"(?:の)?コピー(?:\s*\(\d+\))?|\bcopy(?:\s*\(\d+\))?\b", re.I)
+@@ -86,10 +93,74 @@
+ 
+ def normalize(value: str) -> str:
+     return unicodedata.normalize("NFKC", value).casefold()
++
++
++def _calendar_year(token: str) -> int | None:
++    """Return a valid calendar candidate's year, not its document authority.
++
++    The token is already NFKC-normalized and starts with 202 or 203. Bound all
++    integer conversions by an exact format; unknown lengths remain untouched.
++    A fiscal-year label does not specify a period boundary or replacement.
++    """
++    if re.fullmatch(r"[0-9]{4}(?:年度)?", token):
++        return int(token[:4])
++    if re.fullmatch(r"[0-9]{8}", token):
++        parts = (token[:4], token[4:6], token[6:8])
++    else:
++        separated = re.fullmatch(
++            r"([0-9]{4})([-_.])([0-9]{1,2})(?:\2([0-9]{1,2}))?", token
++        )
++        japanese = re.fullmatch(r"([0-9]{4})年([0-9]{1,2})月([0-9]{1,2})日", token)
++        if separated:
++            parts = (separated[1], separated[3], separated[4] or "1")
++        elif japanese:
++            parts = japanese.groups()
++        else:
++            return None
++    try:
++        return date(*(int(part) for part in parts)).year
++    except ValueError:
++        return None
++
++
++def _temporal_component(value: str) -> tuple[str, list[int]]:
++    """Normalize only validated date candidates; preserve unknown numeric text.
++
++    Legacy year signals outside 202/203 compounds, including explicit numeric
++    version labels, retain their earlier caution. They are not date approvals.
++    """
++    value = normalize(value)
++    pieces: list[str] = []
++    years: set[int] = set()
++    version_spans = iter(VERSION_TOKEN.finditer(value))
++    version = next(version_spans, None)
++    end = 0
+ 
++    def legacy(part: str) -> str:
++        years.update(int(year) for year in YEAR.findall(part))
++        return YEAR.sub(" ", part)
+ 
++    for match in DATE_LIKE.finditer(value):
++        pieces.append(legacy(value[end:match.start()]))
++        while version is not None and version.end() <= match.start():
++            version = next(version_spans, None)
++        token = match.group()
++        if version is not None and version.start() < match.end():
++            pieces.append(legacy(token))
++        else:
++            year = _calendar_year(token)
++            if year is None:
++                pieces.append(token)
++            else:
++                years.add(year)
++                pieces.append(" ")
++        end = match.end()
++    pieces.append(legacy(value[end:]))
++    return "".join(pieces), sorted(years)
++
++
+ def _family_component(value: str) -> str:
+-    value = YEAR.sub(" ", normalize(value))
++    value, _ = _temporal_component(value)
+     value = VERSION_TOKEN.sub(" ", value)
+     value = COPY_TOKEN.sub(" ", value)
+     for marker in (*CURRENT_MARKERS, *HISTORICAL_MARKERS, *DRAFT_MARKERS):
+@@ -100,9 +171,9 @@
+ def family_key(relative_path: str) -> str:
+     """Derive a conservative family key from directory and basename.
+ 
+-    Explicit years, version labels, copy suffixes, and lifecycle markers are
+-    removed.  Other words remain, so unrelated documents are not merged merely
+-    because they share an extension or a broad word such as ``業務``.
++    Valid date candidates, explicit years, version labels, copy suffixes, and
++    lifecycle markers are removed. Unknown/invalid date-like digits and other
++    words remain. A shared key proposes peers, not a replacement relationship.
+     """
+     path = Path(relative_path)
+     stem = _family_component(path.stem)
+@@ -156,7 +227,7 @@
+         or not isinstance(record.get("sha256"), str)
+     ):
+         return None
+-    years = sorted({int(value) for value in YEAR.findall(normalize(relative))})
++    _, years = _temporal_component(relative)
+     versions = [
+         tuple(int(part) for part in re.split(r"[._-]", value))
+         for value in VERSION_VALUE.findall(normalize(relative))
+@@ -182,7 +253,13 @@
+     return any(item[name] for name in (
+         "explicit_years", "explicit_versions", "current_markers",
+         "historical_markers", "draft_markers",
+-    ))
++    )) or bool(DATE_LIKE.search(normalize(item["relative_path"])))
++
++
++def _has_temporal_signal(item: dict[str, Any]) -> bool:
++    return bool(item["explicit_years"]) or bool(
++        DATE_LIKE.search(normalize(item["relative_path"]))
++    )
+ 
+ 
+ def candidate_set_hash(candidates: list[dict[str, Any]]) -> str:
+@@ -242,6 +319,10 @@
+                     proposed["relative_path"],
+                     *[item["relative_path"] for item in higher_versions],
+                 ]
++        if any(_has_temporal_signal(item) for item in candidates):
++            return None, "dated_family_requires_human_review", [
++                item["relative_path"] for item in candidates
++            ]
+         return proposed["relative_path"], "unique_explicit_current_marker", []
+     if all(item["explicit_years"] for item in candidates):
+         maximum_year = max(max(item["explicit_years"]) for item in candidates)
+@@ -258,6 +339,10 @@
+         return None, "year_order_does_not_establish_supersession", [
+             item["relative_path"] for item in candidates
+         ]
++    if any(_has_temporal_signal(item) for item in candidates):
++        return None, "dated_family_requires_human_review", [
++            item["relative_path"] for item in candidates
++        ]
+     if all(item["explicit_versions"] for item in candidates):
+         maximum_version = max(
+             max(tuple(value) for value in item["explicit_versions"])
+@@ -392,7 +477,10 @@
+         "modification_time_is_authoritative": False,
+         "candidate_rule": "same_family_valid_documents_with_at_least_one_version_signal",
+         "mixed_signal_action": "needs_human_review",
+-        "automatic_rule": "mixed_signal_hold_else_unique_explicit_current_without_year_or_single_version_conflict_else_hold_all_dated_else_comparable_latest_version",
++        "automatic_rule": "mixed_signal_hold_else_current_conflicts_hold_else_dated_family_hold_else_unique_current_or_comparable_latest_version",
++        "date_candidate_prefixes": ["202", "203"],
++        "date_likeness_is_authoritative": False,
++        "calendar_validity_establishes_supersession": False,
+         "year_order_establishes_supersession": False,
+         "ambiguous_action": "needs_human_review",
+         "historical_sources_retained": True,

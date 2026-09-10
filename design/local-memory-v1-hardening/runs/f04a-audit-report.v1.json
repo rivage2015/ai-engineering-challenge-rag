@@ -1,0 +1,129 @@
+{
+  "schema_version": "1.0",
+  "audit_id": "lms-v1-00-hardening-2026-09-09-f04a-audit-v1",
+  "task_id": "lms-v1-00-hardening-2026-09-09-f04a",
+  "artifact_hash": "9b20f4ca8a9d10b5a587b2b7537acefb37556e9b336be9453aeec5c4a7266b56",
+  "auditor_context": {
+    "independence_level": "same_model_separate_context",
+    "source_scope": [
+      "Frozen F04a contract, graph artifact, executor record, all 11 artifact source identities, full resolver and resolver test, full synthetic F01 E2E test, guarded runner and supervisor, Reader version policy/build and metadata-probe dispatch preflight. Executor conclusions were treated as claims to challenge.",
+      "Repair round 0; maximum 2 Executor-Auditor repair cycles. Pass is local to F04a and is not independent model evidence or complete V1 acceptance.",
+      "design/local-memory-v1-hardening/runs/f04a-audit-hashes-before.v1.json",
+      "design/local-memory-v1-hardening/runs/f04a-audit-hashes-after.v1.json",
+      "design/local-memory-v1-hardening/runs/f04a-audit-run.v1.py",
+      "design/local-memory-v1-hardening/runs/f04a-adversarial-tests.v1.py",
+      "design/local-memory-v1-hardening/runs/f04a-adversarial-001/result.json",
+      "design/local-memory-v1-hardening/runs/f04a-audit-resolver-001/result.json",
+      "design/local-memory-v1-hardening/runs/f04a-audit-e2e-001/result.json",
+      "All product test executions used Python 3.14.6, 30-second and 1-MiB log limits, guarded synthetic inputs and stubbed model/runtime metadata. Scratch was placed beneath repository-owned design/local-memory-v1-hardening/runs. No product or user-source edits were made by the auditor."
+    ]
+  },
+  "status": "pass",
+  "checks": [
+    {
+      "check_id": "C_SCOPE",
+      "check_type": "intent",
+      "target_ids": ["N_CONFLICT", "N_BOUNDARIES"],
+      "verdict": "pass",
+      "severity": "blocking",
+      "reason": "The actual resolver diff is 16 added and 2 removed lines: one single-version conflict guard after the existing current/year checks, version 0.1.1 and policy text. Tests add 119 lines. Candidate grouping, human-decision validity, partition validation and shared application code are outside this diff. This exactly implements the frozen F04a slice without closing F02/F03/F05/F06/F19 or changing Human-owned premises.",
+      "evidence_ids": ["CONTRACT", "RESOLVER", "TESTS", "EXECUTOR"],
+      "required_action": null
+    },
+    {
+      "check_id": "C_IDENTITIES",
+      "check_type": "evidence",
+      "target_ids": ["N_CONFLICT", "N_WIRING", "N_BOUNDARIES"],
+      "verdict": "pass",
+      "severity": "blocking",
+      "reason": "Before and after independent execution, the artifact SHA-256 matches the submitted hash; all 11 artifact sources match their frozen hashes, all three producer logs match their recorded digests, and 13 additional shared/audit source identities remain equal. The resolver is f42db568267befe8a041d036242795599544ba6a46236866a643b91d4f93811b and its test is 6031c30fbfc1b8eda0159b926ef07bbcedee1b0c2c92747b3135f9be6f6efd17. The two audit hash checkpoint artifacts preserve these observations; this is not a global filesystem snapshot.",
+      "evidence_ids": ["RESOLVER", "TESTS", "GUARDS", "RED", "GREEN_RESOLVER", "GREEN_E2E", "EXECUTOR"],
+      "required_action": null
+    },
+    {
+      "check_id": "C_NUMERIC_CONFLICT",
+      "check_type": "calculation",
+      "target_ids": ["N_CONFLICT", "N_NORMAL", "E_POSITIVE"],
+      "verdict": "pass",
+      "severity": "blocking",
+      "reason": "The guard compares parsed integer tuples, never filename lexical order or timestamps. Independent probes cover 9.99 < 10.0, zero-padded 001.09 < 1.010, full-width normalized forms, underscore/hyphen version separators and 1.2.9 < 1.2.10. Higher draft and historical peers still hold the entire family. All held probes assert status, null selection and resolution basis, candidate dispositions, and absence of an active-version edge. Equal normalized and newer-current cases remain resolved; current-absent numeric ordering remains intact. These are seven acceptance methods in f04a-adversarial-001 plus existing regression evidence.",
+      "evidence_ids": ["RESOLVER", "TESTS", "GREEN_RESOLVER"],
+      "required_action": null
+    },
+    {
+      "check_id": "C_HUMAN_AND_PRECEDENCE",
+      "check_type": "dependency",
+      "target_ids": ["N_PRECEDENCE", "E_DECISION"],
+      "verdict": "pass",
+      "severity": "blocking",
+      "reason": "Valid human decisions are evaluated before automatic selection. Independently choosing either the current lower version or the higher peer succeeds with human_confirmed_active. Changing either source hash, adding a candidate, or presenting an incorrect selected-source digest returns stale_human_decision, null selection, all-held dispositions and no active edge. Existing multiple-current and current/year conflict precedence is also preserved. No rule converts a stale human choice into automatic approval.",
+      "evidence_ids": ["RESOLVER", "TESTS", "CONTRACT"],
+      "required_action": null
+    },
+    {
+      "check_id": "C_ORDER",
+      "check_type": "parallelism",
+      "target_ids": ["N_NORMAL", "N_CONFLICT"],
+      "verdict": "pass",
+      "severity": "blocking",
+      "reason": "resolve_group sorts candidates before computing their set hash. All six permutations of a three-candidate current/draft/historical conflict produce identical groups, candidate-set hashes, nodes and edges. The guard gathers every comparable higher peer and does not privilege input order. The existing two-candidate reverse-order regression also passes.",
+      "evidence_ids": ["RESOLVER", "TESTS", "GREEN_RESOLVER"],
+      "required_action": null
+    },
+    {
+      "check_id": "C_READER_HOLD",
+      "check_type": "edge",
+      "target_ids": ["N_READER", "E_HOLD"],
+      "verdict": "pass",
+      "severity": "blocking",
+      "reason": "Reader policy excludes needs_human_review dispositions. The independent three-version probe confirms all held peers are excluded while an unrelated text source is eligible, with correct counts and graph binding and unchanged input records. The rerun of the actual Reader fixture builds its manifest containing only the unrelated source, validates the derived output and confirms original file hashes. Reader metadata/model probes are stubbed, so this proves policy and synthetic Reader wiring only. It does not establish independent version partition completeness (F05).",
+      "evidence_ids": ["RESOLVER", "READER", "READER_VALIDATOR", "TESTS", "GREEN_RESOLVER"],
+      "required_action": null
+    },
+    {
+      "check_id": "C_F01_WIRING",
+      "check_type": "coverage",
+      "target_ids": ["N_WIRING", "E_SCOPE"],
+      "verdict": "pass",
+      "severity": "blocking",
+      "reason": "Independent guarded reruns on Python 3.14.6 report 17 resolver/Reader tests in 0.269797 seconds and 15 F01 application wiring tests in 1.771158 seconds, each exit 0 with zero skips or expected failures. The F01 fixture exercises publication, binding rejection, human-choice rebuild, changed-source holding and query/final-audit orchestration using fixed model responses. Its year-only selection example remains a regression observation, not proof of the desired F02 product specification.",
+      "evidence_ids": ["TESTS", "E2E_TESTS", "GREEN_RESOLVER", "GREEN_E2E", "EXECUTOR"],
+      "required_action": null
+    },
+    {
+      "check_id": "C_FAILURE_PROVENANCE",
+      "check_type": "basis",
+      "target_ids": ["N_CONFLICT", "N_BOUNDARIES"],
+      "verdict": "pass",
+      "severity": "blocking",
+      "reason": "The preserved clean RED log contains one test with four genuine expected-before-fix failures: all returned resolved instead of needs_human_review. It is failure evidence, not a passing validation. Executor guard-development failures and the unsupported Python 3.9 application errors remain explicitly recorded and are not included as PASS or model certification. The clean independent runs do not erase these records.",
+      "evidence_ids": ["RED", "EXECUTOR", "GUARDS"],
+      "required_action": null
+    },
+    {
+      "check_id": "C_BOUNDS",
+      "check_type": "safety",
+      "target_ids": ["N_BOUNDARIES", "E_SCOPE"],
+      "verdict": "pass",
+      "severity": "blocking",
+      "reason": "The preflighted audit wrapper retains the executor's socket/HTTP/process denial, reviewed reads, fixture-only file writes, cumulative synthetic source-text limit and supervisor bounds. Its only fixture-location adaptation keeps scratch under repository-owned runs. Metadata probes for VLM/OCR/Paddle/PDF and password discovery are stubbed before Reader main. Observed logs are 1561, 2927 and 2494 bytes and all three runs complete within 30 seconds. The guards are not an OS sandbox proof, and total RSS or all derived-output disk bytes are not certified. No real-model, GUI, Keychain, network or personal-input execution is claimed.",
+      "evidence_ids": ["GUARDS", "E2E_TESTS", "EXECUTOR", "CONTRACT"],
+      "required_action": null
+    },
+    {
+      "check_id": "C_OPEN_BOUNDARIES",
+      "check_type": "coverage",
+      "target_ids": ["N_BOUNDARIES"],
+      "verdict": "pass",
+      "severity": "warning",
+      "reason": "The scope limit is demonstrated, not merely stated: 現行/取扱_ver1_ver3.xlsx with 取扱_ver4.xlsx still selects the current candidate because it has multiple explicit version tuples. That eighth independent method is a remaining-gap witness, not acceptance of this behavior. Full F04, annual/revision identity, unmarked/cross-format candidate completeness, F05 validation, F06/F19 human-review generation binding, answer-time freshness, package acceptance and real-model quality remain open. Their exclusion matches the frozen local contract, so no F04a-required path is unresolved.",
+      "evidence_ids": ["CONTRACT", "RESOLVER", "EXECUTOR"],
+      "required_action": null
+    }
+  ],
+  "summary": {
+    "blocking_failures": 0,
+    "unresolved_count": 0,
+    "next_action": "deliver"
+  }
+}

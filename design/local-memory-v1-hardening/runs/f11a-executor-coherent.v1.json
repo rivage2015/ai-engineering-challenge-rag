@@ -1,0 +1,60 @@
+{
+  "task_id": "lms-v1-f11a-notebook-metadata-2026-09-09",
+  "status": "initial_coherent_implementation_saved_before_functional_tests",
+  "scope": "ten assigned product files only; metadata-only; no F11b/body/membership/RSS guarantee",
+  "static_check": "AST parsed eight Python sources and JSON parsed two schemas, no product imports during static check",
+  "tests": "initial RED retained; original nine GREEN and post21/residual3 not yet run at this snapshot",
+  "gold_sha256": "ab2256c31b04bc8e8ec9a3c5c294d1e1d98071e38e9969c62bee3718c95bc41e",
+  "sources": [
+    {
+      "source_id": "probe",
+      "path": "scripts/probe_intermediate_records.py",
+      "sha256": "5a3c443a76f02b198367c036017967a33a75f22ec0826091ab5c8b54a988baa4"
+    },
+    {
+      "source_id": "managed",
+      "path": "scripts/build_intermediate_records.py",
+      "sha256": "8d9dd31a7acba7d6b8f3e5a841b86565ea3e6e85d932fa08f77e3f3641ae59dd"
+    },
+    {
+      "source_id": "intermediate-native",
+      "path": "scripts/validate_intermediate_records.py",
+      "sha256": "1b64c531e061c2faabef0aa912fab66a006b925755c9c60872261fe5ee5f9c46"
+    },
+    {
+      "source_id": "intermediate-stream",
+      "path": "scripts/validate_intermediate_records_streaming.py",
+      "sha256": "db5d5e92518ce1c919dda2c796551adcb2646e2305a2c70b38df578ff9229199"
+    },
+    {
+      "source_id": "search-builder",
+      "path": "scripts/build_search_units.py",
+      "sha256": "08d768bcc772c8d16c82d973d7cb8b212a1ee4bb1d8469bec5063e3707e0167b"
+    },
+    {
+      "source_id": "search-native",
+      "path": "scripts/validate_search_units.py",
+      "sha256": "34b949755780e5699e549320730127af486f232c09dae724275ae36a855121f7"
+    },
+    {
+      "source_id": "search-stream",
+      "path": "scripts/validate_search_units_streaming.py",
+      "sha256": "cfdbfaedaf7557cb5f09c16f6be4020a32cd4fd6ea8d918858dab93d1a57173a"
+    },
+    {
+      "source_id": "evidence-schema",
+      "path": "schemas/evidence.schema.json",
+      "sha256": "030fea7251578e6a1c57934b595a457294ab7281c38e93779a097d3dca0a4899"
+    },
+    {
+      "source_id": "search-schema",
+      "path": "schemas/search-unit.schema.json",
+      "sha256": "b0bc29b9e9252bd35ac553ca428e679b8e664d8a353ff6d40d56e90c4375e776"
+    },
+    {
+      "source_id": "adaptive-validator",
+      "path": "distribution/macos-local-memory/engine/validate_adaptive_semantic_graph.py",
+      "sha256": "c2587b685d06a1e8d1ec006bb2577be47168a0c14b072a22b3a90878c30563e3"
+    }
+  ]
+}

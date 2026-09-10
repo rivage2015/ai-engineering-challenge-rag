@@ -1,0 +1,139 @@
+--- design/local-memory-v1-hardening/runs/f02a-before-e2e-tests.v1.py	2026-09-09 06:44:28
++++ distribution/macos-local-memory/tests/test_versioned_safe_index_e2e.py	2026-09-09 06:48:57
+@@ -152,13 +152,15 @@
+             log.write(output.getvalue())
+         return output.getvalue()
+ 
+-    def seed(self):
+-        for relative, text in {
+-            "業務内容2024.csv": "task,owner\nold,alice\n",
+-            "業務内容2025.csv": "task,owner\ncurrent,bob\n",
++    def seed(self, *, year_only=False):
++        first, second = ("2024", "2025") if year_only else ("_ver1", "_ver2")
++        files = {
++            f"業務内容{first}.csv": "task,owner\nold,alice\n",
++            f"業務内容{second}.csv": "task,owner\ncurrent,bob\n",
+             "連絡先.txt": "contact: front desk\n",
+-        }.items():
+-            self.assertLessEqual(len(text.encode("utf-8")), 1024 * 1024)
++        }
++        self.assertLessEqual(sum(len(text.encode("utf-8")) for text in files.values()), 1048576)
++        for relative, text in files.items():
+             (self.source / relative).write_text(text, encoding="utf-8")
+ 
+     def test_versioned_build_publishes_safe_index(self):
+@@ -170,7 +172,7 @@
+         with contextlib.closing(sqlite3.connect(index)) as connection:
+             paths = {row[0] for row in connection.execute("SELECT relative_path FROM evidence")}
+             metadata = {key: json.loads(value) for key, value in connection.execute("SELECT key,value FROM metadata")}
+-        self.assertEqual(paths, {"業務内容2025.csv", "連絡先.txt"})
++        self.assertEqual(paths, {"業務内容_ver2.csv", "連絡先.txt"})
+         self.assertTrue(metadata["answer_generation_allowed"])
+         self.assertEqual(self.bootstrap.reader_generation_contract_status(config)["state"], "current")
+         self.assertEqual(self.bootstrap.load_json(self.bootstrap.STATE)["phase"], "ready_with_limits")
+@@ -178,6 +180,60 @@
+         self.assertEqual(metadata["document_version_graph"]["graph_sha256"], version["graph_sha256"])
+         self.assertEqual(originals, {p.name: hashlib.sha256(p.read_bytes()).hexdigest() for p in self.source.iterdir()})
+         self.assertTrue(any(Path(command[1]).name == "build_local_semantic_index.py" for command in self.commands))
++
++    def test_year_only_build_holds_candidates_and_keeps_unrelated_evidence(self):
++        self.seed(year_only=True)
++        originals = {p.name: hashlib.sha256(p.read_bytes()).hexdigest() for p in self.source.iterdir()}
++        self.bootstrap.build_index()
++        config = self.bootstrap.load_json(self.bootstrap.CONFIG)
++        version = self.bootstrap.load_json(Path(config["path_graph_path"]) / "document-version-graph.json")
++        self.assertEqual({"groups": 1, "resolved": 0, "needs_human_review": 1}, version["counts"])
++        group = version["groups"][0]
++        self.assertEqual("year_order_does_not_establish_supersession", group["reason_code"])
++        self.assertIsNone(group["selected_relative_path"])
++        self.assertTrue(all(item["disposition"] == "needs_human_review" for item in group["candidates"]))
++        self.assertFalse(any(edge["edge_type"] == "active_version" for edge in version["edges"]))
++        with contextlib.closing(sqlite3.connect(config["index_path"])) as connection:
++            paths = {row[0] for row in connection.execute("SELECT relative_path FROM evidence")}
++            metadata = {key: json.loads(value) for key, value in connection.execute("SELECT key,value FROM metadata")}
++        self.assertEqual({"連絡先.txt"}, paths)
++        self.assertEqual(metadata["document_version_graph"]["graph_sha256"], version["graph_sha256"])
++        reader = self.bootstrap.load_json(Path(config["semantic_path"]) / "adaptive-reader-state.json")
++        self.assertEqual(2, reader["limitations"]["version_files_needing_human_review"])
++        self.assertEqual(0, reader["limitations"]["historical_version_files_held"])
++        self.assertEqual(self.bootstrap.reader_generation_contract_status(config)["state"], "current")
++        self.assertEqual(originals, {p.name: hashlib.sha256(p.read_bytes()).hexdigest() for p in self.source.iterdir()})
++
++    def test_all_year_candidates_held_failure_preserves_previous_public_generation(self):
++        self.seed()
++        self.bootstrap.build_index()
++        config_before = self.bootstrap.CONFIG.read_bytes()
++        index = Path(self.bootstrap.load_json(self.bootstrap.CONFIG)["index_path"])
++        index_before = hashlib.sha256(index.read_bytes()).hexdigest()
++        for previous, current in (("_ver1", "2024"), ("_ver2", "2025")):
++            (self.source / f"業務内容{previous}.csv").rename(self.source / f"業務内容{current}.csv")
++        saved_contact = self.base / "saved-contact.txt"
++        (self.source / "連絡先.txt").rename(saved_contact)
++        originals = {p.name: hashlib.sha256(p.read_bytes()).hexdigest() for p in self.source.iterdir()}
++        contact_hash = hashlib.sha256(saved_contact.read_bytes()).hexdigest()
++        previous_command_count = len(self.commands)
++        previous_model_requests = len(self.model_requests)
++        with self.assertRaisesRegex(SystemExit, "ValueError:adaptive_reader_no_supported_files"):
++            self.bootstrap.build_index()
++        self.assertEqual(config_before, self.bootstrap.CONFIG.read_bytes())
++        self.assertEqual(index_before, hashlib.sha256(index.read_bytes()).hexdigest())
++        self.assertEqual(originals, {p.name: hashlib.sha256(p.read_bytes()).hexdigest() for p in self.source.iterdir()})
++        self.assertEqual(contact_hash, hashlib.sha256(saved_contact.read_bytes()).hexdigest())
++        self.assertEqual(previous_model_requests, len(self.model_requests))
++        self.assertFalse(any(
++            Path(command[1]).name == "build_local_semantic_index.py"
++            for command in self.commands[previous_command_count:]
++        ))
++        # Shared pending review remains an F06 limitation; it is not the
++        # published CONFIG generation and is not used as answer acceptance.
++        pending = self.bootstrap.load_json(self.bootstrap.DOCUMENT_VERSION_REVIEW)
++        self.assertEqual({"groups": 1, "resolved": 0, "needs_human_review": 1}, pending["counts"])
++        self.assertTrue(all(item["disposition"] == "needs_human_review" for item in pending["groups"][0]["candidates"]))
+ 
+     def unpublished_reader(self, *, versioned=True):
+         self.seed()
+@@ -211,7 +267,7 @@
+             binding = json.loads(connection.execute("SELECT value FROM metadata WHERE key='document_version_graph'").fetchone()[0])
+             paths = {row[0] for row in connection.execute("SELECT relative_path FROM evidence")}
+         self.assertIsNone(binding)
+-        self.assertEqual(paths, {"業務内容2024.csv", "業務内容2025.csv", "連絡先.txt"})
++        self.assertEqual(paths, {"業務内容_ver1.csv", "業務内容_ver2.csv", "連絡先.txt"})
+         contract = self.bootstrap._reader_generation_contract_body(semantic)
+         self.assertNotIn("document_version_graph", contract["generation_artifacts"])
+ 
+@@ -333,7 +389,7 @@
+         self.seed()
+         current = self.source / "現行"
+         current.mkdir()
+-        (self.source / "業務内容2024.csv").rename(current / "業務内容2024.csv")
++        (self.source / "業務内容_ver1.csv").rename(current / "業務内容_ver1.csv")
+         self.bootstrap.build_index()
+         first_config = self.bootstrap.load_json(self.bootstrap.CONFIG)
+         first_graph = Path(first_config["path_graph_path"]) / "document-version-graph.json"
+@@ -341,14 +397,14 @@
+         self.assertEqual(group["status"], "needs_human_review")
+         resolver = self.module(ENGINE / "document_version_resolver.py")
+         resolver.record_decision(first_graph, self.bootstrap.DOCUMENT_VERSION_DECISIONS,
+-                                 group["group_id"], "業務内容2025.csv", "synthetic-human")
++                                 group["group_id"], "業務内容_ver2.csv", "synthetic-human")
+         self.bootstrap.build_index()
+         selected_config = self.bootstrap.load_json(self.bootstrap.CONFIG)
+         selected_graph = self.bootstrap.load_json(Path(selected_config["path_graph_path"]) / "document-version-graph.json")
+         self.assertEqual(selected_graph["groups"][0]["resolution_basis"], "human")
+         with contextlib.closing(sqlite3.connect(selected_config["index_path"])) as connection:
+-            self.assertIn("業務内容2025.csv", {row[0] for row in connection.execute("SELECT relative_path FROM evidence")})
+-        (self.source / "業務内容2025.csv").write_text("task,owner\ncurrent,cara\n", encoding="utf-8")
++            self.assertIn("業務内容_ver2.csv", {row[0] for row in connection.execute("SELECT relative_path FROM evidence")})
++        (self.source / "業務内容_ver2.csv").write_text("task,owner\ncurrent,cara\n", encoding="utf-8")
+         self.bootstrap.build_index()
+         changed_config = self.bootstrap.load_json(self.bootstrap.CONFIG)
+         changed_graph = self.bootstrap.load_json(Path(changed_config["path_graph_path"]) / "document-version-graph.json")
+@@ -395,7 +451,7 @@
+         self.assertEqual(result["orchestration_decision"]["status"], "accepted", result)
+         self.assertTrue(self.model_requests)
+         self.assertTrue(any(Path(command[1]).name == "final_answer_audit.py" for command in self.commands))
+-        self.assertNotIn("業務内容2024.csv", {item["relative_path"] for item in result["retrieved"]})
++        self.assertNotIn("業務内容_ver1.csv", {item["relative_path"] for item in result["retrieved"]})
+ 
+     def test_ambiguous_graph_question_is_not_promoted_by_mock_model(self):
+         self.requested_label = "owner"

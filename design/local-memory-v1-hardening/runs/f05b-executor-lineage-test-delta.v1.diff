@@ -1,0 +1,20 @@
+--- tests/test_immutable_lineage_validation.py
++++ tests/test_immutable_lineage_validation.py
+@@ -192,12 +192,16 @@
+         generation = semantic.parent
+         graph = Path(config["path_graph_path"]) / "document-version-graph.json"
+         inventory = graph.parent / "path-source-inventory.jsonl"
++        self.assertEqual("current", harness.bootstrap.reader_generation_contract_status(config)["state"])
++        contract_path = semantic / harness.bootstrap.READER_GENERATION_CONTRACT_FILENAME
++        snapshot = json.loads(contract_path.read_bytes())["decision_snapshot"]
++        authority = {"version_authority_mode": "snapshot", "version_decisions_path": Path(snapshot["path"]), "version_decisions_sha256": snapshot["sha256"]}
+         before = self.snapshot(generation)
+-        self.assertEqual(validator.validate(semantic, harness.source, inventory, graph)["status"], "PASS")
++        self.assertEqual(validator.validate(semantic, harness.source, inventory, graph, **authority)["status"], "PASS")
+         self.assertEqual(before, self.snapshot(generation))
+         (harness.source / "連絡先.txt").write_text("contact: changed desk\n", encoding="utf-8")
+         with self.assertRaises(ValueError):
+-            validator.validate(semantic, harness.source, inventory, graph)
++            validator.validate(semantic, harness.source, inventory, graph, **authority)
+         self.assertEqual(before, self.snapshot(generation))
+         self.assertEqual(config_bytes, harness.bootstrap.CONFIG.read_bytes())

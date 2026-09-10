@@ -1,0 +1,37 @@
+{
+  "task_id": "lms-v1-00-f11-next-readonly-2026-09-09",
+  "status": "proposal_not_implementation_or_audit_pass",
+  "observed_at_jst": "2026-09-09 06:15",
+  "base_commit": "79a69260fb1a42efb3c0e2c0093ed6101470f2a1",
+  "branch": "codex/visual-classification-v1",
+  "product_edits_by_this_agent": [],
+  "source_hashes": {
+    "scripts/probe_intermediate_records.py": "73b9ad531d4e184b47636f0a7558e07cc44688d1499ddd666b8dc58610f830f7",
+    "scripts/build_search_units.py": "a14ffa6f5c4b04fd63ed3b95ba8b6892ca5c11f1cee050b323861c009c6eaaa1",
+    "scripts/adapt_layer1_to_local_memory.py": "0ef2f634966e9be671628889b82e13baf8b57d14a6b649d7ffaee981279f9214",
+    "scripts/validate_intermediate_records.py": "0fc6f8bb42fae82ae0bec3b84ca319907bc2436aa58a1d59426f9ea525d4ab69",
+    "scripts/validate_intermediate_records_streaming.py": "d998ec20f3511583603fbf4199160c47772c98f65e53e2274a23dc1f0a6e7f9f",
+    "scripts/validate_search_units.py": "bd673618bdf7c56a3e0c6c19330ad8b3ff0fcb69d7b0d4f4930808fa5289394d",
+    "scripts/validate_search_units_streaming.py": "40dbaa9b8b50d060b26bd672322830d87fdb26fb0ae2a356694a85a75edfcdd1",
+    "schemas/evidence.schema.json": "81db1ba15565b890fa885806d013854380267ec37d578b1bf7997fd86cac5bc5",
+    "schemas/search-unit.schema.json": "47ed1bf91425c59f87c9672470b0684fddb935e103d845123e54346dd72fae9f",
+    "scripts/build_intermediate_records.py": "7312ebdffc7221ef989195afd03bdbbe34f945582cb25b9020d64b19316bdabe",
+    "distribution/macos-local-memory/engine/validate_adaptive_semantic_graph.py": "1a3aff494b724882a600adc6978fda3e0f3955da6e2f11291180a92d7f898e1a",
+    "distribution/macos-local-memory/engine/build_adaptive_semantic_graph.py": "19b5c55c64959dc136cd4d6b2081151ed1e39560874fb083e9796edb8812adfa",
+    "distribution/macos-local-memory/engine/build_local_semantic_index.py": "2bfaf8174e8249087d720e49070c9812ce9ecf93b21dd5276f057e145965dfb2",
+    "distribution/macos-local-memory/engine/answer_local_memory_v2.py": "8677d5d49c37e081ad2c2ab06bd9c4734280ef5d3e4b2941a1fe570061388e60",
+    "scripts/run_local_memory_hardening_tests.py": "6b3bde90b6ed649a82325f6b5ad9661756bef7b6e0303fa74c2d045fb26eb4a9"
+  },
+  "evidence_hashes": {
+    "f11-next-fixture.v1.ipynb": "123ff664e24f2cea7c3caac841e139f8574e7b2f9667701dd16e63f5086d80ad",
+    "f11-next-observe.v1.py": "b1513e1f0d188f05545b4087cb4fd26472a815d29fb33eededc2c69a385594ef",
+    "f11-next-preflight.v1.md": "a63091bc729c66d901217818afc49542c15b2d26708b8f9b911535f98a9aca78",
+    "f11-next-rerun.v2.py": "e306bfe35efebe2a9895018ff14fd4dcaee4869135943c4a2ed7bcea495e8191",
+    "f11-next-observation-run.v2/unittest.log": "18d20e8afb16004bae302356aafb5030f0b6f67154f2b502ddab9197719c965f",
+    "f11-next-observation-run.v2/result.json": "5e628ea72b21d67b098f0d2aec9c4d8a0fe573dd49b2722d7c017111e153682f"
+  },
+  "test_scope": "3 direct Reader/SearchUnit gap observations; no source-to-index E2E or model call",
+  "run_v1_status": "no_tests_due_to_buffered_stdout_after_footer",
+  "run_v2_status": "passed_gap_observations_not_product_acceptance",
+  "source_concurrency_note": "Snapshot hashes, not a freeze. Root may update adaptive validation for independent F18 work. Rehash and inspect every proposed target immediately before new implementation."
+}

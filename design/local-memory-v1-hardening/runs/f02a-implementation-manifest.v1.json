@@ -1,0 +1,250 @@
+{
+  "schema_version": "1.0",
+  "task_id": "lms-v1-00-hardening-2026-09-09-f02a-implementation",
+  "status": "final_source_freeze_for_separate_audit",
+  "repository": "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ",
+  "source_count": 47,
+  "sources": [
+    {
+      "id": "EXECUTOR",
+      "path": "design/local-memory-v1-hardening/runs/f02a-executor.v1.json",
+      "sha256": "058360496044c77861d39116918949343b9d2b7c3c73886dcec691734a513340"
+    },
+    {
+      "id": "IMPLEMENTATION_CONTRACT",
+      "path": "design/local-memory-v1-hardening/runs/f02a-implementation-contract.v1.json",
+      "sha256": "f91621a1de962a221c685a8e523dc7df2a475b447110ba13f2ac18ea487418c5"
+    },
+    {
+      "id": "PRE_CONTRACT",
+      "path": "design/local-memory-v1-hardening/runs/f02a-task-contract.v1.json",
+      "sha256": "96d9a257256b8c9524eb611dc6ac154a4aa0d8b9e6d2dcd2eec8b769ac07580e"
+    },
+    {
+      "id": "PURE_TESTS",
+      "path": "tests/test_year_only_supersession.py",
+      "sha256": "70a1226cb30daa6692533d2c6f1fe270fe301a8f759c0db56a142acbc945b8c0"
+    },
+    {
+      "id": "RESOLVER",
+      "path": "distribution/macos-local-memory/engine/document_version_resolver.py",
+      "sha256": "9a7443862c015ed768007ef5a7b21bd3bc197c9bb7a3d7ed2f7b39b33374359d"
+    },
+    {
+      "id": "RESOLVER_TESTS",
+      "path": "distribution/macos-local-memory/tests/test_document_version_resolver.py",
+      "sha256": "b7c323f48f10488ef2dc245dacc265ad0dd5b77ea37e50b9e4b32504bda7b293"
+    },
+    {
+      "id": "E2E_TESTS",
+      "path": "distribution/macos-local-memory/tests/test_versioned_safe_index_e2e.py",
+      "sha256": "41540a858d17f8abb322c15353032ec4dd3099eac4e767090f7b9dbabfbcf64a"
+    },
+    {
+      "id": "BEFORE_RESOLVER",
+      "path": "design/local-memory-v1-hardening/runs/f02a-before-resolver.v1.py",
+      "sha256": "f42db568267befe8a041d036242795599544ba6a46236866a643b91d4f93811b"
+    },
+    {
+      "id": "BEFORE_RESOLVER_TESTS",
+      "path": "design/local-memory-v1-hardening/runs/f02a-before-resolver-tests.v1.py",
+      "sha256": "b42fa5abafe2175ca29b26efe9a10d2626aca2d2321087f4bc798961fdf7116c"
+    },
+    {
+      "id": "BEFORE_E2E_TESTS",
+      "path": "design/local-memory-v1-hardening/runs/f02a-before-e2e-tests.v1.py",
+      "sha256": "03d5dc06b47548c09a8f38348a5cbd0c8f29efbdd1a4565083ea6b660f8db771"
+    },
+    {
+      "id": "RESOLVER_DELTA",
+      "path": "design/local-memory-v1-hardening/runs/f02a-resolver-delta.v1.patch",
+      "sha256": "f9da12fa470f23bbb41d9640bc51e768e0c5ef2430fbf3357a498540cafbc5d4"
+    },
+    {
+      "id": "RESOLVER_TESTS_DELTA",
+      "path": "design/local-memory-v1-hardening/runs/f02a-resolver-tests-delta.v1.patch",
+      "sha256": "f4bdd175c7f99b0b4020e68cc725c58a09be83d9eb8158c9aa338c6893a08e1a"
+    },
+    {
+      "id": "E2E_TESTS_DELTA",
+      "path": "design/local-memory-v1-hardening/runs/f02a-e2e-tests-delta.v1.patch",
+      "sha256": "d13c2616087899a3e0e4cee434ce4f31838081e8c6daf2ee229adbb35068f1e5"
+    },
+    {
+      "id": "INITIAL_E2E_TESTS_DELTA",
+      "path": "design/local-memory-v1-hardening/runs/f02a-e2e-tests-initial-delta.v1.patch",
+      "sha256": "fae94a918690971792a3eb7afe1c2c2734779cf128fa4ecb7e793760132d5c75"
+    },
+    {
+      "id": "READER",
+      "path": "distribution/macos-local-memory/engine/build_adaptive_semantic_graph.py",
+      "sha256": "19b5c55c64959dc136cd4d6b2081151ed1e39560874fb083e9796edb8812adfa"
+    },
+    {
+      "id": "READER_VALIDATOR",
+      "path": "distribution/macos-local-memory/engine/validate_adaptive_semantic_graph.py",
+      "sha256": "49138ecc11bde5709f129e879cbc5140717dca716a8563ebafe77dda4e37187d"
+    },
+    {
+      "id": "PROJECTOR",
+      "path": "distribution/macos-local-memory/engine/build_local_semantic_index.py",
+      "sha256": "2bfaf8174e8249087d720e49070c9812ce9ecf93b21dd5276f057e145965dfb2"
+    },
+    {
+      "id": "BOOTSTRAP",
+      "path": "distribution/macos-local-memory/app/bootstrap.py",
+      "sha256": "df720a40bb0f8f6123cb0f171b829ca1f4f26761f1e24878fa415b5ff70919a3"
+    },
+    {
+      "id": "README",
+      "path": "distribution/macos-local-memory/README.md",
+      "sha256": "aa088a5b6ac8e2d83398d6adba8e36864d18808415cc002f03fe246b7e630c0b"
+    },
+    {
+      "id": "README_CLARIFICATION",
+      "path": "design/local-memory-v1-hardening/runs/f02a-readme-clarification.v1.json",
+      "sha256": "aabdd66dc37bc344102d6487f7eb049baca27f54602a659706ca21aaf88d94f3"
+    },
+    {
+      "id": "README_DELTA",
+      "path": "design/local-memory-v1-hardening/runs/f02a-readme-delta.v1.json",
+      "sha256": "1258b4708fe7bfe273797c097cdd50793b8a036b78da9098255d891f9c78463e"
+    },
+    {
+      "id": "F18_ACCEPTANCE",
+      "path": "design/local-memory-v1-hardening/runs/f18-validation-result.v1.json",
+      "sha256": "cadb615936929ac1b2f11376c5791f89d744556d87d7b07dc63cd4de191ff39f"
+    },
+    {
+      "id": "GUARD",
+      "path": "design/local-memory-v1-hardening/runs/f04a-executor-run.v1.py",
+      "sha256": "7c6953d3e92c46ede699b81690a138fb50e74e51b79fc37d14f9fc44d6c4391b"
+    },
+    {
+      "id": "F18_DRIVER",
+      "path": "design/local-memory-v1-hardening/runs/f18-test-run.v2.py",
+      "sha256": "16bacec1eca35d00f99ac6f03b4971e79a128ededd98d1e96abae0829c0e1e38"
+    },
+    {
+      "id": "IMPLEMENTATION_DRIVER",
+      "path": "design/local-memory-v1-hardening/runs/f02a-implementation-run.v1.py",
+      "sha256": "f8258a276d576a6d514fad8f2aced98909f8d30b5171df9e3330bb9ef1bfa932"
+    },
+    {
+      "id": "PARENT_DRIVER",
+      "path": "design/local-memory-v1-hardening/runs/f02a-parent-regression.v1.py",
+      "sha256": "84b97bff20da1b0877a13761e0a4437ebf63ef6125ee046660cd910e5d5e81e5"
+    },
+    {
+      "id": "SUPERVISOR",
+      "path": "scripts/run_local_memory_hardening_tests.py",
+      "sha256": "6b3bde90b6ed649a82325f6b5ad9661756bef7b6e0303fa74c2d045fb26eb4a9"
+    },
+    {
+      "id": "RED_SUMMARY",
+      "path": "design/local-memory-v1-hardening/runs/f02a-red-result.v1.json",
+      "sha256": "18744e4627be6ff298314f1fb1ede4ee26ecc257bf01c1ef82f9ea05cbd97bce"
+    },
+    {
+      "id": "RED_MANIFEST",
+      "path": "design/local-memory-v1-hardening/runs/f02a-source-manifest.v1.json",
+      "sha256": "bdc22fec45f8d246a39ff0083ab5f85784f465eeae598172d7d63faafbdee6b8"
+    },
+    {
+      "id": "RUN_0_RESULT",
+      "path": "design/local-memory-v1-hardening/runs/f02a-red-001/result.json",
+      "sha256": "48a97398206956552fe5ac00db7405d9694fa22418c8cff5f3a7c8bfd9ec5b03"
+    },
+    {
+      "id": "RUN_0_LOG",
+      "path": "design/local-memory-v1-hardening/runs/f02a-red-001/unittest.log",
+      "sha256": "9b01a46b4b24b5dbb60a213e012f682b5c99acc3faf632ec7245a61626b2ec82"
+    },
+    {
+      "id": "RUN_1_RESULT",
+      "path": "design/local-memory-v1-hardening/runs/f02a-green-pure-001/result.json",
+      "sha256": "225a75e24ed24cb267bfce57f1f1cdf2193cb1d2a72f773306ffd5a432d9fc7b"
+    },
+    {
+      "id": "RUN_1_LOG",
+      "path": "design/local-memory-v1-hardening/runs/f02a-green-pure-001/unittest.log",
+      "sha256": "b2974789ebb8ac01827cceaf328a979b65000061b70bf78a4fdb332ba033c8a9"
+    },
+    {
+      "id": "RUN_2_RESULT",
+      "path": "design/local-memory-v1-hardening/runs/f02a-green-resolver-001/result.json",
+      "sha256": "1e019c20c4b1df495777fbb688998cf07902f564f0e0bc7cc2531dba8e302ca8"
+    },
+    {
+      "id": "RUN_2_LOG",
+      "path": "design/local-memory-v1-hardening/runs/f02a-green-resolver-001/unittest.log",
+      "sha256": "4c212951f4c253eb7ad38befa7f6ce71af4e293f993d75705d0887667e7149bd"
+    },
+    {
+      "id": "RUN_3_RESULT",
+      "path": "design/local-memory-v1-hardening/runs/f02a-green-e2e-001/result.json",
+      "sha256": "a68ea5ed0e58f565a880ca92a5552b02c17db007cdeadf73dfd489982e97cdbf"
+    },
+    {
+      "id": "RUN_3_LOG",
+      "path": "design/local-memory-v1-hardening/runs/f02a-green-e2e-001/unittest.log",
+      "sha256": "950c7b4cd77ded3ac9362f81bc963690980b9091294858ffb7139d6a3a8f17c6"
+    },
+    {
+      "id": "RUN_4_RESULT",
+      "path": "design/local-memory-v1-hardening/runs/f02a-green-e2e-002/result.json",
+      "sha256": "3001c397c828fe464b41909dea8cca5e4ea041b486c12b90ac8df8e83c029e65"
+    },
+    {
+      "id": "RUN_4_LOG",
+      "path": "design/local-memory-v1-hardening/runs/f02a-green-e2e-002/unittest.log",
+      "sha256": "0fe43c335b76663b7465f930cc7d8d952c2f3d560d8cb799ed2a4668090fd157"
+    },
+    {
+      "id": "RUN_5_RESULT",
+      "path": "design/local-memory-v1-hardening/runs/f02a-parent-001-focused/result.json",
+      "sha256": "884a782b1a56d39531de090ad64b8dad776eddca54c5658dd09c9c0475453ba1"
+    },
+    {
+      "id": "RUN_5_LOG",
+      "path": "design/local-memory-v1-hardening/runs/f02a-parent-001-focused/unittest.log",
+      "sha256": "65f273dcc1f0cf415857085c7a67f42fa3ca6e056c490e5ff5c5f56cff25af4b"
+    },
+    {
+      "id": "RUN_6_RESULT",
+      "path": "design/local-memory-v1-hardening/runs/f02a-parent-002-migration/result.json",
+      "sha256": "930d8ca9ec091f9c7ddec102cb3aff9d1e44974a51039deb46aa5260e81305e7"
+    },
+    {
+      "id": "RUN_6_LOG",
+      "path": "design/local-memory-v1-hardening/runs/f02a-parent-002-migration/unittest.log",
+      "sha256": "63b1f0fc8bbff68b76ad842af66f64c022602f394ebcf2e580fb1f3d8f1c42b6"
+    },
+    {
+      "id": "RUN_7_RESULT",
+      "path": "design/local-memory-v1-hardening/runs/f02a-parent-003-lineage/result.json",
+      "sha256": "a8306b82890ee832d1c1bf77c76f640619b75d722606e8ac716ee8f425035cc6"
+    },
+    {
+      "id": "RUN_7_LOG",
+      "path": "design/local-memory-v1-hardening/runs/f02a-parent-003-lineage/unittest.log",
+      "sha256": "0d8a3a335b18f603c639d1212b8433d09130da2a91f9c0b24ce05dd2b864e32f"
+    },
+    {
+      "id": "RUN_8_RESULT",
+      "path": "design/local-memory-v1-hardening/runs/f02a-parent-004-security/result.json",
+      "sha256": "784c9451a6175390d8f189701ede2902b503131fb167d0d7bad663e4d4aac411"
+    },
+    {
+      "id": "RUN_8_LOG",
+      "path": "design/local-memory-v1-hardening/runs/f02a-parent-004-security/unittest.log",
+      "sha256": "e622fea7399641df7eef2f68d120833cd5aadbfc4a52f8443ffff27c5fae35f8"
+    }
+  ],
+  "notes": [
+    "Root creates the formal Graph Artifact; this file records current identities only, not audit approval.",
+    "Sources include root-owned README/delta and four root collateral result/log pairs; no ownership is inferred from listing.",
+    "Initial RED and E2E exception-layer failure are preserved as failures.",
+    "Frozen pure-test phase label remains historical; use actual result footer and source hash for current GREEN replay."
+  ]
+}

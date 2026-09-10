@@ -1,0 +1,50 @@
+--- design/local-memory-v1-hardening/runs/f02a-before-resolver.v1.py	2026-09-09 06:44:28
++++ distribution/macos-local-memory/engine/document_version_resolver.py	2026-09-09 06:46:01
+@@ -2,10 +2,11 @@
+ """Resolve document-version families with fail-closed human review.
+ 
+ This stage consumes the source-bound Path Graph inventory.  It never reads or
+-modifies source documents.  Filename years and explicit path status markers may
+-select one active candidate only under a deterministic policy.  Ambiguity is
+-preserved as ``needs_human_review`` and a human decision is reusable only while
+-the complete candidate set and selected source hash remain unchanged.
++modifies source documents.  Explicit path status markers and numeric versions
++may select one active candidate under a deterministic policy.  Filename years
++alone never establish replacement.  Ambiguity is preserved as
++``needs_human_review`` and a human decision is reusable only while the complete
++candidate set and selected source hash remain unchanged.
+ """
+ 
+ from __future__ import annotations
+@@ -23,7 +24,7 @@
+ 
+ 
+ SCHEMA_VERSION = "1.0"
+-RESOLVER_VERSION = "0.1.1"
++RESOLVER_VERSION = "0.1.2"
+ DOCUMENT_SUFFIXES = {
+     ".csv", ".doc", ".docx", ".ods", ".pdf", ".ppt", ".pptx",
+     ".tsv", ".xls", ".xlsx",
+@@ -238,7 +239,11 @@
+             return None, "latest_year_is_draft", [proposed["relative_path"]]
+         if proposed["historical_markers"]:
+             return None, "latest_year_marked_historical", [proposed["relative_path"]]
+-        return proposed["relative_path"], "unique_latest_explicit_year", []
++        # A later year may identify an independent reporting period. Preserve
++        # the unresolved relationship, including mixed year/version signals.
++        return None, "year_order_does_not_establish_supersession", [
++            item["relative_path"] for item in candidates
++        ]
+     if all(item["explicit_versions"] for item in candidates):
+         maximum_version = max(
+             max(tuple(value) for value in item["explicit_versions"])
+@@ -401,7 +406,8 @@
+         "policy": {
+             "creation_time_is_authoritative": False,
+             "modification_time_is_authoritative": False,
+-            "automatic_rule": "unique_explicit_current_without_year_or_single_version_conflict_else_comparable_latest_year_or_version",
++            "automatic_rule": "unique_explicit_current_without_year_or_single_version_conflict_else_hold_all_dated_else_comparable_latest_version",
++            "year_order_establishes_supersession": False,
+             "ambiguous_action": "needs_human_review",
+             "historical_sources_retained": True,
+         },

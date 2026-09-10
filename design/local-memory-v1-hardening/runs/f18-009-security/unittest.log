@@ -1,0 +1,7 @@
+test_partial_exclusion_holds_mixed_fan_in_atomically (f18_target.SecurityGraphPartitionTests)
+Only complete safe fan-ins may reach the answer graph. ... ok
+
+----------------------------------------------------------------------
+Ran 1 test in 0.359s
+
+OK

@@ -1,0 +1,23 @@
+--- tests/test_version_graph_validation_e2e.py
++++ tests/test_version_graph_validation_e2e.py
+@@ -86,7 +86,7 @@
+             value = json.loads(graph_path.read_bytes())
+             mutate(graph_path, value)
+             graph_bytes = graph_path.read_bytes()
+-            decision_path = self.h.bootstrap.DOCUMENT_VERSION_DECISIONS
++            decision_path = Path(command[command.index("--decisions") + 1])
+             decision_bytes = decision_path.read_bytes() if decision_path.exists() else None
+             output = io.StringIO()
+             with mock.patch.object(sys, "argv", command[1:]), contextlib.redirect_stdout(output):
+@@ -151,9 +151,9 @@
+             self.prior_graph, self.h.bootstrap.DOCUMENT_VERSION_DECISIONS,
+             prior["groups"][0]["group_id"], "業務内容_ver2.csv", "synthetic-human",
+         )
+-        def mutate(_path, value):
++        def mutate(graph_path, value):
+             self.assertEqual("human", value["groups"][0]["resolution_basis"])
+-            path = self.h.bootstrap.DOCUMENT_VERSION_DECISIONS
++            path = graph_path.parent / "document-version-decisions.snapshot.json"
+             text = json.dumps({"schema_version": "1.0", "decisions": []})
+             self.assertLessEqual(len(text.encode()), 8192)
+             path.write_text(text, encoding="utf-8")

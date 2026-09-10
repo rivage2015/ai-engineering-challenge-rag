@@ -1,0 +1,54 @@
+{
+  "schema_version": "1.0",
+  "task_id": "lms-v1-00-hardening-2026-09-09-f02a",
+  "phase": "before_first_red_run",
+  "sources": [
+    {
+      "path": "tests/test_year_only_supersession.py",
+      "sha256": "70a1226cb30daa6692533d2c6f1fe270fe301a8f759c0db56a142acbc945b8c0",
+      "size_bytes": 11205,
+      "role": "new_owned_regression_tests"
+    },
+    {
+      "path": "design/local-memory-v1-hardening/runs/f02a-task-contract.v1.json",
+      "sha256": "96d9a257256b8c9524eb611dc6ac154a4aa0d8b9e6d2dcd2eec8b769ac07580e",
+      "role": "immutable_contract"
+    },
+    {
+      "path": "design/local-memory-v1-hardening/runs/f02a-red-run.v1.py",
+      "sha256": "74382ca0e696e5e258f31990f15c9929637e60959d0563fe4f9e77d49eb039de",
+      "role": "bounded_supervisor_driver"
+    },
+    {
+      "path": "distribution/macos-local-memory/engine/document_version_resolver.py",
+      "sha256": "f42db568267befe8a041d036242795599544ba6a46236866a643b91d4f93811b",
+      "size_bytes": 21626,
+      "role": "read_only_frozen_product_source"
+    },
+    {
+      "path": "distribution/macos-local-memory/tests/test_document_version_resolver.py",
+      "sha256": "b42fa5abafe2175ca29b26efe9a10d2626aca2d2321087f4bc798961fdf7116c",
+      "role": "read_only_frozen_existing_test"
+    },
+    {
+      "path": "distribution/macos-local-memory/tests/test_versioned_safe_index_e2e.py",
+      "sha256": "03d5dc06b47548c09a8f38348a5cbd0c8f29efbdd1a4565083ea6b660f8db771",
+      "role": "read_only_frozen_existing_e2e"
+    },
+    {
+      "path": "scripts/run_local_memory_hardening_tests.py",
+      "sha256": "6b3bde90b6ed649a82325f6b5ad9661756bef7b6e0303fa74c2d045fb26eb4a9",
+      "role": "read_only_existing_h0_supervisor"
+    }
+  ],
+  "preflight": {
+    "resolver_full_source_read": true,
+    "supervisor_full_source_read": true,
+    "new_test_full_source_reviewed": true,
+    "all_product_source_imports": "stdlib_only",
+    "product_functions_called": ["candidate", "family_key", "resolve_group", "graph_projection"],
+    "io_guards_installed_only_by_dedicated_test_cli": true,
+    "test_import_does_not_globally_guard_other_suites": true,
+    "expected_red_is_not_marked_unittest_expected_failure": true
+  }
+}

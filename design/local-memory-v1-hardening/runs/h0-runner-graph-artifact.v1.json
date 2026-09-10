@@ -1,0 +1,100 @@
+{
+  "schema_version": "1.0",
+  "task_id": "lms-v1-00-h0-test-supervisor",
+  "artifact_version": 1,
+  "task_contract": {
+    "requested": "Durably record preflight-approved synthetic unittest results; bound test wall time and captured output; avoid overwriting runs; never count no-tests or skipped suite as passed.",
+    "review_scope": "Internal test-supervisor correctness, not OS isolation, no-network guarantee, or product certification.",
+    "forbidden": [
+      "product edits by auditor",
+      "real models/network/personal data",
+      "unbounded stress"
+    ],
+    "max_repair_cycles": 2,
+    "role_separation": "same_model_separate_context"
+  },
+  "goal": "A resumable test run has immutable started/result metadata plus bounded logs and explicit interrupted/timeout/failure/skip states.",
+  "nodes": [
+    {
+      "id": "BOUNDS",
+      "text": "A fresh process group runs a preflight-approved command with wall and output limits.",
+      "basis": [
+        "RUNNER",
+        "TESTS"
+      ]
+    },
+    {
+      "id": "DURABILITY",
+      "text": "New run directory and exclusive write of started/result prevent overwriting prior records.",
+      "basis": [
+        "RUNNER",
+        "TESTS"
+      ]
+    },
+    {
+      "id": "TRUTH",
+      "text": "Nonzero exit, timeout, zero/no tests, or skips cannot be passed.",
+      "basis": [
+        "RUNNER",
+        "TESTS"
+      ]
+    },
+    {
+      "id": "LIMITS",
+      "text": "Not a security sandbox. Preflight remains mandatory; successful-run descendants and actual I/O need separate acceptance.",
+      "basis": [
+        "RUNNER"
+      ]
+    },
+    {
+      "id": "RESULTS",
+      "text": "Six supervisor-focused tests passed; coverage can be expanded by independent adversarial cases.",
+      "basis": [
+        "RESULT",
+        "TESTS"
+      ]
+    }
+  ],
+  "edges": [
+    {
+      "id": "E01",
+      "source": "BOUNDS",
+      "target": "DURABILITY",
+      "relation": "records_bounded_outcome",
+      "basis": [
+        "RUNNER"
+      ]
+    },
+    {
+      "id": "E02",
+      "source": "RESULTS",
+      "target": "TRUTH",
+      "relation": "tests_status_classification",
+      "basis": [
+        "TESTS"
+      ]
+    }
+  ],
+  "sources": [
+    {
+      "id": "RUNNER",
+      "path": "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/scripts/run_local_memory_hardening_tests.py",
+      "sha256": "ef4dc93b3df82e88f8a15b77e74108e95fa44712ab1c6cf83851afb193a604db"
+    },
+    {
+      "id": "TESTS",
+      "path": "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/tests/test_hardening_test_runner.py",
+      "sha256": "7c606bac241f1cb5264cd50d4ed2e2245234ab8aadebf8d1678b7b1d17b31944"
+    },
+    {
+      "id": "RESULT",
+      "path": "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/artifacts/local-memory-v1-hardening/runs/002-runner-selftest/result.json",
+      "sha256": "1f3546c52c31f54869b0e1fbf0ef6cb49a3553619d5d6ac2e2e9f7e2a488e676"
+    }
+  ],
+  "unverified_points": [
+    "No full security isolation claim",
+    "No successful-run orphan guarantee"
+  ],
+  "proposed_output": "Review internal harness before relying on its results; callers still inspect real unittest output and scope."
+}

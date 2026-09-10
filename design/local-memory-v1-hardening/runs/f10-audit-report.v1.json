@@ -1,0 +1,108 @@
+{
+  "schema_version": "1.0",
+  "audit_id": "f10-xlsx-binding-independent-audit-v1",
+  "task_id": "lms-v1-00-hardening-2026-09-09-f10",
+  "artifact_hash": "0121d75f0d54126c8534507caa5e9d9b1af508627879756996a042daf7d6df77",
+  "auditor_context": {
+    "independence_level": "same_model_separate_context",
+    "source_scope": [
+      "Scoped F10 XLSX standard-library fallback source-binding audit, not full XLSX, OOXML, native openpyxl, model, safe-index, answer or product acceptance.",
+      "scripts/probe_intermediate_records.py: _resolve_ooxml_target, _ooxml_relationships, _require_ooxml_office_document_binding, _xlsx_sheet_context, Probe.extract and Probe.extract_xlsx_ooxml",
+      "tests/test_xlsx_fallback_binding_hardening.py; tests/test_generic_structured_reader_hardening.py; selected original methods and fixture diff in tests/test_layer1_pipeline.py",
+      "scripts/build_intermediate_records.py: process_file, ShardWriter rollback; scripts/build_search_units.py; scripts/adapt_layer1_to_local_memory.py",
+      "design/local-memory-v1-hardening/runs/f10-graph-artifact.v1.json; f10-executor.v1.json as a claim inventory only; f10-legacy-fixture-check.v2.py",
+      "artifacts/local-memory-v1-hardening/runs/f10-002-red-corrected-fixture; f10-006-green-final; f10-005-f08-f09-regression; f10-007-legacy-fixture-diagnostic; f10-008-legacy-fixture-repaired",
+      "design/local-memory-v1-hardening/runs/f10-audit-hashes.v1.py; f10-audit-child.v1.py; f10-audit-run.v1.py; f10-adversarial-cases.v1.py",
+      "artifacts/local-memory-v1-hardening/runs/f10-audit-focused-v1; f10-audit-regression-v1; f10-audit-legacy-v1; f10-audit-adversarial-v1",
+      "An additional separate-context source-only reviewer suggested two hypotheses; the auditor independently reproduced both. This is procedural separation, not independent empirical evidence by itself."
+    ]
+  },
+  "status": "revise",
+  "checks": [
+    {
+      "check_id": "F10-A01-CONTRACT-HASH",
+      "check_type": "evidence",
+      "target_ids": ["ROOT_BINDING", "SHEET_BINDING", "REGRESSION_STATUS"],
+      "verdict": "pass",
+      "severity": "info",
+      "reason": "The submitted artifact SHA-256 is exactly 0121d75f0d54126c8534507caa5e9d9b1af508627879756996a042daf7d6df77. All 14 source/result records match their artifact hashes. The current parser is b36632a6acfdcf11491495a18fd6becdf0ce683bbcb7a55f96ba0eaa23c74a94. Reversing only the recorded F10 parser diff in memory reconstructs db73270807c3e976fb51f38ff51cc6cd40dd7c0ef3c2d6954fc1f924acd8ab3d, matching the claimed pre-change source. No source rollback was written.",
+      "evidence_ids": ["PARSER", "TESTS", "LEGACY_TESTS", "EXECUTOR"],
+      "required_action": null
+    },
+    {
+      "check_id": "F10-A02-SAFE-REEXECUTION",
+      "check_type": "safety",
+      "target_ids": ["REGRESSION_STATUS", "LIMITS"],
+      "verdict": "pass",
+      "severity": "info",
+      "reason": "After reading suite setup, fixture generation and the bounded supervisor, the auditor reran the 17 new methods, 17 XML/JSON regression methods and the v2 wrapper's 2 original methods. Each fresh child had 30-second and 1048576-byte log limits plus HTTP, socket connect/connect_ex and subprocess.Popen guards. Integration fixtures suppress visual observations, substitute a synthetic processing fingerprint, disable password discovery and use null Paddle sessions. The full Layer1 class setup was bypassed by the existing v2 wrapper. Inputs were small synthetic TemporaryDirectory fixtures. No original documents, model, network, OCR, Keychain or GUI actions were executed. The supervisor is not claimed to be an OS sandbox.",
+      "evidence_ids": ["TESTS", "GENERIC_REGRESSION", "LEGACY_TESTS", "LEGACY_WRAPPER"],
+      "required_action": null
+    },
+    {
+      "check_id": "F10-A03-REGRESSIONS-AND-PRESERVED-FAILURES",
+      "check_type": "coverage",
+      "target_ids": ["COMPAT", "REGRESSION_STATUS", "E_COMPAT_TEST"],
+      "verdict": "pass",
+      "severity": "info",
+      "reason": "Fresh bounded results are f10-audit-focused-v1: 17 PASS, 0 skips, 0.288725 seconds; f10-audit-regression-v1: 17 PASS, 0 skips, 0.261070 seconds; f10-audit-legacy-v1: 2 PASS, 0 skips, 0.180106 seconds. Complete unittest footers and method names were inspected. Existing saved result/log hashes and byte counts also match, including the failed 14-method RED and the failed original 2-method fixture diagnostic. Those failures remain failures; only the separately corrected run is green. The current git diff of the original test file contains exactly the six-line root relationship fixture addition, with its assertions unchanged. Passing these suites does not override the two independent failures below.",
+      "evidence_ids": ["GREEN", "REGRESSION", "RED", "LEGACY_RED", "LEGACY_GREEN", "LEGACY_TESTS", "LEGACY_WRAPPER"],
+      "required_action": null
+    },
+    {
+      "check_id": "F10-A04-CANONICAL-BINDING-AND-ORDER",
+      "check_type": "dependency",
+      "target_ids": ["ROOT_BINDING", "SHEET_BINDING", "E_ROOT_SHEET", "COMPAT"],
+      "verdict": "pass",
+      "severity": "info",
+      "reason": "Source inspection and the fresh focused run confirm a required root officeDocument relationship, one direct canonical sheets list, qualified relationship attributes, unique explicit lexical identities/names/targets, worksheet Type and root checks, and no inferred sheetN.xml fallback. Valid tested workbook ordering, Japanese names, strict namespaces, hidden state, exact decimal lexemes and saved formula zero with not-recalculated metadata are preserved. This check covers those demonstrated cases only; URI-target rejection has the blocking counterexample below.",
+      "evidence_ids": ["PARSER", "TESTS"],
+      "required_action": null
+    },
+    {
+      "check_id": "F10-A05-URI-TARGET-LOOKALIKE",
+      "check_type": "dependency",
+      "target_ids": ["SHEET_BINDING", "E_ROOT_SHEET", "E_SHEET_CELL"],
+      "verdict": "fail",
+      "severity": "blocking",
+      "reason": "Independent synthetic test test_absolute_url_cannot_bind_even_if_zip_has_posix_lookalike fails because ValueError is not raised. A worksheet Relationship with Target=https://invalid.example/worksheet.xml and no TargetMode resolves to the ZIP member xl/https:/invalid.example/worksheet.xml when that member exists with a canonical worksheet root. _resolve_ooxml_target at parser lines 645-664 uses posixpath joining/normalization without excluding a URI scheme; _xlsx_sheet_context then accepts the crafted part. The permanent unsafe-URL test lacks the lookalike member and therefore tests absence rather than URI rejection. Reproduction is design/local-memory-v1-hardening/runs/f10-adversarial-cases.v1.py:20; bounded failure log is artifacts/local-memory-v1-hardening/runs/f10-audit-adversarial-v1/unittest.log, SHA-256 debe98aee7b3d02f1ea273ccb0896e39626163ec5d6a6388041481280c27c9da. No network request was made; the defect is forged source binding.",
+      "evidence_ids": ["PARSER", "TESTS"],
+      "required_action": "Reject non-package URI targets before POSIX member resolution, including a supplied absolute URI even when a matching lookalike ZIP member exists. Add a permanent regression with that member present, check no Evidence/Relation emission, preserve valid internal relative and absolute package targets, then rerun the scoped suites and submit a new hashed artifact."
+    },
+    {
+      "check_id": "F10-A06-LATE-SHEETDATA-ATOMICITY",
+      "check_type": "dependency",
+      "target_ids": ["CELL_PATH", "SHEET_BINDING", "E_SHEET_CELL", "E_BINDING_ROLLBACK"],
+      "verdict": "fail",
+      "severity": "blocking",
+      "reason": "Independent synthetic test test_late_missing_direct_sheet_data_leaves_no_reader_evidence raises the expected ValueError for a second canonical worksheet whose sheetData is nested inside extension, but then fails the permanent helper's reader.evidence == [] contract: two first-sheet Evidence records remain. _xlsx_sheet_context validates worksheet roots before projection, while direct sheetData validation at parser lines 4126-4130 occurs inside the emitting loop after earlier sheets have emitted records. The permanent direct-rejection helper explicitly requires empty Evidence/Relation sinks and already applies that contract to sheetData errors, but tests only a single invalid sheet. Probe.extract has no rollback in its finally block. The build process_file layer has a separate discard_uncommitted_records boundary, so this finding is about the direct Reader atomicity claim and does not allege persisted shard leakage. The second adversarial failure is in the same preserved 2-test log; there are zero skips/errors.",
+      "evidence_ids": ["PARSER", "TESTS", "BUILDER"],
+      "required_action": "Validate every referenced worksheet's required direct sheetData structure before emitting any workbook Evidence/Relation, or provide an equivalent direct-Reader transaction boundary. Add a multi-sheet permanent rejection test with a valid first sheet and a malformed later sheet, retain downstream failed-document rollback coverage, and rerun the audit without weakening the empty-sink assertion."
+    },
+    {
+      "check_id": "F10-A07-EXISTING-DOWNSTREAM-ROLLBACK",
+      "check_type": "evidence",
+      "target_ids": ["VALID_NEIGHBOR", "E_BINDING_ROLLBACK"],
+      "verdict": "pass",
+      "severity": "info",
+      "reason": "The focused integration method freshly passes through the real intermediate builder, both intermediate validators, search builder, both search validators and adapter. Its five covered rejected XLSX files publish failed Documents with zero Evidence/Relation/SearchUnit/adapter Evidence; the good workbook remains partial and the text neighbor successful. All seven synthetic source hashes remain unchanged. Source inspection confirms process_file discards uncommitted records on extraction exceptions. This does not establish rejection or rollback for the URI target that currently causes no exception, nor does it repair direct Reader leakage.",
+      "evidence_ids": ["TESTS", "BUILDER", "SEARCH", "ADAPTER"],
+      "required_action": null
+    },
+    {
+      "check_id": "F10-A08-CLAIM-BOUNDARY",
+      "check_type": "intent",
+      "target_ids": ["LIMITS", "E_LIMIT"],
+      "verdict": "pass",
+      "severity": "info",
+      "reason": "The decision is revise for this F10 binding repair only. Cell payload namespaces, sharedStrings/styles/defined names, full cell-coordinate/schema semantics, all OPC/OOXML formats, native openpyxl, large resources, real models, safe SQLite/index/answer, packaging and whole-product acceptance remain outside this audit. No test count is used as proof of universal support. The two concrete contract failures require repair before scoped acceptance.",
+      "evidence_ids": ["EXECUTOR", "PARSER", "TESTS"],
+      "required_action": null
+    }
+  ],
+  "summary": {
+    "blocking_failures": 2,
+    "unresolved_count": 0,
+    "next_action": "revise"
+  }
+}

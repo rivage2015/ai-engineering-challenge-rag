@@ -1,0 +1,72 @@
+test_all_mixed_candidates_held_does_not_replace_prior_config_or_index (f03a_root_app_tests.UnmarkedVersionApplicationTests.test_all_mixed_candidates_held_does_not_replace_prior_config_or_index) ... FAIL
+test_full_set_human_choice_can_publish_unmarked_member (f03a_root_app_tests.UnmarkedVersionApplicationTests.test_full_set_human_choice_can_publish_unmarked_member) ... FAIL
+test_unmarked_addition_invalidates_prior_bound_marked_choice (f03a_root_app_tests.UnmarkedVersionApplicationTests.test_unmarked_addition_invalidates_prior_bound_marked_choice) ... FAIL
+test_year_and_unmarked_hold_without_suppressing_unrelated_contact (f03a_root_app_tests.UnmarkedVersionApplicationTests.test_year_and_unmarked_hold_without_suppressing_unrelated_contact) ... FAIL
+
+======================================================================
+FAIL: test_all_mixed_candidates_held_does_not_replace_prior_config_or_index (f03a_root_app_tests.UnmarkedVersionApplicationTests.test_all_mixed_candidates_held_does_not_replace_prior_config_or_index)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/tests/test_unmarked_version_e2e.py", line 154, in test_all_mixed_candidates_held_does_not_replace_prior_config_or_index
+    with self.assertRaisesRegex(SystemExit, "ValueError:adaptive_reader_no_supported_files"):
+         ~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: SystemExit not raised
+
+======================================================================
+FAIL: test_full_set_human_choice_can_publish_unmarked_member (f03a_root_app_tests.UnmarkedVersionApplicationTests.test_full_set_human_choice_can_publish_unmarked_member)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/tests/test_unmarked_version_e2e.py", line 96, in test_full_set_human_choice_can_publish_unmarked_member
+    self.assert_held(graph, {"current/Guide.csv", "Guide.csv"}, "unmarked_candidate_requires_human_review")
+    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/tests/test_unmarked_version_e2e.py", line 61, in assert_held
+    self.assertEqual({"groups": 1, "resolved": 0, "needs_human_review": 1}, graph["counts"])
+    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: {'groups': 1, 'resolved': 0, 'needs_human_review': 1} != {'groups': 0, 'needs_human_review': 0, 'resolved': 0}
+- {'groups': 1, 'needs_human_review': 1, 'resolved': 0}
+?            ^                        ^
+
++ {'groups': 0, 'needs_human_review': 0, 'resolved': 0}
+?            ^                        ^
+
+
+======================================================================
+FAIL: test_unmarked_addition_invalidates_prior_bound_marked_choice (f03a_root_app_tests.UnmarkedVersionApplicationTests.test_unmarked_addition_invalidates_prior_bound_marked_choice)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/tests/test_unmarked_version_e2e.py", line 134, in test_unmarked_addition_invalidates_prior_bound_marked_choice
+    self.assert_held(held, {"Guide_ver1.csv", "Guide_ver2.csv", "Guide.csv"}, "stale_human_decision")
+    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/tests/test_unmarked_version_e2e.py", line 61, in assert_held
+    self.assertEqual({"groups": 1, "resolved": 0, "needs_human_review": 1}, graph["counts"])
+    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: {'groups': 1, 'resolved': 0, 'needs_human_review': 1} != {'groups': 1, 'needs_human_review': 0, 'resolved': 1}
+- {'groups': 1, 'needs_human_review': 1, 'resolved': 0}
+?                                     ^              ^
+
++ {'groups': 1, 'needs_human_review': 0, 'resolved': 1}
+?                                     ^              ^
+
+
+======================================================================
+FAIL: test_year_and_unmarked_hold_without_suppressing_unrelated_contact (f03a_root_app_tests.UnmarkedVersionApplicationTests.test_year_and_unmarked_hold_without_suppressing_unrelated_contact)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/tests/test_unmarked_version_e2e.py", line 80, in test_year_and_unmarked_hold_without_suppressing_unrelated_contact
+    self.assert_held(graph, {"手順2024.csv", "手順.csv"}, "unmarked_candidate_requires_human_review")
+    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/tests/test_unmarked_version_e2e.py", line 61, in assert_held
+    self.assertEqual({"groups": 1, "resolved": 0, "needs_human_review": 1}, graph["counts"])
+    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: {'groups': 1, 'resolved': 0, 'needs_human_review': 1} != {'groups': 0, 'needs_human_review': 0, 'resolved': 0}
+- {'groups': 1, 'needs_human_review': 1, 'resolved': 0}
+?            ^                        ^
+
++ {'groups': 0, 'needs_human_review': 0, 'resolved': 0}
+?            ^                        ^
+
+
+----------------------------------------------------------------------
+Ran 4 tests in 0.685s
+
+FAILED (failures=4)

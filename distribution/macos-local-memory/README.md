@@ -1,8 +1,8 @@
 # Local Memory Search macOS package
 
-> **開発マイルストーン:** Local visual Reader / OCR scheduling v0.6（Answer promotion v0.5を含む）
+> **開発マイルストーン:** Local Memory Search V1.00（Local visual Reader / OCR schedulingとAnswer promotionを含む）
 >
-> **配布状態:** app version 0.6 / unsigned DMG and ZIP regenerated locally
+> **配布状態:** app version 1.0 / build 8 / unsigned DMG and ZIP regenerated locally
 
 非技術者向けの未署名macOS試作パッケージです。GitHubの操作は不要です。
 
@@ -14,14 +14,14 @@
 
 生成物:
 
-- `deliverables/Local-Memory-Search-v0.6-macOS-unsigned.dmg`
-- `deliverables/Local-Memory-Search-v0.6-macOS-unsigned.zip`
-- `deliverables/Local-Memory-Search-v0.6-macOS-unsigned.sha256.txt`
+- `deliverables/Local-Memory-Search-v1.0-macOS-unsigned.dmg`
+- `deliverables/Local-Memory-Search-v1.0-macOS-unsigned.zip`
+- `deliverables/Local-Memory-Search-v1.0-macOS-unsigned.sha256.txt`
 
-app bundleの表示版は`0.6`、build番号は`6`です。checksumにはファイル名だけを記録し、ビルドしたMacのローカルパスを含めません。生成後は次でDMGとZIPをまとめて照合できます。
+app bundleの表示版は`1.0`、build番号は`8`です。checksumにはファイル名だけを記録し、ビルドしたMacのローカルパスを含めません。生成後は次でDMGとZIPをまとめて照合できます。
 
 ```bash
-(cd deliverables && /usr/bin/shasum -a 256 -c Local-Memory-Search-v0.6-macOS-unsigned.sha256.txt)
+(cd deliverables && /usr/bin/shasum -a 256 -c Local-Memory-Search-v1.0-macOS-unsigned.sha256.txt)
 ```
 
 DMGにはユーザーデータ、既存索引、回答ログ、モデル本体を含めません。PaddleOCRについても、workerと固定版ロック・モデル照合manifestのみを含み、Python仮想環境、wheel、cache、モデルバイナリは同梱しません。
@@ -30,7 +30,17 @@ DMGにはユーザーデータ、既存索引、回答ログ、モデル本体�
 
 索引再構築時、Path GraphのファイルNodeから、同じ資料ファミリの版候補とその関係を`document-version-graph.json`に作ります。ファイル名・フォルダ名の明示年と、`current`・`現行`・`下書き`・`旧版`等の明示マーカーを使います。作成日時と更新日時はEvidenceとして保持しますが、コピーで書き換わるため「最新である」という意味Edgeの根拠にはしません。
 
-一意の明示的な現行マーカーがある場合、または全候補に比較可能な年・バージョンがあり最大値が1候補の場合だけ`active`にします。マーカーと年の矛盾も自動解決しません。それ以外は候補全てを`needs_human_review`とし、Web画面で「どれを現在使う資料にするか」を1つ選ぶまで通常の回答索引へ入れません。人の選択は候補集合全体のSHA-256と選択ファイルのSHA-256に結び付くため、候補追加や内容変更後は自動で再確認に戻ります。`historical`の原本ファイルは削除せず、Path Graphと版グラフに残します。
+自動選択には明示的な現行マーカーや比較可能な版番号を使いますが、検出した矛盾や下書き・旧版の状態は保留します。年号の大小だけでは「改訂版」か「別年度の記録」か区別できないため、最大年だけを根拠に`active`を決めず、候補全てを`needs_human_review`にします。年の比較で保留した候補を、続けて版番号だけで自動選択することもしません。保留候補はWeb画面で「どれを現在使う資料にするか」を1つ選ぶまで通常の回答索引へ入れません。人の選択は候補集合全体のSHA-256と選択ファイルのSHA-256に結び付くため、候補追加や内容変更後は自動で再確認に戻ります。`historical`の原本ファイルは削除せず、Path Graphと版グラフに残します。現行マーカーが付いた別年度資料の扱い等には課題が残り、独立した年次資料を両方使うための確認・保持機能も未完成です。
+
+候補を集める範囲は、既存規則で年・版・状態等を除いたファイル名とフォルダ名、および同じ拡張子から作るファミリキーの一致に限定します。その組に明示印のある資料と無印の資料が混在したら、無印も候補集合に含め、現行マーカーだけで決めず全候補を確認待ちにします。再構築時に同じ組へ無印候補が追加された場合も、以前の人の選択は再確認になります。無印しかない組は版グループを作らず通常読取を続けますが、それは別資料であるという認定ではありません。拡張子変更や、キーが変わる改名・移動の関連付け、候補が1件以下になってグループが消えた場合の確認は未対応です。この変更は既存の公開索引を直接書き換えず、再構築で反映します。
+
+版判定器の`validate`は、呼出し側が指定したinventoryと、必要なら明示した`--decisions`から候補・選択・保留・Node/Edge・件数を再構築して照合します。人の選択を使ったグラフを検証する場合は、その選択ファイルも明示してください。グラフ内のパスを新しい読取先としてたどりません。これは指定された入力との一致確認であり、人の判断の真正性や資料の現在の鮮度を証明するものではありません。
+
+アプリは索引の世代ごとに、選択記録を`01-path/document-version-decisions.snapshot.json`へ固定します。版判定・Reader・検証・索引作成・世代登録は、その固定ファイルと取得時のSHA-256を明示的に使います。共有の選択記録が後から変わっても、保存済み世代の検証には当時の記録を使い、次の再構築で新しい選択を反映します。保存済み世代の期待値はCONFIGに登録した契約との一致を確認してから取得し、今のファイルを改めてhashした値をそのまま期待値にはしません。
+
+Readerと検証器は全inventoryから読むべき資料一覧を再構築し、順序・件数・除外理由も照合します。「保留資料が混入していない」だけでなく「読むべき資料が抜けていない」ことを確認します。版グラフを渡す汎用CLIでも`--version-authority-mode`が必要です。人の選択を使わない明示的な`no_decisions`と、固定記録のパス・hashを必要とする`snapshot`を区別し、アプリは後者を使います。旧世代に固定記録がなければ再構築が必要で、現在の共有記録を旧世代へ自動で補いません。
+
+選択記録の取得上限は既定1MiBです。アプリCONFIGの`max_decision_snapshot_bytes`で1〜67,108,864の整数へ変更できます（資料本文のサイズ上限とは別）。上限超過や不正な記録は明示的に失敗させ、古い判断の切捨て・記録の短縮はしません。これは安全な取得量を制限する設計値で、実際の利用者の記録量から推定した最大値ではありません。これらのV1改善はソース・合成試験で検証中であり、全ファイル形式・実モデル・配布版・同時更新の完全な保証ではありません。
 
 PaddleOCRを使うには、固定されたPython 3.12環境と照合済みモデルの一回限りの別途ローカル導入が必要です。導入されていない場合は、PaddleOCRは自動取得せず利用不可として停止します。導入後の推論はローカルで実行し、72依存のlock、2モデルのhash、CPU実行設定が一致しなければfail-closedに停止します。workerは暗黙のdownloadを持たず、macOSの`deny network` sandboxとPython socket guardの二重で推論中のIP通信を禁止します。
 
@@ -77,6 +87,7 @@ PaddleOCRを使うには、固定されたPython 3.12環境と照合済みモデ
 - 世代にbuild ID、owner PID、build lease版を持たせ、起動時に中断を判定する。復旧自体が排他leaseを取得できた現行版recordは、別processに再利用された古いPIDだけを根拠に「実行中」と誤認しない。lease版のない旧版recordは、PIDに加えてrecordの開始時刻と実processの開始時刻、zombie状態、実行commandを照合し、PID再利用で復旧が永続停止しないようにする。未公開の中断世代だけを整理して再実行へ案内し、公開済み世代はreadyに復旧する。
 - SQLite safe-answer index schema `0.3`は、検証済みの`graph_nodes`と`graph_edges`、Graph hash、安全partitionを埋め込みと同じ未公開DBへ書き、全検査成功後だけ`graph_status=validated_safe_partition`、`graph_retrieval_enabled=true`として原子的に公開する。prompt-library indexは`schema_only`のまま回答には使わない。
 - semantic validatorはSearchUnitとLayer 1 Evidenceから`derived_from`を独立再構築し、完全なfan-inだけを`semantic-lineage-relations.jsonl`へ昇格する。長文shardや未投影binaryを含むfan-inは理由付きで保留する。
+- `validate_adaptive_semantic_graph.py`の通常検証は既存lineageを読み取り専用で照合し、失敗しても削除・修復しない。初回の未公開世代だけ`--initialize-lineage`（Python APIは`initialize_lineage=True`）を明示し、既存ファイルがあれば上書きせず拒否する。未公開であることは呼出し側が保証し、保存済みPASSを今回の検証失敗の代わりに使わない。
 - native structural RelationはLayer 1の`parent_evidence_id`と`preceding_heading_evidence_id`から再構築し、IDだけでなくRelation全フィールドと集合の完全一致を要求する。呼び出し側が`structural`や許可済みproducer名を自己申告してもEvidence間Edgeに昇格できない。
 - ChartTable containmentは専用のsource-bound再構築contractができるまで`not_explicit`として保留する。producer名だけでverified Edgeにしない。
 - Content Security Gateのvalidatorは入力から分類と6成果物を独立再生成し、自己整合した偽の`safe-answer-evidence.jsonl`も拒否する。safe Graphは安全な枝だけを残し、1つでも除外sourceを含むlineage fan-inは全Edgeを原子的に保留する。
@@ -85,12 +96,13 @@ PaddleOCRを使うには、固定されたPython 3.12環境と照合済みモデ
 - 回答は `gemma4:12b`、別コンテキストの最終監査も `gemma4:12b`、埋め込みは `embeddinggemma:latest`。
 - 回数・合計質問は、ベクトル検索の前にQuestion Evidence Graphを作る。同じSQLite read snapshotの永続GraphをDocumentから`contains`順方向・`derived_from`逆方向へ実際に辿り、使用したNode hashとRelation IDを質問Graphへ固定する。その上で質問の対象、`SUM`範囲、各行、再集計値、保存値をNode/Edgeで結び、一致したEvidenceを回答実行者へ先頭挿入する。
 - 構造化レコード参照は、現在`owner / review_date / unit_cost / seats / budget`の5項目に限定する。質問に明記された項目、一意の対象行、必要なら`Approved / Final / Finalized`状態を確認し、項目ごとにrow・header・value Evidenceをverified explicit `derived_from`で結ぶ。各枝のEvidenceは対応する項目の検索先頭に限定して挿入する。
+- 「受付で一番最初にすべきお声がけ」のような順序付き発話照会は、`ordered_section_lookup`として処理する。質問のセクション名をsheet名に結び、明示的な`1.ご挨拶`行、直後のスクリプト列セルを順にQuestion Evidence Graphへ固定する。複数資料や複数値が競合する場合は推測せず`hold`とし、資格情報を含むセルは回答候補と検索候補から除外する。
 - 担当者の時点参照は、肯定形の「誰が担当していたか」という1項目質問に限定する。「N年前」を実行時のAsia/Tokyo基準日から日単位で決定し、`question -> time_point -> assignment_period -> record -> field -> value`のQuestion Evidence Graphを構築する。明記された業務名と同一行の担当開始日・担当終了日・担当者セルのlineageを必須とし、両端inclusiveで該当する1行だけを選ぶ。除外した候補期間も`falls_outside`としてGraphと監査に固定する。Excelの日付セルが生成する真夜中のISO datetimeは日付として受理する。期間情報を持つ担当表へ時点なしで質問した場合、期間欠落・重複・逆転、行座標や対象の未解決、担当者が式・未定・不明、未対応の時刻表現、否定・交代・前任・複数項目質問は`hold`にする。汎用の`Status`列は担当期間の有効性と決めつけず、時点判定は検証済み期間で行う。
 - 時点付き担当表の現アダプタは、Excel型の`sheet_name + row_index + cell`と検証済み行lineageが対象。座標のない配列・未定義ヘッダー、PDF/DOCX/CSVの表コンテナは推測回答せず`hold`とし、形式ごとのcontainer adapterが次の実装範囲。
 - 対象名そのものが`Final / Draft / 最終版 / 旧版`のような状態語1語だけの場合は、版指定と一意に区別できないため`hold`にする。
 - 構造化集計がない、範囲が欠ける、暫定読取を含む、保存値と再集計が違う、または複数候補が曖昧な回数質問は `hold`にし、通常検索へ逃がさない。
 - 構造化レコード参照で、質問要求の計画漏れ、未対応項目、状態や対象の曖昧性、必須lineage欠落、Graph枝の未使用がある場合も`hold`にし、通常検索へ逃がさない。
-- 回答と監査の間で、質問契約・主張グラフ・Evidence参照を決定論的に検証する。`aggregate_count / record_lookup`の最終文面は検証済み分岐から機械的に再構成し、別の回数・担当者・否定表現の追加を監査で拒否する。
+- 回答と監査の間で、質問契約・主張グラフ・Evidence参照を決定論的に検証する。`aggregate_count / record_lookup`の最終文面は検証済み分岐から機械的に再構成する。`ordered_section_lookup`は検証済みの見出し・順序・値Evidenceと主張値の一致を検査する。別の値や否定表現の追加は監査で拒否する。
 - 最終監査はQuestion Evidence Graphの選択・検証EvidenceをSQLiteから再読込し、保存Graph traversalを再構築する。集計では保存値と再集計値、レコード参照ではGraph枝とfield runの1対1、検索先頭挿入、回答値と枝の値の一致、値セルEvidenceの支持を機械検査する。別コンテキスト監査まで含む全ゲートがPASSした場合だけOrchestratorが回答をacceptする。
 - 監査完了後のログに、回答コンテキストと最終監査コンテキストの実行役割を別々に記録する。
 - WebとOllamaはloopbackに限定。HomebrewのCLI-only Ollamaも検出し、daemon停止時は専用ログ付きで`ollama serve`をloopback起動する。
@@ -147,4 +159,4 @@ trust manifestは同じ世代の保存用SQLite、storage state、元safe-answer
 
 `cross_document_semantic_graph_answer_promotion_enabled=false`にすると、次の質問から意味グラフ回答への昇格を停止し、従来の監査済み回答だけに戻ります。意味グラフの生成・保存・candidate・独立監査も含めて完全停止するには、それぞれの`cross_document_semantic_graph_*_enabled`も`false`にします。新規設定は昇格を`true`で作成します。既存設定に昇格keyがない場合は自動で有効化せず、画面の明示的な再構築案内から再構築した時点で`true`へ移行します。既存の明示的な`false`は再構築と中断復旧でも維持します。
 
-現在のソースとローカル生成済みDMG／ZIPは、app版`0.6`／build `6`です。Step 7・Step 8のsource変更を含みます。DMG内appはadhoc署名で、Apple Developer IDによる署名・公証は行っていません。macOS実機のlogin Keychainでの発行・復旧試験も未実施です。
+現在のソースとローカル生成済みDMG／ZIPは、app版`1.0`／build `7`です。V1.00の安全策とStep 7・Step 8のsource変更を含みます。DMG内appはadhoc署名で、Apple Developer IDによる署名・公証は行っていません。macOS実機のlogin Keychainでの発行・復旧試験も未実施です。

@@ -1,0 +1,173 @@
+--- design/local-memory-v1-hardening/runs/f11a-executor-before-search-schema.v1.json	2026-09-09 13:33:00
++++ schemas/search-unit.schema.json	2026-09-09 14:23:12
+@@ -78,6 +78,7 @@
+       "type": "object",
+       "additionalProperties": false,
+       "properties": {
++        "notebook_state": {"$ref": "#/$defs/notebookState"},
+         "heading_text": {"type": "string", "minLength": 1},
+         "container_kind": {
+           "enum": [
+@@ -141,6 +142,162 @@
+       }
+     }
+   },
++  "$defs": {
++    "notebookCount": {
++      "type": "object",
++      "oneOf": [
++        {
++          "additionalProperties": false,
++          "required": [
++            "present"
++          ],
++          "properties": {
++            "present": {
++              "const": false
++            }
++          }
++        },
++        {
++          "additionalProperties": false,
++          "required": [
++            "present",
++            "value"
++          ],
++          "properties": {
++            "present": {
++              "const": true
++            },
++            "value": {
++              "type": [
++                "integer",
++                "null"
++              ],
++              "minimum": 0
++            }
++          }
++        }
++      ]
++    },
++    "notebookState": {
++      "type": "object",
++      "additionalProperties": false,
++      "required": [
++        "version",
++        "cell_index",
++        "cell_type",
++        "content_origin",
++        "source_json_pointer",
++        "reader_execution",
++        "cell_execution_count"
++      ],
++      "properties": {
++        "version": {
++          "const": "1.0"
++        },
++        "cell_index": {
++          "type": "integer",
++          "minimum": 1
++        },
++        "cell_type": {
++          "enum": [
++            "code",
++            "markdown",
++            "raw"
++          ]
++        },
++        "content_origin": {
++          "enum": [
++            "cell_source",
++            "saved_output"
++          ]
++        },
++        "source_json_pointer": {
++          "type": "string"
++        },
++        "reader_execution": {
++          "const": "not_executed"
++        },
++        "cell_execution_count": {
++          "$ref": "#/$defs/notebookCount"
++        },
++        "output_index": {
++          "type": "integer",
++          "minimum": 1
++        },
++        "output_type": {
++          "enum": [
++            "stream",
++            "display_data",
++            "execute_result"
++          ]
++        },
++        "output_execution_count": {
++          "$ref": "#/$defs/notebookCount"
++        },
++        "output_freshness": {
++          "const": "unverified"
++        }
++      },
++      "allOf": [
++        {
++          "if": {
++            "properties": {
++              "content_origin": {
++                "const": "cell_source"
++              }
++            },
++            "required": [
++              "content_origin"
++            ]
++          },
++          "then": {
++            "properties": {
++              "source_json_pointer": {
++                "pattern": "^/cells/(0|[1-9][0-9]*)$"
++              }
++            },
++            "not": {
++              "anyOf": [
++                {
++                  "required": [
++                    "output_index"
++                  ]
++                },
++                {
++                  "required": [
++                    "output_type"
++                  ]
++                },
++                {
++                  "required": [
++                    "output_execution_count"
++                  ]
++                },
++                {
++                  "required": [
++                    "output_freshness"
++                  ]
++                }
++              ]
++            }
++          },
++          "else": {
++            "required": [
++              "output_index",
++              "output_type",
++              "output_execution_count",
++              "output_freshness"
++            ],
++            "properties": {
++              "source_json_pointer": {
++                "pattern": "^/cells/(0|[1-9][0-9]*)/outputs/(0|[1-9][0-9]*)$"
++              }
++            }
++          }
++        }
++      ]
++    }
++  },
+   "allOf": [
+     {
+       "if": {

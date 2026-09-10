@@ -1,0 +1,281 @@
+{
+  "schema_version": "1.0",
+  "task_id": "lms-v1-00-hardening-2026-09-09-f10",
+  "artifact_version": 3,
+  "task_contract": {
+    "requested": "Repair F10 XLSX standard-library fallback workbook/worksheet source binding, without inferred sheetN.xml fallback or forged sheet-to-cell mapping.",
+    "review_scope": "Scoped source-binding implementation acceptance only. Preserve valid workbook order/names/members, partial-state truth, atomic failure, and earlier XML/JSON repairs. No full XLSX or product acceptance. Re-audit the two mandatory v1 repairs only and their shared-helper compatibility impact; prior failures are preserved.",
+    "forbidden": [
+      "real personal sources",
+      "real model/network/OCR/Keychain calls",
+      "unrelated product edits by auditor",
+      "self-approval",
+      "silently treating fixture failures or skips as PASS"
+    ],
+    "max_repair_cycles": 2,
+    "role_separation": "same_model_separate_context",
+    "final_repair_policy": "Maximum two repair cycles reached. A remaining required audit defect must remain blocked, not relabeled into another repair loop."
+  },
+  "goal": "Require explicit source-bound package->workbook->direct sheet->worksheet links before extracting fallback cell Evidence; keep valid neighbors and auditable failures.",
+  "nodes": [
+    {
+      "id": "ROOT_BINDING",
+      "text": "Package root must bind exactly one internal officeDocument relationship to the expected workbook part.",
+      "basis": [
+        "PARSER",
+        "TESTS"
+      ]
+    },
+    {
+      "id": "SHEET_BINDING",
+      "text": "Explicit canonical worksheet fan-out is validated before Evidence, including package-only URI targets and every required direct sheetData container.",
+      "basis": [
+        "PARSER",
+        "TESTS"
+      ]
+    },
+    {
+      "id": "CELL_PATH",
+      "text": "Only direct canonical worksheet/sheetData/row/c cells are projected after all referenced data containers pass preflight; malformed later sheetData does not leave earlier workbook Evidence/Relation.",
+      "basis": [
+        "PARSER",
+        "TESTS"
+      ]
+    },
+    {
+      "id": "VALID_NEIGHBOR",
+      "text": "9-file real downstream test: 7 rejected XLSX sources have failed Document and zero Evidence/Relation/SearchUnit/adapter Evidence; good workbook/text neighbor survive and all source hashes stay unchanged.",
+      "basis": [
+        "BUILDER",
+        "SEARCH",
+        "ADAPTER",
+        "TESTS"
+      ]
+    },
+    {
+      "id": "COMPAT",
+      "text": "Valid order/strict namespace, exact numeric lexemes, saved formula zero/not-recalculated metadata and optional dependency fallback dispatch remain covered; fallback still partial.",
+      "basis": [
+        "TESTS",
+        "GREEN",
+        "LEGACY_TESTS",
+        "LEGACY_GREEN"
+      ]
+    },
+    {
+      "id": "REGRESSION_STATUS",
+      "text": "Final repair2: 23 permanent F10 + 17 XML/JSON + 2 isolated original XLSX + 2 unchanged earlier auditor + 3 unchanged terminal-dot auditor methods PASS, no skips/expected failures. Repair2 RED retains 23 methods/8 assertion-subtest failures; prior revise remains.",
+      "basis": [
+        "GREEN",
+        "REGRESSION",
+        "LEGACY_GREEN",
+        "COUNTEREXAMPLES_GREEN",
+        "DOT_GREEN",
+        "REPAIR_RED",
+        "PRIOR_AUDIT"
+      ]
+    },
+    {
+      "id": "LIMITS",
+      "text": "Remaining package/cell-feature parsing, native openpyxl, large resources, safe index/answer and whole product remain unverified; scoped test outcome must not be broadened.",
+      "basis": [
+        "EXECUTOR"
+      ]
+    },
+    {
+      "id": "URI_GUARD",
+      "text": "Shared whole-part resolver rejects prior non-package/unsafe URI forms and terminal '.'/'..' directory references before POSIX normalization. Tested valid nonterminal dot segments, package absolute/relative paths and exact literal escapes retain original cell values.",
+      "basis": [
+        "PARSER",
+        "TESTS",
+        "COUNTEREXAMPLES",
+        "DOT_COUNTEREXAMPLES"
+      ]
+    }
+  ],
+  "edges": [
+    {
+      "id": "E_ROOT_SHEET",
+      "source": "ROOT_BINDING",
+      "target": "SHEET_BINDING",
+      "relation": "anchors_workbook_fan_out",
+      "basis": [
+        "PARSER"
+      ]
+    },
+    {
+      "id": "E_SHEET_CELL",
+      "source": "SHEET_BINDING",
+      "target": "CELL_PATH",
+      "relation": "must_validate_before_projection",
+      "basis": [
+        "PARSER",
+        "TESTS"
+      ]
+    },
+    {
+      "id": "E_BINDING_ROLLBACK",
+      "source": "SHEET_BINDING",
+      "target": "VALID_NEIGHBOR",
+      "relation": "failed_source_must_not_publish_evidence",
+      "basis": [
+        "BUILDER",
+        "TESTS"
+      ]
+    },
+    {
+      "id": "E_COMPAT_TEST",
+      "source": "COMPAT",
+      "target": "REGRESSION_STATUS",
+      "relation": "requires_passing_scoped_regressions",
+      "basis": [
+        "GREEN",
+        "LEGACY_GREEN"
+      ]
+    },
+    {
+      "id": "E_LIMIT",
+      "source": "REGRESSION_STATUS",
+      "target": "LIMITS",
+      "relation": "does_not_establish_universal_support",
+      "basis": [
+        "EXECUTOR"
+      ]
+    },
+    {
+      "id": "E_URI_BINDING",
+      "source": "URI_GUARD",
+      "target": "SHEET_BINDING",
+      "relation": "must_reject_non_package_target_before_lookup",
+      "basis": [
+        "PARSER",
+        "TESTS"
+      ]
+    }
+  ],
+  "sources": [
+    {
+      "id": "PARSER",
+      "path": "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/scripts/probe_intermediate_records.py",
+      "sha256": "73b9ad531d4e184b47636f0a7558e07cc44688d1499ddd666b8dc58610f830f7"
+    },
+    {
+      "id": "TESTS",
+      "path": "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/tests/test_xlsx_fallback_binding_hardening.py",
+      "sha256": "7886789fe3038ec71e14ba0fd5f129ad3fe3d961e2dd286b67d42a14e45a1221"
+    },
+    {
+      "id": "LEGACY_TESTS",
+      "path": "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/tests/test_layer1_pipeline.py",
+      "sha256": "63619ca448d88352beca3ee8e4679b25f762b3a12298398603c33f03f9f7255e"
+    },
+    {
+      "id": "BUILDER",
+      "path": "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/scripts/build_intermediate_records.py",
+      "sha256": "7312ebdffc7221ef989195afd03bdbbe34f945582cb25b9020d64b19316bdabe"
+    },
+    {
+      "id": "SEARCH",
+      "path": "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/scripts/build_search_units.py",
+      "sha256": "a14ffa6f5c4b04fd63ed3b95ba8b6892ca5c11f1cee050b323861c009c6eaaa1"
+    },
+    {
+      "id": "ADAPTER",
+      "path": "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/scripts/adapt_layer1_to_local_memory.py",
+      "sha256": "0ef2f634966e9be671628889b82e13baf8b57d14a6b649d7ffaee981279f9214"
+    },
+    {
+      "id": "GENERIC_REGRESSION",
+      "path": "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/tests/test_generic_structured_reader_hardening.py",
+      "sha256": "d1aa3c26a729be1896cdea8998e60e4785c715fb26a69be46172fb5dd1facda2"
+    },
+    {
+      "id": "RED",
+      "path": "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/artifacts/local-memory-v1-hardening/runs/f10-002-red-corrected-fixture/result.json",
+      "sha256": "76d197a5bd87523e4a6bc5edb75b93bdbab7606bc9cb6d98393abb16cd1d74ba"
+    },
+    {
+      "id": "GREEN",
+      "path": "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/artifacts/local-memory-v1-hardening/runs/f10-015-repair2-green/result.json",
+      "sha256": "ee173e15b5fea6aebaef5d201a0288854b4da4bf38d15fa54a214fc5e1b8cd1f"
+    },
+    {
+      "id": "REGRESSION",
+      "path": "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/artifacts/local-memory-v1-hardening/runs/f10-016-repair2-f08-f09/result.json",
+      "sha256": "bf41c081e461037fb863756834f71c3d09ae88818b452a37d3a497db80fa36b1"
+    },
+    {
+      "id": "LEGACY_RED",
+      "path": "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/artifacts/local-memory-v1-hardening/runs/f10-007-legacy-fixture-diagnostic/result.json",
+      "sha256": "6dafb3c9c7683e7814265f020d739320556a4985da4af77578189381cfbedc6f"
+    },
+    {
+      "id": "LEGACY_GREEN",
+      "path": "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/artifacts/local-memory-v1-hardening/runs/f10-017-repair2-legacy/result.json",
+      "sha256": "405a37620084a7f93cce0bb7a84f8248afc2c6de7b19d9b494df92a1ee0d9029"
+    },
+    {
+      "id": "LEGACY_WRAPPER",
+      "path": "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/design/local-memory-v1-hardening/runs/f10-legacy-fixture-check.v2.py",
+      "sha256": "f136c2858c73dde790ad9c1fb985415c64bed198577886c39bfc8bbaf6893cc1"
+    },
+    {
+      "id": "EXECUTOR",
+      "path": "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/design/local-memory-v1-hardening/runs/f10-executor.v3.json",
+      "sha256": "c0dd214adf9d0d6d8a451faa702f5892c15d2e9a0057dd66878c41b7b5a8666e"
+    },
+    {
+      "id": "PRIOR_AUDIT",
+      "path": "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/design/local-memory-v1-hardening/runs/f10-audit-report.v2.json",
+      "sha256": "fbc1e76183b9b88767e6273aa739da57e0ca79fb7af88a54157cebdad5575947"
+    },
+    {
+      "id": "COUNTEREXAMPLES",
+      "path": "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/design/local-memory-v1-hardening/runs/f10-adversarial-cases.v1.py",
+      "sha256": "9842dfb62256d9fdfd902f75bc4a6c623b06105c3dff3346c2282f0dae0b67ec"
+    },
+    {
+      "id": "GUARD_CHILD",
+      "path": "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/design/local-memory-v1-hardening/runs/f10-audit-child.v1.py",
+      "sha256": "d9e27bb14a6b47a5ec686eac29378c9822407d5ad2c7bef2659ff7f20736e678"
+    },
+    {
+      "id": "REPAIR_RED",
+      "path": "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/artifacts/local-memory-v1-hardening/runs/f10-014-repair2-red/result.json",
+      "sha256": "ec18687c2577bbeb09c6e316156b4dc5d7081250ecd6634897b95d22606af9cf"
+    },
+    {
+      "id": "COUNTEREXAMPLES_GREEN",
+      "path": "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/artifacts/local-memory-v1-hardening/runs/f10-018-repair2-original-counterexamples/result.json",
+      "sha256": "5601e8211d24a4eaa02e095e820f8ee2da96194190661838f27b08c14e8279b8"
+    },
+    {
+      "id": "DOT_COUNTEREXAMPLES",
+      "path": "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/design/local-memory-v1-hardening/runs/f10-adversarial-dot-cases.v1.py",
+      "sha256": "90315824ca74f4300b4c4b000e6406b527ea4435512c939ebdfcf22f2ef12f25"
+    },
+    {
+      "id": "DOT_GUARD_CHILD",
+      "path": "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/design/local-memory-v1-hardening/runs/f10-audit-dot-child.v1.py",
+      "sha256": "674157bfbe42eb8880a8889fbb0dca63f575d7e8c6f0f880326bfff47a45c1c8"
+    },
+    {
+      "id": "DOT_GREEN",
+      "path": "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/artifacts/local-memory-v1-hardening/runs/f10-019-repair2-dot-counterexamples/result.json",
+      "sha256": "99e4003afabb4094f8538f970537dc4e43689488432e4ff14a98605c49e1aff1"
+    }
+  ],
+  "parser_patch_snapshot": "diff --git a/scripts/probe_intermediate_records.py b/scripts/probe_intermediate_records.py\nindex 899ab97..24beae9 100644\n--- a/scripts/probe_intermediate_records.py\n+++ b/scripts/probe_intermediate_records.py\n@@ -628,9 +643,34 @@ def _ooxml_relationship_source(member: str) -> str | None:\n \n \n def _resolve_ooxml_target(source_part: str, target: str) -> str | None:\n-    \"\"\"Resolve an internal OOXML relationship target without filesystem access.\"\"\"\n-    if not target or \"\\\\\" in target or \"\\x00\" in target:\n+    \"\"\"Resolve a supported internal whole-part URI without filesystem access.\n+\n+    A relationship target is a URI reference, not an arbitrary POSIX filename.\n+    Keep escapes literal for exact ZIP-member lookup; never unquote a target\n+    into URI syntax or path separators. This is not a full OPC URI validator.\n+    \"\"\"\n+    if (\n+        not target\n+        or re.search(r\"[\\x00-\\x20\\x7f\\\\?#]\", target)\n+        or \"//\" in target\n+        or target.endswith(\"/\")\n+        # URI terminal dot segments denote a directory, even though POSIX\n+        # normpath would erase that meaning and allow a file-part lookup.\n+        or target.rsplit(\"/\", 1)[-1] in {\".\", \"..\"}\n+        or (not target.startswith(\"/\") and \":\" in target.split(\"/\", 1)[0])\n+        or re.search(r\"%(?![0-9a-fA-F]{2})\", target)\n+    ):\n         return None\n+    # Encoded separators/controls and unreserved aliases are not supported\n+    # part names. In particular, encoded dots must not bypass path traversal\n+    # checks. Other escapes (e.g. %20, %23, %25) remain literal, not decoded.\n+    for escape in re.finditer(r\"%([0-9a-fA-F]{2})\", target):\n+        value = int(escape.group(1), 16)\n+        if (\n+            value < 0x20 or value == 0x7f\n+            or chr(value) in \"/\\\\ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~\"\n+        ):\n+            return None\n     if target.startswith(\"/\"):\n         candidate = target[1:]\n     else:\n@@ -3986,6 +4026,7 @@ class Probe:\n             source,\n             required_members=frozenset({\n                 \"[Content_Types].xml\",\n+                \"_rels/.rels\",\n                 \"xl/workbook.xml\",\n                 \"xl/_rels/workbook.xml.rels\",\n             }),\n@@ -4002,9 +4043,6 @@ class Probe:\n         def child(element: ElementTree.Element, local_name: str) -> ElementTree.Element | None:\n             return next((item for item in element if item.tag.endswith(\"}\" + local_name) or item.tag == local_name), None)\n \n-        def attr_by_local_name(element: ElementTree.Element, local_name: str) -> str | None:\n-            return next((value for key, value in element.attrib.items() if key == local_name or key.endswith(\"}\" + local_name)), None)\n-\n         def numeric(raw: str) -> Any:\n             # Python floats would round the OOXML decimal lexeme. Preserve\n             # decimal/scientific values verbatim; arbitrary-size integers are\n@@ -4054,8 +4092,51 @@ class Probe:\n             source.seek(0)\n         with zipfile.ZipFile(source) as archive:\n             names = set(archive.namelist())\n-            if \"xl/workbook.xml\" not in names:\n-                raise ValueError(\"XLSX package has no xl/workbook.xml\")\n+            # Attest the entire workbook -> worksheet fan-out before emitting\n+            # any Evidence. A guessed sheetN.xml is not a source relationship.\n+            relationships = _ooxml_relationships(archive)\n+            _require_ooxml_office_document_binding(\n+                archive, relationships, \"xl/workbook.xml\"\n+            )\n+            workbook_root = _ooxml_xml_root(\n+                archive, \"xl/workbook.xml\",\n+                namespaces=OOXML_SPREADSHEET_NAMESPACES,\n+                local_names={\"workbook\"},\n+            )\n+            sheet_lists = _direct_xml_children(\n+                workbook_root, OOXML_SPREADSHEET_NAMESPACES, \"sheets\"\n+            )\n+            if len(sheet_lists) != 1:\n+                raise ValueError(\"ooxml_sheet_list_invalid\")\n+            sheets = _direct_xml_children(\n+                sheet_lists[0], OOXML_SPREADSHEET_NAMESPACES, \"sheet\"\n+            )\n+            if not sheets or len(sheets) != len(sheet_lists[0]):\n+                raise ValueError(\"ooxml_sheet_list_invalid\")\n+            # This shared resolver checks the qualified relationship id,\n+            # relationship Type/mode, unique sheet id/name/target, and the\n+            # target's exact worksheet root. Its insertion order is workbook\n+            # order, independent of ZIP, relationship or member-name order.\n+            sheet_names, _drawing_sheets = _xlsx_sheet_context(archive, relationships)\n+            sheet_parts = {name: member for member, name in sheet_names.items()}\n+\n+            def worksheet_with_data(member: str) -> tuple[ElementTree.Element, ElementTree.Element]:\n+                sheet_root = _ooxml_xml_root(\n+                    archive, member, namespaces=OOXML_SPREADSHEET_NAMESPACES,\n+                    local_names={\"worksheet\"},\n+                )\n+                data_parts = _direct_xml_children(\n+                    sheet_root, OOXML_SPREADSHEET_NAMESPACES, \"sheetData\"\n+                )\n+                if len(data_parts) != 1:\n+                    raise ValueError(\"ooxml_worksheet_data_invalid\")\n+                return sheet_root, data_parts[0]\n+\n+            # Validate all referenced data containers before the first sheet\n+            # can emit Evidence/Relation. Do not retain every worksheet tree\n+            # at once: projection still reads one part at a time below.\n+            for member in sheet_names:\n+                worksheet_with_data(member)\n \n             shared: list[str] = []\n             if \"xl/sharedStrings.xml\" in names:\n@@ -4078,38 +4159,18 @@ class Probe:\n                     if item.tag.endswith(\"}cellXfs\") or item.tag == \"cellXfs\":\n                         cell_formats = [dict(node.attrib) for node in item if node.tag.endswith(\"}xf\") or node.tag == \"xf\"]\n \n-            relationships: dict[str, str] = {}\n-            rels_name = \"xl/_rels/workbook.xml.rels\"\n-            if rels_name in names:\n-                rels_root = ElementTree.fromstring(archive.read(rels_name))\n-                for relation in rels_root:\n-                    identifier = relation.attrib.get(\"Id\")\n-                    target = relation.attrib.get(\"Target\")\n-                    if not identifier or not target or relation.attrib.get(\"TargetMode\") == \"External\":\n-                        continue\n-                    member = posixpath.normpath(\n-                        target.lstrip(\"/\") if target.startswith(\"/\")\n-                        else posixpath.join(\"xl\", target)\n-                    )\n-                    if member.startswith(\"xl/\") and \"..\" not in PurePosixPath(member).parts:\n-                        relationships[identifier] = member\n-\n-            workbook_root = ElementTree.fromstring(archive.read(\"xl/workbook.xml\"))\n-            sheets = [\n-                item for item in workbook_root.iter()\n-                if item.tag.endswith(\"}sheet\") or item.tag == \"sheet\"\n-            ]\n             for sheet_index, sheet in enumerate(sheets, 1):\n-                title = sheet.attrib.get(\"name\") or f\"Sheet{sheet_index}\"\n-                relation_id = attr_by_local_name(sheet, \"id\")\n-                member = relationships.get(relation_id or \"\", f\"xl/worksheets/sheet{sheet_index}.xml\")\n-                if member not in names:\n-                    self.mark_partial(doc, f\"worksheet OOXML part unavailable for sheet index {sheet_index}\")\n-                    continue\n-                sheet_root = ElementTree.fromstring(archive.read(member))\n+                title = sheet.attrib[\"name\"]\n+                member = sheet_parts[title]\n+                sheet_root, sheet_data = worksheet_with_data(member)\n                 cells = [\n-                    item for item in sheet_root.iter()\n-                    if item.tag.endswith(\"}c\") or item.tag == \"c\"\n+                    cell\n+                    for row in _direct_xml_children(\n+                        sheet_data, OOXML_SPREADSHEET_NAMESPACES, \"row\"\n+                    )\n+                    for cell in _direct_xml_children(\n+                        row, OOXML_SPREADSHEET_NAMESPACES, \"c\"\n+                    )\n                 ]\n                 row_numbers: list[int] = []\n                 column_numbers: list[int] = []\n",
+  "unverified_points": [
+    "Full XLSX/OPC/schema correctness is not claimed; cell payload/sharedStrings/styles/defined names keep existing boundaries.",
+    "No safe SQLite/answer/package build/UI/model/full class setup tested in this subtask.",
+    "A fallback rejects chartsheet/non-worksheet bindings rather than guessing another member.",
+    "URI resolver is a supported whole-part subset, not all OPC/IRI percent/case/Unicode equivalence or query/fragment semantics.",
+    "One added preflight parse pass keeps one worksheet tree at a time; large performance acceptance not measured.",
+    "Binding/sheetData empty-sink contract does not claim direct Reader rollback for unrelated later cell/style/media errors.",
+    "Maximum repair round reached; final independent required failure would block scoped F10 acceptance. No further relabeled repair loop is authorized."
+  ],
+  "proposed_output": "Formal final scoped F10 re-audit and mechanical validation for repair2 of max2. If any required defect remains, retain blocked rather than self-approve or relabel.",
+  "audit_repair_round": 2,
+  "repair_response": "Final allowed repair2: F10-V2-A05 terminal '.'/'..' path segments reject before POSIX normalization. One guard line and two comments only in product code. Permanent package-root/worksheet existing-member rejection and positive nonterminal-dot controls added. All unchanged earlier and terminal-dot auditor cases freshly pass."
+}

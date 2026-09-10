@@ -1,0 +1,25 @@
+{
+  "schema_version": "1.0",
+  "status": "failed",
+  "command": [
+    "/opt/homebrew/opt/python@3.14/bin/python3.14",
+    "-I",
+    "-B",
+    "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/tests/test_unmarked_version_candidates.py"
+  ],
+  "cwd": "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ",
+  "started_at": "2026-09-08T23:26:44.722067+00:00",
+  "timeout_seconds": 30,
+  "max_log_bytes": 1048576,
+  "repository_import_root": "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ",
+  "safety_scope": "preflight-approved synthetic tests; not an OS sandbox",
+  "exit_code": 1,
+  "elapsed_seconds": 0.061602,
+  "tests_reported": 19,
+  "skipped_reported": 0,
+  "expected_failures_reported": 0,
+  "log_path": "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/design/local-memory-v1-hardening/runs/f03a-executor-green-pure-001/unittest.log",
+  "log_bytes": 4222,
+  "log_sha256": "afa02caa5be824ae97c5a2c064b55de66c1d0faac22007ea03f1422e6b590025",
+  "finished_at": "2026-09-08T23:26:44.783887+00:00"
+}

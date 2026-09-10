@@ -1,0 +1,7 @@
+test_false_candidate_metadata_does_not_change_ids_or_trigger_source_check (f11a_binding_observer.F11BindingGapObservations) ... ok
+test_missing_state_is_currently_accepted_with_source_root (f11a_binding_observer.F11BindingGapObservations) ... ok
+
+----------------------------------------------------------------------
+Ran 2 tests in 0.122s
+
+OK

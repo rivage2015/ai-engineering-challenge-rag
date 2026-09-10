@@ -1,0 +1,184 @@
+{
+  "schema_version": "1.0",
+  "task_id": "lms-v1-00-hardening-2026-09-09-f02a",
+  "checked_at_utc": "2026-09-08T22:00:09.786706+00:00",
+  "status": "pass_local_f02a",
+  "audit_repair_round": 0,
+  "artifact_sha256": "ea9a5c9616ef181fa8c75c5fd383ca536deabd4514c2b9e78c3d9d8d542f9ff8",
+  "report_sha256": "be1de10a05a63313d95003cd229a7d8dd37ae75a440143170f1141fa31053954",
+  "draft_2020_12_schema": {
+    "path": "/Users/takashifukutomi/.codex/skills/graph-engineering-agentic-audit/assets/agentic-audit-report.schema.json",
+    "sha256": "2fd79cfbc8ab474c162d9b4ff7d8f05998d8646ae3f402d0da6b921c2a53877c",
+    "result": "pass"
+  },
+  "parent_validator_sha256": "9164468b3ac2c6cbde4839b598c70f88d8515257814c33822b53f99c0d0829a7",
+  "helper_hashes": {
+    "design/local-memory-v1-hardening/runs/f18-parent-validation.v1.py": "1a3ffa143792dd4eeb262f0bd7d27aea65cec6e8350ed84b697cfaba6598d963",
+    "design/local-memory-v1-hardening/runs/f18-audit-integrity.v1.py": "ed13ff27e65d73a6152f6bc3000df0e68b91b168b650344500122466a7bd1dd6"
+  },
+  "checks": {
+    "task_artifact_binding": "pass",
+    "all_52_current_sources_and_auditor_formal_snapshots": "pass",
+    "all_graph_and_report_references": "pass",
+    "status_summary": "pass",
+    "three_product_test_deltas_and_readme_baseline": "pass",
+    "all_13_logs_and_terminal_footers": "pass",
+    "additional_18_auditor_artifacts_and_counts": "pass",
+    "protected_user_hashes": "pass"
+  },
+  "isolated_deltas": [
+    {
+      "source": "RESOLVER",
+      "before_sha256": "f42db568267befe8a041d036242795599544ba6a46236866a643b91d4f93811b",
+      "after_sha256": "9a7443862c015ed768007ef5a7b21bd3bc197c9bb7a3d7ed2f7b39b33374359d",
+      "exact_inverse_matches": true
+    },
+    {
+      "source": "RESOLVER_TEST",
+      "before_sha256": "b42fa5abafe2175ca29b26efe9a10d2626aca2d2321087f4bc798961fdf7116c",
+      "after_sha256": "b7c323f48f10488ef2dc245dacc265ad0dd5b77ea37e50b9e4b32504bda7b293",
+      "exact_inverse_matches": true
+    },
+    {
+      "source": "E2E_TEST",
+      "before_sha256": "03d5dc06b47548c09a8f38348a5cbd0c8f29efbdd1a4565083ea6b660f8db771",
+      "after_sha256": "41540a858d17f8abb322c15353032ec4dd3099eac4e767090f7b9dbabfbcf64a",
+      "exact_inverse_matches": true
+    }
+  ],
+  "additional_audit_sources": [
+    {
+      "path": "design/local-memory-v1-hardening/runs/f02a-audit-before.v1.json",
+      "sha256": "dd531c27081abe4aa048f13edb5a4b25350f5bcb76bf7e8064d81dc3c2e2f50a"
+    },
+    {
+      "path": "design/local-memory-v1-hardening/runs/f02a-audit-after.v1.json",
+      "sha256": "af36ea746d5c1763e9085e09e6af18eed1dc8d92f645fcac7d1fcace5fcd4dcc"
+    },
+    {
+      "path": "design/local-memory-v1-hardening/runs/f02a-audit-artifact-before.v1.json",
+      "sha256": "311009ebdced1247e30f248ed070904dad1f9f24ddc2476dd7ef3b6454757351"
+    },
+    {
+      "path": "design/local-memory-v1-hardening/runs/f02a-audit-artifact-after.v1.json",
+      "sha256": "92926b885ffce9b070f71ddfe23a7b68cc8a89f796a31821a48dac8463577f15"
+    },
+    {
+      "path": "design/local-memory-v1-hardening/runs/f02a-audit-replay.v1.py",
+      "sha256": "a8407ce54ab0077a9e709315c2a15951f9280c5e9b0597400a5305483a919368"
+    },
+    {
+      "path": "design/local-memory-v1-hardening/runs/f02a-audit-evidence.v1.json",
+      "sha256": "04a480884f66d0b79817adb9a89fdda9450fd7b726274d64f96396c575e7285b"
+    },
+    {
+      "path": "design/local-memory-v1-hardening/runs/f02a-implementation-manifest.v1.json",
+      "sha256": "2959a5051fa45db9fe094fe3ca1ce288293c4ffa63b2f1fa928ce7c1de8039a3"
+    }
+  ],
+  "logs": [
+    {
+      "path": "design/local-memory-v1-hardening/runs/f02a-red-001/result.json",
+      "result_sha256": "48a97398206956552fe5ac00db7405d9694fa22418c8cff5f3a7c8bfd9ec5b03",
+      "log_sha256": "9b01a46b4b24b5dbb60a213e012f682b5c99acc3faf632ec7245a61626b2ec82",
+      "status": "failed",
+      "methods": 11
+    },
+    {
+      "path": "design/local-memory-v1-hardening/runs/f02a-green-e2e-001/result.json",
+      "result_sha256": "a68ea5ed0e58f565a880ca92a5552b02c17db007cdeadf73dfd489982e97cdbf",
+      "log_sha256": "950c7b4cd77ded3ac9362f81bc963690980b9091294858ffb7139d6a3a8f17c6",
+      "status": "failed",
+      "methods": 17
+    },
+    {
+      "path": "design/local-memory-v1-hardening/runs/f02a-green-pure-001/result.json",
+      "result_sha256": "225a75e24ed24cb267bfce57f1f1cdf2193cb1d2a72f773306ffd5a432d9fc7b",
+      "log_sha256": "b2974789ebb8ac01827cceaf328a979b65000061b70bf78a4fdb332ba033c8a9",
+      "status": "passed",
+      "methods": 11
+    },
+    {
+      "path": "design/local-memory-v1-hardening/runs/f02a-green-resolver-001/result.json",
+      "result_sha256": "1e019c20c4b1df495777fbb688998cf07902f564f0e0bc7cc2531dba8e302ca8",
+      "log_sha256": "4c212951f4c253eb7ad38befa7f6ce71af4e293f993d75705d0887667e7149bd",
+      "status": "passed",
+      "methods": 20
+    },
+    {
+      "path": "design/local-memory-v1-hardening/runs/f02a-green-e2e-002/result.json",
+      "result_sha256": "3001c397c828fe464b41909dea8cca5e4ea041b486c12b90ac8df8e83c029e65",
+      "log_sha256": "0fe43c335b76663b7465f930cc7d8d952c2f3d560d8cb799ed2a4668090fd157",
+      "status": "passed",
+      "methods": 17
+    },
+    {
+      "path": "design/local-memory-v1-hardening/runs/f02a-parent-001-focused/result.json",
+      "result_sha256": "884a782b1a56d39531de090ad64b8dad776eddca54c5658dd09c9c0475453ba1",
+      "log_sha256": "65f273dcc1f0cf415857085c7a67f42fa3ca6e056c490e5ff5c5f56cff25af4b",
+      "status": "passed",
+      "methods": 13
+    },
+    {
+      "path": "design/local-memory-v1-hardening/runs/f02a-parent-002-migration/result.json",
+      "result_sha256": "930d8ca9ec091f9c7ddec102cb3aff9d1e44974a51039deb46aa5260e81305e7",
+      "log_sha256": "63b1f0fc8bbff68b76ad842af66f64c022602f394ebcf2e580fb1f3d8f1c42b6",
+      "status": "passed",
+      "methods": 7
+    },
+    {
+      "path": "design/local-memory-v1-hardening/runs/f02a-parent-003-lineage/result.json",
+      "result_sha256": "a8306b82890ee832d1c1bf77c76f640619b75d722606e8ac716ee8f425035cc6",
+      "log_sha256": "0d8a3a335b18f603c639d1212b8433d09130da2a91f9c0b24ce05dd2b864e32f",
+      "status": "passed",
+      "methods": 8
+    },
+    {
+      "path": "design/local-memory-v1-hardening/runs/f02a-parent-004-security/result.json",
+      "result_sha256": "784c9451a6175390d8f189701ede2902b503131fb167d0d7bad663e4d4aac411",
+      "log_sha256": "e622fea7399641df7eef2f68d120833cd5aadbfc4a52f8443ffff27c5fae35f8",
+      "status": "passed",
+      "methods": 1
+    },
+    {
+      "path": "design/local-memory-v1-hardening/runs/f02a-audit-replay-001-pure/result.json",
+      "result_sha256": "a2396ec48cae49980d9e163b1b84909d8a7f2fb3abd0d9312f5de8d9e409a66d",
+      "log_sha256": "b2974789ebb8ac01827cceaf328a979b65000061b70bf78a4fdb332ba033c8a9",
+      "status": "passed",
+      "methods": 11
+    },
+    {
+      "path": "design/local-memory-v1-hardening/runs/f02a-audit-replay-002-resolver/result.json",
+      "result_sha256": "eb4a45cd5f8ce3bdef745a7a656a26baf7cde452ef8ce571f4505a1188eb368f",
+      "log_sha256": "ff53d5ef8d6f41096c67a1cad5bb93dda48e1a04357fee6b4d25a862154f4af4",
+      "status": "passed",
+      "methods": 20
+    },
+    {
+      "path": "design/local-memory-v1-hardening/runs/f02a-audit-replay-003-e2e/result.json",
+      "result_sha256": "e9b7c4d8b27e0018f66113e22620f7d395b7d1d25cc1fb53db4c5959f7eaa7ba",
+      "log_sha256": "8a86089cf62c7d2235b4134fab72a14ef1095cfa5d87edf8467797f3dedb78fc",
+      "status": "passed",
+      "methods": 17
+    },
+    {
+      "path": "design/local-memory-v1-hardening/runs/f02a-audit-holdouts-001/result.json",
+      "result_sha256": "17a2063b8b5f475c24e3b02ac6994b10e5328801548614ed12f3c9237cf39705",
+      "log_sha256": "7e5e5a076b49824dd7159603fde3eed733f410d7d9e1b6fdf3f44cf668efeabd",
+      "status": "passed",
+      "methods": 15
+    }
+  ],
+  "auditor_python314_methods": {
+    "executions": 63,
+    "acceptance_or_control": 60,
+    "residual_witness_not_acceptance": 3
+  },
+  "root_collateral": "13 focused + 7 migration + 8 lineage (Python3.14), 1 native XLSX security (Python3.9 only; not full application compatibility).",
+  "limits": "F02a final-year-branch hold only. Structural/hash verification does not prove semantic truth. Independent annual retention, current/multitoken signals, candidate discovery, independent partition, review publication and temporal freshness remain open. Old CONFIG/index preservation is not source freshness attestation. No whole-product/format/model/GUI/package/resource acceptance or commit/push.",
+  "ruby_skill_validator": {
+    "exit_code": 0,
+    "output": "VALID: audit report is structurally and referentially consistent",
+    "command": "ruby /Users/takashifukutomi/.codex/skills/graph-engineering-agentic-audit/scripts/validate_audit_report.rb --artifact design/local-memory-v1-hardening/runs/f02a-graph-artifact.v1.json --report design/local-memory-v1-hardening/runs/f02a-audit-report.v1.json"
+  }
+}

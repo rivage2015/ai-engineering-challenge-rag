@@ -1,0 +1,8 @@
+test_discovery_never_inspects_root (__main__.PasswordSafetyTests.test_discovery_never_inspects_root) ... ok
+test_non_zip_never_tries_batch_secrets (__main__.PasswordSafetyTests.test_non_zip_never_tries_batch_secrets) ... ok
+test_plain_zip_still_uses_original_path (__main__.PasswordSafetyTests.test_plain_zip_still_uses_original_path) ... ok
+
+----------------------------------------------------------------------
+Ran 3 tests in 0.000s
+
+OK

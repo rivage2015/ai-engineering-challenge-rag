@@ -1,0 +1,32 @@
+{
+  "schema_version": "1.0",
+  "task_id": "lms-v1-00-hardening-2026-09-09-f04a",
+  "validated_at_utc": "2026-09-08 20:38:00 UTC",
+  "artifact": "f04a-graph-artifact.v1.json",
+  "report": "f04a-audit-report.v1.json",
+  "actual_artifact_sha256": "9b20f4ca8a9d10b5a587b2b7537acefb37556e9b336be9453aeec5c4a7266b56",
+  "actual_report_sha256": "989e882a4f33c0b042f61e598f7e865b368debab88ad7f92f3fd38e7fc89077d",
+  "ruby_structural_referential_validator": "PASS",
+  "draft202012_schema_task_hash": "PASS",
+  "artifact_edge_endpoints": "PASS",
+  "all_eleven_current_artifact_source_hashes": "PASS",
+  "thirteen_current_shared_and_audit_source_hashes": "PASS",
+  "before_after_identity_comparison": "PASS",
+  "three_producer_and_three_auditor_log_hashes_and_auditor_result_records": "PASS",
+  "audit_status": "pass",
+  "repair_round": 0,
+  "independence_level": "same_model_separate_context",
+  "independent_execution": {
+    "interpreter": "Python 3.14.6",
+    "resolver_reader_methods": 17,
+    "stubbed_application_wiring_methods": 15,
+    "independent_acceptance_methods": 7,
+    "remaining_gap_witness_methods": 1,
+    "skips": 0,
+    "expected_failures": 0
+  },
+  "scope": "Unique current candidate and a peer each carrying one explicit numeric version: a greater peer holds the entire family for human review. Existing human choice and stale-choice precedence are retained.",
+  "remaining_gap": "The eighth independent method confirms that current multiple-version-token names may still resolve automatically; it is a gap witness, not acceptance of that behavior. F04 overall remains open.",
+  "limits": "No complete F02/F03/F04/F05/F06/F19, answer freshness, real-model/OCR, all-format, package or Python 3.9 application acceptance. Deterministic schema/hash checks are not semantic correctness proof.",
+  "next_action": "Accept only F04a and release its source freeze. Continue the saved H2 annual/revision and candidate/HITL contracts. Preserve failed runs, existing source documents, production indexes and user edits. No commit, push or release performed."
+}

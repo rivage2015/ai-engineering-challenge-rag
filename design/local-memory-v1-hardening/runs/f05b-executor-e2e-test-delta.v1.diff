@@ -1,0 +1,96 @@
+--- distribution/macos-local-memory/tests/test_versioned_safe_index_e2e.py
++++ distribution/macos-local-memory/tests/test_versioned_safe_index_e2e.py
+@@ -243,10 +243,11 @@
+         graph = paths / "document-version-graph.json"
+         self.run_cli([sys.executable, str(ENGINE / "build_path_graph.py"), str(self.source), "--output-dir", str(paths)])
+         if versioned:
+-            self.run_cli([sys.executable, str(ENGINE / "document_version_resolver.py"), "build", "--inventory", str(inventory), "--output", str(graph)])
++            snapshot = self.bootstrap.capture_decision_snapshot(paths, self.bootstrap.DEFAULT_DECISION_SNAPSHOT_BYTES)
++            self.run_cli([sys.executable, str(ENGINE / "document_version_resolver.py"), "build", "--inventory", str(inventory), "--output", str(graph), "--decisions", snapshot["path"]])
+         reader_args = ["--source-root", str(self.source), "--inventory", str(inventory), "--output-dir", str(semantic)]
+         if versioned:
+-            reader_args += ["--version-graph", str(graph)]
++            reader_args += ["--version-graph", str(graph), *self.bootstrap._snapshot_flags(snapshot)]
+         self.run_cli([sys.executable, str(ENGINE / "build_adaptive_semantic_graph.py"), *reader_args])
+         self.run_cli([sys.executable, str(ENGINE / "validate_adaptive_semantic_graph.py"), "--initialize-lineage", *reader_args])
+         security.mkdir()
+@@ -258,6 +259,8 @@
+                 "--security-state", str(security / "content-security-state.json"),
+                 "--source-root", str(self.source), "--source-inventory", str(inventory),
+                 "--index-purpose", "safe_answer", "--output", str(output)]
++        if versioned:
++            args += self.bootstrap._snapshot_flags(snapshot)
+         return args, output, semantic, graph
+ 
+     def test_legacy_unversioned_reader_remains_explicitly_supported(self):
+@@ -268,13 +271,13 @@
+             paths = {row[0] for row in connection.execute("SELECT relative_path FROM evidence")}
+         self.assertIsNone(binding)
+         self.assertEqual(paths, {"業務内容_ver1.csv", "業務内容_ver2.csv", "連絡先.txt"})
+-        contract = self.bootstrap._reader_generation_contract_body(semantic)
++        contract = self.bootstrap._reader_generation_contract_body(semantic, legacy_unversioned=True)
+         self.assertNotIn("document_version_graph", contract["generation_artifacts"])
+ 
+     def test_versioned_reader_omission_never_replaces_existing_index(self):
+         args, output, _semantic, _graph = self.unpublished_reader()
+         output.write_bytes(b"prior-index-sentinel")
+-        with self.assertRaisesRegex(ValueError, "unexpected_document_version_graph"):
++        with self.assertRaisesRegex(ValueError, "unexpected_version_decision_authority"):
+             self.run_cli(args)
+         self.assertEqual(output.read_bytes(), b"prior-index-sentinel")
+ 
+@@ -286,7 +289,7 @@
+         core = {key: item for key, item in value.items() if key != "graph_sha256"}
+         value["graph_sha256"] = self.bootstrap._canonical_json_sha256(core)
+         self.bootstrap.atomic_json(wrong_graph, value)
+-        with self.assertRaisesRegex(ValueError, "document_version_graph_hash_mismatch"):
++        with self.assertRaisesRegex(ValueError, "document_version_attestation_failed"):
+             self.run_cli([*args, "--version-graph", str(wrong_graph)])
+         self.assertFalse(output.exists())
+ 
+@@ -303,7 +306,7 @@
+         graph = Path(config["path_graph_path"]) / "document-version-graph.json"
+         graph.write_text(graph.read_text(encoding="utf-8") + " ", encoding="utf-8")
+         status = self.bootstrap.reader_generation_contract_status(config)
+-        self.assertEqual(status["reason_code"], "reader_contract_version_graph_hash_mismatch")
++        self.assertEqual(status["reason_code"], "reader_contract_version_attestation_failed")
+ 
+     def test_post_attestation_state_swap_cannot_change_published_binding(self):
+         """A transient producer-state swap must not become trusted metadata."""
+@@ -314,6 +317,7 @@
+         spoof = {
+             "path": "/synthetic-unvalidated-version.json",
+             "sha256": "0" * 64, "graph_sha256": "1" * 64,
++            "decision_authority": {"mode": "snapshot", "path": "/synthetic-unvalidated-snapshot.json", "sha256": "2" * 64, "byte_count": 37},
+         }
+ 
+         def swap_after_validation(model, texts, timeout):
+@@ -356,7 +360,7 @@
+         with self.assertRaisesRegex(ValueError, "graph_lineage_validation_context_required"):
+             builder._attest_lineage_context([], [], [], {**context, "trust_me": True})
+         with self.assertRaisesRegex(ValueError, "graph_lineage_validation_context_invalid"):
+-            builder._attest_lineage_context([], [], [], {**context, "version_graph": None})
++            builder._attest_lineage_context([], [], [], {**context, "version_graph": None, "version_authority_mode": "no_decisions"})
+ 
+     def test_lineage_context_requires_explicit_version_attestation_result(self):
+         builder = self.module(ENGINE / "build_local_semantic_index.py")
+@@ -370,8 +374,8 @@
+         args, output, _semantic, graph = self.unpublished_reader(versioned=False)
+         inventory = graph.parent / "path-source-inventory.jsonl"
+         self.run_cli([sys.executable, str(ENGINE / "document_version_resolver.py"), "build", "--inventory", str(inventory), "--output", str(graph)])
+-        with self.assertRaisesRegex(ValueError, "document_version_graph_binding_missing"):
+-            self.run_cli([*args, "--version-graph", str(graph)])
++        with self.assertRaisesRegex(ValueError, "document_version_graph_binding_mismatch"):
++            self.run_cli([*args, "--version-graph", str(graph), "--version-authority-mode", "no_decisions"])
+         self.assertFalse(output.exists())
+ 
+     def test_resolver_code_change_invalidates_reader_registration(self):
+@@ -428,7 +432,7 @@
+                 command = command[:position] + command[position + 2:]
+             return self.run_cli(command, log)
+         with mock.patch.object(self.bootstrap, "run", side_effect=omit_binding):
+-            with self.assertRaisesRegex(ValueError, "unexpected_document_version_graph"):
++            with self.assertRaisesRegex(ValueError, "unexpected_version_decision_authority"):
+                 self.bootstrap.build_index()
+         self.assertEqual(self.bootstrap.CONFIG.read_bytes(), config_before)
+         self.assertEqual(hashlib.sha256(index.read_bytes()).hexdigest(), index_before)

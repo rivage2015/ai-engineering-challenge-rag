@@ -1,0 +1,90 @@
+{
+  "task_id": "lms-v1-f11a-notebook-metadata-2026-09-09",
+  "status": "mechanical_text_comparison_only_not_audit_acceptance",
+  "checks": [
+    {
+      "path": "scripts/probe_intermediate_records.py",
+      "before": "design/local-memory-v1-hardening/runs/f11a-image-repair-before-probe.v1.py",
+      "after": "design/local-memory-v1-hardening/runs/f11a-image-repair-after-probe.v1.py",
+      "delta": "design/local-memory-v1-hardening/runs/f11a-image-repair-probe-delta.v1.diff",
+      "forward_exact": true,
+      "inverse_exact": true,
+      "after_bytes_exact": true
+    },
+    {
+      "path": "scripts/build_search_units.py",
+      "before": "design/local-memory-v1-hardening/runs/f11a-image-repair-before-search-builder.v1.py",
+      "after": "design/local-memory-v1-hardening/runs/f11a-image-repair-after-search-builder.v1.py",
+      "delta": "design/local-memory-v1-hardening/runs/f11a-image-repair-search-builder-delta.v1.diff",
+      "forward_exact": true,
+      "inverse_exact": true,
+      "after_bytes_exact": true
+    },
+    {
+      "path": "scripts/validate_search_units.py",
+      "before": "design/local-memory-v1-hardening/runs/f11a-image-repair-before-search-native.v1.py",
+      "after": "design/local-memory-v1-hardening/runs/f11a-image-repair-after-search-native.v1.py",
+      "delta": "design/local-memory-v1-hardening/runs/f11a-image-repair-search-native-delta.v1.diff",
+      "forward_exact": true,
+      "inverse_exact": true,
+      "after_bytes_exact": true
+    },
+    {
+      "path": "scripts/validate_search_units_streaming.py",
+      "before": "design/local-memory-v1-hardening/runs/f11a-image-repair-before-search-stream.v1.py",
+      "after": "design/local-memory-v1-hardening/runs/f11a-image-repair-after-search-stream.v1.py",
+      "delta": "design/local-memory-v1-hardening/runs/f11a-image-repair-search-stream-delta.v1.diff",
+      "forward_exact": true,
+      "inverse_exact": true,
+      "after_bytes_exact": true
+    },
+    {
+      "path": "scripts/validate_intermediate_records.py",
+      "before": "design/local-memory-v1-hardening/runs/f11a-image-repair-before-intermediate-native.v1.py",
+      "after": "design/local-memory-v1-hardening/runs/f11a-image-repair-after-intermediate-native.v1.py",
+      "delta": "design/local-memory-v1-hardening/runs/f11a-image-repair-intermediate-native-delta.v1.diff",
+      "forward_exact": true,
+      "inverse_exact": true,
+      "after_bytes_exact": true
+    },
+    {
+      "path": "scripts/validate_intermediate_records_streaming.py",
+      "before": "design/local-memory-v1-hardening/runs/f11a-image-repair-before-intermediate-stream.v1.py",
+      "after": "design/local-memory-v1-hardening/runs/f11a-image-repair-after-intermediate-stream.v1.py",
+      "delta": "design/local-memory-v1-hardening/runs/f11a-image-repair-intermediate-stream-delta.v1.diff",
+      "forward_exact": true,
+      "inverse_exact": true,
+      "after_bytes_exact": true
+    }
+  ],
+  "origin_helper_text_identical_to_search_before": true,
+  "origin_suffix_mapping_text_identical": true,
+  "shared_sha256_pattern_same_literal": true,
+  "search_keeps_import_alias": true,
+  "versions": [
+    {
+      "path": "scripts/probe_intermediate_records.py",
+      "version_and_notebook_resource_lines_unchanged": true
+    },
+    {
+      "path": "scripts/build_search_units.py",
+      "version_and_notebook_resource_lines_unchanged": true
+    },
+    {
+      "path": "scripts/validate_search_units.py",
+      "version_and_notebook_resource_lines_unchanged": true
+    },
+    {
+      "path": "scripts/validate_search_units_streaming.py",
+      "version_and_notebook_resource_lines_unchanged": true
+    },
+    {
+      "path": "scripts/validate_intermediate_records.py",
+      "version_and_notebook_resource_lines_unchanged": true
+    },
+    {
+      "path": "scripts/validate_intermediate_records_streaming.py",
+      "version_and_notebook_resource_lines_unchanged": true
+    }
+  ]
+}

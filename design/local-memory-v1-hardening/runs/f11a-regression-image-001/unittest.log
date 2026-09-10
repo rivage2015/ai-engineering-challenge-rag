@@ -1,0 +1,123 @@
+test_producer_visual_text_keeps_provisional_pipeline_and_metadata_scope (f11a_regression_gold.NotebookVisualBoundaryGold) ... ERROR
+test_native_output_cannot_opt_out_using_visual_labels_or_parent (f11a_regression_gold.NotebookVisualBoundaryGold) ... FAIL
+test_visual_state_parent_and_origin_forgery_remain_rejected (f11a_regression_gold.NotebookVisualBoundaryGold) ... FAIL
+F05b explicit fixture budget: {"explicit_test_bytes": 43047, "explicit_test_writes": 15, "max_source_fixture_bytes": 392, "source_fixture_count": 3}
+
+======================================================================
+ERROR: test_producer_visual_text_keeps_provisional_pipeline_and_metadata_scope (f11a_regression_gold.NotebookVisualBoundaryGold)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/design/local-memory-v1-hardening/runs/f11a-image-regression-gold.v1.py", line 183, in test_producer_visual_text_keeps_provisional_pipeline_and_metadata_scope
+    self._assert_pipeline(probe, source, expected_kind="notebook_embedded_image",
+  File "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/tests/test_local_embedded_visual_pipeline.py", line 420, in _assert_pipeline
+    search_units.build(intermediate, search_output, 500)
+  File "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/scripts/build_search_units.py", line 963, in build
+    deriver.consume(evidence)
+  File "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/scripts/build_search_units.py", line 818, in consume
+    notebook_evidence_state(evidence)
+  File "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/scripts/probe_intermediate_records.py", line 2751, in notebook_evidence_state
+    raise ValueError("notebook_rebuild_required: textual Evidence lacks notebook_state")
+ValueError: notebook_rebuild_required: textual Evidence lacks notebook_state
+
+======================================================================
+ERROR: test_native_output_cannot_opt_out_using_visual_labels_or_parent (f11a_regression_gold.NotebookVisualBoundaryGold) (path='native')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/design/local-memory-v1-hardening/runs/f11a-image-regression-gold.v1.py", line 132, in _check_partial_reports
+    self.assertEqual(function(intermediate, self.source_root, **options), expected)
+  File "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/scripts/validate_intermediate_records.py", line 573, in validate_report
+    raise ValueError("validation failed:\n- " + "\n- ".join(errors))
+ValueError: validation failed:
+- doc_89c41044a4f09523c03171f3553e7404: notebook_rebuild_required: textual Evidence lacks notebook_state
+
+======================================================================
+ERROR: test_native_output_cannot_opt_out_using_visual_labels_or_parent (f11a_regression_gold.NotebookVisualBoundaryGold) (path='schema_stream')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/design/local-memory-v1-hardening/runs/f11a-image-regression-gold.v1.py", line 132, in _check_partial_reports
+    self.assertEqual(function(intermediate, self.source_root, **options), expected)
+  File "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/scripts/validate_intermediate_records_streaming.py", line 640, in validate_report
+    raise ValueError("validation failed:\n- " + "\n- ".join(preview) + suffix)
+ValueError: validation failed:
+- doc_89c41044a4f09523c03171f3553e7404: notebook_rebuild_required: textual Evidence lacks notebook_state
+
+======================================================================
+ERROR: test_native_output_cannot_opt_out_using_visual_labels_or_parent (f11a_regression_gold.NotebookVisualBoundaryGold) (path='structural_stream')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/design/local-memory-v1-hardening/runs/f11a-image-regression-gold.v1.py", line 132, in _check_partial_reports
+    self.assertEqual(function(intermediate, self.source_root, **options), expected)
+  File "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/scripts/validate_intermediate_records_streaming.py", line 640, in validate_report
+    raise ValueError("validation failed:\n- " + "\n- ".join(preview) + suffix)
+ValueError: validation failed:
+- doc_89c41044a4f09523c03171f3553e7404: notebook_rebuild_required: textual Evidence lacks notebook_state
+
+======================================================================
+ERROR: test_visual_state_parent_and_origin_forgery_remain_rejected (f11a_regression_gold.NotebookVisualBoundaryGold) (path='native')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/design/local-memory-v1-hardening/runs/f11a-image-regression-gold.v1.py", line 132, in _check_partial_reports
+    self.assertEqual(function(intermediate, self.source_root, **options), expected)
+  File "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/scripts/validate_intermediate_records.py", line 573, in validate_report
+    raise ValueError("validation failed:\n- " + "\n- ".join(errors))
+ValueError: validation failed:
+- doc_dff796a3bc40773c382026a2bc8eaf6d: notebook_rebuild_required: textual Evidence lacks notebook_state
+
+======================================================================
+ERROR: test_visual_state_parent_and_origin_forgery_remain_rejected (f11a_regression_gold.NotebookVisualBoundaryGold) (path='schema_stream')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/design/local-memory-v1-hardening/runs/f11a-image-regression-gold.v1.py", line 132, in _check_partial_reports
+    self.assertEqual(function(intermediate, self.source_root, **options), expected)
+  File "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/scripts/validate_intermediate_records_streaming.py", line 640, in validate_report
+    raise ValueError("validation failed:\n- " + "\n- ".join(preview) + suffix)
+ValueError: validation failed:
+- doc_dff796a3bc40773c382026a2bc8eaf6d: notebook_rebuild_required: textual Evidence lacks notebook_state
+
+======================================================================
+ERROR: test_visual_state_parent_and_origin_forgery_remain_rejected (f11a_regression_gold.NotebookVisualBoundaryGold) (path='structural_stream')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/design/local-memory-v1-hardening/runs/f11a-image-regression-gold.v1.py", line 132, in _check_partial_reports
+    self.assertEqual(function(intermediate, self.source_root, **options), expected)
+  File "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/scripts/validate_intermediate_records_streaming.py", line 640, in validate_report
+    raise ValueError("validation failed:\n- " + "\n- ".join(preview) + suffix)
+ValueError: validation failed:
+- doc_dff796a3bc40773c382026a2bc8eaf6d: notebook_rebuild_required: textual Evidence lacks notebook_state
+
+======================================================================
+FAIL: test_native_output_cannot_opt_out_using_visual_labels_or_parent (f11a_regression_gold.NotebookVisualBoundaryGold)
+----------------------------------------------------------------------
+ValueError: validation failed:
+- doc_89c41044a4f09523c03171f3553e7404: notebook_rebuild_required: textual Evidence lacks notebook_state
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/design/local-memory-v1-hardening/runs/f11a-image-regression-gold.v1.py", line 203, in test_native_output_cannot_opt_out_using_visual_labels_or_parent
+    self._check_partial_reports(baseline, native_count=2)
+  File "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/design/local-memory-v1-hardening/runs/f11a-image-regression-gold.v1.py", line 139, in _check_partial_reports
+    function(intermediate, self.source_root, **options)
+AssertionError: "notebook_metadata_binding_unverified" does not match "validation failed:
+- doc_89c41044a4f09523c03171f3553e7404: notebook_rebuild_required: textual Evidence lacks notebook_state"
+
+======================================================================
+FAIL: test_visual_state_parent_and_origin_forgery_remain_rejected (f11a_regression_gold.NotebookVisualBoundaryGold)
+----------------------------------------------------------------------
+ValueError: validation failed:
+- doc_dff796a3bc40773c382026a2bc8eaf6d: notebook_rebuild_required: textual Evidence lacks notebook_state
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/design/local-memory-v1-hardening/runs/f11a-image-regression-gold.v1.py", line 231, in test_visual_state_parent_and_origin_forgery_remain_rejected
+    self._check_partial_reports(baseline, native_count=1)
+  File "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/design/local-memory-v1-hardening/runs/f11a-image-regression-gold.v1.py", line 139, in _check_partial_reports
+    function(intermediate, self.source_root, **options)
+AssertionError: "notebook_metadata_binding_unverified" does not match "validation failed:
+- doc_dff796a3bc40773c382026a2bc8eaf6d: notebook_rebuild_required: textual Evidence lacks notebook_state"
+
+----------------------------------------------------------------------
+Ran 3 tests in 0.130s
+
+FAILED (failures=2, errors=7)

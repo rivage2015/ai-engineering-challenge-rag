@@ -1,0 +1,406 @@
+{
+  "schema_version": "1.0",
+  "audit_id": "f05a-independent-audit-v2-round0",
+  "task_id": "lms-v1-00-hardening-2026-09-09-f05a",
+  "artifact_hash": "7b7414f3e58a62b6eb34fc71534da11eec51c1dd58c316326ba03e9ab436bf61",
+  "auditor_context": {
+    "independence_level": "same_model_separate_context",
+    "source_scope": [
+      "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/design/local-memory-v1-hardening/runs/f05a-graph-artifact.v1.json",
+      "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/design/local-memory-v1-hardening/runs/f05a-task-contract.v1.md",
+      "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/design/local-memory-v1-hardening/runs/f05a-contract-addendum-001.v1.md",
+      "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/distribution/macos-local-memory/engine/document_version_resolver.py",
+      "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/tests/test_version_graph_reconstruction.py",
+      "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/distribution/macos-local-memory/tests/test_document_version_resolver.py",
+      "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/distribution/macos-local-memory/app/bootstrap.py",
+      "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/tests/test_version_graph_validation_e2e.py",
+      "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/distribution/macos-local-memory/README.md",
+      "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/design/local-memory-v1-hardening/runs/f05a-parent-validation.v1.py",
+      "/Users/takashifukutomi/.codex/skills/codex-graph-engineering-adapter/SKILL.md",
+      "/Users/takashifukutomi/.codex/skills/graph-engineering-agentic-audit/SKILL.md",
+      "/Users/takashifukutomi/.codex/skills/graph-engineering-agentic-audit/references/agentic-audit.md",
+      "/Users/takashifukutomi/.codex/skills/graph-engineering-agentic-audit/assets/agentic-audit-report.schema.json",
+      "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/design/local-memory-v1-hardening/runs/f05a-audit-evidence-build.v1.py",
+      "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/design/local-memory-v1-hardening/runs/f05a-audit-run.v1.py",
+      "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/design/local-memory-v1-hardening/runs/f05a-audit-holdouts.v1.py",
+      "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/design/local-memory-v1-hardening/runs/f05a-audit-sources-before.v1.json",
+      "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/design/local-memory-v1-hardening/runs/f05a-audit-sources-after.v1.json",
+      "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/design/local-memory-v1-hardening/runs/f05a-audit-integrity.v1.json",
+      "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/design/local-memory-v1-hardening/runs/f05a-audit-local-validation.v2.json",
+      "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/design/local-memory-v1-hardening/runs/f05a-audit-evidence.v2.json",
+      "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/design/local-memory-v1-hardening/runs/f05a-audit-pure-001/result.json",
+      "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/design/local-memory-v1-hardening/runs/f05a-audit-resolver-001/result.json",
+      "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/design/local-memory-v1-hardening/runs/f05a-audit-app-001/result.json",
+      "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/design/local-memory-v1-hardening/runs/f05a-audit-e2e-001/result.json",
+      "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/design/local-memory-v1-hardening/runs/f05a-audit-unmarked-001/result.json",
+      "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/design/local-memory-v1-hardening/runs/f05a-audit-unmarked-pure-001/result.json",
+      "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/design/local-memory-v1-hardening/runs/f05a-audit-year-001/result.json",
+      "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/design/local-memory-v1-hardening/runs/f05a-audit-holdout-001/result.json",
+      "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/design/local-memory-v1-hardening/runs/f05a-audit-report.v1.json",
+      "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/design/local-memory-v1-hardening/runs/f05a-audit-evidence.v1.json",
+      "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/design/local-memory-v1-hardening/runs/f05a-audit-metadata-correction.v1.json",
+      "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/design/local-memory-v1-hardening/runs/f05a-audit-evidence-metadata-correction.v1.py"
+    ]
+  },
+  "status": "pass",
+  "checks": [
+    {
+      "check_id": "F05A_INTENT",
+      "check_type": "intent",
+      "target_ids": [
+        "N_LIMITS",
+        "E_GATE_LIMITS"
+      ],
+      "verdict": "pass",
+      "severity": "warning",
+      "reason": "The contract and addendum authorize only explicit-input standalone reconstruction plus bootstrap's immediate pre-Reader gate. This scoped pass is not full F05, V1, release, Reader/projector post-gate closure, immutable historical decision generations, or current-source attestation. Root must independently validate this report before scope acceptance.",
+      "evidence_ids": [
+        "CONTRACT",
+        "ADDENDUM",
+        "README"
+      ],
+      "required_action": null
+    },
+    {
+      "check_id": "F05A_AUTHORITY",
+      "check_type": "node",
+      "target_ids": [
+        "N_INPUTS",
+        "E_INPUTS_REBUILD"
+      ],
+      "verdict": "pass",
+      "severity": "info",
+      "reason": "Validation authority comes only from caller graph/inventory/optional decision byte snapshots. No explicit or missing optional decision input is empty with no digest; a recorded decision digest requires matching explicit input. Present malformed, denied or directory input fails. Stored source path strings are validated diagnostic metadata, never followed/resolved/statted. Pure25 and independent canary/denied-IO/missing-authority holdouts confirm the boundary.",
+      "evidence_ids": [
+        "CONTRACT",
+        "RESOLVER",
+        "PURE_TEST"
+      ],
+      "required_action": null
+    },
+    {
+      "check_id": "F05A_SNAPSHOT",
+      "check_type": "dependency",
+      "target_ids": [
+        "N_INPUTS",
+        "E_INPUTS_REBUILD"
+      ],
+      "verdict": "pass",
+      "severity": "info",
+      "reason": "Source inspection and independent instrumentation confirm one read_bytes call per present explicit input, with both parsing and digest derived from those captured bytes; loaders and secondary hash APIs are forbidden in the tests. A controlled inventory change immediately after its single read passes for the captured matching snapshot and fails on the next validation against changed bytes, correctly distinguishing snapshot equality from freshness or an absence-of-races guarantee.",
+      "evidence_ids": [
+        "RESOLVER",
+        "PURE_TEST",
+        "CONTRACT"
+      ],
+      "required_action": null
+    },
+    {
+      "check_id": "F05A_STRICT_JSON",
+      "check_type": "safety",
+      "target_ids": [
+        "N_INPUTS",
+        "N_REBUILD"
+      ],
+      "verdict": "pass",
+      "severity": "info",
+      "reason": "Strict parsing rejects malformed UTF-8/JSON and required shapes, nested duplicate object keys, duplicate inventory paths and decision group IDs before collapse, NaN/Infinity and floating-point overflow. Independent cases also put duplicates/nonfinite values in otherwise unused metadata and duplicated ineligible paths/unused decision IDs. Normal invalid-input/file errors return FAIL while AssertionError guards propagate. Valid U+2028 filenames and LF/CRLF/CR inventories preserve existing text-reader semantics; this is not full inventory-schema or arbitrary resource-limit certification.",
+      "evidence_ids": [
+        "RESOLVER",
+        "PURE_TEST",
+        "CONTRACT"
+      ],
+      "required_action": null
+    },
+    {
+      "check_id": "F05A_MEMBERSHIP",
+      "check_type": "node",
+      "target_ids": [
+        "N_REBUILD",
+        "E_INPUTS_REBUILD"
+      ],
+      "verdict": "pass",
+      "severity": "info",
+      "reason": "Expected candidates and complete families are rebuilt from explicit inventory via the unchanged eligibility, family key, at-least-two/one-signal and resolve_group rules, not submitted groups. Empty/partial/extra/duplicate/reassigned output and fabricated activation are rejected after attacker resealing. Independent two-family tests remove an entire resolved family with coherent counts/nodes/edges and still fail; genuine held and numeric-selected families pass beforehand.",
+      "evidence_ids": [
+        "RESOLVER",
+        "PURE_TEST",
+        "EXEC_FILE_11",
+        "EXEC_FILE_13"
+      ],
+      "required_action": null
+    },
+    {
+      "check_id": "F05A_FULL_OUTPUT",
+      "check_type": "calculation",
+      "target_ids": [
+        "N_REBUILD"
+      ],
+      "verdict": "pass",
+      "severity": "info",
+      "reason": "Canonical JSON comparison covers complete groups/candidates, nodes, edges, policy, identity and counts; self hash, explicit inventory/decision digests, exact top-level/source fields and metadata types are checked. created_at is only a nonempty string, not a regenerated oracle. Independent list reversal, candidate size/time int-to-float, version int-to-bool and count int-to-float attacks fail. Existing candidate-set hash intentionally excludes size_bytes, but full candidate comparison includes it.",
+      "evidence_ids": [
+        "RESOLVER",
+        "PURE_TEST",
+        "RESOLVER_TEST"
+      ],
+      "required_action": null
+    },
+    {
+      "check_id": "F05A_HUMAN_CONTROLS",
+      "check_type": "edge",
+      "target_ids": [
+        "N_CONTROLS",
+        "E_INPUTS_CONTROLS"
+      ],
+      "verdict": "pass",
+      "severity": "info",
+      "reason": "Explicit matching decisions preserve legitimate Human selection of either member and existing stale full-set precedence; missing/wrong/deleted authority and fabricated Human or stale outcomes fail. Pure25, resolver20, unmarked app4 and independent explicit-Human/canary tests pass. This authenticates correspondence to bytes, not the actor, UI review, lease/revision, or human values.",
+      "evidence_ids": [
+        "RESOLVER",
+        "PURE_TEST",
+        "RESOLVER_TEST",
+        "UNMARKED_APP_TEST",
+        "CONTRACT"
+      ],
+      "required_action": null
+    },
+    {
+      "check_id": "F05A_READ_ONLY",
+      "check_type": "safety",
+      "target_ids": [
+        "N_INPUTS",
+        "N_REBUILD"
+      ],
+      "verdict": "pass",
+      "severity": "info",
+      "reason": "The validator calls neither build, atomic_json nor record_decision and has no source-document access or write path. Pure tests and independent holdouts forbid those APIs and legacy loaders/hash rereads, check input bytes unchanged, and forbid path open/read_text/stat/lstat/exists/resolve while a valid explicit snapshot succeeds. These scoped guards are not a universal filesystem isolation proof.",
+      "evidence_ids": [
+        "RESOLVER",
+        "PURE_TEST",
+        "GUARD",
+        "CONTRACT"
+      ],
+      "required_action": null
+    },
+    {
+      "check_id": "F05A_APPLICATION_GATE",
+      "check_type": "causality",
+      "target_ids": [
+        "N_GATE",
+        "E_REBUILD_GATE"
+      ],
+      "verdict": "pass",
+      "severity": "info",
+      "reason": "Bootstrap's single-line integration supplies the same configured decisions path as its preceding build. Four independently rerun actual bootstrap command-path attacks (empty graph, fabricated active choice, absent-source candidate, changed explicit decisions) reject at the immediate validator before Reader/model/projector/review replacement; prepared prior CONFIG/index/review/source bytes remain unchanged. Historical root RED has four assertion failures at the isolated gate, not downstream-error substitution.",
+      "evidence_ids": [
+        "BOOTSTRAP",
+        "APP_TEST",
+        "ROOT_GOLD",
+        "RUN_06",
+        "LOG_06",
+        "RUN_07",
+        "ROOT_DELTAS"
+      ],
+      "required_action": null
+    },
+    {
+      "check_id": "F05A_REGRESSION",
+      "check_type": "coverage",
+      "target_ids": [
+        "N_CONTROLS",
+        "N_GATE"
+      ],
+      "verdict": "pass",
+      "severity": "info",
+      "reason": "Fresh independent required runs are pure25, resolver20, app4, normalE2E17, unmarkedApp4, unmarkedPure19 and year11, all passed without skips/expected failures; the last two contain three explicit residual witnesses. Eleven independent holdouts also pass. Total 111 methods is 108 acceptance/control/regression plus 3 residual witnesses, not 111 accepted behaviors. Normal synthetic query/final-audit and legitimate Human app controls remain successful.",
+      "evidence_ids": [
+        "PURE_TEST",
+        "RESOLVER_TEST",
+        "APP_TEST",
+        "E2E_TEST",
+        "UNMARKED_APP_TEST",
+        "UNMARKED_TEST",
+        "YEAR_TEST"
+      ],
+      "required_action": null
+    },
+    {
+      "check_id": "F05A_GOLD_INTEGRITY",
+      "check_type": "evidence",
+      "target_ids": [
+        "N_REBUILD",
+        "N_CONTROLS"
+      ],
+      "verdict": "pass",
+      "severity": "info",
+      "reason": "Exact bidirectional additive diff and independent AST checks retain all original23 pure methods unchanged and add only CLI missing-input and overflowing-float tests; final25 is byte-identical to frozen gold v2. Before-code semantic RED contains 8 methods/26 assertion failures/0 errors, including omitted members and fabricated choice. Pre-audit review full25 retains its 2 overflow assertion failures and 2 CLI FileNotFoundError errors; these are not mislabeled as the original semantic RED. Final25/resolver20 successes are separately retained and rerun.",
+      "evidence_ids": [
+        "EXEC_FILE_06",
+        "EXEC_FILE_11",
+        "EXEC_FILE_13",
+        "EXEC_FILE_15",
+        "EXEC_FILE_18",
+        "EXEC_FILE_20",
+        "EXEC_FILE_22",
+        "EXEC_FILE_33",
+        "EXEC_FILE_35",
+        "EXECUTOR_SUMMARY"
+      ],
+      "required_action": null
+    },
+    {
+      "check_id": "F05A_DELTA_SCOPE",
+      "check_type": "evidence",
+      "target_ids": [
+        "N_REBUILD",
+        "N_GATE",
+        "N_CONTROLS"
+      ],
+      "verdict": "pass",
+      "severity": "info",
+      "reason": "Independent in-memory forward/reverse application verifies all six captured deltas against exact before/after bytes or recorded before hashes. Every old resolver function except build/validate/main has identical AST; build becomes AST-identical after inlining the unchanged policy dictionary. Existing resolver and unmarked tests change only 0.1.3 to 0.1.4 assertions, bootstrap adds only explicit --decisions, and README adds the bounded validation explanation. No unrelated semantic policy or gold weakening is indicated by these scoped deltas.",
+      "evidence_ids": [
+        "RESOLVER",
+        "EXEC_FILE_14",
+        "EXEC_FILE_16",
+        "RESOLVER_TEST",
+        "EXEC_FILE_21",
+        "EXEC_FILE_27",
+        "PURE_TEST",
+        "EXEC_FILE_06",
+        "EXEC_FILE_22",
+        "ROOT_DELTAS",
+        "ADDENDUM"
+      ],
+      "required_action": null
+    },
+    {
+      "check_id": "F05A_FAILURE_HONESTY",
+      "check_type": "evidence",
+      "target_ids": [
+        "N_LIMITS",
+        "N_CONTROLS"
+      ],
+      "verdict": "pass",
+      "severity": "warning",
+      "reason": "All sixteen historical/final result records match their actual terminal footer, status, method count, exit code, started metadata, log digest and budgets. Original semantic RED, review failures and root app RED remain failures. The executor's prematurely successful inverse-check summary v1 and three failed default-strip checks are preserved; v2 explicitly corrects the record after -p0 read-only checks. Independent in-memory inverse checks now confirm the deltas without relying on the premature claim. No independent test attempt failed or was discarded. Auditor v1 had an evidence-only year-residual class-label typo detected before final handoff; original v1 files are retained unchanged and the correction is explicit in audit metadata v1 and report/evidence v2. No result, count or scoped verdict changed.",
+      "evidence_ids": [
+        "EXECUTOR_SUMMARY_ORIGINAL",
+        "EXECUTOR_SUMMARY",
+        "EXECUTOR_DELTA_CHECKS",
+        "EXECUTOR_MANIFEST",
+        "EXEC_FILE_13",
+        "EXEC_FILE_20",
+        "RUN_06"
+      ],
+      "required_action": null
+    },
+    {
+      "check_id": "F05A_SOURCE_BINDING",
+      "check_type": "basis",
+      "target_ids": [
+        "N_INPUTS",
+        "N_REBUILD",
+        "N_GATE",
+        "N_CONTROLS",
+        "N_LIMITS"
+      ],
+      "verdict": "pass",
+      "severity": "info",
+      "reason": "The immutable artifact hash matches the handoff. All 115 unique source IDs resolve to current bytes with their declared hashes before and after the independent runs, and again at evidence assembly. Node/edge bases refer to actual packet IDs, endpoints exist, and all five nodes/four edges have substantive audit coverage. New audit scripts, holdouts, snapshots, integrity/schema records and eight complete run triples are hash-bound in the companion evidence rather than falsely inserted into the frozen artifact's source namespace.",
+      "evidence_ids": [
+        "CONTRACT",
+        "ADDENDUM",
+        "EXECUTOR_MANIFEST",
+        "PARENT_VALIDATOR",
+        "ROOT_RUNNER_V2"
+      ],
+      "required_action": null
+    },
+    {
+      "check_id": "F05A_EDGE_SEMANTICS",
+      "check_type": "edge",
+      "target_ids": [
+        "E_INPUTS_REBUILD",
+        "E_REBUILD_GATE",
+        "E_INPUTS_CONTROLS",
+        "E_GATE_LIMITS"
+      ],
+      "verdict": "pass",
+      "severity": "info",
+      "reason": "The four edges describe code-backed dependencies and a scope limit, not unsupported causality: explicit bytes supply reconstruction; mismatch blocks the immediate gate; explicit matching decision bytes determine existing Human/stale results; passing this gate does not attest later files. Control success and rejection evidence support these exact relations without claiming all downstream consumers invoke reconstruction.",
+      "evidence_ids": [
+        "RESOLVER",
+        "BOOTSTRAP",
+        "PURE_TEST",
+        "APP_TEST",
+        "UNMARKED_APP_TEST",
+        "CONTRACT",
+        "README"
+      ],
+      "required_action": null
+    },
+    {
+      "check_id": "F05A_RUN_SAFETY",
+      "check_type": "safety",
+      "target_ids": [
+        "N_INPUTS",
+        "N_GATE",
+        "N_CONTROLS"
+      ],
+      "verdict": "pass",
+      "severity": "info",
+      "reason": "Tests used reviewed F04a/F18 safety dependencies and the local supervisor, one synthetic child per invocation, exclusive new audit run IDs, 30-second deadlines and 1 MiB combined logs. All eight runs exited normally within budget. Pure fixtures enforce 16 records/16 KiB inventory, 8 KiB decisions, 64 KiB graph and 1 MiB cumulative serialization. No network/models/GUI/installation/production documents/CONFIG/index, privilege escalation, commit or push was used; source packet hashes stayed fixed. The guard is not OS isolation or total RAM/disk/process-inventory certification.",
+      "evidence_ids": [
+        "CONTRACT",
+        "GUARD",
+        "DISPATCHER",
+        "SUPERVISOR",
+        "ROOT_RUNNER_V2",
+        "PURE_TEST",
+        "APP_TEST"
+      ],
+      "required_action": null
+    },
+    {
+      "check_id": "F05A_RESIDUAL_BOUNDARY",
+      "check_type": "coverage",
+      "target_ids": [
+        "N_LIMITS",
+        "E_GATE_LIMITS"
+      ],
+      "verdict": "pass",
+      "severity": "warning",
+      "reason": "Three retained witness methods observe current-marker/year behavior and cross-key/kanji-year-family limitations; their passing assertions are not desired-behavior acceptance. Post-gate graph substitution, downstream complete Reader partitions/projector revalidation, immutable saved decision snapshots, Human authenticity/lease, source freshness, broader format/model/GUI/package work and global races remain outside this pass and require follow-on work. README and contract state these limits consistently.",
+      "evidence_ids": [
+        "YEAR_TEST",
+        "UNMARKED_TEST",
+        "README",
+        "CONTRACT",
+        "EXECUTOR_SUMMARY"
+      ],
+      "required_action": null
+    },
+    {
+      "check_id": "F05A_INDEPENDENCE",
+      "check_type": "evidence",
+      "target_ids": [
+        "N_LIMITS"
+      ],
+      "verdict": "pass",
+      "severity": "warning",
+      "reason": "The Auditor used the Codex Graph Engineering Adapter for scoped read-only code/diff/test verification and Agentic Audit for contract/artifact/source-based checks and the exact report schema. Executor private reasoning was not used. Fresh independent holdouts and a bounded supplemental static reviewer add checking, but same-model separate context is procedural separation, not independent factual authority. Ruby/schema/hash consistency cannot establish the semantic truth of this judgment; root validation remains a separate required step.",
+      "evidence_ids": [
+        "CONTRACT",
+        "PARENT_VALIDATOR"
+      ],
+      "required_action": null
+    }
+  ],
+  "summary": {
+    "blocking_failures": 0,
+    "unresolved_count": 0,
+    "next_action": "deliver"
+  }
+}

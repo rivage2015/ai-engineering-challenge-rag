@@ -1,0 +1,299 @@
+--- distribution/macos-local-memory/app/bootstrap.py
++++ distribution/macos-local-memory/app/bootstrap.py
+@@ -47,7 +47,10 @@
+ GENERATION_MARKER = "build-generation.json"
+ READER_GENERATION_CONTRACT_CONFIG_KEY = "reader_generation_contract"
+ READER_GENERATION_CONTRACT_FILENAME = "reader-generation-contract.json"
+-READER_GENERATION_CONTRACT_SCHEMA_VERSION = "0.1"
++READER_GENERATION_CONTRACT_SCHEMA_VERSION = "0.2"
++DEFAULT_DECISION_SNAPSHOT_BYTES = 1_048_576
++MAX_DECISION_SNAPSHOT_BYTES = 67_108_864
++EMPTY_DECISION_SNAPSHOT = b'{"schema_version":"1.0","decisions":[]}\n'
+ READER_PROCESSING_CODE_FILES = (
+     "build_intermediate_records.py",
+     "probe_intermediate_records.py",
+@@ -431,7 +434,78 @@
+     return {**identity, "count": output["count"]}
+ 
+ 
+-def _reader_generation_contract_body(semantic: Path) -> dict[str, object]:
++def _decision_resolver():
++    spec = importlib.util.spec_from_file_location("_app_decision_resolver", ENGINE / "document_version_resolver.py")
++    module = importlib.util.module_from_spec(spec)
++    spec.loader.exec_module(module)
++    return module
++
++
++def _decision_snapshot_directories(paths: Path) -> None:
++    # Only the two fixed generation-local directories are in this contract.
++    # This is a static check, not locking against subsequent filesystem races.
++    if paths.name != "01-path" or GENERATION_NAME.fullmatch(paths.parent.name) is None:
++        raise ValueError("decision_snapshot_directory_identity_invalid")
++    for directory in (paths.parent, paths):
++        if not stat.S_ISDIR(directory.lstat().st_mode):
++            raise ValueError("decision_snapshot_directory_not_regular")
++
++
++def _decision_snapshot_descriptor(paths: Path, descriptor: dict) -> dict:
++    expected_path = paths / "document-version-decisions.snapshot.json"
++    if (not isinstance(descriptor, dict) or set(descriptor) != {"generation", "path", "sha256", "byte_count"}
++        or descriptor["generation"] != paths.parent.name
++        or GENERATION_NAME.fullmatch(paths.parent.name) is None
++        or paths.name != "01-path" or descriptor["path"] != str(expected_path)
++        or not isinstance(descriptor["sha256"], str) or re.fullmatch(r"[0-9a-f]{64}", descriptor["sha256"]) is None
++        or type(descriptor["byte_count"]) is not int or not 0 <= descriptor["byte_count"] <= MAX_DECISION_SNAPSHOT_BYTES):
++        raise ValueError("decision_snapshot_descriptor_invalid")
++    _decision_snapshot_directories(paths)
++    return dict(descriptor)
++
++
++class DecisionSnapshotTargetExists(FileExistsError):
++    """A pre-existing target must survive failed generation cleanup."""
++
++
++def capture_decision_snapshot(paths: Path, limit: int) -> dict:
++    _decision_snapshot_directories(paths)
++    resolver = _decision_resolver()
++    try:
++        raw = resolver.read_decision_snapshot(DOCUMENT_VERSION_DECISIONS, limit)
++    except FileNotFoundError:
++        # A dangling link is not genuine absence.
++        if DOCUMENT_VERSION_DECISIONS.is_symlink():
++            raise ValueError("decision_snapshot_source_not_regular_file")
++        raw = EMPTY_DECISION_SNAPSHOT
++    except ValueError as exc:
++        if str(exc) == "decision_snapshot_too_large":
++            raise ValueError("decision_snapshot_too_large: increase max_decision_snapshot_bytes within 67108864; no bytes were truncated") from exc
++        raise
++    if len(raw) > limit:
++        raise ValueError("decision_snapshot_too_large: increase max_decision_snapshot_bytes within 67108864; no bytes were truncated")
++    resolver._validation_decisions(raw)
++    path = paths / "document-version-decisions.snapshot.json"
++    try:
++        descriptor = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
++    except FileExistsError as exc:
++        raise DecisionSnapshotTargetExists("decision_snapshot_target_already_exists") from exc
++    with os.fdopen(descriptor, "wb") as handle:
++        handle.write(raw)
++    return _decision_snapshot_descriptor(paths, {
++        "generation": paths.parent.name, "path": str(path),
++        "sha256": hashlib.sha256(raw).hexdigest(), "byte_count": len(raw),
++    })
++
++
++def _snapshot_flags(decision_snapshot: dict) -> list[str]:
++    return ["--version-authority-mode", "snapshot", "--version-decisions", decision_snapshot["path"],
++            "--version-decisions-sha256", decision_snapshot["sha256"]]
++
++
++def _reader_generation_contract_body(
++    semantic: Path, *, decision_snapshot: dict | None = None, legacy_unversioned: bool = False,
++) -> dict[str, object]:
+     if semantic.is_symlink() or not semantic.is_dir():
+         raise ValueError("reader_contract_semantic_directory_invalid")
+     semantic = semantic.resolve(strict=True)
+@@ -474,7 +548,12 @@
+         ),
+     }
+     version_binding = adaptive_state.get("document_version_graph")
+-    if version_binding is not None:
++    if legacy_unversioned:
++        if decision_snapshot is not None or version_binding is not None:
++            raise ValueError("reader_contract_legacy_unversioned_invalid")
++    else:
++        paths = semantic.parent / "01-path"
++        decision_snapshot = _decision_snapshot_descriptor(paths, decision_snapshot)
+         # App generations have a fixed version-artifact location. Do not read
+         # an arbitrary producer-provided path when checking a registration.
+         version_path = semantic.parent / "01-path" / "document-version-graph.json"
+@@ -483,20 +562,21 @@
+             or version_binding.get("path") != str(version_path)
+         ):
+             raise ValueError("reader_contract_version_graph_path_mismatch")
+-        version_value = _required_reader_json(version_path)
+-        version_identity = _reader_file_identity(version_path)
+-        if version_binding.get("sha256") != version_identity["sha256"]:
+-            raise ValueError("reader_contract_version_graph_hash_mismatch")
+-        version_core = {
+-            key: value for key, value in version_value.items()
+-            if key != "graph_sha256"
+-        }
+-        if (
+-            version_binding.get("graph_sha256") != version_value.get("graph_sha256")
+-            or version_value.get("graph_sha256") != _canonical_json_sha256(version_core)
+-        ):
+-            raise ValueError("reader_contract_version_graph_identity_mismatch")
+-        artifacts["document_version_graph"] = version_identity
++        expected_authority = {"mode": "snapshot", "path": decision_snapshot["path"],
++                              "sha256": decision_snapshot["sha256"], "byte_count": decision_snapshot["byte_count"]}
++        # Compare metadata strings before any operation on a producer path.
++        if _canonical_json_sha256(version_binding.get("decision_authority")) != _canonical_json_sha256(expected_authority):
++            raise ValueError("reader_contract_decision_authority_mismatch")
++        if version_path.is_symlink() or not version_path.is_file():
++            raise ValueError("reader_contract_version_graph_invalid")
++        report = _decision_resolver().attest(
++            version_path, paths / "path-source-inventory.jsonl", decision_mode="snapshot",
++            decisions_path=Path(decision_snapshot["path"]), expected_decisions_sha256=decision_snapshot["sha256"],
++        )
++        if report["status"] != "PASS" or _canonical_json_sha256(report.get("document_version_graph")) != _canonical_json_sha256(version_binding):
++            raise ValueError("reader_contract_version_attestation_failed")
++        artifacts["document_version_graph"] = _reader_file_identity(version_path)
++        artifacts["decision_snapshot"] = {"mode": "snapshot", **decision_snapshot}
+ 
+     intermediate = _required_reader_json(
+         semantic / "layer1-intermediate/build-state.json"
+@@ -556,6 +636,8 @@
+         "schema_version": READER_GENERATION_CONTRACT_SCHEMA_VERSION,
+         "record_type": "reader_generation_contract",
+         "semantic_directory_name": semantic.name,
++        "decision_snapshot": decision_snapshot,
++        "authority_mode": "legacy_unversioned" if legacy_unversioned else "snapshot",
+         "resources": resources,
+         "generation_artifacts": artifacts,
+         "producer_records": {
+@@ -584,12 +666,13 @@
+ def write_reader_generation_contract(
+     semantic: Path,
+     generation_name: str,
++    *, decision_snapshot: dict,
+ ) -> dict[str, object]:
+     if GENERATION_NAME.fullmatch(generation_name) is None:
+         raise ValueError("reader_contract_generation_name_invalid")
+     if semantic.parent.name != generation_name or semantic.parent.is_symlink():
+         raise ValueError("reader_contract_generation_binding_invalid")
+-    contract = _reader_generation_contract_body(semantic)
++    contract = _reader_generation_contract_body(semantic, decision_snapshot=decision_snapshot)
+     contract_path = semantic / READER_GENERATION_CONTRACT_FILENAME
+     if contract_path.exists() or contract_path.is_symlink():
+         raise FileExistsError("reader_generation_contract_already_exists")
+@@ -639,10 +722,15 @@
+             raise ValueError("reader_generation_contract_registration_invalid")
+         if contract_path.is_symlink() or not contract_path.is_file():
+             raise ValueError("reader_generation_contract_missing")
+-        if registration.get("sha256") != sha256_file(contract_path):
++        contract_raw = contract_path.read_bytes()
++        if registration.get("sha256") != hashlib.sha256(contract_raw).hexdigest():
+             raise ValueError("reader_generation_contract_hash_mismatch")
+-        contract = _required_reader_json(contract_path)
+-        expected_contract = _reader_generation_contract_body(semantic)
++        contract = json.loads(contract_raw)
++        if not isinstance(contract, dict) or contract.get("authority_mode") != "snapshot":
++            raise ValueError("reader_generation_snapshot_required")
++        if registration.get("logical_sha256") != contract.get("logical_sha256"):
++            raise ValueError("reader_generation_contract_logical_hash_mismatch")
++        expected_contract = _reader_generation_contract_body(semantic, decision_snapshot=contract.get("decision_snapshot"))
+         if contract != expected_contract:
+             raise ValueError("reader_generation_contract_content_mismatch")
+         if registration.get("logical_sha256") != contract.get("logical_sha256"):
+@@ -2168,7 +2256,9 @@
+     semantic: Path,
+     security: Path,
+     log,
++    *, decision_snapshot: dict,
+ ) -> dict:
++    decision_snapshot = _decision_snapshot_descriptor(paths, decision_snapshot)
+     for path in (semantic, security):
+         path.mkdir(parents=True, exist_ok=False)
+     run([
+@@ -2176,6 +2266,7 @@
+         "--inventory", str(paths / "path-source-inventory.jsonl"),
+         "--source-root", str(source), "--output-dir", str(semantic),
+         "--version-graph", str(paths / "document-version-graph.json"),
++        *_snapshot_flags(decision_snapshot),
+     ], log)
+     run([
+         sys.executable, str(ENGINE / "validate_adaptive_semantic_graph.py"),
+@@ -2183,6 +2274,7 @@
+         "--inventory", str(paths / "path-source-inventory.jsonl"),
+         "--version-graph", str(paths / "document-version-graph.json"),
+         "--initialize-lineage",
++        *_snapshot_flags(decision_snapshot),
+     ], log)
+     reader_state = load_json(semantic / "adaptive-reader-state.json")
+     run([
+@@ -3564,6 +3656,9 @@
+     if not config_exists:
+         raise RuntimeError("configuration_missing")
+     config = dict(loaded_config)
++    snapshot_limit = config.get("max_decision_snapshot_bytes", DEFAULT_DECISION_SNAPSHOT_BYTES)
++    if type(snapshot_limit) is not int or not 1 <= snapshot_limit <= MAX_DECISION_SNAPSHOT_BYTES:
++        raise ValueError("max_decision_snapshot_bytes_invalid")
+     # Starting a rebuild is the explicit migration boundary for older
+     # installations. Missing feature flags adopt the current fully-gated
+     # pipeline, while an explicit false remains the rollback switch.
+@@ -3637,6 +3732,7 @@
+     }
+     atomic_json(STATE, state)
+     generation_published = False
++    preserve_snapshot_target = False
+     reader_state: dict = {}
+     reader_contract_registration: dict[str, object] = {}
+     shadow_state = _shadow_run_base(
+@@ -3658,17 +3754,19 @@
+             paths.mkdir(parents=True, exist_ok=False)
+             run([sys.executable, str(ENGINE / "build_path_graph.py"), str(source), "--output-dir", str(paths)], log)
+             run([sys.executable, str(ENGINE / "validate_path_graph.py"), str(paths / "path-evidence-graph.json"), str(paths / "path-source-inventory.jsonl"), "--source-root", str(source)], log)
++            decision_snapshot = capture_decision_snapshot(paths, snapshot_limit)
+             run([
+                 sys.executable, str(ENGINE / "document_version_resolver.py"),
+                 "build", "--inventory", str(paths / "path-source-inventory.jsonl"),
+                 "--output", str(paths / "document-version-graph.json"),
+-                "--decisions", str(DOCUMENT_VERSION_DECISIONS),
++                "--decisions", decision_snapshot["path"],
+             ], log)
+             run([
+                 sys.executable, str(ENGINE / "document_version_resolver.py"),
+                 "validate", "--graph", str(paths / "document-version-graph.json"),
+                 "--inventory", str(paths / "path-source-inventory.jsonl"),
+-                "--decisions", str(DOCUMENT_VERSION_DECISIONS),
++                "--decisions", decision_snapshot["path"],
++                "--decision-mode", "snapshot", "--decisions-sha256", decision_snapshot["sha256"],
+             ], log)
+             atomic_json(
+                 DOCUMENT_VERSION_REVIEW,
+@@ -3677,7 +3775,7 @@
+             image_fallback_available_before_reader = local_model_available(
+                 IMAGE_FALLBACK_MODEL
+             )
+-            reader_state = run_semantic_pipeline(source, paths, semantic, security, log)
++            reader_state = run_semantic_pipeline(source, paths, semantic, security, log, decision_snapshot=decision_snapshot)
+             # Reader validity and content safety are established before any
+             # model pull.  The /build action is the existing user-authorized
+             # boundary for model downloads.
+@@ -3708,13 +3806,15 @@
+                     f"{IMAGE_FALLBACK_MODEL in pulled_models}.",
+                 )
+                 reader_state = run_semantic_pipeline(
+-                    source, paths, semantic_after_pull, security_after_pull, log
++                    source, paths, semantic_after_pull, security_after_pull, log,
++                    decision_snapshot=decision_snapshot,
+                 )
+                 semantic = semantic_after_pull
+                 security = security_after_pull
+             reader_contract_registration = write_reader_generation_contract(
+                 semantic,
+                 generation.name,
++                decision_snapshot=decision_snapshot,
+             )
+             run([
+                 sys.executable, str(ENGINE / "build_local_semantic_index.py"),
+@@ -3725,6 +3825,7 @@
+                 "--source-inventory", str(paths / "path-source-inventory.jsonl"),
+                 "--version-graph", str(paths / "document-version-graph.json"),
+                 "--index-purpose", "safe_answer", "--model", config["embedding_model"],
++                *_snapshot_flags(decision_snapshot),
+                 "--output", str(index),
+             ], log)
+             base_index_sha256 = sha256_file(index)
+@@ -4206,9 +4307,10 @@
+                 state["generation_marker_warning"] = marker_warning
+     except Exception as exc:
+         state = {"phase": "error", "message": "索引の作成に失敗しました。", "error": f"{type(exc).__name__}: {exc}"}
++        preserve_snapshot_target = isinstance(exc, DecisionSnapshotTargetExists)
+         raise
+     finally:
+-        if not generation_published and generation.exists():
++        if not generation_published and not preserve_snapshot_target and generation.exists():
+             shutil.rmtree(generation)
+         atomic_json(STATE, state)
+ def main() -> int:

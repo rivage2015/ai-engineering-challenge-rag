@@ -158,6 +158,7 @@
     "native_properties": {
       "type": "object",
       "description": "原形式固有の機械抽出事実。意味解釈は格納しない。",
+      "properties": {"notebook_state": {"$ref": "#/$defs/notebookState"}},
       "additionalProperties": true
     },
     "annotations": {
@@ -433,6 +434,160 @@
     }
   ],
   "$defs": {
+    "notebookCount": {
+      "type": "object",
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "required": [
+            "present"
+          ],
+          "properties": {
+            "present": {
+              "const": false
+            }
+          }
+        },
+        {
+          "additionalProperties": false,
+          "required": [
+            "present",
+            "value"
+          ],
+          "properties": {
+            "present": {
+              "const": true
+            },
+            "value": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "minimum": 0
+            }
+          }
+        }
+      ]
+    },
+    "notebookState": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "version",
+        "cell_index",
+        "cell_type",
+        "content_origin",
+        "source_json_pointer",
+        "reader_execution",
+        "cell_execution_count"
+      ],
+      "properties": {
+        "version": {
+          "const": "1.0"
+        },
+        "cell_index": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "cell_type": {
+          "enum": [
+            "code",
+            "markdown",
+            "raw"
+          ]
+        },
+        "content_origin": {
+          "enum": [
+            "cell_source",
+            "saved_output"
+          ]
+        },
+        "source_json_pointer": {
+          "type": "string"
+        },
+        "reader_execution": {
+          "const": "not_executed"
+        },
+        "cell_execution_count": {
+          "$ref": "#/$defs/notebookCount"
+        },
+        "output_index": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "output_type": {
+          "enum": [
+            "stream",
+            "display_data",
+            "execute_result"
+          ]
+        },
+        "output_execution_count": {
+          "$ref": "#/$defs/notebookCount"
+        },
+        "output_freshness": {
+          "const": "unverified"
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "content_origin": {
+                "const": "cell_source"
+              }
+            },
+            "required": [
+              "content_origin"
+            ]
+          },
+          "then": {
+            "properties": {
+              "source_json_pointer": {
+                "pattern": "^/cells/(0|[1-9][0-9]*)$"
+              }
+            },
+            "not": {
+              "anyOf": [
+                {
+                  "required": [
+                    "output_index"
+                  ]
+                },
+                {
+                  "required": [
+                    "output_type"
+                  ]
+                },
+                {
+                  "required": [
+                    "output_execution_count"
+                  ]
+                },
+                {
+                  "required": [
+                    "output_freshness"
+                  ]
+                }
+              ]
+            }
+          },
+          "else": {
+            "required": [
+              "output_index",
+              "output_type",
+              "output_execution_count",
+              "output_freshness"
+            ],
+            "properties": {
+              "source_json_pointer": {
+                "pattern": "^/cells/(0|[1-9][0-9]*)/outputs/(0|[1-9][0-9]*)$"
+              }
+            }
+          }
+        }
+      ]
+    },
     "color": {
       "type": "string",
       "pattern": "^[0-9A-F]{8}$"

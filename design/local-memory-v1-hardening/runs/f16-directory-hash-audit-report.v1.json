@@ -1,0 +1,91 @@
+{
+  "schema_version": "1.0",
+  "audit_id": "lms-v1-00-directory-hash-order-audit-v1",
+  "task_id": "lms-v1-00-hardening-2026-09-09-directory-hash-order",
+  "artifact_hash": "264ad131bfbcd2ba1c36824f5b6ccfc5834d7bf312c4e4f38f5b359b28524371",
+  "auditor_context": {
+    "independence_level": "same_model_separate_context",
+    "source_scope": [
+      "design/local-memory-v1-hardening/runs/f16-directory-hash-graph-artifact.v1.json and its eleven frozen sources",
+      "Current build_path_graph.py directory_hashes expression, tests/test_path_graph_directory_hashes.py, f16-directory-hash-contract.v1.json and f16-directory-hash-executor.v1.json were read directly. A separate read-only same-model subagent also inspected depth correctness and the six tests' oracle independence.",
+      "artifacts/local-memory-v1-hardening/runs/f16-dirhash-001-red/unittest.log",
+      "artifacts/local-memory-v1-hardening/runs/f16-directory-hash-audit-001-gold314/",
+      "artifacts/local-memory-v1-hardening/runs/f16-directory-hash-audit-002-gold39/",
+      "artifacts/local-memory-v1-hardening/runs/f16-directory-hash-audit-003-builder/",
+      "artifacts/local-memory-v1-hardening/runs/f16-directory-hash-audit-004-validator/",
+      "artifacts/local-memory-v1-hardening/runs/f16-directory-hash-audit-005-e2e/",
+      "artifacts/local-memory-v1-hardening/runs/f16-directory-hash-audit-006-migration/",
+      "artifacts/local-memory-v1-hardening/runs/f16-directory-hash-audit-007-holdout/",
+      "design/local-memory-v1-hardening/runs/f16-directory-hash-adversarial-001.py, SHA-256 6ca943da1641ecafd17a0e5b2bfe1037efc6e4ee48ef58e03e4d4c410ebeef95",
+      "All independent runs used 30-second and 1048576-byte log limits. The additional holdout uses pure records, independently explicit child arrays, standard JSON/hashlib, and guards against filesystem reads inside the tested call. Previously reviewed synthetic regression suites retain their source/canary or model/network/process guards. No product edit, personal data/config/index, model, network, GUI or credential operation was performed."
+    ]
+  },
+  "status": "pass",
+  "checks": [
+    {
+      "check_id": "DH-A01-depth-order-correctness",
+      "check_type": "calculation",
+      "target_ids": ["DEPTH", "DIGEST", "E_DEPTH"],
+      "verdict": "pass",
+      "severity": "info",
+      "reason": "For the supported canonical inventory tree, root '.' now has depth zero and every nonroot directory is ordered by its number of path components. A child directory therefore has strictly greater depth than its parent and is computed first under descending depth. Byte-order tie breaking only orders unrelated equal-depth directories. The existing child serialization uses each already computed directory digest, so the previous root/top-level tie and null child digest are removed. The unchanged byte-order sorting of immediate child records preserves deterministic canonical child arrays.",
+      "evidence_ids": ["BUILDER", "GOLD"],
+      "required_action": null
+    },
+    {
+      "check_id": "DH-A02-independent-golds-and-holdout",
+      "check_type": "evidence",
+      "target_ids": ["GOLD_CASES", "DIGEST", "E_GOLD"],
+      "verdict": "pass",
+      "severity": "info",
+      "reason": "The historical RED log was read and shows six methods, three assertion failures and no errors/skips: root inclusion of a child digest, an empty child's digest, and propagation to root. The auditor independently reran all six permanent tests on Python 3.14.6 and 3.9.6; each suite passed with zero skips. Four tests use exact literal canonical child arrays plus direct hashlib, and two test propagation/order properties. The added one-method pure holdout spells a separate tree with an empty sibling, a direct root file, a Unicode directory and its deeper child. It independently computes explicit immediate-child arrays with standard JSON/hashlib and checks every exact directory digest for two same-length descendant hashes and reversed input order. The changed branch and root change while the unrelated empty sibling remains stable. This holdout passed with filesystem-call guards and does not reuse the producer's canonical, hash or depth helpers as its expected-value oracle.",
+      "evidence_ids": ["GOLD", "BUILDER", "EXECUTOR"],
+      "required_action": null
+    },
+    {
+      "check_id": "DH-A03-minimal-delta-and-regressions",
+      "check_type": "coverage",
+      "target_ids": ["REGRESSION", "E_REGRESSION"],
+      "verdict": "pass",
+      "severity": "info",
+      "reason": "The auditor reversed only the new depth expression and two added comment lines in memory, without writing the source. The resulting SHA-256 exactly matched the previously accepted builder caa1c98d02190c18c4fad6cd354a812dc4b06d86d99768773b6169cd2b18d0db, proving no additional source change is hidden in this delta. Independent current runs passed 19 descriptor/confinement tests, 18 source-bound Validator tests, 15 synthetic E2E tests and 15 guarded migration/lineage tests, all with zero skips. Thus previously accepted active-ancestor invalidation, no-follow reads, explicit source authority, field/hash binding and caller/migration regressions remain exercised on this combined source state. These are bounded synthetic compatibility results rather than expanded product certification.",
+      "evidence_ids": ["BUILDER", "BUILDER_TESTS", "VALIDATOR_TESTS", "VALIDATOR", "BOOTSTRAP", "E2E", "MIGRATION", "RELATED"],
+      "required_action": null
+    },
+    {
+      "check_id": "DH-A04-execution-and-source-provenance",
+      "check_type": "evidence",
+      "target_ids": ["GOLD_CASES", "REGRESSION"],
+      "verdict": "pass",
+      "severity": "info",
+      "reason": "Artifact SHA-256 is 264ad131bfbcd2ba1c36824f5b6ccfc5834d7bf312c4e4f38f5b359b28524371; current BUILDER is b29031b8a0ae594bda762795bb6bc79a7080ea8cfe0a147118accf374be94839 and GOLD is 9b1735f527e5cfae22f309cafdcd8e2251800db6254e48f24fb9e5f509842821. All eleven artifact-source hashes matched. Every independent run 001 through 007 had identical before/after shared resolver hash a1780dc59d23b0c3b5423ca3264841d9261facbaf7dba0701b139049543d0e1b and parser hash 73b9ad531d4e184b47636f0a7558e07cc44688d1499ddd666b8dc58610f830f7; no run spanned detected drift. The seven run records report 6, 6, 19, 18, 15, 15 and 1 tests, with exit zero, no skips/expected failures, at most 3223 log bytes and a maximum supervised duration of 1.559718 seconds. Their terminal log footers were inspected and all seven log hashes matched result metadata. E2E result SHA-256 is c8b0191ca5afb04452bcc36dacc7e243d84e17e12a8d3202697fb8fc6f45e1ac, migration result is b001e7194e8b6a354142f16bb286b78a9d0a0c01d63bd69e1b697f2e38391945, and holdout result is 396e9bde43f5354c5abe5689fb4aa55442068cf6d47768f1b552a8964892069d. Later resolver/parser edits cannot inherit these stable integration results.",
+      "evidence_ids": ["BUILDER", "GOLD", "VALIDATOR", "BOOTSTRAP", "BUILDER_TESTS", "VALIDATOR_TESTS", "MIGRATION", "E2E", "RELATED", "CONTRACT", "EXECUTOR"],
+      "required_action": null
+    },
+    {
+      "check_id": "DH-A05-gold-description-precision",
+      "check_type": "evidence",
+      "target_ids": ["GOLD_CASES"],
+      "verdict": "fail",
+      "severity": "warning",
+      "reason": "The artifact/contract's wording can be read as six independent literal exact-digest golds. The actual permanent suite has four literal exact-digest tests and two metamorphic property tests: descendant-change propagation and input-order invariance. The latter are useful but do not supply independent exact expected hashes. This nonblocking reporting imprecision does not undermine the one-expression repair, the four independent golds or the auditor's additional exact multi-branch holdout. No immutable artifact has been silently rewritten.",
+      "evidence_ids": ["GOLD", "CONTRACT", "EXECUTOR"],
+      "required_action": "Describe the permanent suite as four exact literal golds plus two property tests, and preserve any wording correction append-only. Do not present all six as independent literal hash oracles."
+    },
+    {
+      "check_id": "DH-A06-new-contract-and-scope",
+      "check_type": "intent",
+      "target_ids": ["LIMITS", "E_REGRESSION"],
+      "verdict": "pass",
+      "severity": "info",
+      "reason": "This is a new narrow correctness contract for the separately reproduced preexisting digest-order residual. It does not relabel an unresolved mandatory issue to reset an audit counter: the earlier descriptor-read required repair was resolved in its own preserved history, and the digest-order item was openly retained as a nonblocking residual of the subsequent source-binding audit. This report remains round zero for the new contract. It approves bottom-up ordering and the bounded regressions only, not signed authenticity, an atomic filesystem snapshot, every graph policy, all-resource bounds, real models, native packaging or whole-product acceptance. Existing graphs with old directory digests are not mutated; explicit rebuild and the existing code-identity migration policy remain necessary. Later builder, fingerprint or Validator changes require their own evidence.",
+      "evidence_ids": ["CONTRACT", "EXECUTOR", "BUILDER", "BOOTSTRAP", "VALIDATOR"],
+      "required_action": null
+    }
+  ],
+  "summary": {
+    "blocking_failures": 0,
+    "unresolved_count": 0,
+    "next_action": "deliver"
+  }
+}

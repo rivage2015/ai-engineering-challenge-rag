@@ -8,6 +8,11 @@ LOG_DIR="$APP_SUPPORT/logs"
 CACHE_DIR="$HOME/Library/Caches/LocalMemorySearch"
 mkdir -p "$LOG_DIR" "$CACHE_DIR"
 
+# The signed application bundle is immutable at runtime.  Keep Python import
+# caches out of Contents/Resources so launching the app cannot invalidate its
+# ad-hoc signature.  Runtime data remains under Application Support/Caches.
+export PYTHONDONTWRITEBYTECODE=1
+
 RESOURCE_DIR="$(cd "$(dirname "$0")" && pwd)"
 PYTHON_BOOTSTRAP_LOCK_FILE="$APP_SUPPORT/.python-bootstrap-v2.lock"
 PYTHON_BOOTSTRAP_LOCK_FD=""

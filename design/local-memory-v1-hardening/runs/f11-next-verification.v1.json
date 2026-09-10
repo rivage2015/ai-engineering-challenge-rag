@@ -1,0 +1,16 @@
+{
+  "status": "review_evidence_verified_not_product_acceptance",
+  "contract_sha256": "a98164a5ccb16eb2ea5ec9bf3779ffe3b0ac962ec1c55d141574d4264f921d46",
+  "manifest_sha256": "89e6474694b3ffb8ee5f2a8f82a1bdff160e4b350d2c7aa2b846b309a6c61125",
+  "manifest_json_parsed": true,
+  "evidence_hash_mismatches": [],
+  "source_hash_drift": ["distribution/macos-local-memory/engine/validate_adaptive_semantic_graph.py"],
+  "drift_disposition": "Root owns concurrent F18 edits; preserve manifest as historical snapshot, do not overwrite that file or treat its old hash as current. Reinspect relevant semantic projection before any future F11 implementation.",
+  "reader_and_search_unit_hashes_unchanged": true,
+  "product_files_edited_by_this_agent": [],
+  "observation_tests": 3,
+  "observation_skips": 0,
+  "product_tests_run": 0,
+  "model_or_metadata_or_network_calls": 0,
+  "next_action": "Orchestrator reviews proposed F11a contract and assigns a separate implementation/audit cycle if selected; F11 remains open."
+}

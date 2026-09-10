@@ -1,0 +1,466 @@
+{
+  "schema_version": "1.0",
+  "task_id": "lms-v1-f11a-notebook-metadata-2026-09-09",
+  "status": "executor_handoff_for_independent_audit_not_self_approval",
+  "source_stable": true,
+  "formal_audit_repairs": 0,
+  "files": [
+    {
+      "path": "design/local-memory-v1-hardening/runs/f04a-executor-run.v1.py",
+      "sha256": "7c6953d3e92c46ede699b81690a138fb50e74e51b79fc37d14f9fc44d6c4391b",
+      "bytes": 7818
+    },
+    {
+      "path": "design/local-memory-v1-hardening/runs/f05b-fixture-budget.v1.py",
+      "sha256": "f4c4a647997334385fb02edc2b120624cda9b0da95e438164eacdca0c80b24af",
+      "bytes": 3548
+    },
+    {
+      "path": "design/local-memory-v1-hardening/runs/f11-next-fixture.v1.ipynb",
+      "sha256": "123ff664e24f2cea7c3caac841e139f8574e7b2f9667701dd16e63f5086d80ad",
+      "bytes": 1069
+    },
+    {
+      "path": "design/local-memory-v1-hardening/runs/f11a-executor-adaptive-validator-delta.v1.diff",
+      "sha256": "6ccfa7ebad96d34d16751a5dba8dafc408242f7da04bce42001db85e7744070a",
+      "bytes": 895
+    },
+    {
+      "path": "design/local-memory-v1-hardening/runs/f11a-executor-before-adaptive-validator.v1.py",
+      "sha256": "17c5de11a6f8f958ea5d1db447840f5653128ef24314fad193a610f824c5a106",
+      "bytes": 124684
+    },
+    {
+      "path": "design/local-memory-v1-hardening/runs/f11a-executor-before-evidence-schema.v1.json",
+      "sha256": "81db1ba15565b890fa885806d013854380267ec37d578b1bf7997fd86cac5bc5",
+      "bytes": 16088
+    },
+    {
+      "path": "design/local-memory-v1-hardening/runs/f11a-executor-before-intermediate-native.v1.py",
+      "sha256": "0fc6f8bb42fae82ae0bec3b84ca319907bc2436aa58a1d59426f9ea525d4ab69",
+      "bytes": 21555
+    },
+    {
+      "path": "design/local-memory-v1-hardening/runs/f11a-executor-before-intermediate-stream.v1.py",
+      "sha256": "d998ec20f3511583603fbf4199160c47772c98f65e53e2274a23dc1f0a6e7f9f",
+      "bytes": 29712
+    },
+    {
+      "path": "design/local-memory-v1-hardening/runs/f11a-executor-before-managed.v1.py",
+      "sha256": "7312ebdffc7221ef989195afd03bdbbe34f945582cb25b9020d64b19316bdabe",
+      "bytes": 51670
+    },
+    {
+      "path": "design/local-memory-v1-hardening/runs/f11a-executor-before-manifest.v1.json",
+      "sha256": "0fceb582827c55b22edb3609c20644ebdcab9321761970f9a809f39e664142e0",
+      "bytes": 4535
+    },
+    {
+      "path": "design/local-memory-v1-hardening/runs/f11a-executor-before-probe.v1.py",
+      "sha256": "73b9ad531d4e184b47636f0a7558e07cc44688d1499ddd666b8dc58610f830f7",
+      "bytes": 295081
+    },
+    {
+      "path": "design/local-memory-v1-hardening/runs/f11a-executor-before-search-builder.v1.py",
+      "sha256": "a14ffa6f5c4b04fd63ed3b95ba8b6892ca5c11f1cee050b323861c009c6eaaa1",
+      "bytes": 41815
+    },
+    {
+      "path": "design/local-memory-v1-hardening/runs/f11a-executor-before-search-native.v1.py",
+      "sha256": "bd673618bdf7c56a3e0c6c19330ad8b3ff0fcb69d7b0d4f4930808fa5289394d",
+      "bytes": 42914
+    },
+    {
+      "path": "design/local-memory-v1-hardening/runs/f11a-executor-before-search-schema.v1.json",
+      "sha256": "47ed1bf91425c59f87c9672470b0684fddb935e103d845123e54346dd72fae9f",
+      "bytes": 10377
+    },
+    {
+      "path": "design/local-memory-v1-hardening/runs/f11a-executor-before-search-stream.v1.py",
+      "sha256": "40dbaa9b8b50d060b26bd672322830d87fdb26fb0ae2a356694a85a75edfcdd1",
+      "bytes": 28477
+    },
+    {
+      "path": "design/local-memory-v1-hardening/runs/f11a-executor-coherent.v1.json",
+      "sha256": "fa13e1e5be75b0d4b908d247a8e00abaeedd0c84966f1072d28602a327c9798c",
+      "bytes": 2474
+    },
+    {
+      "path": "design/local-memory-v1-hardening/runs/f11a-executor-evidence-schema-delta.v1.diff",
+      "sha256": "3dbf7008c8142b22ec6b6999fe55f9ce4e1640f90bb43e50b5a6b493cc707c2b",
+      "bytes": 4243
+    },
+    {
+      "path": "design/local-memory-v1-hardening/runs/f11a-executor-freeze-check.v1.py",
+      "sha256": "9241961178af69e46b7860475d319bca040f55851c920c4690cee6cdc4c3970e",
+      "bytes": 4512
+    },
+    {
+      "path": "design/local-memory-v1-hardening/runs/f11a-executor-freeze-result.v1.json",
+      "sha256": "41db8f9c3bf0abd7e34f2d9ac038d62c2d6cbca1ca8292728285b6fddeb63477",
+      "bytes": 2772
+    },
+    {
+      "path": "design/local-memory-v1-hardening/runs/f11a-executor-gold-additive.v2.diff",
+      "sha256": "263f601978f2e8f93cf76970f2251cd075d30b2f1686dc2b09284932481befa3",
+      "bytes": 33827
+    },
+    {
+      "path": "design/local-memory-v1-hardening/runs/f11a-executor-gold-methods.v2.json",
+      "sha256": "197b949c228265ac87c18c62eeaa2ca6b718de0f621e9965f494b371a8fff21b",
+      "bytes": 9629
+    },
+    {
+      "path": "design/local-memory-v1-hardening/runs/f11a-executor-gold-test.v1.py",
+      "sha256": "0b80382980a130cc52a58108ed5d89df5f0bc4249af39a2432d650078a966daa",
+      "bytes": 10576
+    },
+    {
+      "path": "design/local-memory-v1-hardening/runs/f11a-executor-gold-test.v2.py",
+      "sha256": "ab2256c31b04bc8e8ec9a3c5c294d1e1d98071e38e9969c62bee3718c95bc41e",
+      "bytes": 43350
+    },
+    {
+      "path": "design/local-memory-v1-hardening/runs/f11a-executor-green-initial-001/result.json",
+      "sha256": "0ad1b630b6516a6871c9dcb2a71f04afca619b1e2c666ade4643a45211efa2e7",
+      "bytes": 1280
+    },
+    {
+      "path": "design/local-memory-v1-hardening/runs/f11a-executor-green-initial-001/started.json",
+      "sha256": "738e4ca2c57bf97cb45078294fc80b6e9f5b94e58f773ea0fb8ae2e96fa3902f",
+      "bytes": 809
+    },
+    {
+      "path": "design/local-memory-v1-hardening/runs/f11a-executor-green-initial-001/unittest.log",
+      "sha256": "96eebb75872e63aafc87b264444858cde518d7155133d64451c5bdcc5c0c493e",
+      "bytes": 1302
+    },
+    {
+      "path": "design/local-memory-v1-hardening/runs/f11a-executor-intermediate-native-delta.v1.diff",
+      "sha256": "cc1473dffc5251d04f044224e822c202406ccbc807a3092d2658b616aa85e57d",
+      "bytes": 3378
+    },
+    {
+      "path": "design/local-memory-v1-hardening/runs/f11a-executor-intermediate-stream-delta.v1.diff",
+      "sha256": "de9695a851e95bac7ca95fd54206efa1a4fc25e763c54c91013c9826fcc049f4",
+      "bytes": 4629
+    },
+    {
+      "path": "design/local-memory-v1-hardening/runs/f11a-executor-managed-delta.v1.diff",
+      "sha256": "94ab368baf9bfbee4764ade99b868cb28c493a34b51f8b9a42ef71263d52ed87",
+      "bytes": 451
+    },
+    {
+      "path": "design/local-memory-v1-hardening/runs/f11a-executor-post-green-001/result.json",
+      "sha256": "b9b46b4834a7c73d77d455e9ea8cb07b848db18541736b131e2b751cf7dd1c35",
+      "bytes": 1288
+    },
+    {
+      "path": "design/local-memory-v1-hardening/runs/f11a-executor-post-green-001/started.json",
+      "sha256": "2894538b2226ddbd5df41981353113a786d2c4ce313aa618670a3190b3771b75",
+      "bytes": 818
+    },
+    {
+      "path": "design/local-memory-v1-hardening/runs/f11a-executor-post-green-001/unittest.log",
+      "sha256": "77d83a1467ae695659d11347374d5c9ed2eb812d174b7d9a251d31f999e18828",
+      "bytes": 2779
+    },
+    {
+      "path": "design/local-memory-v1-hardening/runs/f11a-executor-preimplementation.v1.md",
+      "sha256": "c7169ff8df607da7da2cb055406506246a5cd5fdbd8215d3d7eb4a947e12afb0",
+      "bytes": 9287
+    },
+    {
+      "path": "design/local-memory-v1-hardening/runs/f11a-executor-probe-delta.v1.diff",
+      "sha256": "6abdbc675c1dce2c6781c207fa3119c678bf43afca5a258c00f98d2221d5347a",
+      "bytes": 19960
+    },
+    {
+      "path": "design/local-memory-v1-hardening/runs/f11a-executor-red-assessment.v1.md",
+      "sha256": "ddbb2a0738cfd0abbeff93850c171fc497ed9b8a72322ef5babd3448747f691d",
+      "bytes": 2817
+    },
+    {
+      "path": "design/local-memory-v1-hardening/runs/f11a-executor-red-initial-001/result.json",
+      "sha256": "91d2f09202a1328fa702a9950813a3d0e4ae7c9dbec13f9af6ccc27653b1f0a7",
+      "bytes": 1277
+    },
+    {
+      "path": "design/local-memory-v1-hardening/runs/f11a-executor-red-initial-001/started.json",
+      "sha256": "e8ed74c1fa2e2fcf0cf27135fbc510fd13affafcf5d3fe8184eb388c161a6eb3",
+      "bytes": 807
+    },
+    {
+      "path": "design/local-memory-v1-hardening/runs/f11a-executor-red-initial-001/unittest.log",
+      "sha256": "c2fbfa10d2f6ba4815a6ce7c07064ce01a939e64e47c73fd89ec4989afd42f6d",
+      "bytes": 7623
+    },
+    {
+      "path": "design/local-memory-v1-hardening/runs/f11a-executor-residual-green-001/result.json",
+      "sha256": "47e9e1ca7872b90fd32340fc86af6475462f2b2fabc2767c9901f8b5ad01774c",
+      "bytes": 1297
+    },
+    {
+      "path": "design/local-memory-v1-hardening/runs/f11a-executor-residual-green-001/started.json",
+      "sha256": "20a2d042abdedfe1e56a9e81c5cb820ec6ebcf84e9bc5ca5690ec539ae33cb73",
+      "bytes": 826
+    },
+    {
+      "path": "design/local-memory-v1-hardening/runs/f11a-executor-residual-green-001/unittest.log",
+      "sha256": "f501feeb38005bdbcd2bb1a134c478a7cb4079da2cc1d9f5463ba648773ae1c0",
+      "bytes": 640
+    },
+    {
+      "path": "design/local-memory-v1-hardening/runs/f11a-executor-run.v1.py",
+      "sha256": "1a15a28550c30527ef52cf01e87860a83da663342d100c362f9cb9499643ef4a",
+      "bytes": 3554
+    },
+    {
+      "path": "design/local-memory-v1-hardening/runs/f11a-executor-run.v2.py",
+      "sha256": "0a380929113484c9fd076cc1c90355c96c76cd4d28756493914df44c00526ed3",
+      "bytes": 4407
+    },
+    {
+      "path": "design/local-memory-v1-hardening/runs/f11a-executor-search-builder-delta.v1.diff",
+      "sha256": "567fd048ddc2aea75c3c34d69aaa3f691f4163bf89847d7fe06ce1eb0271e948",
+      "bytes": 1176
+    },
+    {
+      "path": "design/local-memory-v1-hardening/runs/f11a-executor-search-native-delta.v1.diff",
+      "sha256": "e17557e7b9a98b7a8e9cf797dd012f0a2f181e456d06e4325f3a0bde69bf1bc9",
+      "bytes": 3353
+    },
+    {
+      "path": "design/local-memory-v1-hardening/runs/f11a-executor-search-schema-delta.v1.diff",
+      "sha256": "aa78dc9e3987c15d7d928a17245b7b91c1b9527f5763e432e0a43961bfb1f0b1",
+      "bytes": 4183
+    },
+    {
+      "path": "design/local-memory-v1-hardening/runs/f11a-executor-search-stream-delta.v1.diff",
+      "sha256": "20f5b1e700973b1a57541df964179954031f9ff55cebeb5f218b24d9f0749716",
+      "bytes": 2098
+    },
+    {
+      "path": "design/local-memory-v1-hardening/runs/f11a-executor-summary.v1.md",
+      "sha256": "264cde0d0cb1cdf7757fabbd8ca03b2d4be9a6904d86c6320154cd4a5169b686",
+      "bytes": 5683
+    },
+    {
+      "path": "design/local-memory-v1-hardening/runs/f11a-fresh-preflight.v1.md",
+      "sha256": "c269fb2f91584b78130969fe0fbddc8d18e05e9bbe5c00a2bcde0ec5b420d056",
+      "bytes": 30155
+    },
+    {
+      "path": "design/local-memory-v1-hardening/runs/f11a-implementation-gate.v1.md",
+      "sha256": "fc3f2c41e0eae4bed65588565871e665c62e368b7a6aff92fe601287f4c866b6",
+      "bytes": 3058
+    },
+    {
+      "path": "design/local-memory-v1-hardening/runs/f11a-task-contract-addendum.v1.md",
+      "sha256": "2542f29b2776127a5d919639c69505d31b4efdf46968d9ff80a0af7d930f6f8f",
+      "bytes": 1325
+    },
+    {
+      "path": "design/local-memory-v1-hardening/runs/f11a-task-contract.v1.md",
+      "sha256": "20dfd742490462e101ce952e661c6d23a5a40ce0b89b3cf921204b973fc66d15",
+      "bytes": 12087
+    },
+    {
+      "path": "distribution/macos-local-memory/engine/validate_adaptive_semantic_graph.py",
+      "sha256": "c2587b685d06a1e8d1ec006bb2577be47168a0c14b072a22b3a90878c30563e3",
+      "bytes": 124733
+    },
+    {
+      "path": "distribution/macos-local-memory/tests/test_versioned_safe_index_e2e.py",
+      "sha256": "bd967cb2e4d22aa3985d59514a72e22e42e9e9d03841dbc6b80164a69c9f97ff",
+      "bytes": 29140
+    },
+    {
+      "path": "schemas/document.schema.json",
+      "sha256": "0c7d441fda25c39378fa7cf1014c12e4de0817ca65b33eba95df4b9da4f10d1c",
+      "bytes": 2845
+    },
+    {
+      "path": "schemas/evidence.schema.json",
+      "sha256": "030fea7251578e6a1c57934b595a457294ab7281c38e93779a097d3dca0a4899",
+      "bytes": 19655
+    },
+    {
+      "path": "schemas/relation.schema.json",
+      "sha256": "00a1e9848a53b7f195bb8b1037f386ff5e1d4080d32c0e550a85c786d50b2b1a",
+      "bytes": 2737
+    },
+    {
+      "path": "schemas/search-unit.schema.json",
+      "sha256": "b0bc29b9e9252bd35ac553ca428e679b8e664d8a353ff6d40d56e90c4375e776",
+      "bytes": 13947
+    },
+    {
+      "path": "scripts/build_intermediate_records.py",
+      "sha256": "8d9dd31a7acba7d6b8f3e5a841b86565ea3e6e85d932fa08f77e3f3641ae59dd",
+      "bytes": 51670
+    },
+    {
+      "path": "scripts/build_search_units.py",
+      "sha256": "08d768bcc772c8d16c82d973d7cb8b212a1ee4bb1d8469bec5063e3707e0167b",
+      "bytes": 42122
+    },
+    {
+      "path": "scripts/evidence_text_chunking.py",
+      "sha256": "f13dbd427d2d4280e2d5064d126ecc384b36d0b19279b90d1c6da3cabbbd7322",
+      "bytes": 2121
+    },
+    {
+      "path": "scripts/probe_intermediate_records.py",
+      "sha256": "5a3c443a76f02b198367c036017967a33a75f22ec0826091ab5c8b54a988baa4",
+      "bytes": 310996
+    },
+    {
+      "path": "scripts/run_local_memory_hardening_tests.py",
+      "sha256": "6b3bde90b6ed649a82325f6b5ad9661756bef7b6e0303fa74c2d045fb26eb4a9",
+      "bytes": 9437
+    },
+    {
+      "path": "scripts/validate_intermediate_records.py",
+      "sha256": "1b64c531e061c2faabef0aa912fab66a006b925755c9c60872261fe5ee5f9c46",
+      "bytes": 22834
+    },
+    {
+      "path": "scripts/validate_intermediate_records_streaming.py",
+      "sha256": "db5d5e92518ce1c919dda2c796551adcb2646e2305a2c70b38df578ff9229199",
+      "bytes": 31329
+    },
+    {
+      "path": "scripts/validate_search_units.py",
+      "sha256": "34b949755780e5699e549320730127af486f232c09dae724275ae36a855121f7",
+      "bytes": 44756
+    },
+    {
+      "path": "scripts/validate_search_units_streaming.py",
+      "sha256": "cfdbfaedaf7557cb5f09c16f6be4020a32cd4fd6ea8d918858dab93d1a57173a",
+      "bytes": 29405
+    },
+    {
+      "path": "tests/test_notebook_metadata_binding.py",
+      "sha256": "ab2256c31b04bc8e8ec9a3c5c294d1e1d98071e38e9969c62bee3718c95bc41e",
+      "bytes": 43350
+    }
+  ],
+  "runs": [
+    {
+      "path": "design/local-memory-v1-hardening/runs/f11a-executor-red-initial-001/result.json",
+      "status": "failed",
+      "tests": 9,
+      "elapsed_seconds": 0.369937,
+      "skips": 0,
+      "expected_failures": 0,
+      "log_path": "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/design/local-memory-v1-hardening/runs/f11a-executor-red-initial-001/unittest.log",
+      "log_sha256": "c2fbfa10d2f6ba4815a6ce7c07064ce01a939e64e47c73fd89ec4989afd42f6d",
+      "log_bytes": 7623,
+      "classification": "initial_true_semantic_RED_8fail_1pass",
+      "source_snapshot": "f11a-executor-before-manifest.v1.json"
+    },
+    {
+      "path": "design/local-memory-v1-hardening/runs/f11a-executor-green-initial-001/result.json",
+      "status": "passed",
+      "tests": 9,
+      "elapsed_seconds": 0.42601,
+      "skips": 0,
+      "expected_failures": 0,
+      "log_path": "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/design/local-memory-v1-hardening/runs/f11a-executor-green-initial-001/unittest.log",
+      "log_sha256": "96eebb75872e63aafc87b264444858cde518d7155133d64451c5bdcc5c0c493e",
+      "log_bytes": 1302,
+      "classification": "acceptance",
+      "source_snapshot": "f11a-executor-coherent.v1.json"
+    },
+    {
+      "path": "design/local-memory-v1-hardening/runs/f11a-executor-post-green-001/result.json",
+      "status": "passed",
+      "tests": 21,
+      "elapsed_seconds": 0.815423,
+      "skips": 0,
+      "expected_failures": 0,
+      "log_path": "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/design/local-memory-v1-hardening/runs/f11a-executor-post-green-001/unittest.log",
+      "log_sha256": "77d83a1467ae695659d11347374d5c9ed2eb812d174b7d9a251d31f999e18828",
+      "log_bytes": 2779,
+      "classification": "acceptance",
+      "source_snapshot": "f11a-executor-coherent.v1.json"
+    },
+    {
+      "path": "design/local-memory-v1-hardening/runs/f11a-executor-residual-green-001/result.json",
+      "status": "passed",
+      "tests": 3,
+      "elapsed_seconds": 0.38824,
+      "skips": 0,
+      "expected_failures": 0,
+      "log_path": "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/design/local-memory-v1-hardening/runs/f11a-executor-residual-green-001/unittest.log",
+      "log_sha256": "f501feeb38005bdbcd2bb1a134c478a7cb4079da2cc1d9f5463ba648773ae1c0",
+      "log_bytes": 640,
+      "classification": "declared_limit_witnesses_not_acceptance",
+      "source_snapshot": "f11a-executor-coherent.v1.json"
+    }
+  ],
+  "isolated_deltas": [
+    [
+      "scripts/probe_intermediate_records.py",
+      "design/local-memory-v1-hardening/runs/f11a-executor-before-probe.v1.py",
+      "design/local-memory-v1-hardening/runs/f11a-executor-probe-delta.v1.diff"
+    ],
+    [
+      "scripts/build_intermediate_records.py",
+      "design/local-memory-v1-hardening/runs/f11a-executor-before-managed.v1.py",
+      "design/local-memory-v1-hardening/runs/f11a-executor-managed-delta.v1.diff"
+    ],
+    [
+      "scripts/validate_intermediate_records.py",
+      "design/local-memory-v1-hardening/runs/f11a-executor-before-intermediate-native.v1.py",
+      "design/local-memory-v1-hardening/runs/f11a-executor-intermediate-native-delta.v1.diff"
+    ],
+    [
+      "scripts/validate_intermediate_records_streaming.py",
+      "design/local-memory-v1-hardening/runs/f11a-executor-before-intermediate-stream.v1.py",
+      "design/local-memory-v1-hardening/runs/f11a-executor-intermediate-stream-delta.v1.diff"
+    ],
+    [
+      "scripts/build_search_units.py",
+      "design/local-memory-v1-hardening/runs/f11a-executor-before-search-builder.v1.py",
+      "design/local-memory-v1-hardening/runs/f11a-executor-search-builder-delta.v1.diff"
+    ],
+    [
+      "scripts/validate_search_units.py",
+      "design/local-memory-v1-hardening/runs/f11a-executor-before-search-native.v1.py",
+      "design/local-memory-v1-hardening/runs/f11a-executor-search-native-delta.v1.diff"
+    ],
+    [
+      "scripts/validate_search_units_streaming.py",
+      "design/local-memory-v1-hardening/runs/f11a-executor-before-search-stream.v1.py",
+      "design/local-memory-v1-hardening/runs/f11a-executor-search-stream-delta.v1.diff"
+    ],
+    [
+      "schemas/evidence.schema.json",
+      "design/local-memory-v1-hardening/runs/f11a-executor-before-evidence-schema.v1.json",
+      "design/local-memory-v1-hardening/runs/f11a-executor-evidence-schema-delta.v1.diff"
+    ],
+    [
+      "schemas/search-unit.schema.json",
+      "design/local-memory-v1-hardening/runs/f11a-executor-before-search-schema.v1.json",
+      "design/local-memory-v1-hardening/runs/f11a-executor-search-schema-delta.v1.diff"
+    ],
+    [
+      "distribution/macos-local-memory/engine/validate_adaptive_semantic_graph.py",
+      "design/local-memory-v1-hardening/runs/f11a-executor-before-adaptive-validator.v1.py",
+      "design/local-memory-v1-hardening/runs/f11a-executor-adaptive-validator-delta.v1.diff"
+    ],
+    [
+      "tests/test_notebook_metadata_binding.py",
+      "design/local-memory-v1-hardening/runs/f11a-executor-gold-test.v1.py",
+      "design/local-memory-v1-hardening/runs/f11a-executor-gold-additive.v2.diff"
+    ]
+  ],
+  "limits": [
+    "Metadata-only; raw body binding, complete membership, output freshness/execution history and F11b application propagation remain open.",
+    "30 acceptance methods and 3 residual witnesses are separate, not 33 defended attacks.",
+    "One child per batch,30seconds,1MiB log; explicit fixture writes limited separately, no aggregate RSS/disk/package support claim.",
+    "Root owns separate application/migration/package/embedded-image controls and formal acceptance."
+  ]
+}

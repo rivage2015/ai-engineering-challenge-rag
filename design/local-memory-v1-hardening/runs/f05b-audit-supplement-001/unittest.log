@@ -1,0 +1,13 @@
+test_actual_new_registration_descriptor_omission_keeps_prior_generation (f05b_audit_target.SupplementTests.test_actual_new_registration_descriptor_omission_keeps_prior_generation) ... ok
+test_capture_duplicate_groups_permission_error_and_capacity_reason (f05b_audit_target.SupplementTests.test_capture_duplicate_groups_permission_error_and_capacity_reason) ... ok
+test_generic_registration_requires_explicit_legacy_and_app_descriptor (f05b_audit_target.SupplementTests.test_generic_registration_requires_explicit_legacy_and_app_descriptor) ... ok
+test_historical_01_contract_current_in_old_reader_migrates_without_repair (f05b_audit_target.SupplementTests.test_historical_01_contract_current_in_old_reader_migrates_without_repair) ... ok
+test_resolver_only_suffix_families_are_reconstructed_before_reader_filter (f05b_audit_target.SupplementTests.test_resolver_only_suffix_families_are_reconstructed_before_reader_filter) ... ok
+test_saved_status_passes_registered_d0_before_snapshot_open (f05b_audit_target.SupplementTests.test_saved_status_passes_registered_d0_before_snapshot_open) ... ok
+test_serialized_context_exact_sets_types_and_nulls_reject_before_path_io (f05b_audit_target.SupplementTests.test_serialized_context_exact_sets_types_and_nulls_reject_before_path_io) ... ok
+F05b explicit fixture budget: {"explicit_test_bytes": 24294, "explicit_test_writes": 39, "max_source_fixture_bytes": 140, "source_fixture_count": 7}
+
+----------------------------------------------------------------------
+Ran 7 tests in 0.710s
+
+OK

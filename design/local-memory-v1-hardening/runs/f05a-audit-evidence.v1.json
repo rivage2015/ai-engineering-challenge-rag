@@ -1,0 +1,491 @@
+{
+  "task_id": "lms-v1-00-hardening-2026-09-09-f05a",
+  "artifact_sha256": "7b7414f3e58a62b6eb34fc71534da11eec51c1dd58c316326ba03e9ab436bf61",
+  "created_at_utc": "2026-09-09T01:57:31.412544+00:00",
+  "audit_repair_round": 0,
+  "sources_before": {
+    "E2E_TEST": "41540a858d17f8abb322c15353032ec4dd3099eac4e767090f7b9dbabfbcf64a",
+    "YEAR_TEST": "70a1226cb30daa6692533d2c6f1fe270fe301a8f759c0db56a142acbc945b8c0",
+    "FOCUSED_TEST": "89da7502c783e78fa3f3f11ba25a0f09680d35602548ea858d203ff9c8339989",
+    "LINEAGE_TEST": "26f1624c0dcdddacd86f8cf21253247db9f3f330d764c9b9e4cad80f8e41f4d0",
+    "MIGRATION_TEST": "7d92425d39eb0316687ca9b8b0250768444652dcd39b7dfa9324380396b72d80",
+    "SECURITY_TEST": "ae9d957baacdd46b1225f8e6f10e4909fad153e412e6a622e4aa1bd25cb5be6d",
+    "READER": "19b5c55c64959dc136cd4d6b2081151ed1e39560874fb083e9796edb8812adfa",
+    "VALIDATOR": "49138ecc11bde5709f129e879cbc5140717dca716a8563ebafe77dda4e37187d",
+    "PROJECTOR": "2bfaf8174e8249087d720e49070c9812ce9ecf93b21dd5276f057e145965dfb2",
+    "SERVER": "3acb859916ccb9fb1a1c26cc0ebfa511bea2d8114fa83103ace40183fa899ee6",
+    "PARSER": "73b9ad531d4e184b47636f0a7558e07cc44688d1499ddd666b8dc58610f830f7",
+    "BUILD_INTERMEDIATE": "7312ebdffc7221ef989195afd03bdbbe34f945582cb25b9020d64b19316bdabe",
+    "ADAPTER": "0ef2f634966e9be671628889b82e13baf8b57d14a6b649d7ffaee981279f9214",
+    "SEARCH_BUILDER": "a14ffa6f5c4b04fd63ed3b95ba8b6892ca5c11f1cee050b323861c009c6eaaa1",
+    "INTERMEDIATE_VALIDATOR": "0fc6f8bb42fae82ae0bec3b84ca319907bc2436aa58a1d59426f9ea525d4ab69",
+    "INTERMEDIATE_STREAM_VALIDATOR": "d998ec20f3511583603fbf4199160c47772c98f65e53e2274a23dc1f0a6e7f9f",
+    "SEARCH_VALIDATOR": "bd673618bdf7c56a3e0c6c19330ad8b3ff0fcb69d7b0d4f4930808fa5289394d",
+    "SEARCH_STREAM_VALIDATOR": "40dbaa9b8b50d060b26bd672322830d87fdb26fb0ae2a356694a85a75edfcdd1",
+    "PATH_BUILDER": "b29031b8a0ae594bda762795bb6bc79a7080ea8cfe0a147118accf374be94839",
+    "PATH_VALIDATOR": "810b6fe761a399c6527f905e8ffa411c26965e56a29de9fda6e2e8ab79b5bb3d",
+    "ANSWER": "8677d5d49c37e081ad2c2ab06bd9c4734280ef5d3e4b2941a1fe570061388e60",
+    "ANSWER_BASE": "33f2b25e9d434e00b216be162d3e60dd8d322409cb108d07e26e455f4a1f34b2",
+    "QEG": "037205339f65e58d1acf8c935500007d66a35f7796f70785450f6bd0d553c86d",
+    "FINAL_AUDIT": "80f062381d02697cfb12efbafd35727e60e661dca0c650d2bbc6b472a66f4d71",
+    "SECURITY_GATE": "3d657ee201022b43429ac765f18c4c3067b96c3962d0178097978ecffe90c2ad",
+    "GUARD": "7c6953d3e92c46ede699b81690a138fb50e74e51b79fc37d14f9fc44d6c4391b",
+    "DISPATCHER": "16bacec1eca35d00f99ac6f03b4971e79a128ededd98d1e96abae0829c0e1e38",
+    "SUPERVISOR": "6b3bde90b6ed649a82325f6b5ad9661756bef7b6e0303fa74c2d045fb26eb4a9",
+    "SCHEMA_DOCUMENT": "0c7d441fda25c39378fa7cf1014c12e4de0817ca65b33eba95df4b9da4f10d1c",
+    "SCHEMA_EVIDENCE": "81db1ba15565b890fa885806d013854380267ec37d578b1bf7997fd86cac5bc5",
+    "SCHEMA_RELATION": "00a1e9848a53b7f195bb8b1037f386ff5e1d4080d32c0e550a85c786d50b2b1a",
+    "SCHEMA_SEARCH_UNIT": "47ed1bf91425c59f87c9672470b0684fddb935e103d845123e54346dd72fae9f",
+    "RESOLVER": "4ca6df75ced0c44e7da4364509311aad21f81601ba9d42b88efc1f6a9b157734",
+    "RESOLVER_TEST": "111b9ab6473145dbe0d43904219fb2355d9695e7e018798f1a75c5df11140d03",
+    "BOOTSTRAP": "cad0bfee06fbdf0af0319d6fed2d467310ef697e848a9b6d170eacf061f31b55",
+    "README": "2d2566607a500e0d195df5bb8f7bf1ee28ba78422ecc4bf24e396d4b090e4750",
+    "PURE_TEST": "33dc00f8c0cbe2bbf095c9236da32f74ea3ccc87a97f995b05005f999a8028ba",
+    "APP_TEST": "d401950ee20a9d88e13f81bcb551ce3f05ef403e289e0ffa0364a9e93914a9b8",
+    "UNMARKED_TEST": "7bf83e2823742cc1449fdd69890d780e8c8b8daf69911905ce6cb20af2ad1f29",
+    "UNMARKED_APP_TEST": "146a69f210c47c8f36390238d68c5f37bbb955b3f6faa3729febe38f3c014105",
+    "CONTRACT": "89960be4254752ba3ae387610359c3f6f8200cb57c3d7a9190398c723473e4df",
+    "ADDENDUM": "5cc85d11170e4068099ab31284807c5e10cfb4e804c37104379333fa688fb4bd",
+    "ROOT_DELTAS": "3a1572cc5c321a41111fb9d139fc7c35ca18113acc0c723ae1ce4116375be65a",
+    "ROOT_GOLD": "3887b8492829493a78564a662ac9c36d9013d57b5b9205d87e5a5f55a46a9ae6",
+    "ROOT_RUNNER": "e708c2b8d80f77a61d94a4ba642a62f9ea3ef3562f8d62c997e8d5938b866c14",
+    "ROOT_RUNNER_V2": "e13a9c6d264a70a47bb35e84c037f97a49ea79513b512936bdd290edef78bfae",
+    "ROOT_DELTA_GENERATOR": "6de0a4a9c5599fce21858d600024375683483d1719643a801af4b4b5b7ba8f51",
+    "EXECUTOR_MANIFEST": "8c8ea304ba80cd97d3c856c6fee5eab5361e1e2caba55978e2aedf4be21a3514",
+    "EXECUTOR_SUMMARY_ORIGINAL": "ef5d8eb2d77f190a4199a5f3706283efd97bb606f68e43226aea097ff01e98d8",
+    "EXECUTOR_SUMMARY": "b85c5a05fc8ab9f6f56a794358f607da75a7809d4f7dbb37cb33ec289c81bc6d",
+    "EXECUTOR_DELTA_CHECKS": "e0b7ae634811544b83feeb1aecf3dc61104df7a6666cabddc49512264215d6e6",
+    "PARENT_VALIDATOR": "3285547e4d93cd1516c5726ded94810233879662cb765de9ea5065b004c86566",
+    "INVERSE_HELPER": "ed13ff27e65d73a6152f6bc3000df0e68b91b168b650344500122466a7bd1dd6",
+    "FREEZE_GENERATOR": "1a5fc7e5c5d54b2b63b85ecc1bc7c20acf193821fccc958f30d9787e6219cdcc",
+    "EXEC_FILE_06": "85d67ee49f80d3a5492404e8ba885e40b7ed0e19a9c453e5e40da254c833e15b",
+    "EXEC_FILE_07": "b433a5af8d96cf6549904667f23024a2b48a5d78f73a428e40e70d3ae8abb6b5",
+    "EXEC_FILE_08": "3a4278326b3f071ffd9d81081d68982350038dd429ca2f159c6f8dcc1f5af0c9",
+    "EXEC_FILE_09": "f233dfd4efbc8288b139477b9970b8cc2f2e716c5af7e841f43cdaac06e1e862",
+    "EXEC_FILE_10": "8fdf93d10cd0e4178c0942206bf14598688672d4b0fea795572a6e044aa882bf",
+    "EXEC_FILE_11": "9632269bfb28485a096876be403a575acdf7bdf8e01e1540f9ec98703287eaeb",
+    "EXEC_FILE_12": "375800b713e9c1a713842c59470146beb7fd5fb671abe275f55d0d9917ff63ab",
+    "EXEC_FILE_13": "12ccd0fb76fa715102937090ee5bb1eacb45845802b5504c448678d727008e82",
+    "EXEC_FILE_14": "c2b98254ec28a82e8cc7b5ef3f5e780739bcc1b6983ef2a9252609156d4b672f",
+    "EXEC_FILE_15": "33dc00f8c0cbe2bbf095c9236da32f74ea3ccc87a97f995b05005f999a8028ba",
+    "EXEC_FILE_16": "289e8e2e191e5c9befc28f0ed187359ec61756cb48cb350fc48b5320d9bfd585",
+    "EXEC_FILE_17": "dbe737f7f5b6b3ceb48117f2cc95917a4c94b906bb8d1d19d030e31f2f21c3a7",
+    "EXEC_FILE_18": "9021b2c20081689e3af005f75f0be413e8032a5fdec5180ee77275e1ab4ffa1b",
+    "EXEC_FILE_19": "d7ec41af9b6fa3c815a0fe6fafdd634dd14dfba19208ceaa5abac1e53a87dcba",
+    "EXEC_FILE_20": "719304ea0a712f0101674c9b6f22f8fe2928679f60040b19240fc0c6db3f1d3e",
+    "EXEC_FILE_21": "a3d0cbc998889a0a77a41bcdc57baac2a5d16b46ede017c2ff3b46d61cc28254",
+    "EXEC_FILE_22": "81538919554f0c1ed6aba6250b61bb6188aad0256bc78833eea456e1b0f684ad",
+    "EXEC_FILE_23": "9f39bdb8cad9b91bff9e4f95848c6bf090b2d0d97d9526c3bb4d9316f84af6cb",
+    "EXEC_FILE_24": "614d3c7612bd42e6b9c722cf3f2b9c8c23256aa12f0b44c3e3bcadadf6332111",
+    "EXEC_FILE_25": "cc80efb4928af481b6f982e2cff259a070b551408f958c717bc2a1fa459b7bea",
+    "EXEC_FILE_26": "c18d25124630bf42af38ee46c899ca4692dbd5fab2358c46329f8f87c3f63eaa",
+    "EXEC_FILE_27": "7600fef6fa1978c6f07042ce9418e20efa88b47d0cc523b1a647cb0a1ad35c9a",
+    "EXEC_FILE_28": "e3f02504b0dc5cc21945330298f2e1583af8f0197b42586fb02d12f2880fe5a7",
+    "EXEC_FILE_29": "f7a24cda748f478376b06d8bffe08bad8685955cac9a8e91e24b4815912a53c7",
+    "EXEC_FILE_30": "d56605642e12949cec380b3bb4d0891597068f49172c6a748543fed91d46fa5a",
+    "EXEC_FILE_31": "f7b51abe64414e111e605906f578aa2fefe3783a77d0e2586618fa19e9dc5c02",
+    "EXEC_FILE_32": "f84fec9537c6acbb0f87dcc7bc30117583201661e1856da42f8152993d22327b",
+    "EXEC_FILE_33": "cc9590e2d7bff1bc9fe9bd22d7632ac7795fcc87a9e7c3aae6ebd92ddbc8dae8",
+    "EXEC_FILE_34": "13f8dbf5286899863722c8ea994f67bf24b47ebe256348f39a3696b9adc0ef53",
+    "EXEC_FILE_35": "f174ed2b06553de3bc969cc18706d3e8e7477d594e4774d57aaac980064a5778",
+    "EXEC_FILE_36": "fece275a1217029672c7908d5312764454ca6d8393da3451654f5943e2e8ff3f",
+    "RUN_06": "5389d6dcb45ac8ae46a32ddede25286d9ad179edc1776a5e2a96e55573fb40ff",
+    "LOG_06": "12f99897f471392dbb375444e783664ba9a7896604c204523d5b1a83305ccaa4",
+    "STARTED_06": "8b425a858dc08d2753fb84a178a3c7dde2912ebcb53e1ee7f581646a6f1a05bd",
+    "RUN_07": "6f1b5a7866e3e7afca5d97ab1fb33e52e77c42c88046d965d588c18ceb0907c6",
+    "LOG_07": "b98bf7fd1e861f7bf08390d650071a10ee87d818f915b0a677b9f6de45e98cfc",
+    "STARTED_07": "fcbba0319eea4e6b9b0a687fdc545f9d2b31cc73f77efc851589b984952887ac",
+    "RUN_08": "2cac03842e1e677ff52ccf00904d374ac65544d792bb0ea6fff06488de704ead",
+    "LOG_08": "b594ca799ad991abde38d6a21faee42702f7044521d80750a1046972ec71223d",
+    "STARTED_08": "2178a14a03279e44e52af32d6c72ac0ff2547c9c564f0a7c2c371ec3958f6a79",
+    "RUN_09": "64371667d0879bcfcb0fcfa71e2a8cb59d9f59c973826ac0a41bb93f58553fcd",
+    "LOG_09": "2de5f982518b79097cc50655fb197262316ed05b4c4c3bcc8e6a71f3f9e0b3df",
+    "STARTED_09": "16a953c1a852dbadaec4ff36e32e330730244fdf725b6301c29f5b92cae2643e",
+    "RUN_10": "9e5b7ffab8c858aa9d8e8cbcc355a1d935b71472866e3dafdb148a62e1bf45b1",
+    "LOG_10": "2552fc43557e366f8547f44acbdfd096280b534788dd29ffdb62ad88b21afc3d",
+    "STARTED_10": "cd35656190826318b1ba2ecf09c1d60c63104dd836f332a277a61e39edb37be0",
+    "RUN_11": "5b8b872c2355dbc7b4360e82f5e9f4a82bd6ebb458ead2de7bdacc9d8dd1f5e5",
+    "LOG_11": "d9da98f8f56b98b3c656320b75bdfcfb2eb4d7751a200ed36f66043975b6b2fd",
+    "STARTED_11": "69d272f3146dc6abc43b8e361e66ce8b8e6165c53986c48a88042fcdffd64766",
+    "RUN_12": "dd5e544331a88962670e2ccd18ae0ba50eba0afd8b8a95fa1f52a3e7f106623f",
+    "LOG_12": "5880b826f813ae01ccbdeede01d42dface3828272391d69f68e994a84bd68661",
+    "STARTED_12": "3efa90f911e20b5fd4c2fd796a2c25ae74ac7e237c5bb03afd9e455c2e4a6fd9",
+    "RUN_13": "c8d7c38c9ab75bd5cbea448f7bd6054302495006186cde57049d65f3b8d808e8",
+    "LOG_13": "81ff274d0caf71da096a7abd22f8d5e442f45cf0484fa24707f8ad29f541c82e",
+    "STARTED_13": "8c25b8a0193702a4bbd36d5694bc1de922e8ee2d2100fcd2c35e00a905fe5c76",
+    "RUN_14": "1aedecf01112b57640fba2e379dfc5e01d0bb7957df3024a26dd1efe62256ca4",
+    "LOG_14": "24fbb3db014ee66aa48d62cba70e30d03ff15ac3edee8ff18606b482ff9f362f",
+    "STARTED_14": "18047ebb5567df3f17c54b9d276544488738e29c2d864635f804619113da1244",
+    "RUN_15": "f48d6a5a44271e442caedd7dbe7489167f7d503bb2afd39cbc5e573d638818b1",
+    "LOG_15": "80010e806237e3000015dfb5c2291b413e20d0c8ead2167f94eda2f74d0df703",
+    "STARTED_15": "14a386ba5c76f53c6496f2e965237cce0fd87d1c2176eaaf68a90800a2a9e97a"
+  },
+  "sources_after": {
+    "E2E_TEST": "41540a858d17f8abb322c15353032ec4dd3099eac4e767090f7b9dbabfbcf64a",
+    "YEAR_TEST": "70a1226cb30daa6692533d2c6f1fe270fe301a8f759c0db56a142acbc945b8c0",
+    "FOCUSED_TEST": "89da7502c783e78fa3f3f11ba25a0f09680d35602548ea858d203ff9c8339989",
+    "LINEAGE_TEST": "26f1624c0dcdddacd86f8cf21253247db9f3f330d764c9b9e4cad80f8e41f4d0",
+    "MIGRATION_TEST": "7d92425d39eb0316687ca9b8b0250768444652dcd39b7dfa9324380396b72d80",
+    "SECURITY_TEST": "ae9d957baacdd46b1225f8e6f10e4909fad153e412e6a622e4aa1bd25cb5be6d",
+    "READER": "19b5c55c64959dc136cd4d6b2081151ed1e39560874fb083e9796edb8812adfa",
+    "VALIDATOR": "49138ecc11bde5709f129e879cbc5140717dca716a8563ebafe77dda4e37187d",
+    "PROJECTOR": "2bfaf8174e8249087d720e49070c9812ce9ecf93b21dd5276f057e145965dfb2",
+    "SERVER": "3acb859916ccb9fb1a1c26cc0ebfa511bea2d8114fa83103ace40183fa899ee6",
+    "PARSER": "73b9ad531d4e184b47636f0a7558e07cc44688d1499ddd666b8dc58610f830f7",
+    "BUILD_INTERMEDIATE": "7312ebdffc7221ef989195afd03bdbbe34f945582cb25b9020d64b19316bdabe",
+    "ADAPTER": "0ef2f634966e9be671628889b82e13baf8b57d14a6b649d7ffaee981279f9214",
+    "SEARCH_BUILDER": "a14ffa6f5c4b04fd63ed3b95ba8b6892ca5c11f1cee050b323861c009c6eaaa1",
+    "INTERMEDIATE_VALIDATOR": "0fc6f8bb42fae82ae0bec3b84ca319907bc2436aa58a1d59426f9ea525d4ab69",
+    "INTERMEDIATE_STREAM_VALIDATOR": "d998ec20f3511583603fbf4199160c47772c98f65e53e2274a23dc1f0a6e7f9f",
+    "SEARCH_VALIDATOR": "bd673618bdf7c56a3e0c6c19330ad8b3ff0fcb69d7b0d4f4930808fa5289394d",
+    "SEARCH_STREAM_VALIDATOR": "40dbaa9b8b50d060b26bd672322830d87fdb26fb0ae2a356694a85a75edfcdd1",
+    "PATH_BUILDER": "b29031b8a0ae594bda762795bb6bc79a7080ea8cfe0a147118accf374be94839",
+    "PATH_VALIDATOR": "810b6fe761a399c6527f905e8ffa411c26965e56a29de9fda6e2e8ab79b5bb3d",
+    "ANSWER": "8677d5d49c37e081ad2c2ab06bd9c4734280ef5d3e4b2941a1fe570061388e60",
+    "ANSWER_BASE": "33f2b25e9d434e00b216be162d3e60dd8d322409cb108d07e26e455f4a1f34b2",
+    "QEG": "037205339f65e58d1acf8c935500007d66a35f7796f70785450f6bd0d553c86d",
+    "FINAL_AUDIT": "80f062381d02697cfb12efbafd35727e60e661dca0c650d2bbc6b472a66f4d71",
+    "SECURITY_GATE": "3d657ee201022b43429ac765f18c4c3067b96c3962d0178097978ecffe90c2ad",
+    "GUARD": "7c6953d3e92c46ede699b81690a138fb50e74e51b79fc37d14f9fc44d6c4391b",
+    "DISPATCHER": "16bacec1eca35d00f99ac6f03b4971e79a128ededd98d1e96abae0829c0e1e38",
+    "SUPERVISOR": "6b3bde90b6ed649a82325f6b5ad9661756bef7b6e0303fa74c2d045fb26eb4a9",
+    "SCHEMA_DOCUMENT": "0c7d441fda25c39378fa7cf1014c12e4de0817ca65b33eba95df4b9da4f10d1c",
+    "SCHEMA_EVIDENCE": "81db1ba15565b890fa885806d013854380267ec37d578b1bf7997fd86cac5bc5",
+    "SCHEMA_RELATION": "00a1e9848a53b7f195bb8b1037f386ff5e1d4080d32c0e550a85c786d50b2b1a",
+    "SCHEMA_SEARCH_UNIT": "47ed1bf91425c59f87c9672470b0684fddb935e103d845123e54346dd72fae9f",
+    "RESOLVER": "4ca6df75ced0c44e7da4364509311aad21f81601ba9d42b88efc1f6a9b157734",
+    "RESOLVER_TEST": "111b9ab6473145dbe0d43904219fb2355d9695e7e018798f1a75c5df11140d03",
+    "BOOTSTRAP": "cad0bfee06fbdf0af0319d6fed2d467310ef697e848a9b6d170eacf061f31b55",
+    "README": "2d2566607a500e0d195df5bb8f7bf1ee28ba78422ecc4bf24e396d4b090e4750",
+    "PURE_TEST": "33dc00f8c0cbe2bbf095c9236da32f74ea3ccc87a97f995b05005f999a8028ba",
+    "APP_TEST": "d401950ee20a9d88e13f81bcb551ce3f05ef403e289e0ffa0364a9e93914a9b8",
+    "UNMARKED_TEST": "7bf83e2823742cc1449fdd69890d780e8c8b8daf69911905ce6cb20af2ad1f29",
+    "UNMARKED_APP_TEST": "146a69f210c47c8f36390238d68c5f37bbb955b3f6faa3729febe38f3c014105",
+    "CONTRACT": "89960be4254752ba3ae387610359c3f6f8200cb57c3d7a9190398c723473e4df",
+    "ADDENDUM": "5cc85d11170e4068099ab31284807c5e10cfb4e804c37104379333fa688fb4bd",
+    "ROOT_DELTAS": "3a1572cc5c321a41111fb9d139fc7c35ca18113acc0c723ae1ce4116375be65a",
+    "ROOT_GOLD": "3887b8492829493a78564a662ac9c36d9013d57b5b9205d87e5a5f55a46a9ae6",
+    "ROOT_RUNNER": "e708c2b8d80f77a61d94a4ba642a62f9ea3ef3562f8d62c997e8d5938b866c14",
+    "ROOT_RUNNER_V2": "e13a9c6d264a70a47bb35e84c037f97a49ea79513b512936bdd290edef78bfae",
+    "ROOT_DELTA_GENERATOR": "6de0a4a9c5599fce21858d600024375683483d1719643a801af4b4b5b7ba8f51",
+    "EXECUTOR_MANIFEST": "8c8ea304ba80cd97d3c856c6fee5eab5361e1e2caba55978e2aedf4be21a3514",
+    "EXECUTOR_SUMMARY_ORIGINAL": "ef5d8eb2d77f190a4199a5f3706283efd97bb606f68e43226aea097ff01e98d8",
+    "EXECUTOR_SUMMARY": "b85c5a05fc8ab9f6f56a794358f607da75a7809d4f7dbb37cb33ec289c81bc6d",
+    "EXECUTOR_DELTA_CHECKS": "e0b7ae634811544b83feeb1aecf3dc61104df7a6666cabddc49512264215d6e6",
+    "PARENT_VALIDATOR": "3285547e4d93cd1516c5726ded94810233879662cb765de9ea5065b004c86566",
+    "INVERSE_HELPER": "ed13ff27e65d73a6152f6bc3000df0e68b91b168b650344500122466a7bd1dd6",
+    "FREEZE_GENERATOR": "1a5fc7e5c5d54b2b63b85ecc1bc7c20acf193821fccc958f30d9787e6219cdcc",
+    "EXEC_FILE_06": "85d67ee49f80d3a5492404e8ba885e40b7ed0e19a9c453e5e40da254c833e15b",
+    "EXEC_FILE_07": "b433a5af8d96cf6549904667f23024a2b48a5d78f73a428e40e70d3ae8abb6b5",
+    "EXEC_FILE_08": "3a4278326b3f071ffd9d81081d68982350038dd429ca2f159c6f8dcc1f5af0c9",
+    "EXEC_FILE_09": "f233dfd4efbc8288b139477b9970b8cc2f2e716c5af7e841f43cdaac06e1e862",
+    "EXEC_FILE_10": "8fdf93d10cd0e4178c0942206bf14598688672d4b0fea795572a6e044aa882bf",
+    "EXEC_FILE_11": "9632269bfb28485a096876be403a575acdf7bdf8e01e1540f9ec98703287eaeb",
+    "EXEC_FILE_12": "375800b713e9c1a713842c59470146beb7fd5fb671abe275f55d0d9917ff63ab",
+    "EXEC_FILE_13": "12ccd0fb76fa715102937090ee5bb1eacb45845802b5504c448678d727008e82",
+    "EXEC_FILE_14": "c2b98254ec28a82e8cc7b5ef3f5e780739bcc1b6983ef2a9252609156d4b672f",
+    "EXEC_FILE_15": "33dc00f8c0cbe2bbf095c9236da32f74ea3ccc87a97f995b05005f999a8028ba",
+    "EXEC_FILE_16": "289e8e2e191e5c9befc28f0ed187359ec61756cb48cb350fc48b5320d9bfd585",
+    "EXEC_FILE_17": "dbe737f7f5b6b3ceb48117f2cc95917a4c94b906bb8d1d19d030e31f2f21c3a7",
+    "EXEC_FILE_18": "9021b2c20081689e3af005f75f0be413e8032a5fdec5180ee77275e1ab4ffa1b",
+    "EXEC_FILE_19": "d7ec41af9b6fa3c815a0fe6fafdd634dd14dfba19208ceaa5abac1e53a87dcba",
+    "EXEC_FILE_20": "719304ea0a712f0101674c9b6f22f8fe2928679f60040b19240fc0c6db3f1d3e",
+    "EXEC_FILE_21": "a3d0cbc998889a0a77a41bcdc57baac2a5d16b46ede017c2ff3b46d61cc28254",
+    "EXEC_FILE_22": "81538919554f0c1ed6aba6250b61bb6188aad0256bc78833eea456e1b0f684ad",
+    "EXEC_FILE_23": "9f39bdb8cad9b91bff9e4f95848c6bf090b2d0d97d9526c3bb4d9316f84af6cb",
+    "EXEC_FILE_24": "614d3c7612bd42e6b9c722cf3f2b9c8c23256aa12f0b44c3e3bcadadf6332111",
+    "EXEC_FILE_25": "cc80efb4928af481b6f982e2cff259a070b551408f958c717bc2a1fa459b7bea",
+    "EXEC_FILE_26": "c18d25124630bf42af38ee46c899ca4692dbd5fab2358c46329f8f87c3f63eaa",
+    "EXEC_FILE_27": "7600fef6fa1978c6f07042ce9418e20efa88b47d0cc523b1a647cb0a1ad35c9a",
+    "EXEC_FILE_28": "e3f02504b0dc5cc21945330298f2e1583af8f0197b42586fb02d12f2880fe5a7",
+    "EXEC_FILE_29": "f7a24cda748f478376b06d8bffe08bad8685955cac9a8e91e24b4815912a53c7",
+    "EXEC_FILE_30": "d56605642e12949cec380b3bb4d0891597068f49172c6a748543fed91d46fa5a",
+    "EXEC_FILE_31": "f7b51abe64414e111e605906f578aa2fefe3783a77d0e2586618fa19e9dc5c02",
+    "EXEC_FILE_32": "f84fec9537c6acbb0f87dcc7bc30117583201661e1856da42f8152993d22327b",
+    "EXEC_FILE_33": "cc9590e2d7bff1bc9fe9bd22d7632ac7795fcc87a9e7c3aae6ebd92ddbc8dae8",
+    "EXEC_FILE_34": "13f8dbf5286899863722c8ea994f67bf24b47ebe256348f39a3696b9adc0ef53",
+    "EXEC_FILE_35": "f174ed2b06553de3bc969cc18706d3e8e7477d594e4774d57aaac980064a5778",
+    "EXEC_FILE_36": "fece275a1217029672c7908d5312764454ca6d8393da3451654f5943e2e8ff3f",
+    "RUN_06": "5389d6dcb45ac8ae46a32ddede25286d9ad179edc1776a5e2a96e55573fb40ff",
+    "LOG_06": "12f99897f471392dbb375444e783664ba9a7896604c204523d5b1a83305ccaa4",
+    "STARTED_06": "8b425a858dc08d2753fb84a178a3c7dde2912ebcb53e1ee7f581646a6f1a05bd",
+    "RUN_07": "6f1b5a7866e3e7afca5d97ab1fb33e52e77c42c88046d965d588c18ceb0907c6",
+    "LOG_07": "b98bf7fd1e861f7bf08390d650071a10ee87d818f915b0a677b9f6de45e98cfc",
+    "STARTED_07": "fcbba0319eea4e6b9b0a687fdc545f9d2b31cc73f77efc851589b984952887ac",
+    "RUN_08": "2cac03842e1e677ff52ccf00904d374ac65544d792bb0ea6fff06488de704ead",
+    "LOG_08": "b594ca799ad991abde38d6a21faee42702f7044521d80750a1046972ec71223d",
+    "STARTED_08": "2178a14a03279e44e52af32d6c72ac0ff2547c9c564f0a7c2c371ec3958f6a79",
+    "RUN_09": "64371667d0879bcfcb0fcfa71e2a8cb59d9f59c973826ac0a41bb93f58553fcd",
+    "LOG_09": "2de5f982518b79097cc50655fb197262316ed05b4c4c3bcc8e6a71f3f9e0b3df",
+    "STARTED_09": "16a953c1a852dbadaec4ff36e32e330730244fdf725b6301c29f5b92cae2643e",
+    "RUN_10": "9e5b7ffab8c858aa9d8e8cbcc355a1d935b71472866e3dafdb148a62e1bf45b1",
+    "LOG_10": "2552fc43557e366f8547f44acbdfd096280b534788dd29ffdb62ad88b21afc3d",
+    "STARTED_10": "cd35656190826318b1ba2ecf09c1d60c63104dd836f332a277a61e39edb37be0",
+    "RUN_11": "5b8b872c2355dbc7b4360e82f5e9f4a82bd6ebb458ead2de7bdacc9d8dd1f5e5",
+    "LOG_11": "d9da98f8f56b98b3c656320b75bdfcfb2eb4d7751a200ed36f66043975b6b2fd",
+    "STARTED_11": "69d272f3146dc6abc43b8e361e66ce8b8e6165c53986c48a88042fcdffd64766",
+    "RUN_12": "dd5e544331a88962670e2ccd18ae0ba50eba0afd8b8a95fa1f52a3e7f106623f",
+    "LOG_12": "5880b826f813ae01ccbdeede01d42dface3828272391d69f68e994a84bd68661",
+    "STARTED_12": "3efa90f911e20b5fd4c2fd796a2c25ae74ac7e237c5bb03afd9e455c2e4a6fd9",
+    "RUN_13": "c8d7c38c9ab75bd5cbea448f7bd6054302495006186cde57049d65f3b8d808e8",
+    "LOG_13": "81ff274d0caf71da096a7abd22f8d5e442f45cf0484fa24707f8ad29f541c82e",
+    "STARTED_13": "8c25b8a0193702a4bbd36d5694bc1de922e8ee2d2100fcd2c35e00a905fe5c76",
+    "RUN_14": "1aedecf01112b57640fba2e379dfc5e01d0bb7957df3024a26dd1efe62256ca4",
+    "LOG_14": "24fbb3db014ee66aa48d62cba70e30d03ff15ac3edee8ff18606b482ff9f362f",
+    "STARTED_14": "18047ebb5567df3f17c54b9d276544488738e29c2d864635f804619113da1244",
+    "RUN_15": "f48d6a5a44271e442caedd7dbe7489167f7d503bb2afd39cbc5e573d638818b1",
+    "LOG_15": "80010e806237e3000015dfb5c2291b413e20d0c8ead2167f94eda2f74d0df703",
+    "STARTED_15": "14a386ba5c76f53c6496f2e965237cce0fd87d1c2176eaaf68a90800a2a9e97a"
+  },
+  "additional_artifacts": [
+    {
+      "path": "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/design/local-memory-v1-hardening/runs/f05a-audit-app-001/result.json",
+      "sha256": "633a2c1ee9901acf4f558b9c74cd8e23c49d4773dcb392205ab67d62070de2b5"
+    },
+    {
+      "path": "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/design/local-memory-v1-hardening/runs/f05a-audit-app-001/started.json",
+      "sha256": "e5cc5c3f3c118e6668c479cbd83ee38ac4fd4714b06a89a770d4a868481196ea"
+    },
+    {
+      "path": "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/design/local-memory-v1-hardening/runs/f05a-audit-app-001/unittest.log",
+      "sha256": "b24a2072baf43757d5b03bd3d2d4cf7fc52f29a3a3f7b6deca54976541ad020a"
+    },
+    {
+      "path": "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/design/local-memory-v1-hardening/runs/f05a-audit-e2e-001/result.json",
+      "sha256": "5b6479a01ef975adfd3229084b9d2ff63c46d245ecf807dc695e60812a2f8af4"
+    },
+    {
+      "path": "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/design/local-memory-v1-hardening/runs/f05a-audit-e2e-001/started.json",
+      "sha256": "c5622a0dc044139c278555469f89f2475f84a32de2da40e7e5adcc1afb5590a3"
+    },
+    {
+      "path": "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/design/local-memory-v1-hardening/runs/f05a-audit-e2e-001/unittest.log",
+      "sha256": "586146058de4204248273e8b616052f1288687c4120f9d1573e31865e70b67ff"
+    },
+    {
+      "path": "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/design/local-memory-v1-hardening/runs/f05a-audit-evidence-build.v1.py",
+      "sha256": "f0bf8e2bfe04407f1f47a693de28182080248a75116314f44cbf1b3200a46239"
+    },
+    {
+      "path": "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/design/local-memory-v1-hardening/runs/f05a-audit-holdout-001/result.json",
+      "sha256": "a091ff2af33d8fc60d96d977a936f7f93089a7ff3ff195f4774e6638a3048c46"
+    },
+    {
+      "path": "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/design/local-memory-v1-hardening/runs/f05a-audit-holdout-001/started.json",
+      "sha256": "0f9fe6ff4c17d1aad100fba33c718cd9c78361869cc56585d00e4d515aa87b18"
+    },
+    {
+      "path": "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/design/local-memory-v1-hardening/runs/f05a-audit-holdout-001/unittest.log",
+      "sha256": "85df314b0e05117efd6002a7e3aa7a7fcfe94cbbd9f8df90a2a3b8c6b87b86bb"
+    },
+    {
+      "path": "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/design/local-memory-v1-hardening/runs/f05a-audit-holdouts.v1.py",
+      "sha256": "d8e769849cb16c1c013cbe1d213f78f3dde781ef3caa9e369bd7d21f1392ae6e"
+    },
+    {
+      "path": "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/design/local-memory-v1-hardening/runs/f05a-audit-integrity.v1.json",
+      "sha256": "1ac06f13eb77a01264db209faae299c3e893cd5848c4543d036af85fc2f137a7"
+    },
+    {
+      "path": "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/design/local-memory-v1-hardening/runs/f05a-audit-local-validation.v1.json",
+      "sha256": "908e4199fea45c70c7c9d69c47f97843271b6bf9e60598e5ddaf85b8af20c2a0"
+    },
+    {
+      "path": "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/design/local-memory-v1-hardening/runs/f05a-audit-pure-001/result.json",
+      "sha256": "9fc09f5246e1fe912650ebc950fe863e5ecde1a5bdc6877114a279989ad43e35"
+    },
+    {
+      "path": "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/design/local-memory-v1-hardening/runs/f05a-audit-pure-001/started.json",
+      "sha256": "a81a008ebe7eb3ef57a0b5fec96dc5dfb69971aa3f5c03615c9b50ff145fcf79"
+    },
+    {
+      "path": "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/design/local-memory-v1-hardening/runs/f05a-audit-pure-001/unittest.log",
+      "sha256": "47f7d509512f1b3d280215d822f91bb5e78b2b9cacfc952942cc22789c1ea4bf"
+    },
+    {
+      "path": "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/design/local-memory-v1-hardening/runs/f05a-audit-report.v1.json",
+      "sha256": "abcba38370198842719be602b1a0bfb84d365c85a49a48b6e9ba608a71343152"
+    },
+    {
+      "path": "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/design/local-memory-v1-hardening/runs/f05a-audit-resolver-001/result.json",
+      "sha256": "d3db21aac2973c56cdd8ae977dcf5d6c6c0873d6b1b986868a3a8e19ce997e8d"
+    },
+    {
+      "path": "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/design/local-memory-v1-hardening/runs/f05a-audit-resolver-001/started.json",
+      "sha256": "7c516002579906665fbf139bb184147a51a5f9405dc6c09e5b861b8c64e2e5f9"
+    },
+    {
+      "path": "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/design/local-memory-v1-hardening/runs/f05a-audit-resolver-001/unittest.log",
+      "sha256": "f45734acdc5721365a72e4c97c26d8b944a762f690298c33e7a8c9fbab2a3473"
+    },
+    {
+      "path": "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/design/local-memory-v1-hardening/runs/f05a-audit-run.v1.py",
+      "sha256": "0f4d454208ffd0e2762d236d05dcb8cb4ba836e508799a5dfecbb337764807f5"
+    },
+    {
+      "path": "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/design/local-memory-v1-hardening/runs/f05a-audit-sources-after.v1.json",
+      "sha256": "496b15a9e9a9708defe253d8db3a86bcbac3247de4dabe4c3c74c4505edfb45f"
+    },
+    {
+      "path": "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/design/local-memory-v1-hardening/runs/f05a-audit-sources-before.v1.json",
+      "sha256": "35525d9ea2a3ffaf0f6be758f61453420adbba0201edb9217fabca5d6a9e9471"
+    },
+    {
+      "path": "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/design/local-memory-v1-hardening/runs/f05a-audit-unmarked-001/result.json",
+      "sha256": "d9146cf64d1980cc2e409cc398b06d2765d7e553689be83ad714fe576efd531c"
+    },
+    {
+      "path": "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/design/local-memory-v1-hardening/runs/f05a-audit-unmarked-001/started.json",
+      "sha256": "8006997a8837dbf29404895278cadd222d074f0e0ad7de56975f6603e79f0e4c"
+    },
+    {
+      "path": "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/design/local-memory-v1-hardening/runs/f05a-audit-unmarked-001/unittest.log",
+      "sha256": "af50a674bc90d3d199867cb76cb5927cdc72c3400cdece0aa36718143e2b067f"
+    },
+    {
+      "path": "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/design/local-memory-v1-hardening/runs/f05a-audit-unmarked-pure-001/result.json",
+      "sha256": "8eae91a1d282b7399fa169ba2eee3a99b101fc0cdad6588ce84e7732e13c2ace"
+    },
+    {
+      "path": "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/design/local-memory-v1-hardening/runs/f05a-audit-unmarked-pure-001/started.json",
+      "sha256": "de7f20698083deb62a08b4922ad49234af473e8c05d258f817290521d6179f2c"
+    },
+    {
+      "path": "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/design/local-memory-v1-hardening/runs/f05a-audit-unmarked-pure-001/unittest.log",
+      "sha256": "24fbb3db014ee66aa48d62cba70e30d03ff15ac3edee8ff18606b482ff9f362f"
+    },
+    {
+      "path": "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/design/local-memory-v1-hardening/runs/f05a-audit-year-001/result.json",
+      "sha256": "02da619bc54d3f36fe4f284b9d82129fcc8e19ebae55de169acc3ed07939fb76"
+    },
+    {
+      "path": "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/design/local-memory-v1-hardening/runs/f05a-audit-year-001/started.json",
+      "sha256": "5b3d75acfd335ef6938515b677d81d5683e8796ec1adaf253bae65b9b08b2b7f"
+    },
+    {
+      "path": "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/design/local-memory-v1-hardening/runs/f05a-audit-year-001/unittest.log",
+      "sha256": "80010e806237e3000015dfb5c2291b413e20d0c8ead2167f94eda2f74d0df703"
+    }
+  ],
+  "runs": [
+    {
+      "path": "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/design/local-memory-v1-hardening/runs/f05a-audit-pure-001/result.json",
+      "sha256": "9fc09f5246e1fe912650ebc950fe863e5ecde1a5bdc6877114a279989ad43e35",
+      "status": "passed",
+      "methods": 25,
+      "log_sha256": "47f7d509512f1b3d280215d822f91bb5e78b2b9cacfc952942cc22789c1ea4bf",
+      "started_sha256": "a81a008ebe7eb3ef57a0b5fec96dc5dfb69971aa3f5c03615c9b50ff145fcf79",
+      "footer": "OK",
+      "elapsed_seconds": 0.195548
+    },
+    {
+      "path": "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/design/local-memory-v1-hardening/runs/f05a-audit-resolver-001/result.json",
+      "sha256": "d3db21aac2973c56cdd8ae977dcf5d6c6c0873d6b1b986868a3a8e19ce997e8d",
+      "status": "passed",
+      "methods": 20,
+      "log_sha256": "f45734acdc5721365a72e4c97c26d8b944a762f690298c33e7a8c9fbab2a3473",
+      "started_sha256": "7c516002579906665fbf139bb184147a51a5f9405dc6c09e5b861b8c64e2e5f9",
+      "footer": "OK",
+      "elapsed_seconds": 0.29242
+    },
+    {
+      "path": "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/design/local-memory-v1-hardening/runs/f05a-audit-app-001/result.json",
+      "sha256": "633a2c1ee9901acf4f558b9c74cd8e23c49d4773dcb392205ab67d62070de2b5",
+      "status": "passed",
+      "methods": 4,
+      "log_sha256": "b24a2072baf43757d5b03bd3d2d4cf7fc52f29a3a3f7b6deca54976541ad020a",
+      "started_sha256": "e5cc5c3f3c118e6668c479cbd83ee38ac4fd4714b06a89a770d4a868481196ea",
+      "footer": "OK",
+      "elapsed_seconds": 0.623714
+    },
+    {
+      "path": "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/design/local-memory-v1-hardening/runs/f05a-audit-e2e-001/result.json",
+      "sha256": "5b6479a01ef975adfd3229084b9d2ff63c46d245ecf807dc695e60812a2f8af4",
+      "status": "passed",
+      "methods": 17,
+      "log_sha256": "586146058de4204248273e8b616052f1288687c4120f9d1573e31865e70b67ff",
+      "started_sha256": "c5622a0dc044139c278555469f89f2475f84a32de2da40e7e5adcc1afb5590a3",
+      "footer": "OK",
+      "elapsed_seconds": 1.944716
+    },
+    {
+      "path": "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/design/local-memory-v1-hardening/runs/f05a-audit-unmarked-001/result.json",
+      "sha256": "d9146cf64d1980cc2e409cc398b06d2765d7e553689be83ad714fe576efd531c",
+      "status": "passed",
+      "methods": 4,
+      "log_sha256": "af50a674bc90d3d199867cb76cb5927cdc72c3400cdece0aa36718143e2b067f",
+      "started_sha256": "8006997a8837dbf29404895278cadd222d074f0e0ad7de56975f6603e79f0e4c",
+      "footer": "OK",
+      "elapsed_seconds": 0.753683
+    },
+    {
+      "path": "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/design/local-memory-v1-hardening/runs/f05a-audit-unmarked-pure-001/result.json",
+      "sha256": "8eae91a1d282b7399fa169ba2eee3a99b101fc0cdad6588ce84e7732e13c2ace",
+      "status": "passed",
+      "methods": 19,
+      "log_sha256": "24fbb3db014ee66aa48d62cba70e30d03ff15ac3edee8ff18606b482ff9f362f",
+      "started_sha256": "de7f20698083deb62a08b4922ad49234af473e8c05d258f817290521d6179f2c",
+      "footer": "OK",
+      "elapsed_seconds": 0.052225
+    },
+    {
+      "path": "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/design/local-memory-v1-hardening/runs/f05a-audit-year-001/result.json",
+      "sha256": "02da619bc54d3f36fe4f284b9d82129fcc8e19ebae55de169acc3ed07939fb76",
+      "status": "passed",
+      "methods": 11,
+      "log_sha256": "80010e806237e3000015dfb5c2291b413e20d0c8ead2167f94eda2f74d0df703",
+      "started_sha256": "5b3d75acfd335ef6938515b677d81d5683e8796ec1adaf253bae65b9b08b2b7f",
+      "footer": "OK",
+      "elapsed_seconds": 0.046988
+    },
+    {
+      "path": "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/design/local-memory-v1-hardening/runs/f05a-audit-holdout-001/result.json",
+      "sha256": "a091ff2af33d8fc60d96d977a936f7f93089a7ff3ff195f4774e6638a3048c46",
+      "status": "passed",
+      "methods": 11,
+      "log_sha256": "85df314b0e05117efd6002a7e3aa7a7fcfe94cbbd9f8df90a2a3b8c6b87b86bb",
+      "started_sha256": "0f9fe6ff4c17d1aad100fba33c718cd9c78361869cc56585d00e4d515aa87b18",
+      "footer": "OK",
+      "elapsed_seconds": 0.194641
+    }
+  ],
+  "total_methods": 111,
+  "acceptance_control_regression_methods": 108,
+  "residual_witness_methods": 3,
+  "required_methods": 100,
+  "additional_independent_holdout_methods": 11,
+  "residual_test_names": [
+    "ResidualWitnessTests.test_cross_key_moves_renames_and_suffix_changes_leave_old_group_omitted",
+    "ResidualWitnessTests.test_year_kanji_parent_is_not_silently_normalized_more_broadly",
+    "YearOnlySupersessionTests.test_current_marker_year_residual_is_observable"
+  ],
+  "independent_failed_test_attempts": [],
+  "historical_result_log_records_checked": 16,
+  "scoped_bidirectional_deltas_checked": 6,
+  "independence_level": "same_model_separate_context",
+  "limits": {
+    "wall_seconds_per_test_worker": 30,
+    "combined_log_bytes_per_test_worker": 1048576,
+    "inventory_records_per_pure_fixture": 16,
+    "inventory_bytes": 16384,
+    "decision_bytes": 8192,
+    "graph_bytes": 65536,
+    "cumulative_pure_serialization_bytes_per_process": 1048576,
+    "source_fixtures": "synthetic owned temporary roots only; app fixtures <=16 KiB per case",
+    "write_scope": "new f05a-audit-* records only, plus synthetic temporary fixtures",
+    "guard_scope": "reviewed Python guards and supervisor; not OS isolation, source freshness or total RAM/disk guarantee",
+    "excluded": [
+      "network",
+      "models",
+      "GUI",
+      "installation",
+      "real source documents",
+      "production CONFIG/index",
+      "extra permissions",
+      "commit",
+      "push"
+    ]
+  },
+  "semantic_scope": "Standalone explicit-input resolver reconstruction and immediate bootstrap gate only. No whole F05/V1/release or post-gate/immutable-generation/Human-authenticity/freshness/global-race acceptance.",
+  "mechanical_validation_limit": "Local Ruby and strict Draft202012 passed; this does not replace parent consistency checks or prove semantic judgment."
+}

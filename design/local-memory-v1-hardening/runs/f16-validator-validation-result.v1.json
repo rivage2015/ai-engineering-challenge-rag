@@ -1,0 +1,15 @@
+{
+  "schema_version": "1.0",
+  "task_id": "lms-v1-00-hardening-2026-09-09-f16-validator",
+  "artifact": "f16-validator-graph-artifact.v1.json",
+  "report": "f16-validator-audit-report.v1.json",
+  "actual_artifact_sha256": "a5cf6c28322b23a9b24dd51f75e0eac61e70b03d076123c9a87d2c9e881b7e1b",
+  "ruby_structural_referential_validator": "PASS",
+  "draft202012_schema_task_hash": "PASS",
+  "all_twelve_source_hashes_and_edge_endpoints": "PASS",
+  "audit_status": "pass",
+  "repair_round": 0,
+  "independent_tests": "18 focused each3.14/3.9,19 builder,15 E2E+15 migration/lineage on latest stable parser73b9ad53...,3 additional adversarial cases, zero skips. Earlier stable parser4429... runs retained separately.",
+  "limits": "Explicit source authority/full path set/node binding and resource identity at validation time only. Directory digest order defect remains disclosed. No complete Merkle-root semantics, whole snapshot/resource/graph-policy/model/package/product acceptance. Shared observer is not independent enumeration proof.",
+  "next_action": "Accept this immutable scoped snapshot and release freeze. Implement separately contracted directory-depth correctness fix, then rerun combined tests; preserve current acceptance history."
+}

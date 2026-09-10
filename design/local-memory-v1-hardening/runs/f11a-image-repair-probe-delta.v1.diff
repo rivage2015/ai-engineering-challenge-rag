@@ -1,0 +1,328 @@
+--- design/local-memory-v1-hardening/runs/f11a-image-repair-before-probe.v1.py	2026-09-09 16:02:55
++++ scripts/probe_intermediate_records.py	2026-09-09 16:07:19
+@@ -41,6 +41,30 @@
+ EXTRACTOR = "intermediate-record-probe"
+ EXTRACTOR_VERSION = "0.8.0"
+ FORMULA_CACHED_VALUE_STATUS = "stored_in_file_not_recalculated"
++
++SHA256_PATTERN = re.compile(r"^[0-9a-f]{64}$")
++DOCUMENT_VISUAL_CONTAINER_BY_SUFFIX = {
++    ".pdf": "pdf_page_image",
++    ".docx": "office_embedded_image",
++    ".docm": "office_embedded_image",
++    ".xlsx": "office_embedded_image",
++    ".xlsm": "office_embedded_image",
++    ".pptx": "office_embedded_image",
++    ".pptm": "office_embedded_image",
++    ".ipynb": "notebook_embedded_image",
++    ".png": "standalone_image",
++    ".jpg": "standalone_image",
++    ".jpeg": "standalone_image",
++    ".gif": "standalone_image",
++    ".bmp": "standalone_image",
++    ".tif": "standalone_image",
++    ".tiff": "standalone_image",
++    ".webp": "standalone_image",
++}
++NOTEBOOK_PROVISIONAL_VISUAL_METHODS = {
++    "local_vlm_visual_observation_provisional",
++    "local_vlm_unlocated_transcript_provisional",
++}
+ 
+ PLAIN_TEXT_SUFFIXES = {
+     ".md", ".txt", ".py", ".toml", ".yaml", ".yml", ".rst", ".sql", ".sh", ".command",
+@@ -2703,8 +2727,108 @@
+     if state["source_json_pointer"] != pointer:
+         raise ValueError("notebook_state pointer mismatch")
+     return state
++
++
++def _visual_origin_errors(
++    parent: dict[str, Any],
++    visual_sources: list[dict[str, Any]],
++    expected_container: str,
++    document: dict[str, Any] | None = None,
++) -> list[str]:
++    """Validate one canonical, source-bound origin shared by an image family."""
++    errors: list[str] = []
++    parent_location = parent.get("location", {})
++    parent_native = parent.get("native_properties", {})
++    if not isinstance(parent_location, dict):
++        return ["parent image location is not an object"]
++    if not isinstance(parent_native, dict):
++        return ["parent image native properties are not an object"]
++    parent_origin = (
++        parent_native.get("visual_origin") if isinstance(parent_native, dict) else None
++    )
++    if not isinstance(parent_origin, dict):
++        return ["parent image visual origin is missing or invalid"]
++    required_origin = {
++        "kind", "source_relative_path", "source_sha256",
++        "source_location", "materialization",
++    }
++    if not required_origin.issubset(parent_origin):
++        errors.append("parent image visual origin is incomplete")
++    if parent_origin.get("kind") != expected_container:
++        errors.append("parent image visual origin kind is invalid")
++    source_location = parent_origin.get("source_location")
++    if source_location != parent_location:
++        errors.append("parent image visual origin location is inconsistent")
++
++    source_relative_path = parent_origin.get("source_relative_path")
++    source_sha256 = parent_origin.get("source_sha256")
++    if not isinstance(source_relative_path, str) or not source_relative_path:
++        errors.append("parent image visual origin source path is invalid")
++    if not isinstance(source_sha256, str) or not SHA256_PATTERN.fullmatch(source_sha256):
++        errors.append("parent image visual origin source hash is invalid")
++    if document is not None:
++        document_source = document.get("source", {})
++        if not isinstance(document_source, dict) or (
++            source_relative_path != document_source.get("relative_path")
++            or source_sha256 != document_source.get("sha256")
++        ):
++            errors.append("parent image visual origin differs from Document source")
++        if isinstance(document_source, dict):
++            document_path = document_source.get("relative_path")
++            expected_document_container = (
++                DOCUMENT_VISUAL_CONTAINER_BY_SUFFIX.get(
++                    PurePosixPath(document_path).suffix.casefold()
++                )
++                if isinstance(document_path, str) else None
++            )
++            if (
++                expected_document_container is not None
++                and expected_document_container != expected_container
++            ):
++                errors.append(
++                    "parent image visual origin kind differs from Document format"
++                )
+ 
++    materialization = parent_origin.get("materialization")
++    if not isinstance(materialization, dict):
++        errors.append("parent image visual materialization is missing or invalid")
++    else:
++        rendered_sha256 = materialization.get("rendered_sha256")
++        if (
++            not isinstance(rendered_sha256, str)
++            or not SHA256_PATTERN.fullmatch(rendered_sha256)
++        ):
++            errors.append("parent image rendered hash is invalid")
++        if materialization.get("source_sha256") != source_sha256:
++            errors.append("parent image materialization source hash is inconsistent")
++        if materialization.get("external_network_used") is not False:
++            errors.append("parent image materialization is not offline")
++        if expected_container in {
++            "office_embedded_image", "notebook_embedded_image",
++        }:
++            embedded_sha256 = materialization.get("embedded_sha256")
++            if (
++                not isinstance(embedded_sha256, str)
++                or not SHA256_PATTERN.fullmatch(embedded_sha256)
++                or embedded_sha256 != rendered_sha256
++                or parent_native.get("embedded_sha256") != embedded_sha256
++            ):
++                errors.append("parent embedded image digest binding is invalid")
++        else:
++            if parent_native.get("source_sha256") != rendered_sha256:
++                errors.append("parent rendered image digest binding is invalid")
+ 
++    for source in visual_sources:
++        native = source.get("native_properties", {})
++        origin = native.get("visual_origin") if isinstance(native, dict) else None
++        if not isinstance(origin, dict):
++            errors.append("child visual Evidence origin is missing or invalid")
++            continue
++        if origin != parent_origin:
++            errors.append("child visual Evidence origin differs from parent image")
++    return errors
++
++
+ def is_notebook_document(document: dict[str, Any]) -> bool:
+     source = document.get("source", {})
+     relative = source.get("relative_path", "")
+@@ -2715,9 +2839,109 @@
+     return notebook
+ 
+ 
+-def notebook_evidence_state(
++def _validate_notebook_visual_text(
++    evidence: dict[str, Any], document: dict[str, Any] | None,
++    parent_lookup: Callable[[str], dict[str, Any] | None] | None,
++) -> None:
++    """Check producer-shaped visual lineage without reading image/source files."""
++    native = evidence.get("native_properties", {})
++    provenance = evidence.get("provenance", {})
++    method = provenance.get("extraction_method") if isinstance(provenance, dict) else None
++    if (
++        evidence.get("evidence_type") != "text_block"
++        or not isinstance(method, str)
++        or method not in NOTEBOOK_PROVISIONAL_VISUAL_METHODS
++        or native.get("quality_tier") != "provisional"
++        or native.get("provisional_marker") != PROVISIONAL_OCR_MARKER
++        or native.get("question_independent") is not True
++        or "notebook_state" in native
++    ):
++        raise ValueError("notebook visual text quality/method/state mismatch")
++    parent_id = evidence.get("parent_evidence_id")
++    if not isinstance(parent_id, str) or not parent_id or parent_lookup is None:
++        raise ValueError("notebook visual parent lookup required")
++    parent = parent_lookup(parent_id)
++    if (
++        not isinstance(parent, dict)
++        or parent.get("evidence_id") != parent_id
++        or parent.get("evidence_type") != "image"
++        or not isinstance(evidence.get("document_id"), str)
++        or parent.get("document_id") != evidence.get("document_id")
++        or (document is not None and document.get("document_id") != evidence.get("document_id"))
++    ):
++        raise ValueError("notebook visual parent identity/type/document mismatch")
++    errors = _visual_origin_errors(parent, [evidence], "notebook_embedded_image", document)
++    if errors:
++        raise ValueError("notebook visual origin: " + "; ".join(errors))
++    parent_native = parent["native_properties"]
++    parent_origin = parent_native["visual_origin"]
++    parent_location = parent.get("location", {})
++    if (
++        canonical_json(native.get("visual_origin")) != canonical_json(parent_origin)
++        or canonical_json(parent_origin.get("source_location")) != canonical_json(parent_location)
++    ):
++        raise ValueError("notebook visual origin strict binding mismatch")
++    cell = parent_location.get("notebook_cell_index")
++    image_index = parent_location.get("object_index")
++    locator = parent_location.get("locator_text")
++    if (
++        set(parent_location) != {"notebook_cell_index", "object_index", "locator_text"}
++        or type(cell) is not int or cell < 1
++        or type(image_index) is not int or image_index < 1
++        or type(parent.get("ordinal")) is not int or parent["ordinal"] != image_index
++        or not isinstance(locator, str)
++    ):
++        raise ValueError("notebook visual parent location/ordinal mismatch")
++    output_match = re.fullmatch(r"cell=([1-9][0-9]*);output=([1-9][0-9]*);output-image=([1-9][0-9]*)", locator)
++    valid_prefix = (
++        output_match is not None
++        and output_match.group(1) == str(cell)
++        and output_match.group(3) == str(image_index)
++    ) or locator == f"cell={cell};source-image={image_index}"
++    attachment = parent_native.get("attachment_name")
++    if isinstance(attachment, str):
++        valid_prefix = valid_prefix or locator == (
++            f"cell={cell};attachment-image={image_index};attachment="
++            + urllib.parse.quote(attachment, safe="-._~")
++        )
++    if not valid_prefix:
++        raise ValueError("notebook visual parent producer locator mismatch")
++    ordinal = evidence.get("ordinal")
++    if type(ordinal) is not int or ordinal < 1:
++        raise ValueError("notebook visual child ordinal mismatch")
++    if method == "local_vlm_visual_observation_provisional":
++        object_index = 1
++        suffix = "visual_observation=whole_image"
++    else:
++        chunk = native.get("transcript_chunk_index")
++        chunks = native.get("transcript_chunk_count")
++        start = native.get("character_start")
++        end = native.get("character_end")
++        if (
++            native.get("location_status") != "unlocated"
++            or native.get("transcript_type") != "whole_image_faithful_transcript"
++            or "geometry" in evidence
++            or type(chunk) is not int or type(chunks) is not int
++            or not 1 <= chunk <= chunks
++            or type(start) is not int or type(end) is not int
++            or not 0 <= start < end
++            or native.get("character_offset_basis") != "zero_based_half_open"
++        ):
++            raise ValueError("notebook visual unlocated transcript contract mismatch")
++        object_index = ordinal
++        suffix = f"location_status=unlocated;source=image;chunk={chunk}/{chunks};characters={start + 1}-{end}"
++    expected_location = {
++        "notebook_cell_index": cell, "image_object_index": image_index,
++        "object_index": object_index, "locator_text": f"{locator};{suffix}",
++    }
++    if canonical_json(evidence.get("location", {})) != canonical_json(expected_location):
++        raise ValueError("notebook visual child producer location mismatch")
++
++
++def classify_notebook_evidence(
+     evidence: dict[str, Any], document: dict[str, Any] | None = None, *, allow_unparsed: bool = False,
+-) -> dict[str, Any] | None:
++    parent_lookup: Callable[[str], dict[str, Any] | None] | None = None,
++) -> tuple[str, dict[str, Any] | None]:
+     native = evidence.get("native_properties", {})
+     if not isinstance(native, dict):
+         raise ValueError("notebook native_properties must be an object")
+@@ -2739,15 +2963,30 @@
+     if not notebook:
+         if kind == "notebook_cell" or "notebook_cell_index" in location:
+             raise ValueError("notebook Evidence contradicts its Document")
+-        return None
++        return "not_applicable", None
+     if not textual:
+         if kind not in {"image", "ocr_line", "chart"} and "raw_text" in evidence.get("content", {}):
+             raise ValueError("notebook unsupported textual Evidence role")
+-        return None
++        return "not_applicable", None
++    provenance = evidence.get("provenance", {})
++    method = provenance.get("extraction_method") if isinstance(provenance, dict) else None
++    locator = location.get("locator_text")
++    visual_signals = (
++        (isinstance(method, str) and method.startswith("local_vlm_"))
++        or "visual_origin" in native or "image_object_index" in location
++        or native.get("quality_tier") == "provisional"
++        or "provisional_marker" in native
++        or (isinstance(locator, str) and any(part in locator for part in (
++            "visual_observation=", "location_status=unlocated", "source=image",
++        )))
++    )
++    if visual_signals:
++        _validate_notebook_visual_text(evidence, document, parent_lookup)
++        return "visual_text", None
+     if state is None:
+         if (allow_unparsed and kind == "text_block" and "notebook_cell_index" not in location
+                 and native.get("source_structure_status") == "unresolved"):
+-            return None
++            return "unparsed_text", None
+         raise ValueError("notebook_rebuild_required: textual Evidence lacks notebook_state")
+     cell = state["cell_index"]
+     expected_location = {"notebook_cell_index": cell, "locator_text": f"cell={cell}"}
+@@ -2760,10 +2999,23 @@
+     if (kind != expected_kind or type(evidence.get("ordinal")) is not int or evidence["ordinal"] != ordinal
+             or canonical_json(location) != canonical_json(expected_location)):
+         raise ValueError("notebook_state role/location/ordinal mismatch")
+-    return state
++    return "native_text", state
+ 
+ 
+-def notebook_document_binding(document: dict[str, Any], evidence: Any, source_root: Path | None) -> dict[str, Any]:
++def notebook_evidence_state(
++    evidence: dict[str, Any], document: dict[str, Any] | None = None, *, allow_unparsed: bool = False,
++    parent_lookup: Callable[[str], dict[str, Any] | None] | None = None,
++) -> dict[str, Any] | None:
++    """Compatibility state API; visual exclusions still require parent validation."""
++    return classify_notebook_evidence(
++        evidence, document, allow_unparsed=allow_unparsed, parent_lookup=parent_lookup,
++    )[1]
++
++
++def notebook_document_binding(
++    document: dict[str, Any], evidence: Any, source_root: Path | None, *,
++    parent_lookup: Callable[[str], dict[str, Any] | None] | None = None,
++) -> dict[str, Any]:
+     """Check one Document at a time; retain no cross-call source/path cache."""
+     notebook = is_notebook_document(document)
+     result = {"documents": int(notebook), "checked_evidence": 0, "unchecked_evidence": 0, "reason_codes": []}
+@@ -2795,8 +3047,11 @@
+             except OSError as exc:
+                 raise ValueError(f"notebook source read failed: {str(exc)[:256]}") from exc
+     for item in evidence:
+-        state = notebook_evidence_state(item, document, allow_unparsed=incomplete and expected is None)
+-        if not notebook or item.get("evidence_type") not in {"notebook_cell", "text_block"}:
++        kind, state = classify_notebook_evidence(
++            item, document, allow_unparsed=incomplete and expected is None,
++            parent_lookup=parent_lookup,
++        )
++        if kind in {"visual_text", "not_applicable"}:
+             continue
+         if state is None:
+             reasons.add("notebook_state_unparsed")

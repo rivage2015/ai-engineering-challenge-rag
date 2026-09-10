@@ -1,0 +1,80 @@
+--- design/local-memory-v1-hardening/runs/f11a-executor-before-intermediate-native.v1.py	2026-09-09 13:32:59
++++ scripts/validate_intermediate_records.py	2026-09-09 14:22:37
+@@ -13,7 +13,10 @@
+ from pathlib import Path
+ from typing import Any
+ 
+-from probe_intermediate_records import normalize_text
++from probe_intermediate_records import (
++    is_notebook_document, normalize_text, notebook_binding_report,
++    notebook_document_binding,
++)
+ 
+ 
+ REPOSITORY = Path(__file__).resolve().parents[1]
+@@ -425,7 +428,7 @@
+     return errors
+ 
+ 
+-def validate(directory: Path, source_root: Path | None = None) -> dict[str, int]:
++def validate_report(directory: Path, source_root: Path | None = None) -> dict[str, Any]:
+     schema_validators = published_schema_validators()
+     groups = {
+         "document": read_jsonl(directory / "documents.jsonl"),
+@@ -478,7 +481,7 @@
+         })
+         if item.get("document_id") != expected:
+             errors.append(f"{item.get('document_id', '<missing>')}: unstable document id")
+-        if source_root is not None:
++        if source_root is not None and not is_notebook_document(item):
+             root = source_root.resolve()
+             source_path = (root / source.get("relative_path", "")).resolve()
+             try:
+@@ -553,17 +556,44 @@
+         if rel_id != expected:
+             errors.append(f"{rel_id}: unstable relation id")
+ 
++    bindings = []
++    evidence_by_document: dict[str, list[dict[str, Any]]] = {}
++    for item in valid_groups["evidence"]:
++        evidence_by_document.setdefault(item.get("document_id"), []).append(item)
++    for document in valid_groups["document"]:
++        try:
++            bindings.append(notebook_document_binding(
++                document,
++                evidence_by_document.get(document["document_id"], []),
++                source_root,
++            ))
++        except ValueError as exc:
++            errors.append(f"{document.get('document_id')}: {exc}")
+     if errors:
+         raise ValueError("validation failed:\n- " + "\n- ".join(errors))
+-    return {kind: len(records) for kind, records in groups.items()}
++    return notebook_binding_report({kind: len(records) for kind, records in groups.items()}, bindings)
+ 
+ 
++def validate(directory: Path, source_root: Path | None = None) -> dict[str, int]:
++    report = validate_report(directory, source_root)
++    if report["status"] != "PASS":
++        raise ValueError("notebook_metadata_binding_unverified: " + ",".join(report["notebook_metadata_binding"]["reason_codes"]))
++    return report["counts"]
++
++
+ def main() -> None:
+     parser = argparse.ArgumentParser(description=__doc__)
+     parser.add_argument("directory", type=Path)
+-    parser.add_argument("--root", type=Path, help="optionally recheck source file size and SHA-256")
++    parser.add_argument("--root", type=Path, help="recheck original bytes; required for Notebook metadata binding")
+     args = parser.parse_args()
+-    print(canonical_json({"status": "ok", "counts": validate(args.directory, args.root)}))
++    try:
++        report = validate_report(args.directory, args.root)
++    except ValueError as exc:
++        print(canonical_json({"status": "FAIL", "error": str(exc)[:512]}))
++        raise SystemExit(1)
++    print(canonical_json(report))
++    if report["status"] != "PASS":
++        raise SystemExit(2)
+ 
+ 
+ if __name__ == "__main__":

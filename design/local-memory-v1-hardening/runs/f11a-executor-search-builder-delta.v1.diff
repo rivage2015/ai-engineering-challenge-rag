@@ -1,0 +1,32 @@
+--- design/local-memory-v1-hardening/runs/f11a-executor-before-search-builder.v1.py	2026-09-09 13:32:59
++++ scripts/build_search_units.py	2026-09-09 14:22:05
+@@ -12,9 +12,10 @@
+ from pathlib import Path
+ from typing import Any, Callable
+ 
++from probe_intermediate_records import notebook_evidence_state
+ 
+ BUILDER = "search-unit-builder"
+-BUILDER_VERSION = "0.6.0"
++BUILDER_VERSION = "0.7.0"
+ SCHEMA_VERSION = "0.1"
+ STATE_FILE = "search-build-state.json"
+ CELL_PATTERN = re.compile(r"^([A-Z]{1,3})([1-9][0-9]*)$")
+@@ -752,6 +753,9 @@
+         unit_type: str,
+         context: dict[str, Any] | None = None,
+     ) -> None:
++        notebook_state = notebook_evidence_state(evidence)
++        if notebook_state is not None:
++            context = {**(context or {}), "notebook_state": json.loads(canonical_json(notebook_state))}
+         value = display_value(evidence)
+         if not value:
+             return
+@@ -811,6 +815,7 @@
+         ))
+ 
+     def consume(self, evidence: dict[str, Any]) -> None:
++        notebook_evidence_state(evidence)
+         evidence_type = evidence.get("evidence_type")
+         if evidence_type != "ocr_line":
+             self.flush_image()

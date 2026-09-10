@@ -1,0 +1,25 @@
+{
+  "status": "selected_bytes_and_ast_match",
+  "audit_acceptance": false,
+  "selected_files": 11,
+  "bytes_read": 189910,
+  "product_imports": 0,
+  "before_sha256": "14ecce2c01d68bfbfaa27d3022bfc6076a97465a331eb03443af0e6d50cc006f",
+  "after_sha256": "11218cc2b5170ba59a69203bcc549a50dc6eb6f88e487d191fb55a76048973a8",
+  "gold_unchanged": true,
+  "delta_forward_and_reverse_exact": true,
+  "changed_functions": [
+    "_family_component",
+    "automatic_selection",
+    "candidate",
+    "family_key",
+    "has_version_signal",
+    "validation_policy"
+  ],
+  "added_functions": [
+    "_calendar_year",
+    "_has_temporal_signal",
+    "_temporal_component"
+  ],
+  "other_original_functions_ast_unchanged": 21
+}

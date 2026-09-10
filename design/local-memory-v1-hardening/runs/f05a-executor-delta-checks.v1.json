@@ -1,0 +1,47 @@
+{
+  "schema_version": "1.0",
+  "initial_attempts": [
+    {
+      "command": "git apply --reverse --check design/local-memory-v1-hardening/runs/f05a-executor-resolver-delta.v1.diff",
+      "exit_code": 1,
+      "output": "error: macos-local-memory/engine/document_version_resolver.py: No such file or directory"
+    },
+    {
+      "command": "git apply --reverse --check design/local-memory-v1-hardening/runs/f05a-executor-resolver-test-delta.v1.diff",
+      "exit_code": 1,
+      "output": "error: macos-local-memory/tests/test_document_version_resolver.py: No such file or directory"
+    },
+    {
+      "command": "git apply --reverse --check design/local-memory-v1-hardening/runs/f05a-executor-gold-additive.v2.diff",
+      "exit_code": 1,
+      "output": "error: test_version_graph_reconstruction.py: No such file or directory"
+    }
+  ],
+  "corrected_attempts": [
+    {
+      "path": "design/local-memory-v1-hardening/runs/f05a-executor-resolver-delta.v1.diff",
+      "chunk_id": "33d0c0",
+      "wall_time_seconds": 0.000001875,
+      "exit_code": 0,
+      "original_token_count": 0,
+      "output": ""
+    },
+    {
+      "path": "design/local-memory-v1-hardening/runs/f05a-executor-resolver-test-delta.v1.diff",
+      "chunk_id": "3ff12b",
+      "wall_time_seconds": 0.000005583,
+      "exit_code": 0,
+      "original_token_count": 0,
+      "output": ""
+    },
+    {
+      "path": "design/local-memory-v1-hardening/runs/f05a-executor-gold-additive.v2.diff",
+      "chunk_id": "5b9cba",
+      "wall_time_seconds": 0.000002042,
+      "exit_code": 0,
+      "original_token_count": 0,
+      "output": ""
+    }
+  ],
+  "result": "all corrected read-only checks passed; no file mutations"
+}

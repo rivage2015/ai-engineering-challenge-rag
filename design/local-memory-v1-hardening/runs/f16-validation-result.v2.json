@@ -1,0 +1,16 @@
+{
+  "schema_version": "1.0",
+  "task_id": "lms-v1-00-hardening-2026-09-09-f16",
+  "artifact": "f16-graph-artifact.v2.json",
+  "report": "f16-audit-report.v2.json",
+  "actual_artifact_sha256": "f2c1e384fd7d03827e478fdfbf10abc12be90ea19e7c8949345364808e3078dc",
+  "ruby_structural_referential_validator": "PASS",
+  "draft202012_schema_task_hash": "PASS",
+  "all_twelve_source_hashes_and_edge_endpoints": "PASS",
+  "audit_status": "pass",
+  "repair_round": 1,
+  "independent_runs": "19 permanent cases on each Python3.14.6 and3.9.6, zero skips, bounded30 seconds/1MiB per run.",
+  "historical_patch_warning": "The v2 artifact inherited the v1 patch_snapshot. It is historical only, not the complete final v2 diff. Actual source hashes, REPAIR_EXECUTOR and fresh test evidence define this acceptance; no historical file was silently rewritten.",
+  "limits": "Builder-only scoped acceptance. Separate Path Validator and generation identity changes require their own tests/audit. No global filesystem snapshot, full resources, models, packaging or product acceptance.",
+  "next_action": "Release source freeze and implement separately contracted Path Validator followup; retain all older failed/static-only evidence."
+}

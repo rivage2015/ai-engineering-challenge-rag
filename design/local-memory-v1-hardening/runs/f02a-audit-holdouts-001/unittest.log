@@ -1,0 +1,22 @@
+test_all_held_failure_preserves_previous_config_and_index (f02a_holdout_tests.F02aIndependentAppHoldouts.test_all_held_failure_preserves_previous_config_and_index) ... ok
+test_normal_answer_and_final_audit_are_still_source_bound (f02a_holdout_tests.F02aIndependentAppHoldouts.test_normal_answer_and_final_audit_are_still_source_bound) ... ok
+test_three_year_directories_publish_only_unrelated_evidence (f02a_holdout_tests.F02aIndependentAppHoldouts.test_three_year_directories_publish_only_unrelated_evidence) ... ok
+test_directory_fullwidth_year_and_vocabulary_do_not_select (f02a_holdout_tests.F02aIndependentPureHoldouts.test_directory_fullwidth_year_and_vocabulary_do_not_select) ... ok
+test_f04a_and_current_year_conflict_precedence_remain (f02a_holdout_tests.F02aIndependentPureHoldouts.test_f04a_and_current_year_conflict_precedence_remain) ... ok
+test_hash_bound_oldest_human_choice_survives_candidate_order (f02a_holdout_tests.F02aIndependentPureHoldouts.test_hash_bound_oldest_human_choice_survives_candidate_order) ... ok
+test_latest_historical_draft_and_tie_retain_existing_reasons (f02a_holdout_tests.F02aIndependentPureHoldouts.test_latest_historical_draft_and_tie_retain_existing_reasons) ... ok
+test_multiple_year_tokens_with_unique_maximum_remain_held (f02a_holdout_tests.F02aIndependentPureHoldouts.test_multiple_year_tokens_with_unique_maximum_remain_held) ... ok
+test_numeric_and_current_positive_controls_remain (f02a_holdout_tests.F02aIndependentPureHoldouts.test_numeric_and_current_positive_controls_remain) ... ok
+test_reader_policy_holds_three_years_without_mutating_metadata (f02a_holdout_tests.F02aIndependentPureHoldouts.test_reader_policy_holds_three_years_without_mutating_metadata) ... ok
+test_reverse_numeric_versions_cannot_receive_year_branch_fallthrough (f02a_holdout_tests.F02aIndependentPureHoldouts.test_reverse_numeric_versions_cannot_receive_year_branch_fallthrough) ... ok
+test_selected_nonselected_hash_membership_and_decision_hash_stale (f02a_holdout_tests.F02aIndependentPureHoldouts.test_selected_nonselected_hash_membership_and_decision_hash_stale) ... ok
+test_three_periods_every_order_preserves_unknown_relationship (f02a_holdout_tests.F02aIndependentPureHoldouts.test_three_periods_every_order_preserves_unknown_relationship) ... ok
+test_current_marker_can_still_supersede_across_years (f02a_holdout_tests.F02aResidualWitnessesNotAcceptance.test_current_marker_can_still_supersede_across_years) ... {"residual": "current_marker_annual_identity_open", "acceptance_claim": false}
+ok
+test_unsignalled_candidate_discovery_is_still_incomplete (f02a_holdout_tests.F02aResidualWitnessesNotAcceptance.test_unsignalled_candidate_discovery_is_still_incomplete) ... {"residual": "F03_unsignalled_candidate_discovery_open", "acceptance_claim": false}
+ok
+
+----------------------------------------------------------------------
+Ran 15 tests in 0.426s
+
+OK

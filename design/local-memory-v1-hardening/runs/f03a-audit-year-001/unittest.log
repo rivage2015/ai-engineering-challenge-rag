@@ -1,0 +1,17 @@
+{"phase": "preimplementation_red", "resolver_sha256": "c2b98254ec28a82e8cc7b5ef3f5e780739bcc1b6983ef2a9252609156d4b672f", "synthetic_fixture_bytes": 4022, "required_behavior_and_control_methods": 10, "residual_witness_methods": 1, "runtime_guard": "deny file/network/process IO after imports; not OS isolation certification"}
+test_basename_year_order_is_held (__main__.YearOnlySupersessionTests.test_basename_year_order_is_held) ... ok
+test_candidate_permutation_preserves_complete_hold (__main__.YearOnlySupersessionTests.test_candidate_permutation_preserves_complete_hold) ... ok
+test_existing_draft_and_tied_year_holds_remain (__main__.YearOnlySupersessionTests.test_existing_draft_and_tied_year_holds_remain) ... ok
+test_f04a_single_version_conflict_remains_held (__main__.YearOnlySupersessionTests.test_f04a_single_version_conflict_remains_held) ... ok
+test_hash_bound_human_choice_can_select_older_year (__main__.YearOnlySupersessionTests.test_hash_bound_human_choice_can_select_older_year) ... ok
+test_neutral_words_do_not_prove_supersession (__main__.YearOnlySupersessionTests.test_neutral_words_do_not_prove_supersession) ... ok
+test_stale_human_choice_holds_changed_or_added_candidates (__main__.YearOnlySupersessionTests.test_stale_human_choice_holds_changed_or_added_candidates) ... ok
+test_version_only_numeric_order_remains_selected (__main__.YearOnlySupersessionTests.test_version_only_numeric_order_remains_selected) ... ok
+test_year_directories_are_held (__main__.YearOnlySupersessionTests.test_year_directories_are_held) ... ok
+test_year_version_inverse_is_held_without_fallthrough (__main__.YearOnlySupersessionTests.test_year_version_inverse_is_held_without_fallthrough) ... ok
+test_current_marker_year_residual_is_observable (__main__.CurrentMarkerResidualWitnessTests.test_current_marker_year_residual_is_observable) ... ok
+
+----------------------------------------------------------------------
+Ran 11 tests in 0.001s
+
+OK

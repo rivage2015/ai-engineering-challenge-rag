@@ -1,0 +1,90 @@
+{
+  "phase": "before_independent_audit_runs_after_root_source_freeze",
+  "task_id": "lms-v1-00-hardening-2026-09-09-f02a-implementation",
+  "files": [
+    {
+      "path": "distribution/macos-local-memory/engine/document_version_resolver.py",
+      "sha256": "9a7443862c015ed768007ef5a7b21bd3bc197c9bb7a3d7ed2f7b39b33374359d",
+      "bytes": 21959
+    },
+    {
+      "path": "distribution/macos-local-memory/tests/test_document_version_resolver.py",
+      "sha256": "b7c323f48f10488ef2dc245dacc265ad0dd5b77ea37e50b9e4b32504bda7b293",
+      "bytes": 22360
+    },
+    {
+      "path": "distribution/macos-local-memory/tests/test_versioned_safe_index_e2e.py",
+      "sha256": "41540a858d17f8abb322c15353032ec4dd3099eac4e767090f7b9dbabfbcf64a",
+      "bytes": 28602
+    },
+    {
+      "path": "distribution/macos-local-memory/README.md",
+      "sha256": "aa088a5b6ac8e2d83398d6adba8e36864d18808415cc002f03fe246b7e630c0b",
+      "bytes": 33224
+    },
+    {
+      "path": "distribution/macos-local-memory/engine/validate_adaptive_semantic_graph.py",
+      "sha256": "49138ecc11bde5709f129e879cbc5140717dca716a8563ebafe77dda4e37187d",
+      "bytes": 124554
+    },
+    {
+      "path": "distribution/macos-local-memory/app/bootstrap.py",
+      "sha256": "df720a40bb0f8f6123cb0f171b829ca1f4f26761f1e24878fa415b5ff70919a3",
+      "bytes": 164544
+    },
+    {
+      "path": "tests/test_year_only_supersession.py",
+      "sha256": "70a1226cb30daa6692533d2c6f1fe270fe301a8f759c0db56a142acbc945b8c0",
+      "bytes": 11205
+    },
+    {
+      "path": "design/local-memory-v1-hardening/runs/f04a-executor-run.v1.py",
+      "sha256": "7c6953d3e92c46ede699b81690a138fb50e74e51b79fc37d14f9fc44d6c4391b",
+      "bytes": 7818
+    },
+    {
+      "path": "scripts/run_local_memory_hardening_tests.py",
+      "sha256": "6b3bde90b6ed649a82325f6b5ad9661756bef7b6e0303fa74c2d045fb26eb4a9",
+      "bytes": 9437
+    },
+    {
+      "path": "design/local-memory-v1-hardening/runs/f02a-task-contract.v1.json",
+      "sha256": "96d9a257256b8c9524eb611dc6ac154a4aa0d8b9e6d2dcd2eec8b769ac07580e",
+      "bytes": 5338
+    },
+    {
+      "path": "design/local-memory-v1-hardening/runs/f02a-implementation-contract.v1.json",
+      "sha256": "f91621a1de962a221c685a8e523dc7df2a475b447110ba13f2ac18ea487418c5",
+      "bytes": 5685
+    },
+    {
+      "path": "design/local-memory-v1-hardening/runs/f02a-red-result.v1.json",
+      "sha256": "18744e4627be6ff298314f1fb1ede4ee26ecc257bf01c1ef82f9ea05cbd97bce",
+      "bytes": 3013
+    },
+    {
+      "path": "design/local-memory-v1-hardening/runs/f02a-red-001/result.json",
+      "sha256": "48a97398206956552fe5ac00db7405d9694fa22418c8cff5f3a7c8bfd9ec5b03",
+      "bytes": 1114
+    },
+    {
+      "path": "design/local-memory-v1-hardening/runs/f02a-red-001/unittest.log",
+      "sha256": "9b01a46b4b24b5dbb60a213e012f682b5c99acc3faf632ec7245a61626b2ec82",
+      "bytes": 3750
+    },
+    {
+      "path": "design/local-memory-v1-hardening/runs/f02a-readme-clarification.v1.json",
+      "sha256": "aabdd66dc37bc344102d6487f7eb049baca27f54602a659706ca21aaf88d94f3",
+      "bytes": 1247
+    },
+    {
+      "path": "design/local-memory-v1-hardening/runs/f02a-adversarial-holdouts.v1.py",
+      "sha256": "d8a40066b528070d9a10bdebb88ea44d5be2a8e4efeea5c8a80d09b57a7d1fee",
+      "bytes": 16823
+    }
+  ],
+  "ast_parse": "passed",
+  "planned_holdout_methods": 15,
+  "acceptance_control_methods": 13,
+  "residual_witness_methods_not_acceptance": 2
+}

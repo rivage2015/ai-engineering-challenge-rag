@@ -1,0 +1,15 @@
+{
+  "schema_version": "1.0",
+  "task_id": "lms-v1-00-hardening-2026-09-09-f04a",
+  "artifact": "design/local-memory-v1-hardening/runs/f04a-graph-artifact.v1.json",
+  "artifact_sha256": "9b20f4ca8a9d10b5a587b2b7537acefb37556e9b336be9453aeec5c4a7266b56",
+  "local_checks": {
+    "json_parse": "passed",
+    "all_11_source_hashes_match": true,
+    "node_and_edge_basis_ids_exist": true,
+    "edge_endpoints_exist": true,
+    "git_diff_check_exit_code": 0
+  },
+  "independent_audit": "pending",
+  "meaning": "Executor bookkeeping only. This does not approve audit reasoning or establish complete product acceptance."
+}

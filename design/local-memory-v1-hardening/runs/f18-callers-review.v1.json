@@ -1,0 +1,137 @@
+{
+  "review_id": "F18-CALLERS-STATIC-V1",
+  "review_kind": "limited_read_only_caller_and_api_review",
+  "formal_approval": false,
+  "independence_level": "same_model_separate_context",
+  "scope": "Caller compatibility and safety conditions for a proposed read-only default adaptive semantic lineage validator with explicit initial publication. Not approval of the proposal or implementation, not product certification.",
+  "methods": [
+    "Read adapter and agentic-audit skills and the complete audit schema/contract references.",
+    "Static filename, import, callsite and helper-reference searches of current repository Python, shell, command and TOML sources; historical design/artifact patches excluded from caller enumeration.",
+    "Read each current direct product caller, direct legacy test validator invocation, publication implementation, deterministic payload derivation, and bootstrap lifecycle.",
+    "No dynamic tests, model calls, network, GUI, real document/index reads, product edits or commits. Existing new F18 tests are parent-owned and were not evaluated. No live process/session remains."
+  ],
+  "observed_source_snapshot": {
+    "distribution/macos-local-memory/engine/validate_adaptive_semantic_graph.py": "1a3aff494b724882a600adc6978fda3e0f3955da6e2f11291180a92d7f898e1a",
+    "distribution/macos-local-memory/app/bootstrap.py": "069c36f8d03634583dec27a6647ec100ae90bbbe7408b4275b164ee1b4b16192",
+    "distribution/macos-local-memory/engine/build_local_semantic_index.py": "2bfaf8174e8249087d720e49070c9812ce9ecf93b21dd5276f057e145965dfb2",
+    "distribution/macos-local-memory/tests/test_document_version_resolver.py": "6031c30fbfc1b8eda0159b926ef07bbcedee1b0c2c92747b3135f9be6f6efd17",
+    "distribution/macos-local-memory/tests/test_package.py": "f98596239852363a77c991b2a886b8d455a31b6def656667197412e298799296",
+    "distribution/macos-local-memory/tests/test_versioned_safe_index_e2e.py": "c16cc5bfafe493ad4096eadbf84722c8d9f1d476dcb03bfc36bb26959983341b",
+    "distribution/macos-local-memory/tests/test_reader_generation_migration.py": "7d92425d39eb0316687ca9b8b0250768444652dcd39b7dfa9324380396b72d80",
+    "distribution/macos-local-memory/tests/test_runtime_recovery.py": "f4a146b54526f279bf6923029e1887c7bea0298680913b768496502ade89ae77",
+    "tests/test_semantic_lineage_relations.py": "1656f08019db1f1910e1a82329048c603b3525980f685e362d9bc30dd8934732",
+    "tests/test_security_graph_partition.py": "a50466c39621a4583f99d74d92977d8359db68d971afbd906a73b67a5d8e3462",
+    "tests/test_local_embedded_visual_pipeline.py": "a42c525ef2e6cd461ce7ddc61c24f735b43da4d8d3f820d78115b6074e25a3ea",
+    "tests/test_image_quality_tiers.py": "c8a51ced0a03375b402b4ab445913c70c8cc5c76edc6b28467ac007725488a62",
+    "tests/test_semantic_question_shards.py": "f803e255155ed753ab083ae4ec295df54904981bcb40b3c854334287356a5578"
+  },
+  "snapshot_caveat": "Line numbers describe the observed pre-F18 implementation. Parent is implementing F18 concurrently; hashes and claims in this review are historical observations, not final-source approval. No integration execution spans source changes because no dynamic execution was performed.",
+  "current_behavior": [
+    {
+      "source": "distribution/macos-local-memory/engine/validate_adaptive_semantic_graph.py:2516",
+      "observation": "validate resolves inputs then calls _clear_lineage_artifacts before validation, so even an early failure deletes existing lineage files. Success calls _publish_lineage_artifacts at line 2985."
+    },
+    {
+      "source": "distribution/macos-local-memory/engine/validate_adaptive_semantic_graph.py:1455",
+      "observation": "Existing publisher uses temporary files then os.replace for both destinations; its BaseException handler clears both destination paths. This is not an exclusive, immutable initial-publication primitive and cannot be retained unchanged."
+    },
+    {
+      "source": "distribution/macos-local-memory/engine/validate_adaptive_semantic_graph.py:2929",
+      "observation": "Validation state generated_at derives from checked search_generated_at; relation generated_at derives from SearchUnit provenance at line 1287. No wall-clock regeneration was found in these payloads, so unchanged inputs support deterministic canonical-byte comparison."
+    }
+  ],
+  "product_callers": [
+    {
+      "source": "distribution/macos-local-memory/app/bootstrap.py:2181",
+      "owner": "run_semantic_pipeline",
+      "call_type": "validator CLI",
+      "required_compatibility": "Add --initialize-lineage only to this validator command, not to the builder's shared arguments or later attestation.",
+      "lifecycle_evidence": "run_semantic_pipeline at line 2173 creates semantic and security directories with exist_ok=False. Its build_index calls at lines 3678 and 3708 are both initial creation: the second uses distinct 02-semantic-model-ready and 03-security-model-ready paths created before publication. Both correctly inherit initialization from the single CLI callsite."
+    },
+    {
+      "source": "distribution/macos-local-memory/engine/build_local_semantic_index.py:861",
+      "owner": "_attest_lineage_context",
+      "call_type": "validator.validate API",
+      "required_compatibility": "Keep default read-only validation. Do not initialize or repair missing/mismatched published lineage here.",
+      "lifecycle_evidence": "Called by _attest_security_context at line 1271 and project_verified_structural_graph at line 2028. Revalidates source-bound inputs before reading the existing lineage pair. Preserve detached report document_version_graph binding and the F01 missing-report-key rejection at lines 864-867."
+    },
+    {
+      "source": "distribution/macos-local-memory/engine/validate_adaptive_semantic_graph.py:3015",
+      "owner": "main",
+      "call_type": "CLI API adapter",
+      "required_compatibility": "Add opt-in --initialize-lineage and forward it as an explicit keyword to validate. No flag must be read-only; do not infer initialization from missing output."
+    }
+  ],
+  "test_callsites_needing_initialization": [
+    {"source": "distribution/macos-local-memory/tests/test_document_version_resolver.py:315", "test": "test_reader_end_to_end_indexes_only_active_version", "change": "initialize_lineage=True on first successful validation after builder.build"},
+    {"source": "distribution/macos-local-memory/tests/test_document_version_resolver.py:351", "test": "test_reader_holds_current_version_conflict_and_keeps_unrelated_source", "change": "initialize_lineage=True on first successful validation after builder.build"},
+    {"source": "distribution/macos-local-memory/tests/test_package.py:1014", "test": "test_adaptive_reader_xlsx_reaches_security_gate_with_sheet_row_locators", "change": "--initialize-lineage on initial validator CLI"},
+    {"source": "distribution/macos-local-memory/tests/test_package.py:1122", "test": "test_adaptive_reader_xlsx_stdlib_fallback_on_dependency_free_python", "change": "--initialize-lineage on initial validator CLI"},
+    {"source": "distribution/macos-local-memory/tests/test_package.py:1308", "test": "test_adaptive_reader_docx_pptx_stdlib_fallback_end_to_end", "change": "--initialize-lineage on initial validator CLI"},
+    {"source": "distribution/macos-local-memory/tests/test_package.py:1358", "test": "test_adaptive_reader_keeps_readable_documents_when_one_extraction_fails", "change": "--initialize-lineage on initial validator CLI"},
+    {"source": "distribution/macos-local-memory/tests/test_versioned_safe_index_e2e.py:195", "test": "unpublished_reader helper", "change": "--initialize-lineage on validator command only; do not add to reader_args shared with build_adaptive_semantic_graph"},
+    {"source": "tests/test_semantic_lineage_relations.py:411", "test": "test_full_validator_publishes_only_after_pass", "change": "initialize_lineage=True on first successful validation; consider name update to distinguish explicit initialization"},
+    {"source": "tests/test_security_graph_partition.py:160", "test": "test_partial_exclusion_holds_mixed_fan_in_atomically", "change": "initialize_lineage=True on initial successful semantic validation"},
+    {"source": "tests/test_local_embedded_visual_pipeline.py:1180", "test": "test_pptx_smartart_text_and_raw_connections_reach_search", "change": "initialize_lineage=True only on first successful validation"},
+    {"source": "tests/test_semantic_lineage_relations.py:655", "test": "test_validator_rejects_mixed_search_run_timestamps", "change": "initialize_lineage=True for this first, intentionally failing validation. Otherwise an early missing-artifact check can replace the intended lineage_search_unit_run_mismatch failure and destroy this regression's coverage."}
+  ],
+  "test_callsites_to_keep_read_only": [
+    {"source": "tests/test_semantic_lineage_relations.py:597", "test": "test_full_validator_publishes_only_after_pass", "change": "Keep default validation after evidence tampering; replace old assertions at lines 598-599 that expect deletion with assertions that both existing files retain bytes, inode and mtime. A failure must not heal or remove them."},
+    {"source": "tests/test_local_embedded_visual_pipeline.py:1250", "test": "test_pptx_smartart_text_and_raw_connections_reach_search", "change": "Keep default for all tampered structural-relation cases; retain native_structural_relations_mismatch coverage."},
+    {"source": "tests/test_local_embedded_visual_pipeline.py:1254", "test": "test_pptx_smartart_text_and_raw_connections_reach_search", "change": "Keep default after restoring structural input. The existing lineage pair should have survived the failed validations and should now compare equal without rewriting."},
+    {"source": "tests/test_semantic_lineage_relations.py:496", "test": "indirect attestation and graph-projection calls within test_full_validator_publishes_only_after_pass", "change": "No initialization flag; calls attest already-initialized lineage."},
+    {"source": "distribution/macos-local-memory/tests/test_versioned_safe_index_e2e.py:309", "test": "test_lineage_context_requires_explicit_version_attestation_result", "change": "Keep rejection of old PASS-only mocked report. Preserve F01 detached version attestation behavior and associated tamper tests."}
+  ],
+  "indirect_or_noncall_references": [
+    {"source": "distribution/macos-local-memory/tests/test_reader_generation_migration.py:116", "reason": "Calls bootstrap.run_semantic_pipeline; automatically inherits its initialization flag. No direct validator-call change required."},
+    {"source": "distribution/macos-local-memory/tests/test_runtime_recovery.py:2445", "reason": "Imports validator only to test derive_llm_extraction. run_semantic_pipeline references elsewhere in this file are mocks; no direct validate API change required."},
+    {"source": "tests/test_image_quality_tiers.py:35", "reason": "Loads validator for individual derivation/projection/quality helper tests; no full validate call found."},
+    {"source": "tests/test_semantic_question_shards.py:22", "reason": "Loads validator for expected_question_shards, expected_semantic_evidence and validate_exact_projection only; no full validate call found."},
+    {"source": "tests/test_local_graph_index_schema.py:955", "reason": "Multiple mocks of _attest_lineage_context, not first-publication callers; no blanket flag insertion."},
+    {"source": "distribution/macos-local-memory/tests/test_package.py:1375", "reason": "Static bootstrap ordering test; adding the CLI flag preserves ordering. Useful place to assert opt-in only on the initial validator command."},
+    {"source": "distribution/macos-local-memory/app/bootstrap.py:360", "reason": "Reader resource fingerprint, not a call. Changed validator code necessarily changes the current reader contract; historical generations may require normal migration/rebuild rather than lineage healing."},
+    {"source": "distribution/macos-local-memory/README.md:79", "reason": "Describes promotion to lineage artifacts without explaining explicit initialization. A concise documentation clarification would avoid suggesting default validate still publishes."}
+  ],
+  "api_safety_conditions": [
+    {
+      "id": "F18-CALLERS-S01",
+      "priority": "required_contract_clarity",
+      "condition": "An initialize_lineage=True boolean proves write intent, not that an arbitrary output belongs to an unpublished generation. validate has no authoritative publication/config input. State the narrow contract as default read-only plus caller-guaranteed fresh/unpublished initialization, or add a real publication check before claiming direct API rejection of every published generation. Bootstrap's fresh directories supply that caller guarantee. Do not auto-initialize a published generation whose two files are missing."
+    },
+    {
+      "id": "F18-CALLERS-S02",
+      "priority": "required_implementation_condition",
+      "condition": "Default success and failure must perform no intentional writes/deletes to either lineage artifact. Always independently derive expected records/state; compare existing canonical payload bytes rather than treating stored status=pass as authority. Missing, partial, malformed, mismatched and symlink outputs must fail without healing."
+    },
+    {
+      "id": "F18-CALLERS-S03",
+      "priority": "required_implementation_condition",
+      "condition": "Initialization must refuse any preexisting destination, including dangling symlink and non-regular path. Path.exists alone is insufficient. Race-safe exclusive publication is required; an exists precheck followed by os.replace still overwrites an entrant. On failure, remove only artifacts demonstrably created by this invocation and never delete preexisting or concurrently replaced destinations. Test second-file publication failure, conflicting initialization, and link/FIFO handling with bounded synthetic fixtures."
+    },
+    {
+      "id": "F18-CALLERS-S04",
+      "priority": "required_scope_limit",
+      "condition": "Publishing two filenames is not automatically pair-atomic. A crash/kill can leave a partial initial pair. Treat partial state as refusal, not a certificate or automatic retry/overwrite. Distinguish controlled exception cleanup from uncatchable termination and external concurrent mutation guarantees."
+    },
+    {
+      "id": "F18-CALLERS-S05",
+      "priority": "required_regression_condition",
+      "condition": "Retain F01's explicit legacy/versioned input rules and detached checked document_version_graph result. Index callers must continue to reject missing or forged authority rather than importing a binding from producer state or requesting initialization. Preserve existing legacy/versioned E2E and migration semantics."
+    },
+    {
+      "id": "F18-CALLERS-S06",
+      "priority": "compatibility_warning",
+      "condition": "Use a keyword-only opt-in parameter after existing version_graph positional parameter. Successful initial fixture calls and initial intentional-failure calls need different review from revalidation. No blanket rewrite of every validator call. Generated timestamps already derive from checked inputs; do not introduce current-time fields that make read-only comparison unstable."
+    }
+  ],
+  "summary": {
+    "external_product_validator_callsites": 2,
+    "cli_internal_forwarder": 1,
+    "existing_successful_test_initialization_callsites": 10,
+    "existing_intentional_failure_initialization_callsites": 1,
+    "test_assertion_contract_change": "Deletion-on-failure assertions must become preservation-on-failure assertions.",
+    "tests_run": 0,
+    "product_edits": 0,
+    "next_step": "Parent implements and verifies the narrow contract; a separate formal source-frozen audit is still required. This static caller review is not a pass or product approval."
+  }
+}

@@ -1,0 +1,28 @@
+{
+  "schema_version": "1.0",
+  "status": "failed",
+  "command": [
+    "/opt/homebrew/opt/python@3.14/bin/python3.14",
+    "-I",
+    "-B",
+    "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/design/local-memory-v1-hardening/runs/f18-test-run.v1.py",
+    "focused",
+    "f18-001-red",
+    "--worker"
+  ],
+  "cwd": "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ",
+  "started_at": "2026-09-08T21:16:22.239299+00:00",
+  "timeout_seconds": 30,
+  "max_log_bytes": 1048576,
+  "repository_import_root": "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ",
+  "safety_scope": "preflight-approved synthetic tests; not an OS sandbox",
+  "exit_code": 1,
+  "elapsed_seconds": 0.217255,
+  "tests_reported": 2,
+  "skipped_reported": 0,
+  "expected_failures_reported": 0,
+  "log_path": "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/design/local-memory-v1-hardening/runs/f18-001-red/unittest.log",
+  "log_bytes": 4405,
+  "log_sha256": "395966d9e7934489b4d47785ea6a4311b91be8b36976b0c1521b5f6fbf1f75fb",
+  "finished_at": "2026-09-08T21:16:22.456826+00:00"
+}

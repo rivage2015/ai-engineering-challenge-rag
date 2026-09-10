@@ -1,0 +1,239 @@
+{
+  "schema_version": "1.0",
+  "audit_id": "lms-v1-00-hardening-2026-09-09-f02a-audit-round0",
+  "task_id": "lms-v1-00-hardening-2026-09-09-f02a",
+  "artifact_hash": "ea9a5c9616ef181fa8c75c5fd383ca536deabd4514c2b9e78c3d9d8d542f9ff8",
+  "auditor_context": {
+    "independence_level": "same_model_separate_context",
+    "source_scope": [
+      "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/design/local-memory-v1-hardening/runs/f02a-graph-artifact.v1.json",
+      "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/design/local-memory-v1-hardening/runs/f02a-audit-evidence.v1.json",
+      "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/design/local-memory-v1-hardening/runs/f02a-audit-before.v1.json",
+      "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/design/local-memory-v1-hardening/runs/f02a-audit-after.v1.json",
+      "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/design/local-memory-v1-hardening/runs/f02a-audit-artifact-before.v1.json",
+      "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/design/local-memory-v1-hardening/runs/f02a-audit-artifact-after.v1.json",
+      "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/design/local-memory-v1-hardening/runs/f02a-audit-holdouts-001/result.json",
+      "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/design/local-memory-v1-hardening/runs/f02a-audit-replay-001-pure/result.json",
+      "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/design/local-memory-v1-hardening/runs/f02a-audit-replay-002-resolver/result.json",
+      "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/design/local-memory-v1-hardening/runs/f02a-audit-replay-003-e2e/result.json"
+    ]
+  },
+  "status": "pass",
+  "checks": [
+    {
+      "check_id": "F02A-A01",
+      "check_type": "intent",
+      "target_ids": [
+        "N_HOLD",
+        "N_LIMITS"
+      ],
+      "verdict": "pass",
+      "severity": "info",
+      "reason": "The frozen task requests only removal of unsupported final year-order selection. The immutable RED contract and later implementation contract have distinct phases; EXECUTOR explicitly binds its implementation child task to this artifact task. No annual identity, independent-retention choice, schema expansion or new Human decision was substituted.",
+      "evidence_ids": [
+        "CONTRACT",
+        "IMPLEMENTATION_CONTRACT",
+        "DESIGN",
+        "EXECUTOR"
+      ],
+      "required_action": null
+    },
+    {
+      "check_id": "F02A-A02",
+      "check_type": "causality",
+      "target_ids": [
+        "N_HOLD",
+        "E_HOLD_READER"
+      ],
+      "verdict": "pass",
+      "severity": "info",
+      "reason": "The isolated resolver delta replaces only the final all-dated-family success with (None, year_order_does_not_establish_supersession, every candidate path). The return prevents numeric-version fallthrough. Independent three-year permutations, fullwidth/directory years, neutral vocabulary, multiple-year tokens and inverse year/version order preserve every candidate as needs_human_review, no selected path and no active_version edge.",
+      "evidence_ids": [
+        "RESOLVER",
+        "RESOLVER_BEFORE",
+        "RESOLVER_DELTA",
+        "PURE_TEST",
+        "HOLDOUT"
+      ],
+      "required_action": null
+    },
+    {
+      "check_id": "F02A-A03",
+      "check_type": "dependency",
+      "target_ids": [
+        "N_CONTROLS",
+        "E_HUMAN"
+      ],
+      "verdict": "pass",
+      "severity": "info",
+      "reason": "Source comparison preserves earlier current/year, F04a numeric conflict and draft/historical/tie returns. resolve_group and graph_projection are AST-identical to the frozen before source. Holdouts preserve valid oldest-year human selection despite order reversal, and hold changed selected/nonselected hashes, changed decision hash, added candidates and removal while two known candidates remain. Numeric and current-marker positive controls still resolve. Candidate discovery outside a known group is not covered by the removal case.",
+      "evidence_ids": [
+        "RESOLVER",
+        "RESOLVER_BEFORE",
+        "RESOLVER_DELTA",
+        "PURE_TEST",
+        "RESOLVER_TEST",
+        "HOLDOUT"
+      ],
+      "required_action": null
+    },
+    {
+      "check_id": "F02A-A04",
+      "check_type": "edge",
+      "target_ids": [
+        "N_READER",
+        "E_HOLD_READER"
+      ],
+      "verdict": "pass",
+      "severity": "info",
+      "reason": "Reader policy excludes held dispositions and retains the graph binding. Independent app build with three year-directory candidates publishes only the unrelated contact Evidence, reports three held and zero historical files, preserves original fixture hashes, and has matching graph/index binding plus current registration under the frozen code. Existing Reader suite separately validates manifest and lineage. This checks the observed held path, not F05 independent completeness or partition reconstruction.",
+      "evidence_ids": [
+        "BUILDER",
+        "VALIDATOR",
+        "RESOLVER_TEST",
+        "E2E_TEST",
+        "HOLDOUT"
+      ],
+      "required_action": null
+    },
+    {
+      "check_id": "F02A-A05",
+      "check_type": "safety",
+      "target_ids": [
+        "N_PUBLICATION",
+        "E_PUBLICATION"
+      ],
+      "verdict": "pass",
+      "severity": "info",
+      "reason": "The real in-process Reader main wraps adaptive_reader_no_supported_files in SystemExit before index projection. Both the frozen E2E and independent three-candidate all-held rebuild preserve prior CONFIG/index bytes and source hashes measured after intentional fixture renames; the index builder is not called. Prior bytes are not newly attested as current, and shared pending review/generation binding plus physical subprocess failure recovery remain outside this acceptance.",
+      "evidence_ids": [
+        "BUILDER",
+        "BOOTSTRAP",
+        "E2E_TEST",
+        "E2E_RUN",
+        "HOLDOUT",
+        "EXECUTOR"
+      ],
+      "required_action": null
+    },
+    {
+      "check_id": "F02A-A06",
+      "check_type": "coverage",
+      "target_ids": [
+        "N_REGRESSION",
+        "E_VERIFY"
+      ],
+      "verdict": "pass",
+      "severity": "info",
+      "reason": "Auditor fresh bounded runs execute 63 methods: immutable pure 11, resolver/Reader 20, app E2E 17 and holdouts 15. All report OK, exit 0, zero skips and expected failures, with matching log hashes. The count is 60 acceptance/control executions plus three residual witnesses (one pure, two holdout), not 63 feature cases. Successful source-bound bob answer and final audit remain executed. Root collateral 13+7+8 and native-XLSX security 1 have matching actual result/log footers; those were inspected, not rerun by this auditor.",
+      "evidence_ids": [
+        "PURE_TEST",
+        "RESOLVER_TEST",
+        "E2E_TEST",
+        "HOLDOUT",
+        "PURE_RUN",
+        "RESOLVER_RUN",
+        "E2E_RUN",
+        "FOCUSED_RUN",
+        "MIGRATION_RUN",
+        "LINEAGE_RUN",
+        "SECURITY_RUN"
+      ],
+      "required_action": null
+    },
+    {
+      "check_id": "F02A-A07",
+      "check_type": "evidence",
+      "target_ids": [
+        "N_REGRESSION"
+      ],
+      "verdict": "pass",
+      "severity": "info",
+      "reason": "Raw preimplementation RED still reports exactly five intended year-hold failures among 11 methods, with five successful unchanged controls and one residual witness. The initial E2E run retains one ERROR caused by expecting ValueError where the actual CLI raises SystemExit; the final delta changes only that new exception expectation. Neither failed run has been rewritten or counted as successful acceptance. All nine artifact result/log pairs were hash- and footer-checked.",
+      "evidence_ids": [
+        "RED_SUMMARY",
+        "RED",
+        "RED_LOG",
+        "E2E_INITIAL_FAILED",
+        "E2E_INITIAL_FAILED_LOG",
+        "E2E_INITIAL_DELTA",
+        "E2E_TEST_DELTA",
+        "EXECUTOR"
+      ],
+      "required_action": null
+    },
+    {
+      "check_id": "F02A-A08",
+      "check_type": "basis",
+      "target_ids": [
+        "N_LIMITS",
+        "E_VERIFY"
+      ],
+      "verdict": "pass",
+      "severity": "info",
+      "reason": "README removes maximum-year automatic selection and explains complete hold, no numeric fallthrough, hash-bound human choice and remaining current-marker/independent annual-record limitations. Its isolated paragraph delta preserves F18 initialization guidance. Independent current-marker-across-years and unsignalled candidate witnesses still reproduce the stated open limitations. Full F02, F03, remaining F04, F05, F06/F19 and F13 acceptance is not implied by this pass.",
+      "evidence_ids": [
+        "README",
+        "README_DELTA",
+        "README_CLARIFICATION",
+        "DESIGN",
+        "CONTRACT",
+        "HOLDOUT"
+      ],
+      "required_action": null
+    },
+    {
+      "check_id": "F02A-A09",
+      "check_type": "safety",
+      "target_ids": [
+        "N_REGRESSION",
+        "N_LIMITS"
+      ],
+      "verdict": "pass",
+      "severity": "info",
+      "reason": "Auditor reuses the fully inspected unchanged F04a worker and bounded supervisor with fresh run IDs, 30-second limits and 1 MiB log/source-write limits. App/Reader CLI processing is real within the dispatcher; native process/network/model boundaries are denied or stubbed, and fixtures are small synthetic sources. No product/test edits were made by the auditor. These process-local guards and same-model separate context are procedural controls, not OS isolation, total resource certification or independent truth evidence.",
+      "evidence_ids": [
+        "GUARD",
+        "SUPERVISOR",
+        "DISPATCHER",
+        "E2E_TEST",
+        "HOLDOUT"
+      ],
+      "required_action": null
+    },
+    {
+      "check_id": "F02A-A10",
+      "check_type": "evidence",
+      "target_ids": [
+        "N_HOLD",
+        "N_CONTROLS",
+        "N_READER",
+        "N_PUBLICATION",
+        "N_REGRESSION",
+        "N_LIMITS"
+      ],
+      "verdict": "pass",
+      "severity": "info",
+      "reason": "Artifact SHA-256 ea9a5c9616ef181fa8c75c5fd383ca536deabd4514c2b9e78c3d9d8d542f9ff8 and all 52 declared source hashes match before and after formal review. The 16-input run before/after snapshot also preserves resolver, both old test files, README, F18 Validator/bootstrap, immutable pure tests, RED and guards. Additional auditor replay/log/hash records are bound separately in f02a-audit-evidence.v1.json; every report target and evidence ID belongs to the frozen artifact.",
+      "evidence_ids": [
+        "CONTRACT",
+        "IMPLEMENTATION_CONTRACT",
+        "EXECUTOR",
+        "RESOLVER",
+        "RESOLVER_TEST",
+        "E2E_TEST",
+        "VALIDATOR",
+        "BOOTSTRAP",
+        "RED",
+        "GUARD",
+        "HOLDOUT"
+      ],
+      "required_action": null
+    }
+  ],
+  "summary": {
+    "blocking_failures": 0,
+    "unresolved_count": 0,
+    "next_action": "deliver"
+  }
+}

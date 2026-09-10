@@ -1,0 +1,104 @@
+--- distribution/macos-local-memory/tests/test_document_version_resolver.py
++++ distribution/macos-local-memory/tests/test_document_version_resolver.py
+@@ -145,7 +145,8 @@
+         ):
+             with self.subTest(current=current, other=other):
+                 records = [inventory_record(current, "a"), inventory_record(other, "b")]
+-                _, _, graph, result = self.build(records)
++                contact = inventory_record("連絡先.txt", "c")
++                _, inventory, graph, result = self.build([*records, contact])
+                 group = result["groups"][0]
+                 self.assertEqual("needs_human_review", group["status"])
+                 self.assertIsNone(group["selected_relative_path"])
+@@ -154,8 +155,8 @@
+                 self.assertEqual({current, other}, set(group["conflicts"]))
+                 self.assertTrue(all(item["disposition"] == "needs_human_review" for item in group["candidates"]))
+                 self.assertFalse(any(edge["edge_type"] == "active_version" for edge in result["edges"]))
+-                contact = inventory_record("連絡先.txt", "c")
+-                eligible, counts, _ = builder.apply_document_version_policy([*records, contact], graph)
++                selection = builder.select_attested_inventory(inventory, graph, version_authority_mode="no_decisions")
++                eligible, counts = selection["selected"], selection["selection_counts"]
+                 self.assertEqual([contact], eligible)
+                 self.assertEqual(2, counts["version_needs_human_review"])
+ 
+@@ -259,16 +260,14 @@
+         self.assertIn("graph_hash_mismatch", report["errors"])
+ 
+     def test_answer_policy_keeps_active_and_holds_other_candidates(self) -> None:
+-        _, _, graph, result = self.build([
+-            inventory_record("DAWN/業務内容_ver1.xlsx", "a"),
+-            inventory_record("DAWN/業務内容_ver2.xlsx", "b"),
+-        ])
+         selected = [
+             inventory_record("DAWN/業務内容_ver1.xlsx", "a"),
+             inventory_record("DAWN/業務内容_ver2.xlsx", "b"),
+             inventory_record("DAWN/連絡先.txt", "c"),
+         ]
+-        eligible, counts, binding = builder.apply_document_version_policy(selected, graph)
++        _, inventory, graph, result = self.build(selected)
++        selection = builder.select_attested_inventory(inventory, graph, version_authority_mode="no_decisions")
++        eligible, counts, binding = selection["selected"], selection["selection_counts"], selection["document_version_graph"]
+         self.assertEqual(
+             ["DAWN/業務内容_ver2.xlsx", "DAWN/連絡先.txt"],
+             [item["relative_path"] for item in eligible],
+@@ -283,9 +282,10 @@
+             inventory_record("実績2024.csv", "a"),
+             inventory_record("実績2025.csv", "b"),
+         ]
+-        _, _, graph, result = self.build(records)
+         contact = inventory_record("連絡先.txt", "c")
+-        eligible, counts, binding = builder.apply_document_version_policy([*records, contact], graph)
++        _, inventory, graph, result = self.build([*records, contact])
++        selection = builder.select_attested_inventory(inventory, graph, version_authority_mode="no_decisions")
++        eligible, counts, binding = selection["selected"], selection["selection_counts"], selection["document_version_graph"]
+         self.assertEqual([contact], eligible)
+         self.assertEqual(2, counts["version_needs_human_review"])
+         self.assertEqual(0, counts.get("version_historical", 0))
+@@ -339,7 +339,7 @@
+         resolver.build(inventory, graph)
+         output = root / "semantic"
+         tools = builder.default_tools_dir()
+-        result = builder.build(source, inventory, output, tools, graph)
++        result = builder.build(source, inventory, output, tools, graph, version_authority_mode="no_decisions")
+         manifest = json.loads((output / "layer1-input-manifest.json").read_text(encoding="utf-8"))
+         self.assertEqual(
+             ["業務内容_ver2.csv", "連絡先.txt"],
+@@ -349,7 +349,7 @@
+         self.assertEqual(
+             "PASS",
+             validator.validate(
+-                output, source, inventory, graph, initialize_lineage=True,
++                output, source, inventory, graph, initialize_lineage=True, version_authority_mode="no_decisions",
+             )["status"],
+         )
+ 
+@@ -385,13 +385,13 @@
+         self.assertEqual("needs_human_review", version["groups"][0]["status"])
+         self.assertFalse(any(edge["edge_type"] == "active_version" for edge in version["edges"]))
+         output = root / "semantic"
+-        result = builder.build(source, inventory, output, builder.default_tools_dir(), graph)
++        result = builder.build(source, inventory, output, builder.default_tools_dir(), graph, version_authority_mode="no_decisions")
+         manifest = json.loads((output / "layer1-input-manifest.json").read_text(encoding="utf-8"))
+         self.assertEqual(["連絡先.txt"], manifest["paths"])
+         self.assertEqual(0, result["limitations"]["historical_version_files_held"])
+         self.assertEqual(2, result["limitations"]["version_files_needing_human_review"])
+         self.assertEqual("PASS", validator.validate(
+-            output, source, inventory, graph, initialize_lineage=True,
++            output, source, inventory, graph, initialize_lineage=True, version_authority_mode="no_decisions",
+         )["status"])
+         self.assertEqual(original_hashes, {relative: resolver.sha256_file(source / relative) for relative in files})
+ 
+@@ -424,12 +424,12 @@
+         graph = root / "document-version-graph.json"
+         resolver.build(inventory, graph)
+         output = root / "semantic"
+-        result = builder.build(source, inventory, output, builder.default_tools_dir(), graph)
++        result = builder.build(source, inventory, output, builder.default_tools_dir(), graph, version_authority_mode="no_decisions")
+         manifest = json.loads((output / "layer1-input-manifest.json").read_text(encoding="utf-8"))
+         self.assertEqual(["連絡先.txt"], manifest["paths"])
+         self.assertEqual(2, result["limitations"]["version_files_needing_human_review"])
+         self.assertEqual("PASS", validator.validate(
+-            output, source, inventory, graph, initialize_lineage=True,
++            output, source, inventory, graph, initialize_lineage=True, version_authority_mode="no_decisions",
+         )["status"])
+         self.assertEqual(original_hashes, {relative: resolver.sha256_file(source / relative) for relative in files})

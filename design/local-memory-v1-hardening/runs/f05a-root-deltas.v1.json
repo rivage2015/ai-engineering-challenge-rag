@@ -1,0 +1,24 @@
+{
+  "task_id": "lms-v1-00-hardening-2026-09-09-f05a",
+  "status": "root_product_hunks_ready_executor_pending_not_accepted",
+  "deltas": [
+    {
+      "path": "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/distribution/macos-local-memory/app/bootstrap.py",
+      "before_sha256": "df720a40bb0f8f6123cb0f171b829ca1f4f26761f1e24878fa415b5ff70919a3",
+      "after_sha256": "cad0bfee06fbdf0af0319d6fed2d467310ef697e848a9b6d170eacf061f31b55",
+      "isolated_unified_diff": "--- before/distribution/macos-local-memory/app/bootstrap.py\n+++ after/distribution/macos-local-memory/app/bootstrap.py\n@@ -3668,6 +3668,7 @@\n                 sys.executable, str(ENGINE / \"document_version_resolver.py\"),\n                 \"validate\", \"--graph\", str(paths / \"document-version-graph.json\"),\n                 \"--inventory\", str(paths / \"path-source-inventory.jsonl\"),\n+                \"--decisions\", str(DOCUMENT_VERSION_DECISIONS),\n             ], log)\n             atomic_json(\n                 DOCUMENT_VERSION_REVIEW,\n"
+    },
+    {
+      "path": "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/tests/test_unmarked_version_candidates.py",
+      "before_sha256": "b4a9176f3f7bb723d701a548418be8647a5336dc7b88dd0707d03cfa70eb5b94",
+      "after_sha256": "7bf83e2823742cc1449fdd69890d780e8c8b8daf69911905ce6cb20af2ad1f29",
+      "isolated_unified_diff": "--- before/tests/test_unmarked_version_candidates.py\n+++ after/tests/test_unmarked_version_candidates.py\n@@ -281,7 +281,7 @@\n \n     def test_resolver_identity_and_policy_disclose_new_guard(self):\n         result = build([record(\"手順_ver1.csv\"), record(\"手順.csv\", \"b\")])\n-        self.assertEqual(\"0.1.3\", result[\"resolver_version\"])\n+        self.assertEqual(\"0.1.4\", result[\"resolver_version\"])\n         self.assertEqual(\"same_family_valid_documents_with_at_least_one_version_signal\", result[\"policy\"][\"candidate_rule\"])\n         self.assertEqual(\"needs_human_review\", result[\"policy\"][\"mixed_signal_action\"])\n         self.assertEqual(\"mixed_signal_hold_else_unique_explicit_current_without_year_or_single_version_conflict_else_hold_all_dated_else_comparable_latest_version\", result[\"policy\"][\"automatic_rule\"])\n"
+    },
+    {
+      "path": "/Users/takashifukutomi/Documents/ChatGPT/AIエンジニアリングチャレンジ/distribution/macos-local-memory/README.md",
+      "before_sha256": "03e4918d7db84b3455d8790b4be8d3af1608071a9cb7e8c9a3df60bb36a4e028",
+      "after_sha256": "2d2566607a500e0d195df5bb8f7bf1ee28ba78422ecc4bf24e396d4b090e4750",
+      "isolated_unified_diff": "--- before/distribution/macos-local-memory/README.md\n+++ after/distribution/macos-local-memory/README.md\n@@ -33,6 +33,8 @@\n 自動選択には明示的な現行マーカーや比較可能な版番号を使いますが、検出した矛盾や下書き・旧版の状態は保留します。年号の大小だけでは「改訂版」か「別年度の記録」か区別できないため、最大年だけを根拠に`active`を決めず、候補全てを`needs_human_review`にします。年の比較で保留した候補を、続けて版番号だけで自動選択することもしません。保留候補はWeb画面で「どれを現在使う資料にするか」を1つ選ぶまで通常の回答索引へ入れません。人の選択は候補集合全体のSHA-256と選択ファイルのSHA-256に結び付くため、候補追加や内容変更後は自動で再確認に戻ります。`historical`の原本ファイルは削除せず、Path Graphと版グラフに残します。現行マーカーが付いた別年度資料の扱い等には課題が残り、独立した年次資料を両方使うための確認・保持機能も未完成です。\n \n 候補を集める範囲は、既存規則で年・版・状態等を除いたファイル名とフォルダ名、および同じ拡張子から作るファミリキーの一致に限定します。その組に明示印のある資料と無印の資料が混在したら、無印も候補集合に含め、現行マーカーだけで決めず全候補を確認待ちにします。再構築時に同じ組へ無印候補が追加された場合も、以前の人の選択は再確認になります。無印しかない組は版グループを作らず通常読取を続けますが、それは別資料であるという認定ではありません。拡張子変更や、キーが変わる改名・移動の関連付け、候補が1件以下になってグループが消えた場合の確認は未対応です。この変更は既存の公開索引を直接書き換えず、再構築で反映します。\n+\n+版判定器の`validate`は、呼出し側が指定したinventoryと、必要なら明示した`--decisions`から候補・選択・保留・Node/Edge・件数を再構築して照合します。人の選択を使ったグラフを検証する場合は、その選択ファイルも明示してください。グラフ内のパスを新しい読取先としてたどりません。アプリは版グラフ作成直後、Readerの前にこの検証を行い、不一致なら新しい索引の作成を止めます。これは指定された入力との一致確認であり、人の判断の真正性や資料の現在の鮮度を証明するものではありません。後続Reader／索引側への再構築検証の接続と、保存済み世代用の固定された選択snapshotは今後の課題です。\n \n PaddleOCRを使うには、固定されたPython 3.12環境と照合済みモデルの一回限りの別途ローカル導入が必要です。導入されていない場合は、PaddleOCRは自動取得せず利用不可として停止します。導入後の推論はローカルで実行し、72依存のlock、2モデルのhash、CPU実行設定が一致しなければfail-closedに停止します。workerは暗黙のdownloadを持たず、macOSの`deny network` sandboxとPython socket guardの二重で推論中のIP通信を禁止します。\n \n"
+    }
+  ]
+}

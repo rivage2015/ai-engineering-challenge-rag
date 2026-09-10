@@ -1,0 +1,13 @@
+test_compare_requests_only_expected_length_plus_one (f18_independent_holdouts.F18IndependentHoldouts.test_compare_requests_only_expected_length_plus_one) ... ok
+test_fifo_and_directory_are_rejected_without_blocking_or_mutation (f18_independent_holdouts.F18IndependentHoldouts.test_fifo_and_directory_are_rejected_without_blocking_or_mutation) ... ok
+test_foreign_symlink_collision_is_preserved_without_following (f18_independent_holdouts.F18IndependentHoldouts.test_foreign_symlink_collision_is_preserved_without_following) ... ok
+test_keyboard_interrupt_immediately_after_link_cleans_owned_inodes (f18_independent_holdouts.F18IndependentHoldouts.test_keyboard_interrupt_immediately_after_link_cleans_owned_inodes) ... ok
+test_malformed_and_partial_payloads_preserve_inspected_generation (f18_independent_holdouts.F18IndependentHoldouts.test_malformed_and_partial_payloads_preserve_inspected_generation) ... ok
+test_read_detects_same_bytes_replaced_inode (f18_independent_holdouts.F18IndependentHoldouts.test_read_detects_same_bytes_replaced_inode) ... ok
+test_real_no_replace_collision_preserves_foreign_regular_file (f18_independent_holdouts.F18IndependentHoldouts.test_real_no_replace_collision_preserves_foreign_regular_file) ... ok
+test_second_payload_write_failure_cleans_only_created_files (f18_independent_holdouts.F18IndependentHoldouts.test_second_payload_write_failure_cleans_only_created_files) ... ok
+
+----------------------------------------------------------------------
+Ran 8 tests in 0.126s
+
+OK

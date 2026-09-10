@@ -1,0 +1,22 @@
+{
+  "schema_version": "1.0",
+  "status": "defects_reproduced",
+  "command": "python3 -I -B design/local-memory-v1-hardening/runs/f02-f06-counterexamples.v1.py",
+  "exit_code": 0,
+  "source": "distribution/macos-local-memory/engine/document_version_resolver.py",
+  "source_sha256": "a1780dc59d23b0c3b5423ca3264841d9261facbaf7dba0701b139049543d0e1b",
+  "python": "3.14.6",
+  "executable": "/opt/homebrew/opt/python@3.14/bin/python3.14",
+  "wall_seconds_limit": 30,
+  "elapsed_seconds": 0.008347,
+  "synthetic_fixture_bytes": 2008,
+  "runtime_io_guard": "deny open/socket/subprocess/ctypes/process and filesystem mutation after stdlib preloading; not OS isolation certification",
+  "observations": [
+    {"id": "F02", "method": "candidate/family_key/resolve_group", "actual": {"status": "resolved", "selected_relative_path": "記録/実績2025.csv", "reason_code": "unique_latest_explicit_year"}, "expected_future": "Year labels alone do not establish replacement; annual versus revision classification remains needs_review."},
+    {"id": "F03", "method": "candidate; build grouping exclusion statically confirmed", "actual": {"inventory_count": 2, "candidate_count": 1, "unmarked_candidate": null}, "expected_future": "Unmarked potential peers are retained in a declared review universe; cross-path/format identity is not auto-confirmed."},
+    {"id": "F04", "method": "candidate/family_key/resolve_group", "actual": {"status": "resolved", "selected_relative_path": "現行/業務_ver1.xlsx", "reason_code": "unique_explicit_current_marker"}, "expected_f04a": {"status": "needs_human_review", "selected_relative_path": null, "reason_code": "current_marker_conflicts_with_latest_version"}},
+    {"id": "F05", "method": "validate with in-memory graph/inventory paths", "actual": {"status": "PASS", "errors": []}, "expected_future": "FAIL for an empty self-rehashed partition over an inventory requiring nonempty version families."}
+  ],
+  "not_run": ["product edits", "resolver build CLI", "record_decision", "Reader/index/question integration", "HITL UI/runtime", "model/network/GUI/credentials/real source documents", "OS isolation certification"],
+  "result_meaning": "Known defective baseline behavior was reproduced. This is not a product safety PASS or an implementation verification."
+}

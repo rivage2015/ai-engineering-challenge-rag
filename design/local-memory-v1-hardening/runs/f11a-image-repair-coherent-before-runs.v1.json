@@ -1,0 +1,45 @@
+{
+  "task_id": "lms-v1-f11a-notebook-metadata-2026-09-09",
+  "status": "integration_correction1_coherent_before_authorized_runs_not_acceptance",
+  "scope": "six assigned products only; original gold/versions/index/schema/app untouched",
+  "gate_sha256": "0b9e6252a549c29989f6209e5a2258f3a5edbfe5c10098fe807f919bca475d4b",
+  "design_sha256": "b63e7fdc3161aed6cb61466770ecfe720018f8872df429a357dbb9817b9afc48",
+  "before_bytes": "six new f11a-image-repair-before-{id}.v1.py snapshots; each cmp identical to current original before any edit",
+  "sources": [
+    {
+      "path": "scripts/probe_intermediate_records.py",
+      "sha256": "1320cda390ab671dc2df82678ed2237e12aa4828b29666e3fb3d5b8a734f456d"
+    },
+    {
+      "path": "scripts/build_search_units.py",
+      "sha256": "55f0284acd6462260ba4962fa77246fb78090aed9b42554146e49723728c20df"
+    },
+    {
+      "path": "scripts/validate_search_units.py",
+      "sha256": "c1bb29855c8b390c4af8334e9641af0ad069279cc7ea86faf25fddd85c7f500b"
+    },
+    {
+      "path": "scripts/validate_search_units_streaming.py",
+      "sha256": "54851bb4500a8eb82a9dada65c5bec7cbcdce212fd70852f430b3f703ac24059"
+    },
+    {
+      "path": "scripts/validate_intermediate_records.py",
+      "sha256": "91573a6216a1cf1814c36452e36752c08af46ef6dd393020830f7d82df87ae31"
+    },
+    {
+      "path": "scripts/validate_intermediate_records_streaming.py",
+      "sha256": "e7f5a53dc9822f8cccd1f0fa60c3c6873605575b4297e4c888b350dbfe56928a"
+    }
+  ],
+  "tests_run": [],
+  "next_runs": [
+    "rag/.venv/bin/python -I -B design/local-memory-v1-hardening/runs/f11a-regression-run.v1.py image f11a-regression-image-002",
+    "/opt/homebrew/opt/python@3.14/bin/python3.14 -I -B design/local-memory-v1-hardening/runs/f11a-root-image-run.v1.py f11a-root-images-002"
+  ],
+  "limits": [
+    "stop on unexpected failure; no retry or gold change without root",
+    "30seconds/1MiB log; reviewed F04/F05b guards",
+    "O(one Notebook image records) cache, not aggregate RSS guarantee",
+    "provisional visual exclusion not source-image membership or model correctness attestation"
+  ]
+}

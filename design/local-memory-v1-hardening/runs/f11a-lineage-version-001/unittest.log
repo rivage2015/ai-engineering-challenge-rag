@@ -1,0 +1,8 @@
+test_current_version_preserves_complete_original_fan_in_assertions (f11a_lineage_version_gold.LineageVersionGold) ... ok
+test_historical_version_is_rejected_with_exact_provenance_error (f11a_lineage_version_gold.LineageVersionGold) ... ok
+F05b explicit fixture budget: {"explicit_test_bytes": 0, "explicit_test_writes": 0, "max_source_fixture_bytes": 0, "source_fixture_count": 0}
+
+----------------------------------------------------------------------
+Ran 2 tests in 0.000s
+
+OK

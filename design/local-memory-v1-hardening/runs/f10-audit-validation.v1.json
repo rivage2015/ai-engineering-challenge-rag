@@ -1,0 +1,73 @@
+{
+  "schema_version": "1.0",
+  "task_id": "lms-v1-00-hardening-2026-09-09-f10",
+  "artifact_path": "design/local-memory-v1-hardening/runs/f10-graph-artifact.v1.json",
+  "artifact_sha256": "0121d75f0d54126c8534507caa5e9d9b1af508627879756996a042daf7d6df77",
+  "report_path": "design/local-memory-v1-hardening/runs/f10-audit-report.v1.json",
+  "report_sha256": "c6801a9ab6065916d8eec634f9df792e173a288b674a5cad73f5b092b932f028",
+  "ruby_reference_validator": {
+    "exit_code": 0,
+    "stdout": "VALID: audit report is structurally and referentially consistent",
+    "scope": "Official skill validator checks artifact hash, target/evidence references and summary/status consistency."
+  },
+  "draft_2020_12_validator": {
+    "exit_code": 0,
+    "stdout": "VALID: Draft2020-12 schema",
+    "schema_path": "/Users/takashifukutomi/.codex/skills/graph-engineering-agentic-audit/assets/agentic-audit-report.schema.json"
+  },
+  "audit_decision": "revise",
+  "blocking_failures": 2,
+  "unresolved_count": 0,
+  "important": "Valid report shape does not change the two failed counterexamples into acceptance.",
+  "source_integrity": {
+    "all_14_artifact_source_hashes_match_before_and_after_audit": true,
+    "all_5_saved_result_log_hashes_and_log_byte_counts_match": true,
+    "parser_after_sha256": "b36632a6acfdcf11491495a18fd6becdf0ce683bbcb7a55f96ba0eaa23c74a94",
+    "parser_before_reconstructed_in_memory_sha256": "db73270807c3e976fb51f38ff51cc6cd40dd7c0ef3c2d6954fc1f924acd8ab3d",
+    "new_test_sha256": "9e13fe8b2c532c9923c08a4a868e568e3251e5386def300fb9768ff2147a4daf",
+    "legacy_test_sha256": "63619ca448d88352beca3ee8e4679b25f762b3a12298398603c33f03f9f7255e",
+    "product_edits_by_auditor": false
+  },
+  "audit_scripts_sha256": {
+    "f10-audit-child.v1.py": "d9e27bb14a6b47a5ec686eac29378c9822407d5ad2c7bef2659ff7f20736e678",
+    "f10-audit-run.v1.py": "459a27d87bbf938464530228a1090a44fa6e5d426b2238f60ea2f99883e80774",
+    "f10-audit-hashes.v1.py": "7203286b29bdf538bc37e8c04b96e328a75056db5b85da6d12eca1028c5a7d78",
+    "f10-adversarial-cases.v1.py": "9842dfb62256d9fdfd902f75bc4a6c623b06105c3dff3346c2282f0dae0b67ec"
+  },
+  "fresh_runs": [
+    {
+      "path": "artifacts/local-memory-v1-hardening/runs/f10-audit-focused-v1/result.json",
+      "result_sha256": "b4286b997421e82240603e123bb0a66faf0c1f5ce48d34815bf07deb4bba7cba",
+      "status": "passed",
+      "methods": 17,
+      "skips": 0,
+      "log_sha256": "b57f07309d947003f8842cc1e61611f893edbf643101bae53d22aece4ecb2302"
+    },
+    {
+      "path": "artifacts/local-memory-v1-hardening/runs/f10-audit-regression-v1/result.json",
+      "result_sha256": "248ceddb45de56d114e513c49eb85c6dffaab964c99412d864ce436b0c0592c1",
+      "status": "passed",
+      "methods": 17,
+      "skips": 0,
+      "log_sha256": "f9b68fc55058db452e0cd64af337ad2d966e993c80e853f4624e1832fa516f9f"
+    },
+    {
+      "path": "artifacts/local-memory-v1-hardening/runs/f10-audit-legacy-v1/result.json",
+      "result_sha256": "12d86a80730ca195a00e56abefc6041833efe34652fcf87150e686380068e8ca",
+      "status": "passed",
+      "methods": 2,
+      "skips": 0,
+      "log_sha256": "a12932752246944baeea4450cb586be5a9e76d6ee60b9054155997720738b948"
+    },
+    {
+      "path": "artifacts/local-memory-v1-hardening/runs/f10-audit-adversarial-v1/result.json",
+      "result_sha256": "60264932bbfe5eb83652f894b38a1bfebe09a0711113f4543c151e892c23bab3",
+      "status": "failed",
+      "methods": 2,
+      "failures": 2,
+      "errors": 0,
+      "skips": 0,
+      "log_sha256": "debe98aee7b3d02f1ea273ccb0896e39626163ec5d6a6388041481280c27c9da"
+    }
+  ]
+}

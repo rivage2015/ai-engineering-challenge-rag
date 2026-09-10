@@ -1,0 +1,13 @@
+F11 OBSERVATION ONLY: green tests reproduce known gaps, not product acceptance
+source_sha256=123ff664e24f2cea7c3caac841e139f8574e7b2f9667701dd16e63f5086d80ad
+test_saved_counts_present_in_source_are_absent_from_reader (__main__.F11CurrentGapObservations.test_saved_counts_present_in_source_are_absent_from_reader) ... OBSERVED reader emitted 6 text evidence records; saved counts and per-record execution status absent
+ok
+test_saved_output_with_empty_source_keeps_locator_without_cell_record (__main__.F11CurrentGapObservations.test_saved_output_with_empty_source_keeps_locator_without_cell_record) ... OBSERVED empty-source cell still has saved output, with no parent cell Evidence to inherit a count
+ok
+test_search_unit_drops_in_memory_candidate_execution_metadata (__main__.F11CurrentGapObservations.test_search_unit_drops_in_memory_candidate_execution_metadata) ... OBSERVED direct SearchUnit derivation retains source IDs/locators but drops candidate native metadata
+ok
+
+----------------------------------------------------------------------
+Ran 3 tests in 0.037s
+
+OK
