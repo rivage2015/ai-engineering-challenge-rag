@@ -258,6 +258,9 @@ class DatedHitlHttpE2ETests(unittest.TestCase):
         module = self.server_module
         sentinel = "THIS_GENERATED_TEXT_MUST_NOT_BE_DISCLOSED"
         with (
+            mock.patch.object(module.intent_contract, "verify", return_value={"question": "受付は？"}),
+            mock.patch.object(module.intent_contract, "search_question", return_value="受付は？"),
+            mock.patch.object(module, "audit_intent_coverage", return_value={}),
             mock.patch.object(module, "state", return_value={"phase": "ready"}),
             mock.patch.object(module, "home", side_effect=lambda message="", *_a, **_k: module.page(str(message))),
             mock.patch.object(
@@ -277,7 +280,7 @@ class DatedHitlHttpE2ETests(unittest.TestCase):
         ):
             status, body = self.post(
                 "/ask",
-                {module.UI_CSRF_FIELD: self.httpd.ui_csrf_token, "query": "受付は？"},
+                {module.UI_CSRF_FIELD: self.httpd.ui_csrf_token, "query": "受付は？", "intent_action": "confirm"},
             )
         self.assertEqual(status, 409)
         self.assertIn("回答作成中に資料の判断が変わった", body)
@@ -308,6 +311,9 @@ class DatedHitlHttpE2ETests(unittest.TestCase):
             "config_sha256": "d" * 64,
         }
         with (
+            mock.patch.object(module.intent_contract, "verify", return_value={"question": "受付は？"}),
+            mock.patch.object(module.intent_contract, "search_question", return_value="受付は？"),
+            mock.patch.object(module, "audit_intent_coverage", return_value={}),
             mock.patch.object(module, "state", return_value={"phase": "ready"}),
             mock.patch.object(
                 module,
@@ -330,7 +336,7 @@ class DatedHitlHttpE2ETests(unittest.TestCase):
         ):
             status, body = self.post(
                 "/ask",
-                {module.UI_CSRF_FIELD: self.httpd.ui_csrf_token, "query": "受付は？"},
+                {module.UI_CSRF_FIELD: self.httpd.ui_csrf_token, "query": "受付は？", "intent_action": "confirm"},
             )
         self.assertEqual(status, 409)
         self.assertNotIn(sentinel, body)

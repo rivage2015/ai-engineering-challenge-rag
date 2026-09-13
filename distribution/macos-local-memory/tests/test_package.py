@@ -679,6 +679,7 @@ class PackageTests(unittest.TestCase):
             packaged_engine.mkdir(parents=True)
             shutil.copy2(ROOT / "app" / "final_answer_audit.py", resources)
             shutil.copy2(ROOT / "app" / "claim_graph_validator.py", resources)
+            shutil.copy2(ROOT / "app" / "answerability_policy.py", resources)
             shutil.copy2(ENGINE / "answer_local_memory.py", packaged_engine)
             shutil.copy2(ENGINE / "question_evidence_graph.py", packaged_engine)
 
@@ -3258,7 +3259,7 @@ class PackageTests(unittest.TestCase):
     def test_package_build_is_versioned_portable_and_publish_after_verify(self) -> None:
         package = (ROOT / "build" / "build_package.sh").read_text(encoding="utf-8")
         self.assertIn('PACKAGE_VERSION="1.0"', package)
-        self.assertIn('PACKAGE_BUILD="8"', package)
+        self.assertIn('PACKAGE_BUILD="10"', package)
         self.assertIn(
             'DMG_NAME="Local-Memory-Search-v${PACKAGE_VERSION}-macOS-unsigned.dmg"',
             package,
@@ -4390,6 +4391,14 @@ class PackageTests(unittest.TestCase):
         self.assertIn("migration_required", rendered)
         self.assertIn("意味グラフ回答を有効化して再構築", rendered)
         self.assertIn('<form method="post" action="/build">', rendered)
+        self.assertIn(
+            'id="local-search-form" method="post" '
+            'action="/intent-dialog"',
+            rendered,
+        )
+        self.assertNotIn('<form method="post" action="/ask">', rendered)
+        self.assertIn('<script src="/local-memory-ui.js"></script>', rendered)
+        self.assertIn(b'fetch(form.action', server.UI_SCRIPT)
 
         held_current = {
             **current,
