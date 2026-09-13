@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import copy
 import importlib.util
 import json
 import re
@@ -75,6 +76,60 @@ SUPPORTED_QUESTION_GRAPH_OPERATIONS = frozenset({
     "aggregate_count",
     "record_lookup",
 })
+
+REPROJECTABLE_CLAIM_FAILURES = frozenset({
+    "provisional_evidence_only", "value_not_in_evidence",
+})
+
+
+def load_answerability_policy():
+    path = Path(__file__).with_name("answerability_policy.py")
+    spec = importlib.util.spec_from_file_location("final_answerability_policy", path)
+    if spec is None or spec.loader is None:
+        raise ImportError(f"cannot load answerability policy: {path}")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def can_reproject_claims(validation: dict) -> bool:
+    """Only content-level failures may be demoted; integrity failures remain fatal."""
+    return validation.get("status") == "pass" or (
+        bool(validation.get("failures")) and all(
+            failure.get("claim_id")
+            and failure.get("code") in REPROJECTABLE_CLAIM_FAILURES
+            for failure in validation["failures"]
+        )
+    )
+
+
+def unsupported_field_ids(record: dict, result: dict) -> list[str]:
+    """Bind auditor quotations to fields, without asking a model to invent repairs."""
+    fields = []
+    unsupported = result.get("unsupported_claims", [])
+    for run in record.get("field_runs", []):
+        audit_value = run.get("audit", {})
+        if audit_value.get("verdict") != "supported":
+            continue
+        value = _normalized_graph_value_text(audit_value.get("supported_value", ""))
+        label = _normalized_graph_value_text(run.get("item", {}).get("label", ""))
+        if any(
+            (value and value in _normalized_graph_value_text(claim))
+            or (label and label in _normalized_graph_value_text(claim))
+            for claim in unsupported
+        ):
+            fields.append(str(run["item"]["item_id"]))
+    item_map = {str(item["item_id"]): item for item in record.get("question_plan", {}).get("items", [])}
+    for observation in record.get("answerability_policy", {}).get("observations", []):
+        field_id = str(observation["field_id"])
+        quote = _normalized_graph_value_text(observation.get("quote", ""))
+        label = _normalized_graph_value_text(item_map.get(field_id, {}).get("label", ""))
+        for claim in unsupported:
+            needle = _normalized_graph_value_text(claim).strip('「」『』\" ')
+            if (label and label in needle) or (len(needle) >= 4 and needle in quote):
+                fields.append(field_id)
+                break
+    return list(dict.fromkeys(fields))
 
 
 def _ordered_string_ids(value: object) -> list[str]:
@@ -580,12 +635,16 @@ def audit(
         "graph_retrieval_trace": graph_context.get(
             "graph_retrieval_trace", {}
         ),
+        "answerability_policy": graph_context.get("answerability_policy", {}),
     }
     answer_body = str(answer.get("answer", ""))
     prompt = f"""以下の質問、回答本文、Evidenceを敵対的に監査してください。
 別のモデルが作った回答なので、正しいと仮定してはいけません。
 Evidenceに直接支持されない事実、対象取り違え、時点・版の混同、否定・条件の見落としを探してください。
 [暫定読取]と記された画像OCRは診断用であり、確定主張の支持Evidenceには含めません。確定主張は暂定表示のないEvidenceだけで直接支持されるかを確認してください。
+「暫定の読み取り」「読み取り結果では」と明示した原文引用は、その読み取りが保存されていることだけを主張します。原文・出典・暫定表示が一致すれば、引用内容を現実の確定事実として監査してはいけません。
+資料の名称・パス・ページはEvidenceのpathとlocatorに照合してください。本文に資料名が書かれていないことだけを未支持としないでください。
+「関連する記述」「資料中の表記」の引用は、質問で求められた関係が成立するとの断言ではありません。「未確認」と示した項目を回答済みだと解釈しないでください。
 監査対象は「回答本文」が実際に断言した主張だけです。質問文、項目名、機械検証情報は主張ではありません。
 回答にない「のみ」「すべて」「現在地」「時系列順」などの強い意味を追加して監査してはいけません。
 順序・網羅性・唯一性は、回答がそれを明示的に主張し、かつ質問が求める場合だけ検査してください。
@@ -598,6 +657,7 @@ qualifiedは回答内に、支持される核心とは別に、実際に書か�
 unsupported_claimsには回答文中の未支持主張だけを引用または最小限に正規化して入れ、新しい主張を作らないでください。
 reasonは日本語80文字以内、unsupported_claimsは各60文字以内で簡潔に返してください。思考過程は書かないでください。
 問題がなければunsupported_claimsは空配列にしてください。
+verdictがverifiedの場合はunsupported_claimsを必ず[]にしてください。未支持主張を1件でも列挙する場合、verdictはqualifiedかrejectedでなければなりません。「問題なし」の説明をunsupported_claimsへ入れないでください。
 
 質問:
 {query}
@@ -620,7 +680,8 @@ Evidence:
             {"role": "user", "content": prompt},
         ],
         "think": False,
-        "options": {"temperature": 0, "num_predict": 320},
+        "options": {"temperature": 0, "num_predict": 1000 if re.search(
+            r'流れ|業務フロー|ワークフロー|手順', query) else 320},
     }
     request = urllib.request.Request(
         "http://127.0.0.1:11434/api/chat",
@@ -806,6 +867,14 @@ def main() -> int:
     requested_packet_ids = list(dict.fromkeys(
         ids + graph_validation_ids + graph_selected_ids
     ))
+    # Ordinary questions also retain diagnostic retrievals, even when the
+    # first model correctly refused to turn provisional OCR into a fact.
+    if question_graph_artifact.get("status") == "unsupported":
+        requested_packet_ids = list(dict.fromkeys(requested_packet_ids + [
+            evidence_id
+            for run in record.get("field_runs", [])
+            for evidence_id in run.get("retrieved_evidence_ids", [])
+        ]))
     nonretrievable_ids = sorted(set(requested_packet_ids) - eligible_ids)
     if nonretrievable_ids:
         answer_graph_failures.append(
@@ -840,7 +909,46 @@ def main() -> int:
     # The final auditor must see every branch-selected and validation packet,
     # not only the answer citations or top-level Graph union.
     packets = list(claim_packets)
+    stored_contract, stored_graph = record.get("question_contract"), record.get("claim_graph")
+    if stored_contract is not None or stored_graph is not None:
+        if not isinstance(stored_contract, dict) or not isinstance(stored_graph, dict):
+            answer_graph_failures.append("保存された質問契約・主張グラフの組が不正です。")
+        else:
+            stored_validation = claim_validator.validate_claim_graph(record, claim_packets, stored_contract, stored_graph)
+            if not can_reproject_claims(stored_validation):
+                answer_graph_failures.append("保存された質問契約・主張グラフの整合性を確認できません。")
+        if answer_graph_failures:
+            record["answer_graph_validation"]["status"] = "blocked"
     contract, graph, validation = claim_validator.build_and_validate(record, claim_packets)
+    original_record = copy.deepcopy(record)
+    policy = None
+    if (
+        not answer_graph_failures and question_graph_accepted
+        and graph_retrieval_trace["status"] != "blocked"
+        and can_reproject_claims(validation)
+        and record.get("field_runs")
+    ):
+        policy = load_answerability_policy()
+        prepared = policy.prepare_record(record, claim_packets)
+        _, prepared_graph, prepared_validation = claim_validator.build_and_validate(prepared, claim_packets)
+        if prepared_validation["status"] == "blocked" and can_reproject_claims(prepared_validation):
+            claim_fields = {claim["claim_id"]: claim["field_id"] for claim in prepared_graph.get("claims", [])}
+            excluded_fields = list(dict.fromkeys(
+                claim_fields[failure["claim_id"]] for failure in prepared_validation["failures"]
+                if failure["claim_id"] in claim_fields
+            ))
+            prepared = policy.prepare_record(record, claim_packets, excluded_field_ids=excluded_fields)
+        if prepared.get("answerability_policy", {}).get("applied"):
+            prepared["pre_answerability_answer"] = copy.deepcopy(answer)
+            prepared["pre_answerability_validation"] = validation
+            record = prepared
+            answer = record["answer"]
+            ids = list(dict.fromkeys(answer.get("evidence_ids", []) + answer.get("diagnostic_evidence_ids", [])))
+            contract, graph, validation = claim_validator.build_and_validate(record, claim_packets)
+            answer_engine.validate_answer(
+                answer, eligible_ids, answer.get("answer_mode"), None,
+                reference_only=bool(record["answerability_policy"].get("reference_only")),
+            )
     record["question_contract"] = contract
     record["claim_graph"] = graph
     record["deterministic_claim_validation"] = validation
@@ -906,8 +1014,41 @@ def main() -> int:
                 },
                 "question_evidence_graph_validation": question_graph_validation,
                 "graph_retrieval_trace": graph_retrieval_trace,
+                "answerability_policy": record.get("answerability_policy", {}),
             },
         )
+        if (
+            policy is not None and record.get("answerability_policy", {}).get("applied")
+            and result.get("verdict") in {"qualified", "rejected"}
+        ):
+            excluded = unsupported_field_ids(record, result)
+            if excluded:
+                previous_result = copy.deepcopy(result)
+                previous_answer = copy.deepcopy(answer)
+                repaired = policy.prepare_record(original_record, claim_packets, excluded_field_ids=excluded)
+                repaired_contract, repaired_graph, repaired_validation = claim_validator.build_and_validate(repaired, claim_packets)
+                if repaired.get("answerability_policy", {}).get("applied") and repaired_validation["status"] == "pass":
+                    answer_engine.validate_answer(
+                        repaired["answer"], eligible_ids, repaired["answer"]["answer_mode"], None,
+                        reference_only=bool(repaired["answerability_policy"].get("reference_only")),
+                    )
+                    record = repaired
+                    answer = record["answer"]
+                    contract, graph, validation = repaired_contract, repaired_graph, repaired_validation
+                    record["question_contract"] = contract
+                    record["claim_graph"] = graph
+                    record["deterministic_claim_validation"] = validation
+                    record["answerability_reaudit"] = {
+                        "attempts": 1, "excluded_field_ids": excluded,
+                        "previous_answer": previous_answer, "previous_audit": previous_result,
+                    }
+                    result, retry_performance = audit(
+                        args.model, record["query"], answer, packets, args.timeout,
+                        {"question_contract": contract, "claim_graph": graph,
+                         "validation": validation, "answerability_policy": record["answerability_policy"]},
+                    )
+                    audit_performance = {**retry_performance, "first_attempt": audit_performance, "attempts": 2}
+                    ids = list(dict.fromkeys(answer.get("evidence_ids", []) + answer.get("diagnostic_evidence_ids", [])))
     record.setdefault("models", {})["independent_final_auditor"] = args.model
     record["independent_final_audit"] = result
     record.setdefault("performance", {})["independent_final_audit"] = audit_performance

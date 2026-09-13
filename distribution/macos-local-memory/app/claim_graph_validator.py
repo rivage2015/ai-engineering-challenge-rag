@@ -4,11 +4,20 @@
 from __future__ import annotations
 
 import hashlib
+import importlib.util
 import json
 import re
 import unicodedata
 from datetime import date
 from decimal import Decimal, InvalidOperation
+from pathlib import Path
+
+_POLICY_PATH = Path(__file__).with_name("answerability_policy.py")
+_POLICY_SPEC = importlib.util.spec_from_file_location("claim_answerability_policy", _POLICY_PATH)
+if _POLICY_SPEC is None or _POLICY_SPEC.loader is None:
+    raise ImportError(f"cannot load answerability policy: {_POLICY_PATH}")
+answerability_policy = importlib.util.module_from_spec(_POLICY_SPEC)
+_POLICY_SPEC.loader.exec_module(answerability_policy)
 
 
 CURRENT_MARKERS = ("現在", "今は", "いまは", "現在は")
@@ -847,6 +856,10 @@ def build_claim_graph(record: dict, packets: list[dict], contract: dict | None =
     edges = []
     claims = []
     item_by_id = {item["field_id"]: item for item in contract["items"]}
+    policy_applied = record.get("answerability_policy", {}).get("applied") is True
+    metadata_fields = {
+        entry.get("field_id") for entry in record.get("answerability_policy", {}).get("metadata_claims", [])
+    } if policy_applied else set()
     for item in contract["items"]:
         nodes.append({"node_id": item["field_id"], "node_type": "field", "value": item["required_claim"]})
         edges.append({"edge_id": f"R_{item['field_id']}", "source": "Q1", "predicate": "requires", "target": item["field_id"]})
@@ -873,6 +886,9 @@ def build_claim_graph(record: dict, packets: list[dict], contract: dict | None =
             "time_scope": contract_item.get("time_scope", "unspecified"),
             "evidence_ids": evidence_ids,
         }
+        if field_id in metadata_fields:
+            claim["claim_kind"] = "source_metadata"
+            claim["value_parts"] = [value]
         claims.append(claim)
         nodes.append({
             "node_id": claim_id,
@@ -932,6 +948,13 @@ def _time_relation_conflicts(time_scope: str, value: str, text: str) -> bool:
 def validate_claim_graph(record: dict, packets: list[dict], contract: dict, graph: dict) -> dict:
     failures = []
     warnings = []
+    projection_failures = answerability_policy.validate_projection(record, packets)
+    failures.extend(projection_failures)
+    policy_applied = record.get("answerability_policy", {}).get("applied") is True
+    metadata_bindings = {} if projection_failures or not policy_applied else {
+        entry.get("field_id"): entry
+        for entry in record.get("answerability_policy", {}).get("metadata_claims", [])
+    }
     packet_map = {str(packet.get("evidence_id", "")): str(packet.get("text", "")) for packet in packets}
     lookup_bindings = record_lookup_field_bindings(record)
     question_graph = record.get("question_evidence_graph")
@@ -1010,6 +1033,15 @@ def validate_claim_graph(record: dict, packets: list[dict], contract: dict, grap
     answer_text = normalize(raw_answer_text)
     for claim in graph.get("claims", []):
         claim_id = claim.get("claim_id", "")
+        metadata_binding = metadata_bindings.get(claim.get("field_id"))
+        is_metadata_claim = bool(
+            metadata_binding
+            and claim.get("claim_kind") == "source_metadata"
+            and claim.get("value") == metadata_binding.get("value")
+            and claim.get("evidence_ids") == [metadata_binding.get("evidence_id")]
+        )
+        if claim.get("claim_kind") == "source_metadata" and not is_metadata_claim:
+            failures.append({"code": "source_metadata_binding_invalid", "claim_id": claim_id, "detail": "資料情報の主張が検証済みの出典と一致しません。"})
         is_record_lookup_claim = claim.get("field_id") in lookup_bindings
         if claim.get("field_id") not in field_ids:
             failures.append({"code": "unknown_field_id", "claim_id": claim_id, "detail": "質問契約にない項目です。"})
@@ -1022,7 +1054,7 @@ def validate_claim_graph(record: dict, packets: list[dict], contract: dict, grap
             evidence_id for evidence_id in evidence_ids
             if packet_has_provisional_reading(packet_map[evidence_id])
         ]
-        if provisional_support_ids:
+        if provisional_support_ids and not is_metadata_claim:
             failures.append({
                 "code": "provisional_evidence_only",
                 "claim_id": claim_id,
@@ -1037,11 +1069,11 @@ def validate_claim_graph(record: dict, packets: list[dict], contract: dict, grap
         )
         for value_part in claim.get("value_parts", []):
             if (
-                not is_record_lookup_claim
+                not is_record_lookup_claim and not is_metadata_claim
                 and normalize(value_part) not in normalize(cited_text)
             ):
                 failures.append({"code": "value_not_in_evidence", "claim_id": claim_id, "detail": f"原文にない値: {value_part}"})
-            if _time_relation_conflicts(
+            if not is_metadata_claim and _time_relation_conflicts(
                 str(claim.get("time_scope", "unspecified")),
                 value_part,
                 non_provisional_cited_text,
@@ -1087,7 +1119,7 @@ def validate_claim_graph(record: dict, packets: list[dict], contract: dict, grap
                 "claim_id": claim_id,
                 "detail": "検証済み数値と競合する代替値が最終回答にあります。",
             })
-        if claim.get("entity_type") == "person_name" and not _name_relation_is_explicit(
+        if not is_metadata_claim and claim.get("entity_type") == "person_name" and not _name_relation_is_explicit(
             str(claim.get("value", "")), non_provisional_cited_text
         ):
             failures.append({"code": "person_name_relation_missing", "claim_id": claim_id, "detail": "人物名と値を結ぶ明示的な記述がありません。"})
@@ -1111,9 +1143,13 @@ def validate_claim_graph(record: dict, packets: list[dict], contract: dict, grap
     validate_ordered_section_binding(record, graph, failures)
     validate_question_graph_binding(record, contract, graph, packet_map, failures, warnings)
 
+    claims_by_id = {claim.get("claim_id"): claim for claim in graph.get("claims", [])}
+    for failure in failures:
+        if failure.get("claim_id") in claims_by_id:
+            failure["field_id"] = claims_by_id[failure["claim_id"]].get("field_id")
     status = "blocked" if failures else "pass"
     return {
-        "validator_version": "1.4",
+        "validator_version": "1.5",
         "status": status,
         "failures": failures,
         "warnings": warnings,

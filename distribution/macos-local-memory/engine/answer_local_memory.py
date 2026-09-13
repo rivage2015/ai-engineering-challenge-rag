@@ -873,6 +873,8 @@ def validate_answer(
     allowed_ids: set[str],
     expected_mode: str | None = None,
     reminder_required: bool | None = None,
+    *,
+    reference_only: bool = False,
 ) -> None:
     if not isinstance(answer, dict):
         raise ValueError("answer_not_object")
@@ -911,11 +913,16 @@ def validate_answer(
             raise ValueError(f"{key}_invalid")
     if status == "answered" and mode not in {"grounded", "qualified"}:
         raise ValueError("answered_mode_invalid")
-    if status == "insufficient" and mode != "insufficient":
+    if reference_only and (
+        status != "insufficient" or mode != "qualified" or evidence_ids
+        or not diagnostic_ids or not str(answer.get("answer", "")).strip()
+    ):
+        raise ValueError("reference_only_answer_invalid")
+    if status == "insufficient" and mode != "insufficient" and not reference_only:
         raise ValueError("insufficient_mode_invalid")
     if status == "answered" and reason.get("code") != "none":
         raise ValueError("answered_reason_must_be_none")
-    if status == "insufficient" and answer.get("answer") != "わかりません":
+    if status == "insufficient" and answer.get("answer") != "わかりません" and not reference_only:
         raise ValueError("insufficient_answer_must_be_unknown")
     if status == "insufficient":
         if reason.get("code") == "none" or not reason.get("explanation", "").strip():
