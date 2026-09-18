@@ -1,0 +1,136 @@
+{
+  "schema_version": "1.0",
+  "artifact_kind": "design_dependency_graph",
+  "plan_id": "LMS-QF-GRAPH-20260919",
+  "plan_version": "1.0",
+  "created_on": "2026-09-19",
+  "mode": "Problem Solving",
+  "complexity": "L",
+  "status": "documented_design_direction_not_implemented",
+  "runtime_executable": false,
+  "production_evidence_graph": false,
+  "authorization": {
+    "documentation": "user_requested",
+    "implementation": "not_authorized_in_this_request",
+    "experiments": "not_authorized_in_this_request",
+    "production_changes": "not_authorized_in_this_request",
+    "commit_push": "authorized_for_plan_documents_only_by_followup_request"
+  },
+  "publication_authorization": {
+    "recorded_on": "2026-09-19",
+    "user_request": "そしたらコミットしてプッシュしよう。",
+    "remote": "origin",
+    "branch": "codex/visual-classification-v1",
+    "scope": "This plan and graph plus only the new reference and publication notes in the existing control plan. Exclude pre-existing unrelated changes.",
+    "implementation_authorized": false,
+    "experiments_authorized": false
+  },
+  "goal": "根拠に基づく初回実用回答を増やし、ユーザーの再質問・修正負担を減らす。",
+  "invariants": [
+    "Gemma 4 is the primary local answer generator",
+    "No cloud inference or private source transmission",
+    "Source text and provenance are preserved separately from interpretation",
+    "Graph similarity is candidate retrieval, not proof of correctness",
+    "Version and material intent ambiguity require human selection",
+    "Jev-style local support is a future optional experiment",
+    "No hard-coded question-specific answers or evaluation leakage"
+  ],
+  "sources": [
+    {"id": "U1", "kind": "user_statement", "text": "メインルートはジェマ様。グラフもJevも補佐的に使いたい。"},
+    {"id": "U2", "kind": "user_statement", "text": "一番最初から精度が高そうな回答を得て、出戻りを減らしたい。"},
+    {"id": "U3", "kind": "user_statement", "text": "質問側と資料側のノードとエッジを意味検索的に照合し、最初から補佐する。追加の判定補佐は将来。"},
+    {"id": "U4", "kind": "user_request", "text": "この修正方針をグラフエンジニアリング処理でまとめ、後から参照できる改善計画書にする。"},
+    {"id": "L1", "kind": "local_experiment_report", "path": "design/local-memory-gemma-workflow-test-20260919.md", "publication_scope": "local_reference_not_included_in_this_commit"},
+    {"id": "L2", "kind": "existing_control_plan", "path": "design/local-memory-controlled-execution-plan.md"},
+    {"id": "L3", "kind": "existing_schema_design", "path": "design/intermediate-data-schema.md"},
+    {"id": "L4", "kind": "historical_query_graph_design", "path": "design/query-intent-graph-engineering.md"},
+    {"id": "W1", "kind": "official_reference", "url": "https://docs.typesafe.ai/cookbooks/citation_check", "checked_on": "2026-09-19"},
+    {"id": "W2", "kind": "official_limitations", "url": "https://docs.typesafe.ai/model-jaggedness/jev-1.13", "checked_on": "2026-09-19"}
+  ],
+  "nodes": [
+    {"id": "Q", "label": "質問", "kind": "input", "status": "design_component", "source_refs": ["U3"]},
+    {"id": "D", "label": "許可された原資料と版", "kind": "source", "status": "design_component", "source_refs": ["L2", "L3"]},
+    {"id": "QG", "label": "質問グラフ", "kind": "support", "status": "proposed_wiring", "source_refs": ["U3", "L4"]},
+    {"id": "DG", "label": "原文に結び付いた資料グラフ", "kind": "support", "status": "completeness_unverified", "source_refs": ["U3", "L3"]},
+    {"id": "LEX", "label": "通常の資料検索", "kind": "retrieval", "status": "existing_route_to_inspect", "source_refs": ["L2"]},
+    {"id": "MATCH", "label": "意味・関係の候補照合と原文確認", "kind": "support", "status": "proposed_wiring", "source_refs": ["U3"]},
+    {"id": "BUNDLE", "label": "原文・関係・条件・未確認の統合", "kind": "evidence_bundle", "status": "proposed_contract", "source_refs": ["L1", "L3"]},
+    {"id": "GEMMA", "label": "Gemma 4による回答生成", "kind": "primary_generator", "status": "existing_model_new_input_proposed", "source_refs": ["U1", "L1"]},
+    {"id": "CHECK", "label": "原文・条件・抜けの点検", "kind": "validation", "status": "fallible_semantic_review", "source_refs": ["L1", "W1"]},
+    {"id": "REPAIR", "label": "上限付き限定再読と回答修正", "kind": "repair", "status": "proposed", "source_refs": ["U2", "L1"]},
+    {"id": "A", "label": "確認できた内容と限界を含む初回回答", "kind": "output", "status": "target_behavior", "source_refs": ["U2"]},
+    {"id": "HUMAN", "label": "必要な版・意図の人間確認", "kind": "human_selection", "status": "preserved_requirement", "source_refs": ["L2"]},
+    {"id": "JEV", "label": "将来のローカルJev系判定補佐", "kind": "optional_support", "status": "future_not_selected", "source_refs": ["U1", "U3", "W2"]},
+    {"id": "GOAL", "label": "初回実用正答の増加と人の出戻り削減", "kind": "goal", "status": "unachieved_unproven", "source_refs": ["U2"]},
+    {"id": "P1", "label": "参考欄・担当・条件の脱落", "kind": "observed_problem", "status": "observed_in_bounded_experiment", "source_refs": ["L1"]},
+    {"id": "P2", "label": "条件・作業とセリフの混同", "kind": "observed_problem", "status": "observed_in_bounded_experiment", "source_refs": ["L1"]}
+  ],
+  "edges": [
+    {"id": "E01", "from": "Q", "to": "QG", "type": "decomposes_into", "basis": "明示", "statement": "質問を対象・条件・知りたい関係に整理する設計意図。", "source_refs": ["U3"]},
+    {"id": "E02", "from": "D", "to": "DG", "type": "provides_source_for", "basis": "明示", "statement": "資料側の関係は原文・出典を持つ別レイヤーとする。", "source_refs": ["U3", "L3"]},
+    {"id": "E03", "from": "QG", "to": "LEX", "type": "constrains", "basis": "推論", "statement": "質問の対象・範囲を通常検索にも渡す接続案。", "source_refs": ["L2", "L4"]},
+    {"id": "E04", "from": "D", "to": "LEX", "type": "provides_source_for", "basis": "明示", "statement": "検索の根拠は許可された資料の索引とする。", "source_refs": ["L2"]},
+    {"id": "E05", "from": "QG", "to": "MATCH", "type": "specifies_requested_relations", "basis": "明示", "statement": "質問が求める関係を資料側と照合する。", "source_refs": ["U3"]},
+    {"id": "E06", "from": "DG", "to": "MATCH", "type": "provides_candidate_relations", "basis": "明示", "statement": "資料側から出典付きの関係候補を供給する。", "source_refs": ["U3"]},
+    {"id": "E07", "from": "LEX", "to": "BUNDLE", "type": "contributes_candidates", "basis": "推論", "statement": "通常検索候補も残し、グラフ候補と統合する案。", "source_refs": ["L1", "L2"]},
+    {"id": "E08", "from": "MATCH", "to": "BUNDLE", "type": "contributes_grounded_relations", "basis": "推論", "statement": "原文で確認できた関係と矛盾・未確認を分離して渡す案。", "source_refs": ["U3", "L3"]},
+    {"id": "E09", "from": "BUNDLE", "to": "GEMMA", "type": "supplies_evidence", "basis": "明示", "statement": "Gemmaへ回答前から関係と原文を渡す設計意図。", "source_refs": ["U1", "U3"]},
+    {"id": "E10", "from": "GEMMA", "to": "CHECK", "type": "submits_draft", "basis": "推論", "statement": "初回提示前に回答案を点検する案。", "source_refs": ["U2", "L1"]},
+    {"id": "E11", "from": "BUNDLE", "to": "CHECK", "type": "supplies_comparison_source", "basis": "推論", "statement": "回答だけを採点せず原文を比較元にする。", "source_refs": ["L1", "W1"]},
+    {"id": "E12", "from": "CHECK", "to": "A", "type": "releases_with_limits", "basis": "推論", "statement": "確認できた回答または不足を明示する。自己監査のPASSを真値にはしない。", "source_refs": ["U2", "L1"]},
+    {"id": "E13", "from": "CHECK", "to": "REPAIR", "type": "requests_bounded_reread", "basis": "推論", "statement": "具体的欠落が修復可能で予算内の場合だけ再読する。", "source_refs": ["U2", "L2"]},
+    {"id": "E14", "from": "REPAIR", "to": "BUNDLE", "type": "adds_source_evidence", "basis": "推論", "statement": "同一対象・承認版の原文を補い、上限内で再生成する。", "source_refs": ["L2", "L3"]},
+    {"id": "E15", "from": "BUNDLE", "to": "HUMAN", "type": "escalates_material_ambiguity", "basis": "明示", "statement": "版や意図の実質的な競合は人が選ぶ。", "source_refs": ["L2"]},
+    {"id": "E16", "from": "HUMAN", "to": "QG", "type": "resolves_scope_or_version", "basis": "推論", "statement": "確認内容を質問側の範囲・版指定へ引き継ぐ。", "source_refs": ["L2", "L4"]},
+    {"id": "E17", "from": "JEV", "to": "MATCH", "type": "may_assist", "basis": "仮説", "statement": "有限選択肢による局所的な関係判定を助ける可能性。将来比較のみ。", "source_refs": ["U3", "W2"]},
+    {"id": "E18", "from": "JEV", "to": "CHECK", "type": "may_assist", "basis": "仮説", "statement": "意味確認を補助する可能性。合格許可の独占はしない。", "source_refs": ["U3", "W1", "W2"]},
+    {"id": "E19", "from": "BUNDLE", "to": "P1", "type": "may_mitigate", "basis": "仮説", "statement": "原文のまとまりと対応保持が情報脱落を減らすか比較する。", "source_refs": ["L1"]},
+    {"id": "E20", "from": "MATCH", "to": "P2", "type": "may_mitigate", "basis": "仮説", "statement": "関係と役割の分離が発話との混同を減らすか比較する。", "source_refs": ["U3", "L1"]},
+    {"id": "E21", "from": "A", "to": "GOAL", "type": "may_improve", "basis": "仮説", "statement": "提示前補佐による初回回答が実際に出戻りを減らすか人の評価で測る。", "source_refs": ["U2", "L1"]}
+  ],
+  "primary_paths": [
+    {"id": "PRIMARY", "purpose": "初回回答前の根拠準備", "kind": "proposed_execution_priority", "branches": [["Q", "QG", "LEX", "BUNDLE"], ["Q", "QG", "MATCH", "BUNDLE"], ["D", "DG", "MATCH", "BUNDLE"]], "tail": ["BUNDLE", "GEMMA", "CHECK", "A", "GOAL"], "empirically_validated": false},
+    {"id": "REPAIR_PATH", "purpose": "具体的欠落の限定修復", "kind": "proposed_execution_priority", "nodes": ["CHECK", "REPAIR", "BUNDLE", "GEMMA", "CHECK"], "requires_fixed_budget": true, "empirically_validated": false},
+    {"id": "HUMAN_PATH", "purpose": "版・意図の重要な選択", "kind": "preserved_control", "nodes": ["BUNDLE", "HUMAN", "QG"], "empirically_validated": false}
+  ],
+  "hypotheses": [
+    {"id": "H1", "text": "回答前の意味・関係照合で必要な根拠が集まりやすくなる", "edge_refs": ["E05", "E06", "E08", "E21"], "status": "untested"},
+    {"id": "H2", "text": "原文と役割を保持すれば欠落・発話混同が減る", "edge_refs": ["E19", "E20"], "status": "untested"},
+    {"id": "H3", "text": "提示前の限定修復が人の出戻りを減らす", "edge_refs": ["E13", "E14", "E21"], "status": "untested"},
+    {"id": "H4", "text": "Jev系の小判断が追加の補佐になる", "edge_refs": ["E17", "E18"], "status": "future_untested"}
+  ],
+  "counterevidence": [
+    {"source_ref": "L1", "text": "直接回答57.09秒より、抽出と説明142.63秒の方が参考欄・担当者を落とし悪化した。処理増加は改善を保証しない。"},
+    {"source_ref": "L1", "text": "引用の機械検査通過でも意味・網羅性は不合格だった。"}
+  ],
+  "metrics": ["first_response_usable_rate", "critical_error_count", "human_rework_count", "human_review_seconds", "appropriate_abstention", "source_traceability", "end_to_end_latency", "peak_memory"],
+  "stages": [
+    {"id": "QF-0", "label": "現在地と試験条件を固定", "depends_on": [], "status": "proposed_not_started"},
+    {"id": "QF-1", "label": "資料を欠けずに渡す", "depends_on": ["QF-0"], "status": "proposed_not_started"},
+    {"id": "QF-2", "label": "初回から質問と資料のグラフを照合", "depends_on": ["QF-1"], "status": "proposed_not_started"},
+    {"id": "QF-3", "label": "Gemmaの回答を提示前に仕上げる", "depends_on": ["QF-2"], "status": "proposed_not_started"},
+    {"id": "QF-4", "label": "実用回答と人の負担を比較", "depends_on": ["QF-3"], "status": "proposed_not_started"},
+    {"id": "FUTURE-JEV", "label": "Jev系補佐の独立比較", "depends_on": ["QF-4"], "status": "future_separate_approval"}
+  ],
+  "evaluation_constraints": {
+    "same_source_version_model_and_settings": true,
+    "gold_answers_excluded_from_runtime": true,
+    "holdout_questions_required": true,
+    "human_meaning_review_required_for_initial_evaluation": true,
+    "same_model_self_review_is_not_independent_truth": true,
+    "question_specific_answer_hardcoding_forbidden": true,
+    "numerical_acceptance_thresholds": "fix_before_experiment_in_QF-0"
+  },
+  "proposed_budget_not_runtime_policy": {
+    "max_rereads": 1,
+    "max_answer_regenerations": 1,
+    "max_total_question_seconds": 600,
+    "approved_for_execution": false,
+    "note": "試験上限の候補。運用待ち時間の目標や既存読取制限の変更ではない。"
+  },
+  "design_review": [
+    {"phase": "Build", "outcome": "Gemmaを主役に保ち、出戻り削減をGoalとして構造化。"},
+    {"phase": "Critique", "outcome": "類似=正解、配置=業務順、自己監査=真値、処理増=改善の飛躍を排除。"},
+    {"phase": "Optimize", "outcome": "原文保持、通常検索との統合、限定修復を優先。Jevは将来枝へ分離。"}
+  ]
+}
