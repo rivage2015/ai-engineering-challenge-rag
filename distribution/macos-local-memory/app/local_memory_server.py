@@ -34,6 +34,7 @@ import bootstrap
 import semantic_graph_answer_promotion
 import semantic_graph_trust
 import intent_contract
+import grounded_guidance
 
 
 BUILD_LOCK = threading.Lock()
@@ -115,6 +116,8 @@ def _log_search_event(context: dict, event: str, *, exc: Exception | None = None
         policy = record.get("answerability_policy", {})
         answer = record.get("answer", {})
         audit = record.get("independent_final_audit", {})
+        guidance = record.get("grounded_guidance", {})
+        guidance = guidance if isinstance(guidance, dict) else {}
         policy = policy if isinstance(policy, dict) else {}
         answer = answer if isinstance(answer, dict) else {}
         audit = audit if isinstance(audit, dict) else {}
@@ -122,6 +125,8 @@ def _log_search_event(context: dict, event: str, *, exc: Exception | None = None
             "answer_mode": answer.get("answer_mode"),
             "answer_status": record.get("answer_status", answer.get("answer_status")),
             "audit_verdict": audit.get("verdict"),
+            "guidance_status": guidance.get("status"),
+            "guidance_reason": guidance.get("reason_code", guidance.get("reason")),
             "audit_reason": _diagnostic_text(audit.get("reason", ""), sensitive, 1000),
             "policy_version": policy.get("version"),
             "confirmed_field_ids": policy.get("confirmed_field_ids", []),
@@ -459,7 +464,8 @@ def audit_intent_coverage(contract, record):
             or record.get('answer', {}).get('answer_mode') == 'insufficient'
             or policy.get('reference_only')
             or policy.get('observations')
-            or policy.get('unresolved_field_ids')):
+            or policy.get('unresolved_field_ids')
+            or record.get('grounded_guidance', {}).get('status') == 'incomplete'):
         coverage['complete'] = False
     record['confirmed_intent'] = contract
     record['intent_coverage'] = coverage
@@ -471,6 +477,73 @@ def audit_intent_coverage(contract, record):
             'request_started_at': record.get('request_started_at'),
             'answerability_policy': policy}, ensure_ascii=False) + '\n')
     return coverage
+
+
+def prepare_grounded_guidance(record: dict, contract: dict, revision: dict) -> dict | None:
+    """Keep the extractive record intact; build a separately audited display view."""
+    if not grounded_guidance.eligible(record, contract):
+        return None
+    config = {}
+    try:
+        _search_stage("grounded_guidance")
+        exists, config = bootstrap.load_config_snapshot()
+        if not exists or not bootstrap.answer_config_matches_revision(config, revision):
+            raise ValueError("guidance_revision_changed_before_composition")
+        record["grounded_guidance"] = grounded_guidance.compose_guidance(
+            record, contract, Path(config["index_path"]), config["answer_model"], timeout=120,
+        )
+        view = grounded_guidance.verified_view(record, contract)
+        if view is None and record["grounded_guidance"].get("status") == "verified":
+            record["grounded_guidance"].update(status="incomplete", reason="guidance_view_binding_failed")
+        return view
+    except Exception as exc:
+        # A composition failure must not hide the already checked source extraction.
+        record["grounded_guidance"] = {
+            "status": "incomplete", "reason": "guidance_processing_incomplete",
+        }
+        context = getattr(SEARCH_REQUEST_CONTEXT, "value", None)
+        if context is not None:
+            _log_search_event(context, "grounded_guidance_unavailable", exc=exc)
+        return None
+    finally:
+        if config.get("sequential_model_loading", True) and config.get("answer_model"):
+            unload_ollama_model(config["answer_model"])
+
+
+def save_grounded_guidance(record: dict, contract: dict, view: dict | None, coverage: dict) -> None:
+    """Log the new artifact without relabeling the old extraction/claim audit."""
+    if "grounded_guidance" not in record:
+        return
+    entry = {
+        "request_id": record.get("request_id"),
+        "request_started_at": record.get("request_started_at"),
+        "contract": contract, "coverage": coverage,
+        "extracted_answer": record.get("answer"),
+        "grounded_guidance": record["grounded_guidance"],
+        "displayed_answer": view["answer"] if view else record.get("answer", {}).get("answer"),
+    }
+    path = bootstrap.SUPPORT / "logs" / "guidance-answers.jsonl"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    descriptor = os.open(path, os.O_WRONLY | os.O_APPEND | os.O_CREAT | getattr(os, "O_NOFOLLOW", 0), 0o600)
+    with os.fdopen(descriptor, "a", encoding="utf-8") as handle:
+        metadata = os.fstat(handle.fileno())
+        if not stat.S_ISREG(metadata.st_mode) or metadata.st_uid != os.getuid() or metadata.st_nlink != 1:
+            raise ValueError("guidance_log_not_private_regular_file")
+        os.fchmod(handle.fileno(), 0o600)
+        handle.write(json.dumps(entry, ensure_ascii=False) + "\n")
+
+
+def grounded_guidance_sources(view: dict) -> tuple[str, str, str]:
+    rows = []
+    for source in view["sources"]:
+        rows.append(
+            "<li>" + html.escape(str(source["relative_path"])) + " / "
+            + html.escape(json.dumps(source["locator"], ensure_ascii=False))
+            + "<br>原文：「" + html.escape(source["quote"]) + "」<br>Evidence: "
+            + html.escape(source["evidence_id"]) + "</li>"
+        )
+    return ("案内例の根拠", "".join(rows),
+            "案内例は以下の原文を組み合わせた表現です。原文の引用そのものではありません。")
 
 
 def _log_startup_recovery_failure(exc: Exception) -> None:
@@ -2885,6 +2958,27 @@ def answer_source_notice(record: dict) -> tuple[str, str, str]:
     )
 
 
+def final_audit_incomplete(record: dict) -> bool:
+    audit = record.get("independent_final_audit")
+    performance = record.get("performance")
+    performance = performance if isinstance(performance, dict) else {}
+    audit_performance = performance.get("independent_final_audit")
+    return (
+        isinstance(audit, dict) and audit.get("status") == "incomplete"
+    ) or (
+        isinstance(audit_performance, dict)
+        and audit_performance.get("failed") is True
+    )
+
+
+def save_audited_answer(record: dict) -> None:
+    audited_log = bootstrap.SUPPORT / "logs" / "audited-answers.jsonl"
+    _search_stage("save_audited_answer")
+    audited_log.parent.mkdir(parents=True, exist_ok=True)
+    with audited_log.open("a", encoding="utf-8") as handle:
+        handle.write(json.dumps(record, ensure_ascii=False) + "\n")
+
+
 def answer_query(
     query: str,
     *,
@@ -2957,6 +3051,20 @@ def answer_query(
             unload_ollama_model(config["audit_model"])
             if sequential else {"requested": False, "succeeded": False, "seconds": 0.0, "error": ""}
         )
+        if final_audit_incomplete(audited_record):
+            # An unfinished audit cannot be promoted by any downstream route.
+            audited_record["pipeline_performance"] = {
+                "sequential_model_loading": sequential,
+                "same_model_reused_across_separate_contexts": reuse_loaded_model,
+                "answer_process_seconds": round(answer_seconds, 3),
+                "answer_model_unload": answer_unload,
+                "audit_process_seconds": round(audit_seconds, 3),
+                "audit_model_unload": audit_unload,
+                "downstream_skipped_reason": "final_audit_incomplete",
+                "total_seconds": round(time.perf_counter() - pipeline_started, 3),
+            }
+            save_audited_answer(audited_record)
+            return audited_record
         candidate_started = time.perf_counter()
         _search_stage("semantic_graph_candidate")
         legacy_reference_valid, legacy_reference_date = (
@@ -3098,11 +3206,7 @@ def answer_query(
             ),
             "total_seconds": round(time.perf_counter() - pipeline_started, 3),
         }
-        audited_log = bootstrap.SUPPORT / "logs" / "audited-answers.jsonl"
-        _search_stage("save_audited_answer")
-        audited_log.parent.mkdir(parents=True, exist_ok=True)
-        with audited_log.open("a", encoding="utf-8") as handle:
-            handle.write(json.dumps(audited_record, ensure_ascii=False) + "\n")
+        save_audited_answer(audited_record)
         return audited_record
     finally:
         if sequential and "audit_unload" not in locals():
@@ -3433,8 +3537,21 @@ class Handler(BaseHTTPRequestHandler):
                     expected_active_revision=answer_revision,
                 )
                 _attach_search_request(record)
-                _search_stage("intent_coverage")
-                coverage = audit_intent_coverage(contract, record)
+                incomplete = final_audit_incomplete(record)
+                guidance_view = None
+                if incomplete:
+                    coverage = {"complete": False, "items": []}
+                else:
+                    guidance_view = prepare_grounded_guidance(record, contract, answer_revision)
+                    if guidance_view is not None:
+                        coverage = guidance_view["coverage"]
+                        record["confirmed_intent"] = contract
+                        record["intent_coverage"] = coverage
+                    else:
+                        _search_stage("intent_coverage")
+                        coverage = audit_intent_coverage(contract, record)
+                        if record.get("grounded_guidance", {}).get("status") == "incomplete":
+                            coverage["complete"] = False
                 _search_stage("final_revision_check")
                 decision_current, _decision_reason, final_revision = (
                     bootstrap.active_answer_revision_identity()
@@ -3450,8 +3567,32 @@ class Handler(BaseHTTPRequestHandler):
                         self.server.ui_csrf_token,
                     ), 409)
                     return
+                if guidance_view is not None and grounded_guidance.verified_view(record, contract) != guidance_view:
+                    _log_search_event(request_context, "guidance_withheld_binding_changed", record=record)
+                    self.send(page('<section class="card"><h1>案内例の確認状態が変わりました</h1>'
+                        '<p>確認済みの文章との一致を確かめられないため、案内例は表示していません。</p>'
+                        '<a class="button secondary" href="/">← 戻る</a></section>'), 409)
+                    return
+                save_grounded_guidance(record, contract, guidance_view, coverage)
                 _search_stage("response_rendering")
+                if incomplete:
+                    audit = record.get("independent_final_audit", {})
+                    reason = audit.get("reason_code") if isinstance(audit, dict) else None
+                    explanation = {
+                        "audit_context_exhausted": "最終点検に必要な容量を使い切りました。",
+                        "audit_response_truncated": "最終点検の応答が途中で終了しました。",
+                        "audit_transport_error": "最終点検を行うローカルモデルとの通信を完了できませんでした。",
+                    }.get(reason, "最終点検の応答が完全であることを確認できませんでした。")
+                    self.send(page('<a class="button secondary" href="/">← 戻る</a>'
+                        '<section class="card"><h1>回答の最終点検を完了できませんでした</h1>'
+                        '<p>' + explanation + '</p><p>資料不足という判定ではありません。'
+                        '未点検の回答は表示していません。診断ログに原因を記録しました。</p>'
+                        '<p>要求ID: <code>' + html.escape(request_context['request_id']) + '</code></p></section>'))
+                    _log_search_event(request_context, "request_incomplete", record=record, coverage=coverage)
+                    return
                 answer = record["answer"]
+                if guidance_view is not None:
+                    answer = {"answer": guidance_view["answer"], "answer_mode": "grounded_guidance"}
                 completion_title = '合意した内容を確認できました' if coverage['complete'] else '回答は未完了です：不足する内容があります'
                 coverage_notice = '<section class="card"><h2>' + completion_title + '</h2><p>' + html.escape(contract['goal']) + '</p><ul>'
                 for item in coverage['items']:
@@ -3468,6 +3609,13 @@ class Handler(BaseHTTPRequestHandler):
                 source_heading, sources, source_note = answer_source_notice(
                     record
                 )
+                if guidance_view is not None:
+                    certainty_notice = ('<p class="small">確認した資料をもとに案内例を作成しました。'
+                        '原文引用ではなく、別の点検で根拠・対象・条件・要求との対応を確認した表現です。</p>')
+                    source_heading, sources, source_note = grounded_guidance_sources(guidance_view)
+                elif record.get("grounded_guidance", {}).get("status") == "incomplete":
+                    certainty_notice += ('<div class="warn"><p>案内例の作成・点検は完了していません。'
+                        '以下には、元の資料から確認できた範囲を表示しています。</p></div>')
                 promotion = record.get(SEMANTIC_GRAPH_ANSWER_PROMOTION_KEY)
                 graph_promoted = (
                     isinstance(promotion, dict)
@@ -3496,6 +3644,9 @@ class Handler(BaseHTTPRequestHandler):
                     else "独立監査: "
                     + audit_verdict_notice(audit)
                 )
+                if guidance_view is not None:
+                    audit_label = ("原文抽出の独立監査: " + audit_verdict_notice(audit)
+                        + "<br>案内例の別コンテキスト監査: 確認済み（同じローカルモデル・別の点検役割）")
                 self.send(page(f"""
                 <a class="button secondary" href="/">← 戻る</a><div class="eyebrow">AUDITED ANSWER</div><h1>{html.escape(query)}</h1>
                 {coverage_notice}

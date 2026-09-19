@@ -28,7 +28,7 @@ class AnswerabilityUiLoggingTests(unittest.TestCase):
         self.support_patch.stop()
         self.temporary.cleanup()
 
-    def search(self, record=None, side_effect=None):
+    def search(self, record=None, side_effect=None, revision_changed=False):
         module = self.server_module
         contract = module.intent_contract.make_contract(
             "福徳神社の創建年と訪問有無は？", "創建年と訪問有無の確認", "創建年\n訪問有無", {"generation": "one"})
@@ -41,7 +41,8 @@ class AnswerabilityUiLoggingTests(unittest.TestCase):
         with (
             mock.patch.object(module, "state", return_value={"phase": "ready"}),
             mock.patch.object(module.bootstrap, "active_answer_revision_identity",
-                              return_value=(True, "current", contract["revision"])),
+                              side_effect=[(True, "current", contract["revision"]),
+                                           (True, "current", {"generation": "changed"} if revision_changed else contract["revision"])]),
             mock.patch.object(module.bootstrap, "load_json", return_value={"audit_model": "test", "sequential_model_loading": False}),
             mock.patch.object(module.LOCAL_HTTP_OPENER, "open", return_value=response),
             mock.patch.object(module, "answer_query", return_value=record, side_effect=side_effect),
@@ -158,6 +159,64 @@ class AnswerabilityUiLoggingTests(unittest.TestCase):
         self.assertEqual(status, 200)
         self.assertIn("回答は未完了です", body)
         self.assertNotIn("確認できた範囲を表示しています", body)
+
+    def test_incomplete_audit_is_not_a_500_or_a_verified_answer(self):
+        record = {"answer": {"answer": "UNVERIFIED_DRAFT_SENTINEL", "answer_mode": "answer"},
+                  "independent_final_audit": {"status": "incomplete", "verdict": "rejected",
+                                              "reason_code": "audit_context_exhausted"}}
+        with mock.patch.object(self.server_module, "audit_intent_coverage") as coverage:
+            status, body = self.search(record)
+        self.assertEqual(status, 200)
+        coverage.assert_not_called()
+        self.assertIn("最終点検を完了できませんでした", body)
+        self.assertIn("容量を使い切りました", body)
+        self.assertIn("資料不足という判定ではありません", body)
+        self.assertNotIn("UNVERIFIED_DRAFT_SENTINEL", body)
+        self.assertNotIn("独立監査: 確認済み", body)
+        event = self.events("request_incomplete")[-1]
+        self.assertFalse(event["complete"])
+        self.assertIn(event["request_id"], body)
+
+    def test_incomplete_detection_handles_missing_or_malformed_metadata(self):
+        check = self.server_module.final_audit_incomplete
+        self.assertFalse(check({"performance": None, "independent_final_audit": None}))
+        self.assertTrue(check({"performance": {"independent_final_audit": {"failed": True}}}))
+        self.assertFalse(check({"performance": {"independent_final_audit": {"failed": False}}}))
+
+    def test_incomplete_audit_still_checks_final_revision(self):
+        record = {"answer": {"answer": "UNVERIFIED_DRAFT_SENTINEL"},
+                  "independent_final_audit": {"status": "incomplete", "verdict": "rejected"}}
+        with mock.patch.object(self.server_module, "home", side_effect=lambda message, *_: message.encode()):
+            status, body = self.search(record, revision_changed=True)
+        self.assertEqual(status, 409)
+        self.assertIn("資料の判断が変わった", body)
+        self.assertNotIn("UNVERIFIED_DRAFT_SENTINEL", body)
+        self.assertNotIn("回答の最終点検を完了できませんでした", body)
+
+    def test_incomplete_pipeline_never_runs_graph_promotion(self):
+        module = self.server_module
+        incomplete = {"answer": {"answer": "最終点検未完了"},
+                      "independent_final_audit": {"status": "incomplete", "verdict": "rejected"}}
+        config = {"index_path": str(self.support / "index.sqlite3"),
+                  "answer_model": "test", "audit_model": "test", "sequential_model_loading": False}
+        with (
+            mock.patch.object(module.bootstrap, "load_json", return_value=config),
+            mock.patch.object(module.bootstrap, "start_ollama"),
+            mock.patch.object(module.subprocess, "run", side_effect=[
+                subprocess.CompletedProcess([], 0, json.dumps({"answer": {}})),
+                subprocess.CompletedProcess([], 0, json.dumps(incomplete)),
+            ]),
+            mock.patch.object(module, "run_semantic_graph_candidate") as candidate,
+            mock.patch.object(module, "run_semantic_graph_edge_audit") as edge,
+            mock.patch.object(module, "apply_semantic_graph_answer_promotion") as promotion,
+        ):
+            result = module.answer_query("質問")
+        candidate.assert_not_called()
+        edge.assert_not_called()
+        promotion.assert_not_called()
+        self.assertEqual(result["pipeline_performance"]["downstream_skipped_reason"], "final_audit_incomplete")
+        logged = json.loads((self.support / "logs/audited-answers.jsonl").read_text())
+        self.assertEqual(logged["independent_final_audit"]["status"], "incomplete")
 
     def test_access_log_keeps_request_and_adds_timestamp_and_request_id(self):
         self.log_patch.stop()

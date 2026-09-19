@@ -58,6 +58,13 @@ if QUESTION_GRAPH_SPEC is None or QUESTION_GRAPH_SPEC.loader is None:
 question_graph = importlib.util.module_from_spec(QUESTION_GRAPH_SPEC)
 QUESTION_GRAPH_SPEC.loader.exec_module(question_graph)
 
+AUDIT_GUARD_PATH = Path(__file__).with_name("audit_response_guard.py")
+AUDIT_GUARD_SPEC = importlib.util.spec_from_file_location("final_audit_response_guard", AUDIT_GUARD_PATH)
+if AUDIT_GUARD_SPEC is None or AUDIT_GUARD_SPEC.loader is None:
+    raise ImportError(f"cannot load audit response guard: {AUDIT_GUARD_PATH}")
+audit_guard = importlib.util.module_from_spec(AUDIT_GUARD_SPEC)
+AUDIT_GUARD_SPEC.loader.exec_module(audit_guard)
+
 
 SCHEMA = {
     "type": "object",
@@ -680,7 +687,7 @@ Evidence:
             {"role": "user", "content": prompt},
         ],
         "think": False,
-        "options": {"temperature": 0, "num_predict": 1000 if re.search(
+        "options": {"temperature": 0, "num_ctx": audit_guard.NORMAL_CONTEXT_TOKENS, "num_predict": 1000 if re.search(
             r'流れ|業務フロー|ワークフロー|手順', query) else 320},
     }
     request = urllib.request.Request(
@@ -689,10 +696,18 @@ Evidence:
         headers={"Content-Type": "application/json"}, method="POST",
     )
     started = time.perf_counter()
-    with LOCAL_HTTP_OPENER.open(request, timeout=timeout) as response:
-        raw = json.loads(response.read().decode("utf-8"))
+    initial_diagnostics = audit_guard.context_diagnostics(
+        None, payload['options']['num_ctx'], payload['options']['num_predict'])
+    try:
+        with LOCAL_HTTP_OPENER.open(request, timeout=timeout) as response:
+            raw = json.loads(response.read().decode("utf-8"))
+    except (json.JSONDecodeError, UnicodeDecodeError) as exc:
+        raise audit_guard.AuditResponseError('audit_transport_invalid_json', initial_diagnostics) from exc
+    except Exception as exc:
+        raise audit_guard.AuditResponseError('audit_transport_error', initial_diagnostics) from exc
     wall_seconds = time.perf_counter() - started
-    result = json.loads(raw["message"]["content"])
+    result, capacity = audit_guard.parse_normal_response(
+        raw, SCHEMA, payload['options']['num_ctx'], payload['options']['num_predict'])
     if result.get("verdict") not in {"verified", "qualified", "rejected"}:
         raise ValueError("audit_verdict_invalid")
     raw_unsupported_claims = result.get("unsupported_claims")
@@ -712,9 +727,9 @@ Evidence:
             result["verdict"] = "verified"
             result["reason"] = "回答本文は事実を断言せず、根拠不足時の安全な不回答です。"
         else:
-            raise ValueError("qualified_without_unsupported_claim")
+            raise audit_guard.AuditResponseError("qualified_without_unsupported_claim", capacity)
     if result["verdict"] == "verified" and unsupported_claims:
-        raise ValueError("verified_with_unsupported_claim")
+        raise audit_guard.AuditResponseError("verified_with_unsupported_claim", capacity)
     performance = {
         "wall_seconds": round(wall_seconds, 3),
         "total_seconds": ollama_seconds(raw.get("total_duration")),
@@ -731,8 +746,54 @@ Evidence:
         + performance["prompt_eval_seconds"]
         + performance["generation_seconds"]
     )
+    performance['context_usage'] = capacity
     performance["unaccounted_seconds"] = round(max(0.0, performance["total_seconds"] - accounted), 3)
     return result, performance
+
+
+def audit_fail_closed(model, query, answer, packets, timeout, graph_context=None) -> tuple[dict, dict]:
+    """Use the same failure boundary for the first audit and bounded re-audit."""
+    started = time.perf_counter()
+    context_tokens = audit_guard.NORMAL_CONTEXT_TOKENS
+    output_tokens = 1000 if re.search(r'流れ|業務フロー|ワークフロー|手順', query) else 320
+    try:
+        return audit(model, query, answer, packets, timeout, graph_context)
+    except Exception as exc:
+        reason_code = exc.code if isinstance(exc, audit_guard.AuditResponseError) else 'audit_processing_error'
+        diagnostics = (dict(exc.diagnostics) if isinstance(exc, audit_guard.AuditResponseError)
+                       else audit_guard.context_diagnostics(None, context_tokens, output_tokens))
+        diagnostics['status'] = 'incomplete'
+        result = {
+            'verdict': 'rejected', 'status': 'incomplete', 'reason_code': reason_code,
+            'reason': '最終監査を完了できませんでした。資料不足や回答の誤りと判定したものではありません。',
+            'unsupported_claims': [],
+        }
+        performance = {
+            'wall_seconds': round(time.perf_counter() - started, 3), 'failed': True,
+            'failure_reason': reason_code, 'context_usage': diagnostics,
+            'evidence_count': len(packets),
+            'evidence_characters': sum(len(str(packet.get('text', ''))) for packet in packets),
+        }
+        return result, performance
+
+
+def project_incomplete_audit(answer: dict, diagnostic_ids: list[str]) -> dict:
+    """A processing failure is not a semantic judgment about the sources."""
+    allowed_ids = list(dict.fromkeys(diagnostic_ids))[:6]
+    explanation = '最終監査が未完了のため、回答を確定していません。資料不足や回答の誤りと判定したものではありません。'
+    projected = {
+        **answer, 'answer_status': 'insufficient', 'answer_mode': 'insufficient',
+        'answer': 'わかりません', 'evidence_ids': [], 'basis_summary': explanation,
+        'uncertainties': ['回答案の最終監査が完了していません。'],
+        'non_answer_reason': {'code': 'machine_validation_failure', 'explanation': explanation},
+        'diagnostic_evidence_ids': allowed_ids,
+        'needed_information': ['正常に完了した独立最終監査結果'],
+        'follow_up_question': '監査の未完了原因を確認した後、再実行しますか？',
+        'reconsideration_condition': '最終監査が正常に完了し、回答と根拠の対応が確認された後。',
+        'verification_reminder': '',
+    }
+    answer_engine.validate_answer(projected, set(allowed_ids), 'insufficient', False)
+    return projected
 
 
 def project_rejected_answer(answer: dict, result: dict, diagnostic_ids: list[str]) -> dict:
@@ -995,7 +1056,7 @@ def main() -> int:
             "evidence_characters": sum(len(str(packet.get("text", ""))) for packet in packets),
         }
     else:
-        result, audit_performance = audit(
+        result, audit_performance = audit_fail_closed(
             args.model,
             record["query"],
             answer,
@@ -1019,6 +1080,7 @@ def main() -> int:
         )
         if (
             policy is not None and record.get("answerability_policy", {}).get("applied")
+            and not audit_performance.get("failed")
             and result.get("verdict") in {"qualified", "rejected"}
         ):
             excluded = unsupported_field_ids(record, result)
@@ -1042,7 +1104,7 @@ def main() -> int:
                         "attempts": 1, "excluded_field_ids": excluded,
                         "previous_answer": previous_answer, "previous_audit": previous_result,
                     }
-                    result, retry_performance = audit(
+                    result, retry_performance = audit_fail_closed(
                         args.model, record["query"], answer, packets, args.timeout,
                         {"question_contract": contract, "claim_graph": graph,
                          "validation": validation, "answerability_policy": record["answerability_policy"]},
@@ -1052,7 +1114,11 @@ def main() -> int:
     record.setdefault("models", {})["independent_final_auditor"] = args.model
     record["independent_final_audit"] = result
     record.setdefault("performance", {})["independent_final_audit"] = audit_performance
-    if result["verdict"] in {"qualified", "rejected"}:
+    if result.get('status') == 'incomplete' or audit_performance.get('failed'):
+        record['pre_final_audit_answer'] = copy.deepcopy(answer)
+        record['answer'] = project_incomplete_audit(
+            answer, [evidence_id for evidence_id in ids if evidence_id in eligible_ids])
+    elif result["verdict"] in {"qualified", "rejected"}:
         record["pre_final_audit_answer"] = json.loads(json.dumps(answer, ensure_ascii=False))
         try:
             record["answer"] = project_rejected_answer(
@@ -1076,6 +1142,8 @@ def main() -> int:
         "independent_audit": (
             result["verdict"] == "verified"
             and not result.get("unsupported_claims")
+            and result.get('status') != 'incomplete'
+            and not audit_performance.get('failed')
         ),
     }
     accepted = all(acceptance_checks.values())
