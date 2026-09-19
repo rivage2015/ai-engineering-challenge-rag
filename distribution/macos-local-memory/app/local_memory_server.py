@@ -2915,6 +2915,176 @@ def answerability_notice(record: dict) -> str:
     ) + '</div>'
 
 
+SOURCE_REVIEW_REASONS = {
+    "missing_evidence": "求められた情報を検索結果から確認できませんでした。",
+    "unsupported_relation": "行動・条件・担当などの関係を確認できませんでした。",
+    "conflicting_evidence": "記述の食い違いを解消できませんでした。",
+    "intent_ambiguity": "質問の対象や範囲を確定できませんでした。",
+    "retrieval_noise": "検索結果が質問に対応するか確認できませんでした。",
+    "coverage_unknown": "求められた範囲を説明できるか確認できませんでした。",
+}
+SOURCE_REVIEW_BINDINGS = (
+    "evidence_sha256", "graph_sha256", "graph_security_partition_sha256",
+    "graph_retrievable_evidence_set_sha256", "graph_embeddings_sha256",
+)
+
+
+def source_review_requests(record: dict) -> dict:
+    """Describe unresolved fields, never upgrade a refusal into an answer."""
+    answer = record.get("answer", {})
+    if final_audit_incomplete(record):
+        return {"status": "processing_error", "items": []}
+    promotion = record.get(SEMANTIC_GRAPH_ANSWER_PROMOTION_KEY, {})
+    if (isinstance(promotion, dict) and promotion.get("decision") == "PROMOTE"
+            and promotion.get("used_for_answers") is True
+            and answer.get("answer_status") == "answered" and answer.get("answer_mode") == "grounded"):
+        return {"status": "hidden", "items": []}  # Old failed fields are not the selected answer path.
+    runs = record.get("field_runs", [])
+    if (answer.get("non_answer_reason", {}).get("code") == "machine_validation_failure"
+            or any(run.get("audit", {}).get("reason_code") == "machine_validation_failure"
+                   for run in runs)):
+        return {"status": "processing_error", "items": []}
+    if record.get("registered_version_scope", {}).get("status") == "hold":
+        return {"status": "unavailable", "items": []}
+    # Final validation failures must not open a second, less protected source path.
+    for key in ("deterministic_claim_validation", "workflow_retrieval_validation",
+                "temporal_reference_validation", "graph_retrieval_trace"):
+        check = record.get(key, {})
+        if check.get("status") in {"fail", "failed", "blocked", "invalid"}:
+            return {"status": "unavailable", "items": []}
+    items = []
+    for run in runs:
+        audit = run.get("audit", {})
+        if audit.get("verdict") not in {"insufficient", "ambiguous", "contradicted"}:
+            continue
+        reason = audit.get("reason_code")
+        if reason not in SOURCE_REVIEW_REASONS:
+            continue
+        retrieved = run.get("retrieved_evidence_ids", [])
+        retrieved = [eid for eid in retrieved if isinstance(eid, str)]
+        selected = [eid for key in ("competing_packet_ids", "supporting_packet_ids")
+                    for eid in audit.get(key, []) if isinstance(eid, str) and eid in retrieved]
+        ids = list(dict.fromkeys(selected or retrieved))
+        items.append({"label": str(run.get("item", {}).get("label", "未確認の項目"))[:300],
+                      "reason": SOURCE_REVIEW_REASONS[reason],
+                      "model_note": str(audit.get("defect", ""))[:600],
+                      "selection": "model_reference" if selected else "search_candidates",
+                      "evidence_ids": ids[:3], "omitted_sources": max(0, len(ids) - 3)})
+    # A completed semantic audit may reject the whole draft without rewriting
+    # each field. Show its diagnostic candidates, never the rejected draft.
+    reason = answer.get("non_answer_reason", {}).get("code")
+    if not items and answer.get("answer_status") == "insufficient" and reason in SOURCE_REVIEW_REASONS:
+        retrieved = {item.get("evidence_id") for item in record.get("retrieved", [])
+                     if isinstance(item, dict) and isinstance(item.get("evidence_id"), str)}
+        ids = list(dict.fromkeys(eid for eid in answer.get("diagnostic_evidence_ids", [])
+                                if isinstance(eid, str) and eid in retrieved))
+        items.append({"label": "回答できなかった内容", "reason": SOURCE_REVIEW_REASONS[reason],
+                      "model_note": "", "selection": "search_candidates",
+                      "evidence_ids": ids[:3], "omitted_sources": max(0, len(ids) - 3)})
+    return {"status": "requested" if items else "hidden", "items": items[:3],
+            "omitted_items": max(0, len(items) - 3)}
+
+
+def load_source_review_packets(index: Path, ids: list[str]) -> tuple[list[dict], dict]:
+    """Reuse the normal read-only, graph-eligible source loader in both layouts."""
+    for directory in (BASE / "engine", BASE.parent / "engine"):
+        path = directory / "answer_local_memory.py"
+        if path.is_file():
+            spec = importlib.util.spec_from_file_location("source_review_answer_engine", path)
+            module = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(module)
+            return module.load_answer_evidence_records(index, ids)
+    raise ValueError("source_review_engine_unavailable")
+
+
+def prepare_source_review(record: dict, expected_revision: dict) -> dict:
+    view = source_review_requests(record)
+    if view["status"] != "requested":
+        return view
+    try:
+        exists, config = bootstrap.load_config_snapshot()
+        if not exists or not bootstrap.answer_config_matches_revision(config, expected_revision):
+            raise ValueError("source_review_revision_changed")
+        # Never open a path supplied by a model/answer record.
+        index = Path(config["index_path"])
+        ids = list(dict.fromkeys(eid for item in view["items"] for eid in item["evidence_ids"]))
+        packets, policy = load_source_review_packets(index, ids)
+        metadata = policy["metadata"]
+        stored = record.get("index", {})
+        if any(not isinstance(stored.get(key), str) or not stored[key]
+               or stored[key] != metadata.get(key) for key in SOURCE_REVIEW_BINDINGS):
+            raise ValueError("source_review_index_changed")
+        eligible = set(policy["eligible_evidence_ids"])
+        by_id = {packet["evidence_id"]: packet for packet in packets
+                 if packet["evidence_id"] in eligible}
+        budget = 12000
+        for item in view["items"]:
+            item["sources"] = []
+            for eid in item["evidence_ids"]:
+                packet = by_id.get(eid)
+                if packet is None or budget <= 0:
+                    continue
+                text = packet["text"]
+                excerpt = text[:min(2400, budget)]
+                budget -= len(excerpt)
+                item["sources"].append({"text": excerpt, "truncated": len(excerpt) < len(text),
+                    "path": packet["relative_path"], "locator": packet["locator"]})
+            item["unavailable_sources"] = len(item["evidence_ids"]) - len(item["sources"])
+        view["status"] = "ready"
+        return view
+    except Exception:
+        # No fallback to generated quotations or unfiltered SQLite reads.
+        return {"status": "unavailable", "items": []}
+
+
+def source_review_location(locator: dict) -> str:
+    names = {"sheet_name": "シート", "cell": "セル", "cell_range": "セル範囲",
+             "row_index": "行", "page": "ページ", "page_number": "ページ",
+             "slide": "スライド", "slide_number": "スライド"}
+    parts = [f"{names[key]}：{value}" for key, value in locator.items() if key in names]
+    return "／".join(parts) if parts else json.dumps(locator, ensure_ascii=False)
+
+
+def source_review_notice(view: dict) -> str:
+    status = view.get("status")
+    if status == "hidden":
+        return ""
+    if status == "processing_error":
+        return ('<section class="card"><h2>処理上の問題で回答を確認できませんでした</h2>'
+                '<p>これは資料の文章が曖昧という判定ではありません。'
+                '資料追加や書き直しを求める前に、診断ログで処理を確認する必要があります。</p></section>')
+    if status != "ready":
+        return ('<section class="card"><h2>確認用の原文を表示できませんでした</h2>'
+                '<p>現在の資料・版・回答に利用できる根拠との対応を確認できないため、原文は表示していません。'
+                '資料の書き方に問題があると判断したわけではありません。</p></section>')
+    parts = ['<section class="card" aria-label="未確認部分の原文"><h2>判断できなかった部分を原文で確認</h2>'
+             '<p>以下は検索した資料の記載で、確定した回答ではありません。'
+             '資料の省略・曖昧さか、AIの読み落としかは、この表示だけでは決めつけません。</p>']
+    for item in view["items"]:
+        parts.append('<h3>' + html.escape(item["label"]) + '</h3><p>' + html.escape(item["reason"]) + '</p>')
+        if item["model_note"]:
+            parts.append('<p>モデルの判断メモ（原文ではなく、正しさは未確認）：<br>'
+                         + html.escape(item["model_note"]) + '</p>')
+        parts.append('<p>' + ('モデルが参照した箇所です。問題箇所と確定したものではありません。'
+                             if item["selection"] == "model_reference" else
+                             '問題の一文を特定できていないため、検索候補を表示しています。') + '</p>')
+        for source in item["sources"]:
+            locator = source_review_location(source["locator"])
+            parts.append('<p>出典：' + html.escape(source["path"]) + ' / ' + html.escape(locator) + '</p>'
+                         '<blockquote style="white-space:pre-wrap;overflow-wrap:anywhere">'
+                         + html.escape(source["text"]) + '</blockquote>')
+            if source["truncated"]:
+                parts.append('<p>表示上限のため、ここまでの抜粋です。続きは原資料で確認してください。</p>')
+        if not item["sources"]:
+            parts.append('<p>表示できる該当原文を特定できませんでした。</p>')
+        if item["omitted_sources"] or item["unavailable_sources"]:
+            parts.append('<p>表示件数・文字数または安全確認の制限により、すべての候補は表示していません。</p>')
+    if view.get("omitted_items"):
+        parts.append('<p>未確認項目は先頭3件まで表示しています。</p>')
+    parts.append('</section>')
+    return ''.join(parts)
+
+
 def answer_source_notice(record: dict) -> tuple[str, str, str]:
     """Render only the Evidence that belongs to the selected answer path."""
     promotion = record.get(SEMANTIC_GRAPH_ANSWER_PROMOTION_KEY)
@@ -3552,6 +3722,10 @@ class Handler(BaseHTTPRequestHandler):
                         coverage = audit_intent_coverage(contract, record)
                         if record.get("grounded_guidance", {}).get("status") == "incomplete":
                             coverage["complete"] = False
+                source_review = ({"status": "hidden", "items": []} if incomplete or guidance_view is not None
+                                 else prepare_source_review(record, answer_revision))
+                if source_review["status"] != "hidden":
+                    coverage["complete"] = False
                 _search_stage("final_revision_check")
                 decision_current, _decision_reason, final_revision = (
                     bootstrap.active_answer_revision_identity()
@@ -3593,7 +3767,17 @@ class Handler(BaseHTTPRequestHandler):
                 answer = record["answer"]
                 if guidance_view is not None:
                     answer = {"answer": guidance_view["answer"], "answer_mode": "grounded_guidance"}
+                elif source_review["status"] == "processing_error" and not (
+                    record.get("independent_final_audit", {}).get("verdict") == "verified"
+                    and record.get("answerability_policy", {}).get("applied") is True
+                    and record.get("answerability_policy", {}).get("confirmed_field_ids")
+                    and answer.get("non_answer_reason", {}).get("code") != "machine_validation_failure"
+                ):
+                    answer = {"answer": "検索・回答作成・検証の処理が正常に完了していないため、回答を保留しています。",
+                              "answer_mode": "processing_error"}
                 completion_title = '合意した内容を確認できました' if coverage['complete'] else '回答は未完了です：不足する内容があります'
+                if source_review["status"] == "processing_error":
+                    completion_title = '回答処理の確認が必要です'
                 coverage_notice = '<section class="card"><h2>' + completion_title + '</h2><p>' + html.escape(contract['goal']) + '</p><ul>'
                 for item in coverage['items']:
                     coverage_notice += '<li>' + ('説明あり：' if item['covered'] else '確認不足：') + html.escape(item['requirement']) + '</li>'
@@ -3652,6 +3836,7 @@ class Handler(BaseHTTPRequestHandler):
                 {coverage_notice}
                 {revise_form}
                 <section class="card">{certainty_notice}<div class="answer">{html.escape(str(answer.get('answer','')))}</div><p class="small">回答モード: {html.escape(str(answer.get('answer_mode','')))}<br>回答経路: {html.escape(answer_route)}<br>{audit_label}<br>要求ID: {request_context['request_id']}</p></section>
+                {source_review_notice(source_review)}
                 <section class="card"><h2>{html.escape(source_heading)}</h2><ul>{sources}</ul><p class="small">{html.escape(source_note)}</p></section>
                 {semantic_candidate}
                 {security_exclusion_notice()}
