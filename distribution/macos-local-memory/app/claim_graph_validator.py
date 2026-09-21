@@ -845,6 +845,314 @@ def validate_ordered_section_binding(
         })
 
 
+def load_workflow_contract():
+    """Reuse the bounded graph contract in source and packaged layouts."""
+    for directory in (Path(__file__).parent / 'engine', Path(__file__).parent.parent / 'engine'):
+        path = directory / 'workflow_relation_reasoner.py'
+        if path.is_file():
+            spec = importlib.util.spec_from_file_location('claim_workflow_contract', path)
+            module = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(module)
+            return module
+    raise ValueError('workflow_contract_unavailable')
+
+
+def workflow_explanation_bindings(record: dict, packets: list[dict]) -> tuple[dict, list[dict]]:
+    """Rebind explanations to fresh index packets, never trust a self-PASS flag.
+
+    This proves structural/quotation integrity only. A separate final semantic
+    audit must still inspect each explanation and adopted relationship.
+    """
+    trace = record.get('workflow_reasoning')
+    if trace is None or (isinstance(trace, dict) and trace.get('status') in {'disabled', 'not_applicable'}):
+        return {}, []
+    try:
+        runs = record.get('field_runs', [])
+        supported = [r['audit'] for r in runs if r.get('audit', {}).get('verdict') == 'supported']
+        if not supported and record.get('answer', {}).get('answer_status') == 'insufficient':
+            return {}, []  # A refusal does not gain an explanation exception.
+        if (not isinstance(trace, dict) or trace.get('status') not in {'checked', 'incomplete'}
+                or trace.get('graph_delivered') is not True):
+            raise ValueError('workflow_explanation_not_checked')
+        helper = load_workflow_contract()
+        plan = record['question_plan']
+        question = helper.graph.build_question_graph(record['query'], plan)
+        if not question['requirements'] or trace.get('question_graph') != question:
+            raise ValueError('workflow_question_binding_mismatch')
+        bundle = record['workflow_source_bundle']
+        ids = bundle['evidence_ids']
+        if (bundle.get('status') != 'ready' or bundle.get('used') is not True
+                or not isinstance(ids, list) or not 1 <= len(ids) <= 80
+                or any(not isinstance(i, str) or not i for i in ids) or len(set(ids)) != len(ids)):
+            raise ValueError('workflow_bundle_binding_invalid')
+        fresh = {p['evidence_id']: p for p in packets}
+        if len(fresh) != len(packets) or not set(ids) <= set(fresh):
+            raise ValueError('workflow_fresh_evidence_missing')
+        sources = {f'E{number}': {
+            'evidence_id': eid, 'document_id': fresh[eid].get('document_id'),
+            'relative_path': fresh[eid].get('relative_path', fresh[eid].get('path')),
+            'locator': fresh[eid]['locator'], 'text': fresh[eid]['text'],
+        } for number, eid in enumerate(ids, 1)}
+        scope = bundle['scope']
+        for source in sources.values():
+            if helper.graph._scope(source) != (scope['document_id'], scope['relative_path'], scope['sheet_name']):
+                raise ValueError('workflow_source_scope_mismatch')
+            if packet_has_provisional_reading(source['text']):
+                raise ValueError('workflow_provisional_source')
+        stored = trace['source_graph']
+        payload = {
+            'nodes': [{k: n[k] for k in ('id', 'kind', 'packet_id', 'quote')} for n in stored['nodes']],
+            'edges': [{k: e[k] for k in ('id', 'source', 'target', 'kind', 'support_packet_id', 'support_quote')}
+                      for e in stored['edges']],
+            'unresolved_packet_ids': stored['unresolved_packet_ids'],
+        }
+        rebuilt = helper.graph.normalize_source_graph(payload, sources)
+        if (rebuilt['status'] in {'invalid', 'empty'} or rebuilt['issues']
+                or rebuilt['nodes'] != stored['nodes'] or rebuilt['edges'] != stored['edges']):
+            raise ValueError('workflow_source_quotes_or_provenance_changed')
+        if trace.get('matches') != helper.graph.build_relation_matches(question, stored):
+            raise ValueError('workflow_matches_changed')
+        calls = trace.get('model_calls')
+        if (not isinstance(calls, list) or [c.get('stage') for c in calls]
+                != ['source_relations', 'explanation', 'semantic_check']
+                or any(c.get('status') != 'received' or c.get('done_reason') == 'length'
+                       or c.get('evidence_ids') != ids for c in calls)):
+            raise ValueError('workflow_call_trace_incomplete')
+        draft = helper.validate_draft(trace['draft'], plan, rebuilt, sources)
+        review = helper.validate_review(trace['review'], draft, question)
+        checks = {i['item_id']: i for i in review['items']}
+        relations = {r['relation_id']: r for r in review['relation_checks']}
+        drafts = {i['item_id']: i for i in draft['items']}
+        if len({a['item_id'] for a in supported}) != len(supported):
+            raise ValueError('workflow_duplicate_supported_field')
+        unmet = [q for q in review['question_requirements'] if q['status'] != 'fulfilled']
+        if record['answer'].get('answer_mode') == 'grounded' and (
+                unmet or trace.get('complete') is not True
+                or any(i['item_id'] not in {a['item_id'] for a in supported} for i in draft['items'])):
+            raise ValueError('workflow_false_completion')
+        if record['answer'].get('answer_mode') == 'qualified' and not plan.get('partial_answer_allowed', True):
+            raise ValueError('workflow_partial_answer_forbidden')
+        bindings = {}
+        for audit in supported:
+            item_id = audit['item_id']
+            item, check = drafts[item_id], checks[item_id]
+            citations = [sources[p]['evidence_id'] for p in item['supporting_packet_ids']]
+            if (check['verdict'] != 'pass' or not check['complete'] or check['missing'] or item['unresolved']
+                    or any(relations[r]['verdict'] != 'pass' for r in item['relation_ids'])
+                    or audit['supported_value'] != item['text'] or audit['supporting_packet_ids'] != citations
+                    or any(not q['item_ids'] or item_id in q['item_ids'] for q in unmet)):
+                raise ValueError('workflow_explanation_audit_binding_mismatch')
+            cited = [helper.graph._source_text(sources[p]) for p in item['supporting_packet_ids']]
+            # Exact speech/quotation remains literal even when the surrounding
+            # explanatory sentence is a paraphrase. Do not normalize it away.
+            quotes = [next(q for q in groups if q) for groups in
+                      re.findall(r'「([^「」]+)」|『([^『』]+)』|"([^"\n]+)"', item['text'])]
+            if any(not any(quote in text for text in cited) for quote in quotes):
+                raise ValueError('workflow_literal_quote_not_in_evidence')
+            bindings[item_id] = {'value': item['text'], 'evidence_ids': citations,
+                                 'relation_ids': item['relation_ids'], 'literal_quotes': quotes}
+        used = sorted({r for b in bindings.values() for r in b['relation_ids']})
+        if trace.get('used_relation_ids') != used:
+            raise ValueError('workflow_adopted_relations_changed')
+        return bindings, []
+    except Exception as exc:
+        return {}, [{'code': 'workflow_explanation_binding_invalid',
+                     'detail': f'関係付き説明と原文の対応を再検査できません: {type(exc).__name__}: {exc}'}]
+
+
+WORKFLOW_QUOTE_HEADINGS = ("準備", "実施", "終了", "条件・注意", "未分類")
+WORKFLOW_PHASES = ("準備", "実施", "終了", "未分類")
+WORKFLOW_KINDS = ("通常", "条件付き", "注意")
+WORKFLOW_GROUP_ROLES = ("action_ids", "condition_ids", "actor_ids")
+
+
+def workflow_groups_from_assignments(assignments: object, expected_ids: object) -> list[dict]:
+    """Convert one explicit decision per delivered source to qualified groups.
+
+    Group numbers are stable references, not established business order. A
+    source has one action group at most, but may qualify several action groups.
+    Dictionary key order is irrelevant; source order comes from the real input.
+    """
+    if (not isinstance(expected_ids, list) or not 1 <= len(expected_ids) <= 80
+            or any(not isinstance(eid, str) or not eid.strip() for eid in expected_ids)
+            or len(set(expected_ids)) != len(expected_ids)):
+        raise ValueError("workflow_assignment_input_ids_invalid")
+    if (not isinstance(assignments, dict) or set(assignments) != set(expected_ids)):
+        raise ValueError("workflow_assignment_evidence_set_invalid")
+    classifications = {phase + "/" + kind: (phase, kind)
+                       for phase in WORKFLOW_PHASES for kind in WORKFLOW_KINDS}
+    groups = {}
+    for eid in expected_ids:
+        entry = assignments[eid]
+        if not isinstance(entry, list) or len(entry) != 4:
+            raise ValueError("workflow_assignment_shape_invalid")
+        classification, action_group, conditions, actors = entry
+        if (not isinstance(classification, str)
+                or classification not in (*classifications, "不採用", "補足")):
+            raise ValueError("workflow_assignment_classification_invalid")
+        if type(action_group) is not int or not 0 <= action_group <= 80:
+            raise ValueError("workflow_assignment_group_number_invalid")
+        for references in (conditions, actors):
+            if (not isinstance(references, list) or len(references) > 80
+                    or any(type(number) is not int or not 1 <= number <= 80
+                           for number in references)
+                    or len(set(references)) != len(references)):
+                raise ValueError("workflow_assignment_qualifier_references_invalid")
+        if classification == "不採用":
+            if action_group or conditions or actors:
+                raise ValueError("workflow_assignment_rejected_source_referenced")
+        elif classification == "補足":
+            if action_group or not (conditions or actors):
+                raise ValueError("workflow_assignment_supplement_invalid")
+        else:
+            if not action_group:
+                raise ValueError("workflow_assignment_action_group_missing")
+            phase, kind = classifications[classification]
+            group = groups.setdefault(action_group, {"phase": phase, "kind": kind,
+                                                    **{role: [] for role in WORKFLOW_GROUP_ROLES}})
+            if (group["phase"], group["kind"]) != (phase, kind):
+                raise ValueError("workflow_assignment_group_classification_conflict")
+            group["action_ids"].append(eid)
+    if not groups:
+        raise ValueError("workflow_assignment_actions_missing")
+    for eid in expected_ids:
+        for role, references in zip(WORKFLOW_GROUP_ROLES[1:], assignments[eid][2:]):
+            for number in references:
+                if number not in groups:
+                    raise ValueError("workflow_assignment_unknown_group")
+                groups[number][role].append(eid)
+    # Retain the pre-existing condition requirement before source projection.
+    if any(group["kind"] == "条件付き" and not group["condition_ids"] for group in groups.values()):
+        raise ValueError("workflow_group_condition_missing")
+    return [groups[number] for number in sorted(groups)]
+
+
+def project_workflow_groups(groups: object, texts: dict[str, str]) -> tuple[str, list[str], list[dict]]:
+    """Project full source units without separating an action from its qualifiers.
+
+    Grouping and classification remain model interpretations, not established
+    relationships. The final semantic audit must check them against the source.
+    """
+    if not isinstance(groups, list) or not 1 <= len(groups) <= 80:
+        raise ValueError("workflow_groups_count_invalid")
+    blocks, quotes, ids, actions = [], [], [], set()
+    keys = {"phase", "kind", *WORKFLOW_GROUP_ROLES}
+    labels = {"action_ids": "行動・記載", "condition_ids": "適用条件", "actor_ids": "担当"}
+    for group in groups:
+        if not isinstance(group, dict) or set(group) != keys:
+            raise ValueError("workflow_group_shape_invalid")
+        if group["phase"] not in WORKFLOW_PHASES or group["kind"] not in WORKFLOW_KINDS:
+            raise ValueError("workflow_group_classification_invalid")
+        for role in WORKFLOW_GROUP_ROLES:
+            refs = group[role]
+            if (not isinstance(refs, list) or len(refs) > 80
+                    or any(not isinstance(eid, str) or eid not in texts for eid in refs)
+                    or len(set(refs)) != len(refs)):
+                raise ValueError("workflow_group_reference_invalid")
+        if not group["action_ids"]:
+            raise ValueError("workflow_group_action_missing")
+        if group["kind"] == "条件付き" and not group["condition_ids"]:
+            raise ValueError("workflow_group_condition_missing")
+        repeated = actions.intersection(group["action_ids"])
+        if repeated:
+            raise ValueError("workflow_group_action_duplicate:" + ",".join(sorted(repeated)))
+        actions.update(group["action_ids"])
+        heading = group["phase"] if group["kind"] == "通常" else "条件・注意"
+        block = [f"【{group['phase']}／{group['kind']}】"]
+        members = list(dict.fromkeys(eid for role in WORKFLOW_GROUP_ROLES for eid in group[role]))
+        for eid in members:
+            text = texts[eid].strip()
+            entry = {"heading": heading, "quote": text, "evidence_id": eid}
+            validate_workflow_quotes([entry], texts)
+            roles = "・".join(labels[role] for role in WORKFLOW_GROUP_ROLES if eid in group[role])
+            block.append(f"{roles}（原文）：\n{text}")
+            if eid not in ids:
+                ids.append(eid)
+                quotes.append(entry)
+        if len(ids) > 80:
+            raise ValueError("workflow_groups_evidence_limit")
+        blocks.append("\n".join(block))
+    return "\n\n".join(blocks), ids, quotes
+
+
+def validate_workflow_quotes(entries: object, texts: dict[str, str]) -> tuple[str, list[str]]:
+    """Validate literal quote/ID pairs; this does not prove semantic coverage."""
+    if not isinstance(entries, list) or not 1 <= len(entries) <= 80:
+        raise ValueError("workflow_quotes_count_invalid")
+    lines, ids = [], []
+    for entry in entries:
+        if not isinstance(entry, dict) or set(entry) != {"heading", "quote", "evidence_id"}:
+            raise ValueError("workflow_quote_shape_invalid")
+        heading, quote, eid = entry["heading"], entry["quote"], entry["evidence_id"]
+        if heading not in WORKFLOW_QUOTE_HEADINGS:
+            raise ValueError("workflow_quote_heading_invalid")
+        if not isinstance(eid, str) or eid not in texts:
+            raise ValueError("workflow_quote_unknown_evidence")
+        text = texts[eid]
+        if (not isinstance(quote, str) or not quote.strip() or quote != quote.strip()
+                or quote not in text or packet_has_provisional_reading(text)):
+            raise ValueError("workflow_quote_not_literal")
+        lines.append(f"【整理区分：{heading}】\n{quote}")
+        if eid not in ids:
+            ids.append(eid)
+    return "\n".join(lines), ids
+
+
+def workflow_quote_bindings(record: dict, packets: list[dict]) -> tuple[dict, list[dict]]:
+    bindings, failures = {}, []
+    texts = {p["evidence_id"]: p["text"] for p in packets}
+    for run in record.get("field_runs", []):
+        audit = run.get("audit", {})
+        if (audit.get("workflow_selection") or audit.get("workflow_groups")
+                or audit.get("workflow_assignments")) and not audit.get("workflow_quotes"):
+            failures.append({"code": "workflow_quote_binding_invalid",
+                             "detail": "workflow_selection_projection_missing"})
+            continue
+        if not audit.get("workflow_quotes"):
+            continue
+        try:
+            if audit.get("verdict") != "supported":
+                raise ValueError("workflow_quote_rejected_field")
+            if "workflow_assignments" in audit:
+                delivered = audit.get("workflow_quote_input_ids")
+                expected_groups = workflow_groups_from_assignments(audit["workflow_assignments"], delivered)
+                if expected_groups != audit.get("workflow_groups"):
+                    raise ValueError("workflow_assignment_groups_changed")
+                if any(eid not in texts for eid in delivered):
+                    raise ValueError("workflow_assignment_unknown_source")
+                if not any(attempt.get("delivery_status") == "response_received"
+                           and attempt.get("input_evidence_ids", attempt.get("included_evidence_ids")) == delivered
+                           for attempt in run.get("workflow_context_attempts", [])):
+                    raise ValueError("workflow_assignment_input_coverage_unconfirmed")
+            value, ids = validate_workflow_quotes(audit["workflow_quotes"], texts)
+            if "workflow_groups" in audit:
+                value, ids, quotes = project_workflow_groups(audit["workflow_groups"], texts)
+                if quotes != audit["workflow_quotes"]:
+                    raise ValueError("workflow_group_source_changed")
+            if "workflow_selection" in audit:
+                expected = [{"heading": q["heading"], "evidence_id": q["evidence_id"]}
+                            for q in audit["workflow_quotes"]]
+                if (audit["workflow_selection"] != expected or len(ids) != len(expected)
+                        or any(q["quote"] != texts[q["evidence_id"]].strip()
+                               for q in audit["workflow_quotes"])):
+                    raise ValueError("workflow_selection_source_changed")
+            delivered = audit.get("workflow_quote_input_ids")
+            if (not isinstance(delivered, list) or not set(ids).issubset(set(delivered))):
+                raise ValueError("workflow_quote_not_in_model_input")
+            if not any(attempt.get("delivery_status") == "response_received"
+                       and set(ids).issubset(set(attempt.get("input_evidence_ids",
+                                                           attempt.get("included_evidence_ids", []))))
+                       for attempt in run.get("workflow_context_attempts", [])):
+                raise ValueError("workflow_quote_input_delivery_unconfirmed")
+            if value != audit.get("supported_value") or ids != audit.get("supporting_packet_ids"):
+                raise ValueError("workflow_quote_projection_changed")
+            bindings[audit["item_id"]] = {"value": value, "evidence_ids": ids,
+                                          "quotes": audit["workflow_quotes"]}
+        except (ValueError, KeyError, TypeError) as exc:
+            failures.append({"code": "workflow_quote_binding_invalid", "detail": str(exc)})
+    return bindings, failures
+
+
 def build_claim_graph(record: dict, packets: list[dict], contract: dict | None = None) -> dict:
     contract = contract or build_question_contract(
         record.get("query", ""),
@@ -855,11 +1163,15 @@ def build_claim_graph(record: dict, packets: list[dict], contract: dict | None =
     nodes = [{"node_id": "Q1", "node_type": "question", "value": record.get("query", "")}]
     edges = []
     claims = []
+    explanations, _ = workflow_explanation_bindings(record, packets)
+    quote_bindings, _ = workflow_quote_bindings(record, packets)
     item_by_id = {item["field_id"]: item for item in contract["items"]}
     policy_applied = record.get("answerability_policy", {}).get("applied") is True
     metadata_fields = {
         entry.get("field_id") for entry in record.get("answerability_policy", {}).get("metadata_claims", [])
     } if policy_applied else set()
+    metadata_fields.update(entry.get("field_id") for entry in
+                           record.get("source_metadata_policy", {}).get("metadata_claims", []))
     for item in contract["items"]:
         nodes.append({"node_id": item["field_id"], "node_type": "field", "value": item["required_claim"]})
         edges.append({"edge_id": f"R_{item['field_id']}", "source": "Q1", "predicate": "requires", "target": item["field_id"]})
@@ -886,9 +1198,16 @@ def build_claim_graph(record: dict, packets: list[dict], contract: dict | None =
             "time_scope": contract_item.get("time_scope", "unspecified"),
             "evidence_ids": evidence_ids,
         }
-        if field_id in metadata_fields:
+        if field_id in quote_bindings:
+            claim["claim_kind"] = "workflow_quotes"
+            claim["value_parts"] = [entry["quote"] for entry in quote_bindings[field_id]["quotes"]]
+        elif field_id in metadata_fields:
             claim["claim_kind"] = "source_metadata"
             claim["value_parts"] = [value]
+        elif field_id in explanations and claim['entity_type'] == 'text_value':
+            claim['claim_kind'] = 'grounded_explanation'
+            claim['explanation_binding'] = explanations[field_id]
+            claim['value_parts'] = [value]
         claims.append(claim)
         nodes.append({
             "node_id": claim_id,
@@ -948,6 +1267,10 @@ def _time_relation_conflicts(time_scope: str, value: str, text: str) -> bool:
 def validate_claim_graph(record: dict, packets: list[dict], contract: dict, graph: dict) -> dict:
     failures = []
     warnings = []
+    quote_bindings, quote_failures = workflow_quote_bindings(record, packets)
+    failures.extend(quote_failures)
+    explanations, explanation_failures = workflow_explanation_bindings(record, packets)
+    failures.extend(explanation_failures)
     projection_failures = answerability_policy.validate_projection(record, packets)
     failures.extend(projection_failures)
     policy_applied = record.get("answerability_policy", {}).get("applied") is True
@@ -955,6 +1278,11 @@ def validate_claim_graph(record: dict, packets: list[dict], contract: dict, grap
         entry.get("field_id"): entry
         for entry in record.get("answerability_policy", {}).get("metadata_claims", [])
     }
+    source_failures = answerability_policy.validate_source_metadata(record, packets)
+    failures.extend(source_failures)
+    if not source_failures:
+        metadata_bindings.update({entry.get("field_id"): entry for entry in
+            record.get("source_metadata_policy", {}).get("metadata_claims", [])})
     packet_map = {str(packet.get("evidence_id", "")): str(packet.get("text", "")) for packet in packets}
     lookup_bindings = record_lookup_field_bindings(record)
     question_graph = record.get("question_evidence_graph")
@@ -1033,16 +1361,35 @@ def validate_claim_graph(record: dict, packets: list[dict], contract: dict, grap
     answer_text = normalize(raw_answer_text)
     for claim in graph.get("claims", []):
         claim_id = claim.get("claim_id", "")
+        if claim.get("claim_kind") == "workflow_quotes":
+            binding = quote_bindings.get(claim.get("field_id"))
+            if (not binding or claim.get("value") != binding["value"]
+                    or claim.get("evidence_ids") != binding["evidence_ids"]
+                    or claim.get("value_parts") != [q["quote"] for q in binding["quotes"]]):
+                failures.append({"code": "workflow_quote_claim_invalid", "claim_id": claim_id})
         metadata_binding = metadata_bindings.get(claim.get("field_id"))
         is_metadata_claim = bool(
             metadata_binding
             and claim.get("claim_kind") == "source_metadata"
             and claim.get("value") == metadata_binding.get("value")
-            and claim.get("evidence_ids") == [metadata_binding.get("evidence_id")]
+            and claim.get("evidence_ids") == metadata_binding.get(
+                "evidence_ids", [metadata_binding.get("evidence_id")])
         )
         if claim.get("claim_kind") == "source_metadata" and not is_metadata_claim:
             failures.append({"code": "source_metadata_binding_invalid", "claim_id": claim_id, "detail": "資料情報の主張が検証済みの出典と一致しません。"})
         is_record_lookup_claim = claim.get("field_id") in lookup_bindings
+        binding = explanations.get(claim.get('field_id'))
+        is_explanation = bool(binding and claim.get('claim_kind') == 'grounded_explanation'
+            and claim.get('entity_type') == 'text_value' and not is_record_lookup_claim
+            and claim.get('value') == binding['value'] and claim.get('evidence_ids') == binding['evidence_ids']
+            and claim.get('explanation_binding') == binding and claim.get('value_parts') == [binding['value']])
+        if claim.get('claim_kind') == 'grounded_explanation':
+            if not is_explanation:
+                failures.append({'code': 'workflow_explanation_claim_invalid', 'claim_id': claim_id,
+                                 'detail': '説明主張が再検査済みの原文・関係・回答に結び付いていません。'})
+            else:
+                warnings.append({'code': 'explanation_requires_semantic_audit', 'claim_id': claim_id,
+                                 'detail': '引用・参照の一致のみ確認済み。説明と採用関係の意味は後段で点検が必要です。'})
         if claim.get("field_id") not in field_ids:
             failures.append({"code": "unknown_field_id", "claim_id": claim_id, "detail": "質問契約にない項目です。"})
         evidence_ids = claim.get("evidence_ids", [])
@@ -1069,7 +1416,7 @@ def validate_claim_graph(record: dict, packets: list[dict], contract: dict, grap
         )
         for value_part in claim.get("value_parts", []):
             if (
-                not is_record_lookup_claim and not is_metadata_claim
+                not is_record_lookup_claim and not is_metadata_claim and not is_explanation
                 and normalize(value_part) not in normalize(cited_text)
             ):
                 failures.append({"code": "value_not_in_evidence", "claim_id": claim_id, "detail": f"原文にない値: {value_part}"})

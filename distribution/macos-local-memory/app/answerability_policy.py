@@ -9,11 +9,13 @@ from __future__ import annotations
 
 from copy import deepcopy
 from pathlib import PurePosixPath
+import json
 import re
 import unicodedata
 
 
 POLICY_VERSION = "provisional-v1"
+SOURCE_METADATA_VERSION = "source-metadata-v1"
 PROVISIONAL_MARKER = "[暫定読取]"
 DEPENDENCY_KEYS = ("depends_on", "depends_on_item_ids", "dependency_ids")
 WHOLE_RESULT_MARKERS = (
@@ -83,11 +85,127 @@ def _eligible(record: dict) -> bool:
     return not any(marker in question + labels for marker in WHOLE_RESULT_MARKERS)
 
 
+def _strict_source_binding(item: dict, audit: dict, packet_map: dict) -> dict | None:
+    """Recognize only indexed names and locations, never repair an invented one.
+
+    This is independent of partial-answer eligibility. A workflow's provenance
+    is metadata even when its complete sequence still needs semantic review.
+    """
+    ids = audit.get("supporting_packet_ids", [])
+    value = str(audit.get("supported_value", "")).strip()
+    if (audit.get("verdict") != "supported" or not is_metadata_label(_label(item))
+            or not value or not isinstance(ids, list) or not ids
+            or any(not isinstance(eid, str) or eid not in packet_map for eid in ids)):
+        return None
+    sources = []
+    for eid in dict.fromkeys(ids):
+        packet = packet_map[eid]
+        path, locator = packet.get("path"), packet.get("locator", {})
+        if not isinstance(path, str) or not path or not isinstance(locator, dict):
+            return None
+        sources.append({"evidence_id": eid, "path": path, "locator": deepcopy(locator)})
+    # Read a deliberately small grammar: indexed path/name, optionally followed
+    # by its JSON or formatted locator, repeated with punctuation separators.
+    # Arbitrary prose, unknown keys, wrong cells and cross-document locators
+    # remain unrecognized, so the normal content audit rejects them.
+    remaining, current, saw_name = value, [], False
+    separators = " \t\r\n、,，;；:：()（）[]【】「」『』`"
+    while remaining:
+        remaining = remaining.lstrip(separators)
+        if not remaining:
+            break
+        names = sorted({name for source in sources
+                        for name in (source["path"], PurePosixPath(source["path"]).name)},
+                       key=len, reverse=True)
+        matched = next((name for name in names
+                        if _source_key(remaining[:len(name)]) == _source_key(name)), None)
+        if matched:
+            current = [source for source in sources if _source_key(matched) in {
+                _source_key(source["path"]), _source_key(PurePosixPath(source["path"]).name)}]
+            # The same basename in two directories does not identify a source.
+            if len({source["path"] for source in current}) != 1:
+                return None
+            remaining, saw_name = remaining[len(matched):], True
+            continue
+        if not current:
+            return None
+        if remaining.startswith("{"):
+            try:
+                def unique_keys(pairs):
+                    result = {}
+                    for key, entry in pairs:
+                        if key in result:
+                            raise ValueError("duplicate locator key")
+                        result[key] = entry
+                    return result
+                locator, length = json.JSONDecoder(object_pairs_hook=unique_keys).raw_decode(remaining)
+            except (ValueError, TypeError):
+                return None
+            # JSON equality is type-sensitive (True must not match row 1).
+            canonical = lambda loc: json.dumps(loc, ensure_ascii=False, sort_keys=True)
+            if not isinstance(locator, dict) or not any(
+                canonical(locator) == canonical(source["locator"]) for source in current
+            ):
+                return None
+            remaining = remaining[length:]
+            continue
+        locations = sorted({format_locator(source["locator"]) for source in current
+                            if source["locator"]}, key=len, reverse=True)
+        matched = next((location for location in locations if remaining.startswith(location)), None)
+        if not matched:
+            return None
+        remaining = remaining[len(matched):]
+    if not saw_name:
+        return None
+    return {"field_id": str(item["item_id"]), "value": value,
+            "evidence_ids": list(dict.fromkeys(ids)), "sources": sources}
+
+
+def bind_source_metadata(record: dict, packets: list[dict]) -> dict:
+    """Keep the answer unchanged; bind provenance using cited index metadata."""
+    result = deepcopy(record)
+    packet_map = {str(packet.get("evidence_id", "")): packet for packet in packets}
+    plan, rows = record.get("question_plan"), record.get("field_runs")
+    if (not isinstance(plan, dict) or not isinstance(rows, list)
+            or len(packet_map) != len(packets) or "" in packet_map):
+        return result
+    items = {str(item.get("item_id", "")): item for item in plan.get("items", [])}
+    if any(str(row.get("audit", {}).get("item_id", "")) not in items
+           or any(eid not in packet_map for eid in _field_ids(row)) for row in rows):
+        return result
+    bindings = []
+    for row in rows:
+        audit = row.get("audit", {})
+        binding = _strict_source_binding(items[str(audit["item_id"])], audit, packet_map)
+        if binding:
+            bindings.append(binding)
+    if bindings:
+        result["source_metadata_policy"] = {
+            "version": SOURCE_METADATA_VERSION, "applied": True, "metadata_claims": bindings,
+        }
+    return result
+
+
+def validate_source_metadata(record: dict, packets: list[dict]) -> list[dict]:
+    policy = record.get("source_metadata_policy")
+    if policy is None:
+        return []
+    original = deepcopy(record)
+    original.pop("source_metadata_policy", None)
+    expected = bind_source_metadata(original, packets).get("source_metadata_policy")
+    if policy != expected or not isinstance(policy, dict) or not policy.get("applied"):
+        return [{"code": "source_metadata_projection_invalid",
+                 "detail": "出典の値・Evidence ID・正式なpath/locatorの対応が一致しません。"}]
+    return []
+
+
 def _metadata_binding(item: dict, audit: dict, packet_map: dict) -> dict | None:
     if not is_metadata_label(_label(item)):
         return None
     value = str(audit.get("supported_value", "")).strip()
     if not value:
+        return None
+    if _strict_source_binding(item, audit, packet_map) is None:
         return None
     for evidence_id in audit.get("supporting_packet_ids", []):
         packet = packet_map[evidence_id]
@@ -101,10 +219,9 @@ def _metadata_binding(item: dict, audit: dict, packet_map: dict) -> dict | None:
                     "source_field": source_field, "value": candidate,
                     "path": path, "locator": deepcopy(packet.get("locator", {})),
                 }
-    # A source-provenance question can use the indexed source directly even
-    # when the model appended prose/page notation.  A target file-name question
-    # still requires a literal name/path match above.  Multiple source paths
-    # remain unresolved here rather than selecting an arbitrary document.
+    # Legacy partial projections accept only the strict source grammar checked
+    # above; arbitrary prose or an invented location must not be repaired.
+    # New final-audit callers bind every cited location independently first.
     support = [packet_map[eid] for eid in audit.get("supporting_packet_ids", [])]
     paths = {str(packet.get("path", "")) for packet in support}
     if _explicit_source_label(_label(item)) and len(paths) == 1 and "" not in paths:
@@ -187,6 +304,8 @@ def render_answer(record: dict) -> str:
     item_map = {str(item["item_id"]): item for item in record["question_plan"]["items"]}
     lines = []
     metadata_fields = {entry["field_id"] for entry in policy["metadata_claims"]}
+    metadata_fields.update(entry["field_id"] for entry in
+                           record.get("source_metadata_policy", {}).get("metadata_claims", []))
     for row in record["field_runs"]:
         audit = row["audit"]
         if audit.get("verdict") != "supported":
@@ -234,6 +353,8 @@ def prepare_record(record: dict, packets: list[dict], excluded_field_ids=()) -> 
         return result
     excluded = set(map(str, excluded_field_ids))
     observations, metadata = [], []
+    source_bindings = {entry["field_id"]: entry for entry in
+                       result.get("source_metadata_policy", {}).get("metadata_claims", [])}
     for row in result["field_runs"]:
         audit = row["audit"]
         # Retry starts from the original audit, never from a promoted decision.
@@ -247,6 +368,10 @@ def prepare_record(record: dict, packets: list[dict], excluded_field_ids=()) -> 
         support = [packet_map[evidence_id] for evidence_id in audit.get("supporting_packet_ids", [])]
         if field_id in excluded:
             _unresolve(row, "最終監査で支持を確認できなかったため、この項目の回答を保留しました。")
+            continue
+        if field_id in source_bindings:
+            # Already checked independently against all cited locations. Do not
+            # collapse this to a single path through the older partial policy.
             continue
         binding = _metadata_binding(item, audit, packet_map) if audit.get("verdict") == "supported" else None
         if binding:
@@ -306,6 +431,13 @@ def prepare_record(record: dict, packets: list[dict], excluded_field_ids=()) -> 
     observations = _deduplicate_observations(observations)
     supported = [row["audit"] for row in result["field_runs"] if row["audit"].get("verdict") == "supported"]
     unresolved = [row["audit"] for row in result["field_runs"] if row["audit"].get("verdict") != "supported"]
+    if source_bindings:
+        confirmed_ids = {str(audit["item_id"]) for audit in supported}
+        retained = [entry for entry in source_bindings.values() if entry["field_id"] in confirmed_ids]
+        if retained:
+            result["source_metadata_policy"]["metadata_claims"] = retained
+        else:
+            result.pop("source_metadata_policy", None)
     if not observations and not metadata and not excluded and all(
         row["audit"] == original["audit"]
         for row, original in zip(result["field_runs"], record["field_runs"])

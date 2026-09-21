@@ -1259,6 +1259,17 @@ def configure_source(source: Path) -> dict:
     config["workspace"] = str(SUPPORT / "data")
     # Selecting a source invalidates the active generation immediately.  A
     # complete reader/security/index generation will publish fresh pointers.
+    _invalidate_config_generation(config)
+    atomic_config_compare_and_swap(
+        loaded_config,
+        config,
+        expected_exists=config_exists,
+    )
+    return config
+
+
+def _invalidate_config_generation(config: dict) -> None:
+    """Remove every active generation resource when its source is replaced."""
     config["index_path"] = ""
     for key in (
         "active_generation",
@@ -1272,12 +1283,58 @@ def configure_source(source: Path) -> dict:
         BASE_ANSWER_INDEX_SHA256_KEY,
     ):
         config.pop(key, None)
-    atomic_config_compare_and_swap(
-        loaded_config,
-        config,
-        expected_exists=config_exists,
-    )
-    return config
+
+
+def _source_update_directory(source: Path) -> Path:
+    """Validate the lexical path before resolving away any symlink component."""
+    source = source.expanduser().absolute()
+    if ".." in source.parts:
+        raise ValueError("source_update_directory_invalid")
+    for component in (*reversed(source.parents), source):
+        metadata = component.lstat()
+        if not stat.S_ISDIR(metadata.st_mode):
+            raise ValueError("source_update_directory_invalid")
+    return source
+
+
+def apply_source_update(source: Path, expected_config: dict, origins: dict) -> None:
+    """Activate a privately staged, human-confirmed source and rebuild it.
+
+    Staging and the selection of files belong to the caller.  The saved prior
+    configuration is for explicit recovery only: a failed build must never
+    reactivate an index for the source that was just superseded.
+    """
+    if not isinstance(expected_config, dict) or not isinstance(origins, dict):
+        raise TypeError("source_update_configuration_requires_dict")
+    # Detach the snapshots from caller-owned mutable dictionaries before CAS.
+    expected_config = json.loads(json.dumps(expected_config, allow_nan=False))
+    origins = json.loads(json.dumps(origins, allow_nan=False))
+    with build_execution_lease(blocking=False):
+        source = _source_update_directory(source)
+        config_exists, loaded_config = load_config_snapshot()
+        if not config_exists or loaded_config != expected_config:
+            raise RuntimeError("configuration_changed_before_publish")
+        previous_source = Path(loaded_config["source_root"]).expanduser().resolve(
+            strict=False
+        )
+        if source == previous_source:
+            raise ValueError("source_update_requires_fresh_directory")
+
+        backups = SUPPORT / "backups"
+        backups.mkdir(mode=0o700, parents=True, exist_ok=True)
+        _source_update_directory(backups)
+        backup = Path(tempfile.mkdtemp(prefix="source-update-", dir=backups))
+        atomic_json(backup / "config.json", loaded_config)
+
+        config = dict(loaded_config)
+        config["source_root"] = str(source)
+        config["source_update_origins"] = origins
+        _invalidate_config_generation(config)
+        atomic_config_compare_and_swap(expected_config, config)
+        # The public wrapper takes this same non-reentrant process lease.
+        # Invoke its unchanged body while the lease remains held across both
+        # activation and all existing reader/version/security publication gates.
+        build_index.__wrapped__(allow_model_downloads=False)
 
 
 def _generations_root(workspace: Path) -> Path | None:
@@ -3840,7 +3897,7 @@ def _recover_published_semantic_graph_storage(
 
 
 @_single_build_execution
-def build_index() -> None:
+def build_index(*, allow_model_downloads: bool = True) -> None:
     config_exists, loaded_config = load_config_snapshot()
     if not config_exists:
         raise RuntimeError("configuration_missing")
@@ -3851,13 +3908,16 @@ def build_index() -> None:
     # Starting a rebuild is the explicit migration boundary for older
     # installations. Missing feature flags adopt the current fully-gated
     # pipeline, while an explicit false remains the rollback switch.
-    config.setdefault(CROSS_DOCUMENT_SHADOW_FLAG, True)
-    config.setdefault(CROSS_DOCUMENT_STORAGE_FLAG, True)
-    config.setdefault(CROSS_DOCUMENT_QUERY_CANDIDATE_FLAG, True)
-    config.setdefault(CROSS_DOCUMENT_INDEPENDENT_EDGE_AUDIT_FLAG, True)
-    if CROSS_DOCUMENT_ANSWER_PROMOTION_FLAG not in config:
-        config[CROSS_DOCUMENT_ANSWER_PROMOTION_FLAG] = True
-        atomic_config_compare_and_swap(loaded_config, config)
+    # The download-disabled source-update path is NOT a feature migration:
+    # retain absent flags as well as explicit values on this path.
+    if allow_model_downloads:
+        config.setdefault(CROSS_DOCUMENT_SHADOW_FLAG, True)
+        config.setdefault(CROSS_DOCUMENT_STORAGE_FLAG, True)
+        config.setdefault(CROSS_DOCUMENT_QUERY_CANDIDATE_FLAG, True)
+        config.setdefault(CROSS_DOCUMENT_INDEPENDENT_EDGE_AUDIT_FLAG, True)
+        if CROSS_DOCUMENT_ANSWER_PROMOTION_FLAG not in config:
+            config[CROSS_DOCUMENT_ANSWER_PROMOTION_FLAG] = True
+            atomic_config_compare_and_swap(loaded_config, config)
     source = Path(config["source_root"]).resolve(strict=True)
     workspace = Path(config.get("workspace", SUPPORT / "data"))
     generations = workspace / "generations"
@@ -3968,12 +4028,26 @@ def build_index() -> None:
             # Reader validity and content safety are established before any
             # model pull.  The /build action is the existing user-authorized
             # boundary for model downloads.
-            pulled_models = ensure_models([
+            required_models = [
                 config["embedding_model"],
                 config["answer_model"],
                 config["audit_model"],
                 IMAGE_FALLBACK_MODEL,
-            ], log)
+            ]
+            if allow_model_downloads:
+                pulled_models = ensure_models(required_models, log)
+            else:
+                start_ollama(log)
+                installed = model_names()
+                missing = [
+                    model for model in dict.fromkeys(required_models)
+                    if not _model_installed(model, installed)
+                ]
+                if missing:
+                    raise RuntimeError(
+                        "model_downloads_disabled_missing:" + ",".join(missing)
+                    )
+                pulled_models = []
             image_fallback_available_after_models = local_model_available(
                 IMAGE_FALLBACK_MODEL
             )
@@ -4037,15 +4111,16 @@ def build_index() -> None:
                 configuration_matches_build = False
             if not configuration_matches_build:
                 raise RuntimeError("configuration_changed_during_build")
-            published_config.setdefault(CROSS_DOCUMENT_SHADOW_FLAG, True)
-            published_config.setdefault(CROSS_DOCUMENT_STORAGE_FLAG, True)
-            published_config.setdefault(CROSS_DOCUMENT_QUERY_CANDIDATE_FLAG, True)
-            published_config.setdefault(
-                CROSS_DOCUMENT_INDEPENDENT_EDGE_AUDIT_FLAG, True
-            )
-            published_config.setdefault(
-                CROSS_DOCUMENT_ANSWER_PROMOTION_FLAG, True
-            )
+            if allow_model_downloads:
+                published_config.setdefault(CROSS_DOCUMENT_SHADOW_FLAG, True)
+                published_config.setdefault(CROSS_DOCUMENT_STORAGE_FLAG, True)
+                published_config.setdefault(CROSS_DOCUMENT_QUERY_CANDIDATE_FLAG, True)
+                published_config.setdefault(
+                    CROSS_DOCUMENT_INDEPENDENT_EDGE_AUDIT_FLAG, True
+                )
+                published_config.setdefault(
+                    CROSS_DOCUMENT_ANSWER_PROMOTION_FLAG, True
+                )
             published_config.pop("semantic_graph_shadow_path", None)
             published_config.pop(CROSS_DOCUMENT_STORAGE_CONFIG_KEY, None)
             published_config.pop(CROSS_DOCUMENT_TRUST_CONFIG_KEY, None)

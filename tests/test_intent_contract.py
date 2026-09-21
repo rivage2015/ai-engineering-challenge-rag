@@ -1,5 +1,6 @@
 """Confirmation gates and fail-closed answer completeness checks."""
 import sys
+import json
 import unittest
 from pathlib import Path
 from unittest import mock
@@ -66,6 +67,45 @@ class ContractTests(unittest.TestCase):
     def test_all_exact_quotes_can_complete(self):
         verdict = {'items': [{'index': i, 'covered': True, 'quote': f'内容{i}'} for i in range(4)]}
         self.assertTrue(ic.check_coverage(self.contract, '内容0 内容1 内容2 内容3', verdict)['complete'])
+
+    def test_coverage_prompt_includes_original_question_and_reviewed_goal(self):
+        prompt = ic.coverage_prompt(self.contract, 'こんにちは')
+        data = json.loads(prompt.split('\n', 1)[1])
+        self.assertEqual(data['question'], self.contract['question'])
+        self.assertEqual(data['goal'], self.contract['goal'])
+        self.assertEqual(data['requirements'], self.contract['requirements'])
+        self.assertEqual(data['answer'], 'こんにちは')
+
+    def test_short_fact_answer_can_complete_without_workflow(self):
+        contract = ic.make_contract('会議室の名前は？', '会議室の名前は？',
+            '知りたいことに対する、資料で裏付けられる具体的な回答', {})
+        result = ic.check_coverage(contract, '青空です。', {
+            'items': [{'index': 0, 'covered': True, 'quote': '青空'}]})
+        self.assertTrue(result['complete'])
+        self.assertEqual(result['status'], 'complete')
+
+    def test_semantic_missing_is_distinct_from_malformed_verdict(self):
+        verdict = {'items': [{'index': i, 'covered': False, 'quote': '',
+            'reason': '必要な手順がない'} for i in range(4)]}
+        missing = ic.check_coverage(self.contract, 'こんにちは', verdict)
+        unavailable = ic.check_coverage(self.contract, 'こんにちは', {'items': []})
+        self.assertEqual(missing['status'], 'incomplete')
+        self.assertEqual(unavailable['status'], 'unavailable')
+        self.assertIn('不足する内容', ic.coverage_heading(missing))
+        self.assertNotIn('不足する内容', ic.coverage_heading(unavailable))
+
+    def test_invalid_indices_and_nonboolean_verdict_cannot_complete(self):
+        contract = ic.make_contract('部屋名は？', '部屋名', '名称', {})
+        for entries in [
+            [{'index': False, 'covered': True, 'quote': '青空'}],
+            [{'index': 0, 'covered': 1, 'quote': '青空'}],
+            [{'index': 0, 'covered': True, 'quote': '青空'},
+             {'index': 1, 'covered': True, 'quote': '青空'}],
+        ]:
+            with self.subTest(entries=entries):
+                result = ic.check_coverage(contract, '青空', {'items': entries})
+                self.assertFalse(result['complete'])
+                self.assertEqual(result['status'], 'unavailable')
 
 
 class IntentHttpTests(unittest.TestCase):
@@ -151,7 +191,9 @@ class IntentHttpTests(unittest.TestCase):
         module = self.server_module
         contract = module.intent_contract.make_contract('受付の最初は？', '受付の全手順', '声がけ\n条件分岐', {'generation': 'one'})
         payload, sig = module.intent_contract.seal(contract, module.intent_contract.SIGNING_KEY)
-        coverage = module.intent_contract.check_coverage(contract, 'こんにちは', {'items': [{'index': 0, 'covered': True, 'quote': 'こんにちは'}]})
+        coverage = module.intent_contract.check_coverage(contract, 'こんにちは', {'items': [
+            {'index': 0, 'covered': True, 'quote': 'こんにちは'},
+            {'index': 1, 'covered': False, 'quote': ''}]})
         with mock.patch.object(module, 'state', return_value={'phase': 'ready'}), mock.patch.object(
                 module.bootstrap, 'active_answer_revision_identity', return_value=(True, 'current', contract['revision'])), mock.patch.object(
                 module, 'answer_query', return_value={'answer': {'answer': 'こんにちは'}}) as answer, mock.patch.object(
@@ -166,6 +208,37 @@ class IntentHttpTests(unittest.TestCase):
             self.assertIn('確認不足：条件分岐', body)
             self.assertIn('入力内容を保持', body)
             answer.assert_called_once_with(module.intent_contract.search_question(contract), expected_active_revision=contract['revision'])
+
+    def test_http_distinguishes_missing_content_from_missing_verdict(self):
+        module = self.server_module
+        contract = module.intent_contract.make_contract(
+            '受付の仕事は？', '受付の手順', '声がけ\n条件分岐', {'generation': 'one'})
+        payload, sig = module.intent_contract.seal(contract, module.intent_contract.SIGNING_KEY)
+        first = {'index': 0, 'covered': True, 'quote': 'こんにちは'}
+        for items, label, heading in [
+            ([first, {'index': 1, 'covered': False, 'quote': ''}],
+             '確認不足：条件分岐', '不足する内容があります'),
+            ([first], '判定できず：条件分岐', '充足確認を完了できませんでした'),
+        ]:
+            with self.subTest(label=label):
+                coverage = module.intent_contract.check_coverage(contract, 'こんにちは', {'items': items})
+                with mock.patch.object(module, 'state', return_value={'phase': 'ready'}), mock.patch.object(
+                        module.bootstrap, 'active_answer_revision_identity', return_value=(True, 'current', contract['revision'])), mock.patch.object(
+                        module, 'answer_query', return_value={'answer': {'answer': 'こんにちは'}}), mock.patch.object(
+                        module, 'audit_intent_coverage', return_value=coverage), mock.patch.object(
+                        module, 'answer_source_notice', return_value=('出典', '', '')), mock.patch.object(
+                        module, 'semantic_graph_candidate_notice', return_value=''), mock.patch.object(
+                        module, 'security_exclusion_notice', return_value=''):
+                    status, body = self.post('/local-search-answer', {
+                        module.UI_CSRF_FIELD: self.httpd.ui_csrf_token, 'query': contract['question'],
+                        'intent_action': 'confirm', 'intent_payload': payload, 'intent_signature': sig})
+                self.assertEqual(status, 200)
+                self.assertIn(label, body)
+                self.assertIn(heading, body)
+                self.assertNotIn('合意した内容を確認できました', body)
+                if coverage['status'] == 'unavailable':
+                    self.assertIn('資料や回答の不足とは断定していません', body)
+                    self.assertNotIn('確認不足：条件分岐', body)
 
 
 if __name__ == '__main__':
