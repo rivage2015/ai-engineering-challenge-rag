@@ -530,7 +530,25 @@ class WorkflowGroupAuditTests(unittest.TestCase):
         return {'verdict': 'verified', 'reason': '確認済み', 'unsupported_claims': [],
                 'group_checks': [{'group_id': g['group_id'], 'checks': ['pass', 'pass', 'pass']}
                                  for g in context['groups']],
-                'coverage': 'pass', 'missing_evidence_ids': []}
+                'coverage': 'pass', 'missing_evidence_ids': [],
+                'diagnostics': [], 'diagnostics_omitted': '0'}
+
+    def add_mock_diagnostics(self, result, context):
+        """Shape synthetic mock output only; never repair a live model response."""
+        details = []
+        for check in result['group_checks']:
+            for axis, verdict in zip(('classification', 'condition', 'actor'), check['checks']):
+                if verdict != 'pass':
+                    details.append({'target': check['group_id'], 'axis': axis,
+                                    'verdict': verdict, 'evidence_ids': ['E1'],
+                                    'reason': '合成テストの不一致'})
+        if result['coverage'] != 'pass':
+            details.append({'target': 'coverage', 'axis': 'coverage',
+                            'verdict': result['coverage'],
+                            'evidence_ids': result['missing_evidence_ids'] or ['E1'],
+                            'reason': '合成テストの不足'})
+        result['diagnostics'] = details[:6]
+        result['diagnostics_omitted'] = str(max(0, len(details) - 6))
 
     def call_group_audit(self, record, packets, context, result, **metadata):
         raw = {'done': True, 'done_reason': 'stop', 'prompt_eval_count': 100,
@@ -652,6 +670,7 @@ class WorkflowGroupAuditTests(unittest.TestCase):
                 result['reason'] = f'G1と{evidence_id}の対応を確認できません。'
                 result['unsupported_claims'] = [f'G1: {evidence_id}の対応']
                 result['group_checks'][0]['checks'][position] = verdict
+                self.add_mock_diagnostics(result, context)
                 before = copy.deepcopy(result)
                 observed, performance, _ = self.call_group_audit(record, packets, context, result)
                 with self.subTest(position=position, verdict=verdict):
@@ -697,6 +716,7 @@ class WorkflowGroupAuditTests(unittest.TestCase):
         record, packets, _, context = self.context()
         result = self.result(context)
         result.update(coverage='fail', missing_evidence_ids=['E4'])
+        self.add_mock_diagnostics(result, context)
         before = copy.deepcopy(result)
         observed, performance, _ = self.call_group_audit(record, packets, context, result)
         self.assertEqual(observed['verdict'], 'rejected')
@@ -780,6 +800,7 @@ class WorkflowGroupAuditTests(unittest.TestCase):
         self.assertNotIn('配膳', prompt)
         transmitted = json.loads(prompt.split('<UNTRUSTED_WORKFLOW_DATA>\n', 1)[1]
                                  .split('\n</UNTRUSTED_WORKFLOW_DATA>', 1)[0])
+        transmitted = final_audit.restore_workflow_group_paired_payload(context, transmitted)
         self.assertEqual(transmitted['groups'], context['groups'])
         self.assertEqual([s['text'] for s in transmitted['sources']],
                          [s['text'] for s in context['sources']])
@@ -799,6 +820,7 @@ class WorkflowGroupAuditTests(unittest.TestCase):
         transmitted = json.loads(payload['messages'][1]['content']
                                  .split('<UNTRUSTED_WORKFLOW_DATA>\n', 1)[1]
                                  .split('\n</UNTRUSTED_WORKFLOW_DATA>', 1)[0])
+        transmitted = final_audit.restore_workflow_group_paired_payload(context, transmitted)
         self.assertEqual(transmitted['groups'], before['groups'])
         self.assertEqual([s['text'] for s in transmitted['sources']],
                          [p['text'] for p in packets])
@@ -809,7 +831,7 @@ class WorkflowGroupAuditTests(unittest.TestCase):
         _, _, payload = self.call_group_audit(record, packets, context, self.result(context))
         prompt = payload['messages'][1]['content']
         for instruction in (
-                'action_ids/condition_ids/actor_idsからsourcesの同じE番号の原文を読みます',
+                'action_ids/condition_ids/actor_idsからevidenceの同じE番号の原文を読みます',
                 'Gの数字でEを選びません',
                 'その時点とphaseを照合します',
                 '時点のない原文へ前後関係を創作しません',
@@ -863,6 +885,7 @@ class WorkflowGroupAuditTests(unittest.TestCase):
                 result = self.result(context)
                 result['group_checks'][0]['checks'][position] = verdict
                 result['reason'] = f'G1の{label}とE1の対応を確認できません。'
+                self.add_mock_diagnostics(result, context)
                 before = copy.deepcopy(result)
                 observed, performance, _ = self.call_group_audit(record, packets, context, result)
                 with self.subTest(position=position, verdict=verdict):
@@ -925,6 +948,7 @@ class WorkflowGroupAuditTests(unittest.TestCase):
         record, packets, _, context = self.context()
         result = self.result(context)
         result['group_checks'][0]['checks'][1] = 'fail'
+        self.add_mock_diagnostics(result, context)
         raw = {'done': True, 'done_reason': 'stop', 'prompt_eval_count': 100,
                'eval_count': 80, 'message': {'content': json.dumps(result)}}
         response = mock.MagicMock()
@@ -969,6 +993,7 @@ class WorkflowGroupAuditTests(unittest.TestCase):
             with self.subTest(check=check):
                 result = self.result(context)
                 result['group_checks'][-1]['checks'][2] = check
+                self.add_mock_diagnostics(result, context)
                 observed, performance, _ = self.call_group_audit(record, packets, context, result)
                 self.assertEqual(observed['verdict'], 'rejected')
                 self.assertEqual(observed['unsupported_claims'], ['G32の分類・条件・担当の結び付き'])
@@ -1186,6 +1211,7 @@ class WorkflowGroupAuditTests(unittest.TestCase):
         payload = json.loads(serialized)
         self.assertIn('source_scopes', payload)
         self.assertNotIn('source_bindings', payload)
+        payload = final_audit.restore_workflow_group_paired_payload(context, payload)
         self.assertEqual(self.restore_scope_sources(payload), before['sources'])
         self.assertEqual(payload['groups'], before['groups'])
         self.assertEqual(context, before)
@@ -1215,14 +1241,15 @@ class WorkflowGroupAuditTests(unittest.TestCase):
 
     def test_scope_payload_preserves_exact_12000_character_boundary(self):
         record, _, _, context = self.context()
-        payload = final_audit.workflow_group_audit_payload(context)
+        payload = final_audit.workflow_group_paired_payload(context)
         size = len(json.dumps(payload, ensure_ascii=False, separators=(',', ':')))
         self.assertLess(size, 12000)
         context['sources'][-1]['text'] += 'x' * (12000 - size)
         accepted = final_audit.workflow_group_audit_prompt(record['query'], context)
         data = accepted.split('<UNTRUSTED_WORKFLOW_DATA>\n', 1)[1].split('\n</UNTRUSTED_WORKFLOW_DATA>', 1)[0]
         self.assertEqual(len(data), 12000)
-        self.assertEqual(self.restore_scope_sources(json.loads(data)), context['sources'])
+        restored = final_audit.restore_workflow_group_paired_payload(context, json.loads(data))
+        self.assertEqual(self.restore_scope_sources(restored), context['sources'])
         context['sources'][-1]['text'] += 'x'
         with self.assertRaisesRegex(ValueError, 'input_characters_limit'):
             final_audit.workflow_group_audit_prompt(record['query'], context)
@@ -1249,6 +1276,116 @@ class WorkflowGroupAuditTests(unittest.TestCase):
         self.assertTrue(performance['failed'])
         self.assertEqual(result['status'], 'incomplete')
         self.assertEqual(result['reason_code'], 'workflow_group_audit_input_characters_limit')
+
+    def test_paired_payload_roundtrip_preserves_roles_originals_and_unused_sources(self):
+        _, _, _, context = self.context()
+        before = copy.deepcopy(context)
+        packed = final_audit.workflow_group_paired_payload(context)
+        group = packed['groups'][0]
+        self.assertEqual([s['id'] for s in group['evidence']], ['E1', 'E2', 'E3'])
+        self.assertEqual([s['id'] for s in packed['sources']], ['E4'])
+        restored = final_audit.restore_workflow_group_paired_payload(context, packed)
+        self.assertEqual(restored, final_audit.workflow_group_audit_payload(context))
+        self.assertEqual(context, before)
+
+    def test_pairing_rejects_changed_text_roles_order_missing_duplicate_and_extra(self):
+        _, _, _, context = self.context()
+        original = final_audit.workflow_group_paired_payload(context)
+        cases = []
+        bad = copy.deepcopy(original)
+        bad['groups'][0]['evidence'][0]['text'] += '捏造'
+        cases.append(bad)
+        bad = copy.deepcopy(original)
+        bad['groups'][0]['actor_ids'] = ['E2']
+        cases.append(bad)
+        bad = copy.deepcopy(original)
+        bad['source_order'].reverse()
+        cases.append(bad)
+        bad = copy.deepcopy(original)
+        bad['groups'][0]['evidence'].pop()
+        cases.append(bad)
+        bad = copy.deepcopy(original)
+        bad['sources'].append(copy.deepcopy(bad['sources'][0]))
+        cases.append(bad)
+        bad = copy.deepcopy(original)
+        bad['invented'] = True
+        cases.append(bad)
+        for packed in cases:
+            with self.subTest(packed=packed), self.assertRaises(ValueError):
+                final_audit.restore_workflow_group_paired_payload(context, packed)
+
+    def test_shared_source_copies_must_agree_and_restore_once(self):
+        _, _, _, context = self.context()
+        second = copy.deepcopy(context['groups'][0])
+        second['group_id'] = 'G2'
+        context['groups'].append(second)
+        packed = final_audit.workflow_group_paired_payload(context)
+        restored = final_audit.restore_workflow_group_paired_payload(context, packed)
+        self.assertEqual(len(restored['sources']), len(context['sources']))
+        packed['groups'][1]['evidence'][0]['text'] += '変更'
+        with self.assertRaises(ValueError):
+            final_audit.restore_workflow_group_paired_payload(context, packed)
+
+    def test_diagnostic_pass_conflict_and_missing_detail_are_incomplete(self):
+        record, packets, _, context = self.context()
+        result = self.result(context)
+        result['group_checks'][0]['checks'][1] = 'fail'
+        self.add_mock_diagnostics(result, context)
+        valid = copy.deepcopy(result)
+        for field, value in (('axis', 'actor'), ('verdict', 'unverified'),
+                             ('evidence_ids', []), ('evidence_ids', ['E1', 'E1']),
+                             ('reason', '')):
+            result = copy.deepcopy(valid)
+            result['diagnostics'][0][field] = value
+            observed, performance, _ = self.call_group_audit(record, packets, context, result)
+            self.assertEqual(observed['reason_code'], 'workflow_group_audit_diagnostics_invalid')
+            self.assertEqual(observed['status'], 'incomplete')
+            self.assertEqual(performance['workflow_group_model_result'], result)
+        result = copy.deepcopy(valid)
+        result['diagnostics'] = []
+        with self.assertRaises(ValueError):
+            final_audit.validate_workflow_group_diagnostics(result, context)
+
+    def test_diagnostic_limit_preserves_all_checks_and_exact_omission_count(self):
+        _, _, _, context = self.context(group_count=3)
+        result = self.result(context)
+        for check in result['group_checks']:
+            check['checks'] = ['fail'] * 3
+        result['coverage'] = 'unverified'
+        self.add_mock_diagnostics(result, context)
+        self.assertEqual(len(result['diagnostics']), 6)
+        self.assertEqual(result['diagnostics_omitted'], '4')
+        final_audit.validate_workflow_group_diagnostics(result, context)
+        for wrong in ('0', '04', 4):
+            changed = copy.deepcopy(result)
+            changed['diagnostics_omitted'] = wrong
+            with self.assertRaises(ValueError):
+                final_audit.validate_workflow_group_diagnostics(changed, context)
+        changed = copy.deepcopy(result)
+        changed['diagnostics'].reverse()
+        with self.assertRaises(ValueError):
+            final_audit.validate_workflow_group_diagnostics(changed, context)
+
+    def test_new_diagnostics_fields_are_required_without_repairing_model_output(self):
+        record, packets, _, context = self.context()
+        for key in ('diagnostics', 'diagnostics_omitted'):
+            result = self.result(context)
+            result.pop(key)
+            observed, performance, _ = self.call_group_audit(record, packets, context, result)
+            self.assertEqual(observed['reason_code'], 'audit_response_schema_invalid')
+            self.assertTrue(performance['failed'])
+
+    def test_coverage_diagnostic_is_after_group_details(self):
+        _, _, _, context = self.context()
+        result = self.result(context)
+        result['group_checks'][0]['checks'][2] = 'fail'
+        result.update(coverage='fail', missing_evidence_ids=['E4'])
+        self.add_mock_diagnostics(result, context)
+        self.assertEqual([d['target'] for d in result['diagnostics']], ['G1', 'coverage'])
+        final_audit.validate_workflow_group_diagnostics(result, context)
+        result['diagnostics'][-1]['target'] = 'G1'
+        with self.assertRaises(ValueError):
+            final_audit.validate_workflow_group_diagnostics(result, context)
 
     def test_flat_pass_response_is_not_accepted_for_grouped_answer(self):
         record, packets, _, context = self.context()
