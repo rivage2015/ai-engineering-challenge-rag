@@ -70,6 +70,17 @@ PLAIN_TEXT_SUFFIXES = {
     ".md", ".txt", ".py", ".toml", ".yaml", ".yml", ".rst", ".sql", ".sh", ".command",
 }
 IMAGE_SUFFIXES = {".png", ".jpg", ".jpeg", ".tif", ".tiff", ".bmp"}
+READING_POLICIES = {"full", "text_first_v1"}
+# Only dispatches audited to avoid all OCR and VLM work are admitted here.
+# New formats must be checked explicitly rather than falling through to a
+# parser whose visual behavior the text-first contract does not cover.
+TEXT_FIRST_SUFFIXES = PLAIN_TEXT_SUFFIXES | IMAGE_SUFFIXES | {
+    ".docx", ".xlsx", ".pptx", ".pdf", ".csv", ".tsv", ".json", ".xml",
+}
+TEXT_FIRST_PENDING_WARNING = (
+    "Visual reading is pending under text_first_v1; additional reading is required "
+    "before asserting complete visual coverage (not a reading failure)"
+)
 OCR_QUALITY_BY_AGREEMENT = {
     "independent_agreement": "high",
     "same_engine_agreement": "provisional",
@@ -3089,7 +3100,10 @@ class Probe:
         retain_records: bool = True,
         password_candidates: tuple[str, ...] = (),
         visual_observation_mode: str = "immediate",
+        reading_policy: str = "full",
     ) -> None:
+        if not isinstance(reading_policy, str) or reading_policy not in READING_POLICIES:
+            raise ValueError("reading_policy must be full or text_first_v1")
         if visual_observation_mode not in VISUAL_OBSERVATION_MODES:
             raise ValueError(
                 "visual_observation_mode must be immediate, "
@@ -3105,6 +3119,7 @@ class Probe:
         self.retain_records = retain_records
         self.password_candidates = password_candidates
         self.visual_observation_mode = visual_observation_mode
+        self.reading_policy = reading_policy
         self.documents: list[dict[str, Any]] = []
         self.evidence: list[dict[str, Any]] = []
         self.relations: list[dict[str, Any]] = []
@@ -3117,6 +3132,7 @@ class Probe:
         self._visual_spool_root_identity: tuple[int, int] | None = None
         self._visual_spool_by_sha256: dict[str, Path] = {}
         self._visual_spool_bytes = 0
+        self._visual_parent_bindings: dict[str, dict[str, Any]] = {}
 
     def emit(self, kind: str, record: dict[str, Any]) -> None:
         if self.retain_records:
@@ -3168,6 +3184,11 @@ class Probe:
                 "errors": [],
             },
         }
+        if self.reading_policy == "text_first_v1":
+            record["extraction"].update({
+                "reading_policy": self.reading_policy,
+                "visual_coverage": {"status": "none_pending", "pending": []},
+            })
         if self._current_document is not None:
             raise RuntimeError("only one source document may be active per Probe instance")
         self._current_document = record
@@ -3183,6 +3204,7 @@ class Probe:
         if self.record_sink is not None:
             self.record_sink("documents", document)
         self._current_document = None
+        self._visual_parent_bindings.clear()
         return document
 
     def may_add_leaf(self, doc_id: str) -> bool:
@@ -3208,6 +3230,61 @@ class Probe:
         document = existing or self.add_document(path, f"{path.suffix.lower().lstrip('.') or 'unknown'}-parser")
         document["extraction"]["status"] = "failed"
         document["extraction"]["errors"] = [f"{type(error).__name__}: {error}"]
+
+    def _record_pending_visual(
+        self,
+        document: dict[str, Any],
+        *,
+        parent_id: str,
+        location: dict[str, Any],
+        kind: str,
+        image_sha256: str | None = None,
+    ) -> None:
+        """Describe an unattempted visual read, bound to existing source Evidence."""
+        if self.reading_policy != "text_first_v1":
+            raise ValueError("pending visual coverage requires text_first_v1")
+        expected_type = "page" if kind == "pdf_page" else "image"
+        if kind not in {"embedded_image", "pdf_page", "standalone_image"}:
+            raise ValueError("unsupported pending visual kind")
+        parent = self._visual_parent_bindings.get(parent_id)
+        if (
+            document is not self._current_document
+            or parent is None
+            or parent["document_id"] != document["document_id"]
+            or parent["evidence_type"] != expected_type
+            or parent["location"] != location
+        ):
+            raise ValueError("pending visual is not bound to its source Evidence")
+        source_sha256 = document["source"]["sha256"]
+        if not isinstance(source_sha256, str) or not SHA256_PATTERN.fullmatch(source_sha256):
+            raise ValueError("pending visual source digest is invalid")
+        pending = {
+            "evidence_id": parent_id,
+            "source_sha256": source_sha256,
+            "location": json.loads(json.dumps(location)),
+            "reason": "deferred_by_reading_policy",
+            "kind": kind,
+        }
+        if kind == "pdf_page":
+            if image_sha256 is not None:
+                raise ValueError("unrendered PDF page must not claim an image digest")
+        else:
+            if (
+                not isinstance(image_sha256, str)
+                or not SHA256_PATTERN.fullmatch(image_sha256)
+                or parent["image_sha256"] != image_sha256
+            ):
+                raise ValueError("pending visual image digest differs from source Evidence")
+            pending["image_sha256"] = image_sha256
+        coverage = document["extraction"]["visual_coverage"]
+        previous = next((item for item in coverage["pending"]
+                         if item["evidence_id"] == parent_id), None)
+        if previous is not None and previous != pending:
+            raise ValueError("pending visual source binding changed")
+        if previous is None:
+            coverage["pending"].append(pending)
+        coverage["status"] = "pending"
+        self.mark_partial(document, TEXT_FIRST_PENDING_WARNING)
 
     def add_evidence(
         self,
@@ -3260,6 +3337,14 @@ class Probe:
             record["geometry"] = geometry
         if native_properties:
             record["native_properties"] = native_properties
+        if self.reading_policy == "text_first_v1" and evidence_type in {"image", "page"}:
+            properties = native_properties or {}
+            self._visual_parent_bindings[record["evidence_id"]] = {
+                "document_id": document_id,
+                "evidence_type": evidence_type,
+                "location": json.loads(json.dumps(location)),
+                "image_sha256": properties.get("embedded_sha256", properties.get("source_sha256")),
+            }
         self.emit("evidence", record)
         if parent_id:
             self.add_relation(
@@ -3772,6 +3857,8 @@ class Probe:
             raise RuntimeError("deferred visual document scope is already active")
         try:
             suffix = path.suffix.lower()
+            if self.reading_policy == "text_first_v1" and suffix not in TEXT_FIRST_SUFFIXES:
+                raise ValueError(f"text_first_v1 does not support file type: {suffix or '(none)'}")
             if suffix in DIRECT_TEXT_SUFFIXES and path.stat().st_size > MAX_DIRECT_TEXT_BYTES:
                 self.extract_large_text(path)
             elif suffix == ".docx":
@@ -5695,11 +5782,15 @@ class Probe:
             snapshot_pdf,
         )
 
-        parser = "pdfkit-jxa+local-page-render+adaptive-local-image-reader"
+        text_first = self.reading_policy == "text_first_v1"
+        parser = ("pdfkit-jxa-native-text-first" if text_first else
+                  "pdfkit-jxa+local-page-render+adaptive-local-image-reader")
         doc = self.add_document(path, parser)
         doc_id = doc["document_id"]
         if not self.diagnostic:
             doc["extraction"]["warnings"].append(
+                "PDF native text is preserved per page; visual reading is deferred by policy"
+                if text_first else
                 "PDF native text is preserved per page; locally rendered pages are also read as visual sources"
             )
         pages_without_text = 0
@@ -5766,9 +5857,16 @@ class Probe:
                         warning="PDFKit page text read failed; no native or visual text was asserted",
                     )
                     self.contain_document(doc_id, page_ev["evidence_id"])
+                    if text_first:
+                        self._record_pending_visual(
+                            doc, parent_id=page_ev["evidence_id"],
+                            location=page_ev["location"], kind="pdf_page",
+                        )
                     self.mark_partial(
                         doc,
-                        f"page {page_number} local text and visual reading unavailable: "
+                        (f"page {page_number} native text reading failed; visual reading remains pending: "
+                         if text_first else
+                         f"page {page_number} local text and visual reading unavailable: ") +
                         f"{type(exc).__name__}: {str(exc)[:300]}",
                     )
                     processed_pages = page_number
@@ -5809,7 +5907,9 @@ class Probe:
                         content_ref=f"{doc['source']['relative_path']}#page={page_number}",
                         mime_type="application/pdf",
                     )
-                    warning = "no native text layer; local visual reading requested"
+                    warning = ("no native text layer; visual reading is pending under text_first_v1"
+                               if text_first else
+                               "no native text layer; local visual reading requested")
                 page_ev = self.add_evidence(
                     doc_id, "page", {"page_number": page_number}, item_content,
                     ordinal=page_number, geometry=geometry,
@@ -5818,6 +5918,12 @@ class Probe:
                 )
                 self.contain_document(doc_id, page_ev["evidence_id"])
                 processed_pages = page_number
+                if text_first:
+                    self._record_pending_visual(
+                        doc, parent_id=page_ev["evidence_id"],
+                        location=page_ev["location"], kind="pdf_page",
+                    )
+                    continue
 
                 planned_pixels = (
                     int(planned["render_width_px"])
@@ -5933,7 +6039,27 @@ class Probe:
                     doc,
                     f"{page_count - processed_pages} PDF page(s) were not processed because a native-text safety limit was reached",
                 )
-        if pages_without_text and visually_read_pages < pages_without_text:
+                if text_first:
+                    # Keep the whereabouts of every known unrendered page even
+                    # when native text reached its independent safety limit.
+                    # A placeholder is not a claim that native text was read.
+                    for pending_page in range(processed_pages + 1, page_count + 1):
+                        page_ev = self.add_evidence(
+                            doc_id, "page", {"page_number": pending_page},
+                            content(
+                                content_ref=f"{doc['source']['relative_path']}#page={pending_page}",
+                                mime_type="application/pdf",
+                            ),
+                            ordinal=pending_page,
+                            native_properties={"native_text_reading_status": "not_attempted_safety_limit"},
+                            warning="native text was not read because its safety limit was reached; visual reading is pending",
+                        )
+                        self.contain_document(doc_id, page_ev["evidence_id"])
+                        self._record_pending_visual(
+                            doc, parent_id=page_ev["evidence_id"],
+                            location=page_ev["location"], kind="pdf_page",
+                        )
+        if not text_first and pages_without_text and visually_read_pages < pages_without_text:
             self.mark_partial(
                 doc,
                 f"{pages_without_text - visually_read_pages} page(s) without native text "
@@ -6524,6 +6650,20 @@ class Probe:
         visual_origin_kind: str = "office_embedded_image",
         visual_origin: dict[str, Any] | None = None,
     ) -> int:
+        if self.reading_policy == "text_first_v1":
+            # Bind the unattempted read to the original member and placement
+            # before any raster copy, OCR call, VLM call or visual budget use.
+            expected_origin = self._embedded_visual_origin(
+                raw, document, location_prefix=location_prefix,
+                source_name=source_name, visual_origin_kind=visual_origin_kind,
+            )
+            if visual_origin is not None and visual_origin != expected_origin:
+                raise ValueError("embedded visual origin differs from its source bytes")
+            self._record_pending_visual(
+                document, parent_id=parent_id, location=location_prefix,
+                kind="embedded_image", image_sha256=digest_bytes(raw),
+            )
+            return 0
         suffix = Path(source_name).suffix.casefold()
         if suffix not in IMAGE_SUFFIXES:
             self.mark_partial(
@@ -6602,6 +6742,26 @@ class Probe:
         """Preserve every located reading and distinguish its support tier."""
         doc = self.add_document(path, "adaptive-local-image-reader-v0.7.0")
         doc_id = doc["document_id"]
+        if self.reading_policy == "text_first_v1":
+            location = {"object_index": 1}
+            image_ev = self.add_evidence(
+                doc_id, "image", location,
+                content(content_ref=doc["source"]["relative_path"],
+                        mime_type=doc["source"]["media_type"]),
+                ordinal=1,
+                native_properties={
+                    "source_sha256": doc["source"]["sha256"],
+                    "visual_reading_status": "deferred_by_reading_policy",
+                },
+                method="verified_image_bytes",
+                warning="image contents have not been read under text_first_v1",
+            )
+            self.contain_document(doc_id, image_ev["evidence_id"])
+            self._record_pending_visual(
+                doc, parent_id=image_ev["evidence_id"], location=location,
+                kind="standalone_image", image_sha256=doc["source"]["sha256"],
+            )
+            return
         try:
             from local_image_ocr import (
                 MAX_UNLOCATED_TRANSCRIPT_TOKENS,

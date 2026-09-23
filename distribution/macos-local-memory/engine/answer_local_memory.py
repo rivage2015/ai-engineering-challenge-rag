@@ -7,6 +7,7 @@ import argparse
 import array
 import hashlib
 import html
+import importlib.util
 import json
 import math
 import os
@@ -30,6 +31,16 @@ GRAPH_SCHEMA_VERSION = "0.1"
 GRAPH_READY_STATUS = "validated_safe_partition"
 GRAPH_PARTITIONER = "content-security-graph-partitioner"
 GRAPH_PARTITIONER_VERSION = "0.1.0"
+
+
+def snapshot_context_helper():
+    path = Path(__file__).with_name("reading_snapshot_context.py")
+    spec = importlib.util.spec_from_file_location("local_reading_snapshot_context", path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
 GRAPH_RETRIEVABLE_EVIDENCE_STATUSES = {"observed", "verified"}
 GRAPH_ALLOWED_EVIDENCE_STATUSES = (
     GRAPH_RETRIEVABLE_EVIDENCE_STATUSES | {"unresolved"}
@@ -477,6 +488,15 @@ def validate_answer_graph_contract(
         raise ValueError("graph_answer_policy_invalid:retrievable_set")
     if connection.execute("PRAGMA foreign_key_check").fetchall():
         raise ValueError("graph_foreign_key_check_failed")
+    snapshot_documents = [
+        node["payload"]["source_record"]
+        for node in node_rows
+        if node["node_type"] == "document"
+    ]
+    if "reading_snapshot" in metadata or any(
+        "reading_snapshot" in doc.get("extraction_metadata", {}) for doc in snapshot_documents
+    ):
+        snapshot_context_helper().validate_context(metadata, snapshot_documents)
     source_graph = {
         "graph_schema_version": GRAPH_SCHEMA_VERSION,
         "graph_sha256": metadata["graph_sha256"],
@@ -1005,6 +1025,8 @@ def main() -> int:
 
     index_path = Path(args.index).resolve(strict=True)
     metadata, retrieved = retrieve(index_path, args.query, args.top_k, args.timeout)
+    if "reading_snapshot" in metadata:
+        raise SystemExit("reading_snapshot_requires_scope_aware_answer_v2")
     supplements = reported_supplements(args.supplement)
     context, packet_ids = context_for(retrieved, supplements, args.max_context_characters)
     context_ids = list(packet_ids.values())

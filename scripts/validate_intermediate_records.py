@@ -11,7 +11,7 @@ import re
 from datetime import datetime
 from functools import lru_cache
 from pathlib import Path
-from typing import Any
+from typing import Any, Iterable
 
 from probe_intermediate_records import (
     is_notebook_document, normalize_text, notebook_binding_report,
@@ -165,6 +165,148 @@ RFC3339_DATETIME = re.compile(
     r"(?:Z|[+-][0-9]{2}:[0-9]{2})$"
 )
 MAX_JSON_DEPTH = 64
+TEXT_FIRST_READING_POLICY = "text_first_v1"
+VISUAL_LOCATION_INTEGER_FIELDS = frozenset({
+    "page_number", "slide_number", "paragraph_index", "table_index",
+    "row_index", "column_index", "object_index", "image_object_index",
+    "series_index", "notebook_cell_index", "code_line_start", "code_line_end",
+})
+VISUAL_LOCATION_STRING_FIELDS = frozenset({
+    "sheet_name", "cell", "range", "section", "shape_id", "object_id",
+    "source_member", "locator_text",
+})
+
+
+def visual_coverage_shape_errors(document: dict[str, Any], label: str) -> list[str]:
+    """Validate opt-in reading coverage even without the JSON Schema runtime."""
+    extraction = document.get("extraction")
+    if not isinstance(extraction, dict):
+        return []  # Existing Document validation owns the base extraction shape.
+    has_policy = "reading_policy" in extraction
+    has_coverage = "visual_coverage" in extraction
+    if not has_policy and not has_coverage:
+        return []
+    errors: list[str] = []
+    prefix = f"{label}: visual_coverage"
+    if not has_policy or extraction.get("reading_policy") != TEXT_FIRST_READING_POLICY:
+        errors.append(f"{prefix}: reading_policy is missing or unknown")
+    coverage = extraction.get("visual_coverage")
+    if not has_coverage or not isinstance(coverage, dict):
+        return [*errors, f"{prefix}: coverage object is required"]
+    if set(coverage) != {"status", "pending"}:
+        errors.append(f"{prefix}: coverage fields are invalid")
+    status = coverage.get("status")
+    pending = coverage.get("pending")
+    if status not in ("pending", "none_pending"):
+        errors.append(f"{prefix}: status is invalid")
+    if not isinstance(pending, list):
+        return [*errors, f"{prefix}: pending must be an array"]
+    if (status == "pending" and not pending) or (status == "none_pending" and pending):
+        errors.append(f"{prefix}: status differs from pending inventory")
+    if pending and extraction.get("status") not in ("partial", "failed"):
+        errors.append(f"{prefix}: unread visuals require partial or failed extraction")
+    seen: set[str] = set()
+    for index, item in enumerate(pending):
+        item_label = f"{prefix}.pending[{index}]"
+        if not isinstance(item, dict):
+            errors.append(f"{item_label}: must be an object")
+            continue
+        kind = item.get("kind")
+        fields = {"evidence_id", "source_sha256", "location", "reason", "kind"}
+        if kind in ("embedded_image", "standalone_image"):
+            fields.add("image_sha256")
+        elif kind != "pdf_page":
+            errors.append(f"{item_label}: kind is invalid")
+        if set(item) != fields:
+            errors.append(f"{item_label}: fields are invalid")
+        if item.get("reason") != "deferred_by_reading_policy":
+            errors.append(f"{item_label}: reason is invalid")
+        evidence_id = item.get("evidence_id")
+        if not isinstance(evidence_id, str) or not PATTERNS["evidence"].fullmatch(evidence_id):
+            errors.append(f"{item_label}: evidence_id is invalid")
+        elif evidence_id in seen:
+            errors.append(f"{item_label}: duplicate pending evidence_id")
+        else:
+            seen.add(evidence_id)
+        for key in ("source_sha256", "image_sha256"):
+            if key == "image_sha256" and kind == "pdf_page":
+                continue
+            value = item.get(key)
+            if not isinstance(value, str) or not re.fullmatch(r"[0-9a-f]{64}", value):
+                errors.append(f"{item_label}: {key} is invalid")
+        location = item.get("location")
+        if not isinstance(location, dict):
+            errors.append(f"{item_label}: location must be an object")
+            continue
+        if set(location) - (VISUAL_LOCATION_INTEGER_FIELDS | VISUAL_LOCATION_STRING_FIELDS):
+            errors.append(f"{item_label}: location fields are invalid")
+        for key, value in location.items():
+            if key in VISUAL_LOCATION_INTEGER_FIELDS and (
+                isinstance(value, bool) or not isinstance(value, int) or value < 1
+            ):
+                errors.append(f"{item_label}: location.{key} is invalid")
+            if key in VISUAL_LOCATION_STRING_FIELDS and (
+                not isinstance(value, str) or not value
+                or (key == "cell" and not re.fullmatch(r"[A-Z]{1,3}[1-9][0-9]*", value))
+            ):
+                errors.append(f"{item_label}: location.{key} is invalid")
+    return errors
+
+
+def visual_coverage_binding_errors(
+    document: dict[str, Any], evidence: Iterable[dict[str, Any]], label: str,
+) -> list[str]:
+    """Bind every pending placement to this original document and its Evidence.
+
+    Pending locations are inventory, not answer Evidence or a statement that an
+    image was read. Complete inventory is checked so omitting a pending item
+    cannot silently promote a text-first document to fully read.
+    """
+    extraction = document.get("extraction")
+    if not isinstance(extraction, dict) or "reading_policy" not in extraction:
+        return []
+    if visual_coverage_shape_errors(document, label):
+        return []  # Report malformed shapes once, before reference validation.
+    source = document.get("source", {})
+    document_id = document.get("document_id")
+    is_pdf = source.get("extension") == "pdf"
+    visuals = {
+        item.get("evidence_id"): item for item in evidence
+        if item.get("evidence_type") == "image"
+        or (is_pdf and item.get("evidence_type") == "page")
+    }
+    pending = extraction["visual_coverage"]["pending"]
+    errors: list[str] = []
+    prefix = f"{label}: visual_coverage"
+    pending_ids = {item["evidence_id"] for item in pending}
+    if pending_ids != set(visuals):
+        errors.append(f"{prefix}: pending inventory differs from visual Evidence")
+    for item in pending:
+        item_label = f"{prefix}:{item['evidence_id']}"
+        parent = visuals.get(item["evidence_id"])
+        if parent is None:
+            errors.append(f"{item_label}: pending Evidence is missing or not a visual")
+            continue
+        if parent.get("document_id") != document_id:
+            errors.append(f"{item_label}: pending Evidence belongs to another document")
+        if item["source_sha256"] != source.get("sha256"):
+            errors.append(f"{item_label}: source hash mismatch")
+        if canonical_json(item["location"]) != canonical_json(parent.get("location")):
+            errors.append(f"{item_label}: location mismatch")
+        native = parent.get("native_properties")
+        native = native if isinstance(native, dict) else {}
+        kind = item["kind"]
+        if kind == "pdf_page":
+            if not is_pdf or parent.get("evidence_type") != "page":
+                errors.append(f"{item_label}: pdf_page must reference a PDF page")
+        elif parent.get("evidence_type") != "image":
+            errors.append(f"{item_label}: image kind must reference image Evidence")
+        elif kind == "embedded_image":
+            if item["image_sha256"] != native.get("embedded_sha256"):
+                errors.append(f"{item_label}: embedded image hash mismatch")
+        elif item["image_sha256"] != source.get("sha256"):
+            errors.append(f"{item_label}: standalone image hash mismatch")
+    return errors
 
 
 def canonical_json(value: Any) -> str:
@@ -458,6 +600,8 @@ def validate_report(directory: Path, source_root: Path | None = None) -> dict[st
             if extra:
                 errors.append(f"{label}: unexpected fields {sorted(extra)}")
             errors.extend(question_boundary_errors(kind, record, label))
+            if kind == "document":
+                errors.extend(visual_coverage_shape_errors(record, label))
             if record_schema_errors:
                 continue
             valid_groups[kind].append(record)
@@ -561,6 +705,10 @@ def validate_report(directory: Path, source_root: Path | None = None) -> dict[st
     for item in valid_groups["evidence"]:
         evidence_by_document.setdefault(item.get("document_id"), []).append(item)
     for document in valid_groups["document"]:
+        errors.extend(visual_coverage_binding_errors(
+            document, evidence_by_document.get(document["document_id"], []),
+            str(document.get("document_id")),
+        ))
         try:
             bindings.append(notebook_document_binding(
                 document,

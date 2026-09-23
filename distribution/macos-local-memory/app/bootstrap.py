@@ -1297,6 +1297,57 @@ def _source_update_directory(source: Path) -> Path:
     return source
 
 
+def source_selection_identity(source: Path) -> dict:
+    """Bind a real directory, not a posted string or a mutable symlink."""
+    source = _source_update_directory(source)
+    support = SUPPORT.resolve(strict=False)
+    if source == support or support in source.parents or source in support.parents:
+        raise ValueError("source_is_application_data")
+    metadata = source.stat()
+    return {"path": str(source), "device": metadata.st_dev, "inode": metadata.st_ino}
+
+
+def apply_source_selection(source: Path, expected_config: dict, expected_directory: dict) -> None:
+    """Switch a confirmed scope and build under one cross-process lease."""
+    expected_config = json.loads(json.dumps(expected_config, allow_nan=False))
+    expected_directory = dict(expected_directory)
+    with build_execution_lease(blocking=False):
+        identity = source_selection_identity(source)
+        if identity != expected_directory:
+            raise RuntimeError("source_directory_changed")
+        config_exists, loaded_config = load_config_snapshot()
+        if not config_exists or loaded_config != expected_config:
+            raise RuntimeError("configuration_changed_before_publish")
+        workspace = Path(loaded_config.get("workspace", SUPPORT / "data")).resolve(strict=False)
+        selected = Path(identity["path"])
+        if selected == workspace or workspace in selected.parents or selected in workspace.parents:
+            raise ValueError("source_is_application_data")
+        backups = SUPPORT / "backups"
+        backups.mkdir(mode=0o700, parents=True, exist_ok=True)
+        _source_update_directory(backups)
+        backup = Path(tempfile.mkdtemp(prefix="source-selection-", dir=backups))
+        atomic_json(backup / "config.json", loaded_config)
+        config = dict(loaded_config)
+        config["source_root"] = identity["path"]
+        config.pop("source_update_origins", None)
+        _invalidate_config_generation(config)
+        atomic_config_compare_and_swap(expected_config, config)
+        try:
+            atomic_json(STATE, {
+                "phase": "building", "message": "選択したフォルダの読み込みを開始します。",
+                "error": "", "started_at": now_iso(),
+            })
+            # Same pattern as apply_source_update: retain the lease while
+            # invoking the existing body, with downloads explicitly disabled.
+            build_index.__wrapped__(allow_model_downloads=False)
+        except Exception as exc:
+            atomic_json(STATE, {
+                "phase": "error", "message": "選択したフォルダの準備を完了できませんでした。旧資料には戻していません。",
+                "error": f"{type(exc).__name__}: {exc}",
+            })
+            raise
+
+
 def apply_source_update(source: Path, expected_config: dict, origins: dict) -> None:
     """Activate a privately staged, human-confirmed source and rebuild it.
 

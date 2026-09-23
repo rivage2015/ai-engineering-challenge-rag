@@ -218,6 +218,7 @@ def select_attested_inventory(
     version_authority_mode: str | None = None,
     version_decisions_path: Path | None = None,
     version_decisions_sha256: str | None = None,
+    reading_snapshot_path: Path | None = None,
 ) -> dict[str, Any]:
     """Derive the complete Reader selection from one explicit attestation."""
     binding = None
@@ -247,6 +248,35 @@ def select_attested_inventory(
     if binding is not None:
         selected, version_counts = _version_selection(selected, report["version"]["dispositions"])
         counts.update(version_counts)
+    if reading_snapshot_path is not None:
+        # The user selected this frozen JSON, not every supported neighbouring
+        # file. Apply its explicit source list only AFTER full version/policy
+        # attestation, so it cannot revive a held or historical source.
+        tools_dir = default_tools_dir()
+        spec = importlib.util.spec_from_file_location(
+            "_reader_frozen_snapshot", tools_dir / "freeze_reading_snapshot.py")
+        if spec is None or spec.loader is None:
+            raise ValueError("reading_snapshot_loader_unavailable")
+        snapshot_loader = importlib.util.module_from_spec(spec)
+        sys.path.insert(0, str(tools_dir))
+        try:
+            spec.loader.exec_module(snapshot_loader)
+            snapshot = snapshot_loader.load_snapshot(reading_snapshot_path)
+        finally:
+            sys.path.remove(str(tools_dir))
+        by_path = {unicodedata.normalize("NFC", item["relative_path"]): item for item in selected}
+        if len(by_path) != len(selected):
+            raise ValueError("reading_snapshot_inventory_path_collision")
+        snapshot_selected = []
+        for source in snapshot["payload"]["provenance"]["input_manifest"]:
+            item = by_path.get(source["relative_path"])
+            if item is None:
+                raise ValueError("reading_snapshot_source_missing_or_held")
+            if item.get("sha256") != source["source_sha256"] or item.get("size_bytes") != source["size_bytes"]:
+                raise ValueError("reading_snapshot_inventory_source_mismatch")
+            snapshot_selected.append(item)
+        counts["outside_snapshot_count"] = len(selected) - len(snapshot_selected)
+        selected = snapshot_selected
     return {"inventory_records": inventory, "inventory_sha256": digest,
             "selected": selected, "selection_counts": counts, "document_version_graph": binding}
 
@@ -388,6 +418,7 @@ def build(
     *, version_authority_mode: str | None = None,
     version_decisions_path: Path | None = None,
     version_decisions_sha256: str | None = None,
+    reading_snapshot_path: Path | None = None,
 ) -> dict[str, Any]:
     source_root = source_root.resolve(strict=True)
     inventory_path = inventory_path.resolve(strict=True)
@@ -409,6 +440,7 @@ def build(
     selection = select_attested_inventory(
         inventory_path, version_graph_path, version_authority_mode=version_authority_mode,
         version_decisions_path=version_decisions_path, version_decisions_sha256=version_decisions_sha256,
+        **({"reading_snapshot_path": reading_snapshot_path} if reading_snapshot_path is not None else {}),
     )
     selected, selection_counts = selection["selected"], selection["selection_counts"]
     version_binding = selection["document_version_graph"]
@@ -437,11 +469,22 @@ def build(
     adapter = output / "layer1-adapter"
     log_path = output / "adaptive-reader-tools.log"
 
-    run_tool("intermediate", [
-        sys.executable, str(tools_dir / "build_intermediate_records.py"),
-        "--root", str(source_root), "--out", str(intermediate),
-        "--input-manifest", str(manifest_path),
-    ], tools_dir, log_path)
+    if reading_snapshot_path is not None:
+        snapshot_tool = tools_dir / "materialize_reading_snapshot.py"
+        if not snapshot_tool.is_file():
+            raise ValueError("reading snapshot importer is unavailable")
+        run_tool("reading_snapshot", [
+            sys.executable, str(snapshot_tool),
+            "--snapshot", str(reading_snapshot_path.resolve(strict=True)),
+            "--source-root", str(source_root), "--out", str(intermediate),
+            "--input-manifest", str(manifest_path),
+        ], tools_dir, log_path)
+    else:
+        run_tool("intermediate", [
+            sys.executable, str(tools_dir / "build_intermediate_records.py"),
+            "--root", str(source_root), "--out", str(intermediate),
+            "--input-manifest", str(manifest_path),
+        ], tools_dir, log_path)
     intermediate_state = json.loads((intermediate / "build-state.json").read_text(encoding="utf-8"))
     if intermediate_state.get("build_status") not in {"complete", "complete_with_failures"}:
         atomic_json(output / "adaptive-reader-state.json", {
@@ -547,6 +590,12 @@ def build(
         },
         "search_unit_projection": adapter_state.get("search_unit_projection", {}),
     }
+    if reading_snapshot_path is not None:
+        result["reading_snapshot"] = intermediate_state["snapshot_binding"]
+        result["stages"]["reading_snapshot"] = {
+            "path": "layer1-intermediate/reading-snapshot.json",
+            "sha256": intermediate_state["snapshot_binding"]["sha256"],
+        }
     atomic_json(output / "adaptive-reader-state.json", result)
     return result
 
@@ -560,6 +609,7 @@ def main() -> int:
     parser.add_argument("--version-authority-mode", choices=("no_decisions", "snapshot"))
     parser.add_argument("--version-decisions", type=Path)
     parser.add_argument("--version-decisions-sha256")
+    parser.add_argument("--reading-snapshot", type=Path)
     parser.add_argument(
         "--tools-dir", type=Path,
         default=default_tools_dir(),
@@ -572,6 +622,7 @@ def main() -> int:
             version_authority_mode=args.version_authority_mode,
             version_decisions_path=args.version_decisions,
             version_decisions_sha256=args.version_decisions_sha256,
+            reading_snapshot_path=args.reading_snapshot,
         )
     except Exception as exc:
         raise SystemExit(f"{type(exc).__name__}:{exc}") from exc

@@ -39,6 +39,7 @@ from probe_intermediate_records import (
 )
 from intermediate_build_integrity import ordered_shard_manifest_sha256
 import local_image_ocr
+from local_visual_observation import visual_observation_session
 
 
 SUPPORTED_SUFFIXES = {
@@ -724,11 +725,14 @@ def _local_vlm_identities() -> list[dict[str, Any]]:
     return identities
 
 
-def processing_fingerprint() -> dict[str, Any]:
+def processing_fingerprint(reading_policy: str = "full") -> dict[str, Any]:
     """Return the deterministic reader/tool/model identity for shard reuse."""
+    if reading_policy not in {"full", "text_first_v1"}:
+        raise ValueError("unsupported reading_policy")
     scripts = Path(__file__).resolve().parent
     payload = {
         "fingerprint_version": PROCESSING_FINGERPRINT_VERSION,
+        "reading_policy": reading_policy,
         "extractor": EXTRACTOR,
         "extractor_version": EXTRACTOR_VERSION,
         "code": {
@@ -748,13 +752,13 @@ def processing_fingerprint() -> dict[str, Any]:
             ),
             "reader_distributions": _reader_distribution_identities(),
         },
-        "ocr": {
+        "ocr": ({
             "apple_vision": _fixed_ocr_runtime_identity("apple_vision"),
             "tesseract": _fixed_ocr_runtime_identity("tesseract"),
             "paddleocr": _paddle_runtime_identity(),
-        },
+        } if reading_policy == "full" else {"status": "not_used_by_reading_policy"}),
         "pdfkit_jxa_backend": _pdfkit_jxa_backend_identity(),
-        "local_vlm": _local_vlm_identities(),
+        "local_vlm": (_local_vlm_identities() if reading_policy == "full" else []),
     }
     return {
         "version": PROCESSING_FINGERPRINT_VERSION,
@@ -891,6 +895,10 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--fail-fast", action="store_true", help="stop after recording the first failed document")
     parser.add_argument("--max-files", type=int, help="process at most this many pending files, then stop resumably")
+    parser.add_argument(
+        "--reading-policy", choices=("full", "text_first_v1"), default="full",
+        help="text_first_v1 is an isolated reader experiment; not yet accepted by the answer adapter",
+    )
     return parser.parse_args()
 
 
@@ -1081,6 +1089,8 @@ def process_file(
     source_sha256: str,
     password_candidates: tuple[str, ...],
     processing_fingerprint_sha256: str | None = None,
+    *,
+    reading_policy: str = "full",
 ) -> tuple[dict[str, Any], Exception | None]:
     relative_path = normalized_relative(root, path)
     document_id = stable_id("doc", {"relative_path": relative_path, "source_sha256": source_sha256})
@@ -1096,6 +1106,7 @@ def process_file(
         retain_records=False,
         password_candidates=password_candidates,
         visual_observation_mode="deferred_per_document",
+        reading_policy=reading_policy,
     )
     extraction_error: Exception | None = None
     try:
@@ -1105,6 +1116,13 @@ def process_file(
         try:
             writer.discard_uncommitted_records()
             extractor.record_failure(path, error)
+            if reading_policy == "text_first_v1":
+                # The failed shard keeps no Evidence. Drop its matching pending
+                # refs too; status=failed remains the authoritative unread state.
+                # none_pending describes this empty inventory, not successful reading.
+                extractor._current_document["extraction"]["visual_coverage"] = {
+                    "status": "none_pending", "pending": [],
+                }
             extractor.finalize_document()
         except Exception:
             writer.abort()
@@ -1225,8 +1243,8 @@ def main() -> None:
             raise SystemExit(f"refusing to overwrite non-empty output directory: {output}")
         output.mkdir(parents=True, exist_ok=True)
 
-    with BuildLock(output / LOCK_FILE), paddle_build_session():
-        current_fingerprint = processing_fingerprint()
+    with BuildLock(output / LOCK_FILE), paddle_build_session(), visual_observation_session() as visual_memo:
+        current_fingerprint = processing_fingerprint(args.reading_policy)
         fingerprint_sha256 = current_fingerprint["sha256"]
         if args.resume:
             try:
@@ -1278,6 +1296,7 @@ def main() -> None:
                 source_sha256,
                 password_candidates,
                 fingerprint_sha256,
+                reading_policy=args.reading_policy,
             )
             state["entries"][relative_path] = entry
             processed_paths.add(relative_path)
@@ -1337,6 +1356,8 @@ def main() -> None:
             "output": str(output),
             "extractor": EXTRACTOR,
             "extractor_version": EXTRACTOR_VERSION,
+            "reading_policy": args.reading_policy,
+            "visual_observation_reuse": visual_memo.stats(),
         }))
 
 

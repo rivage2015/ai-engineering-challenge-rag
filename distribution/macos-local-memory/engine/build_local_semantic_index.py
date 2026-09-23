@@ -2601,6 +2601,15 @@ def main() -> int:
             if args.version_authority_mode == "snapshot":
                 graph_context["lineage"]["version_decisions_path"] = Path(args.version_decisions)
                 graph_context["lineage"]["version_decisions_sha256"] = args.version_decisions_sha256
+    reading_snapshot = None
+    if graph_context is not None:
+        snapshot_spec = importlib.util.spec_from_file_location(
+            "index_reading_snapshot", Path(__file__).with_name("reading_snapshot_context.py")
+        )
+        snapshot_helper = importlib.util.module_from_spec(snapshot_spec)
+        snapshot_spec.loader.exec_module(snapshot_helper)
+        reading_snapshot = snapshot_helper.build_context(documents_path.parent, documents)
+        snapshot_helper.model_scope(reading_snapshot)  # Fail before embedding on oversize scope.
     document_paths = {item["document_id"]: item["source"]["relative_path"] for item in documents}
     if len(document_paths) != len(documents):
         raise SystemExit("Document IDs must be unique")
@@ -2751,6 +2760,8 @@ def main() -> int:
                 args.index_purpose == "safe_answer" and graph_report is not None
             ),
         }
+        if reading_snapshot is not None:
+            metadata["reading_snapshot"] = reading_snapshot
         if graph_report is not None:
             # Keep the validator's detached snapshot across the model probe.
             # A subsequent producer-state read is not an attestation.

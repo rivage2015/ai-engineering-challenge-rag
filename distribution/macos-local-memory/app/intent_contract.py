@@ -4,9 +4,45 @@ import hmac
 import json
 import secrets
 import time
+import importlib.util
+from functools import lru_cache
+from pathlib import Path
 
 # Never use a browser-visible CSRF token as the contract signing key.
 SIGNING_KEY = secrets.token_urlsafe(32)
+
+
+@lru_cache(maxsize=1)
+def graph_helper():
+    """Use the same deterministic contract compiler in source and packaged apps."""
+    base = Path(__file__).resolve().parent
+    path = base / 'engine' / 'intent_requirement_graph.py'
+    if not path.is_file():
+        path = base.parent / 'engine' / 'intent_requirement_graph.py'
+    spec = importlib.util.spec_from_file_location('app_intent_requirement_graph', path)
+    if spec is None or spec.loader is None:
+        raise ImportError('intent_requirement_graph_unavailable')
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def validate_record_binding(contract, record):
+    """Reject a response for a different request; this is not a semantic audit."""
+    helper = graph_helper()
+    expected = helper.compile_contract(contract)
+    if (record.get('query') != contract['question']
+            or record.get('intent_requirement_graph') != expected
+            or helper.compile_contract(record.get('confirmed_intent')) != expected):
+        raise ValueError('intent_answer_binding_mismatch')
+    plan = record.get('question_plan')
+    helper.validate_plan_binding(plan)
+    if plan['intent_graph'] != expected:
+        raise ValueError('intent_plan_binding_mismatch')
+    fields = record.get('field_runs')
+    if (not isinstance(fields, list)
+            or [row.get('item') for row in fields] != plan['items']):
+        raise ValueError('intent_field_binding_mismatch')
 
 
 def draft_intent(query, scope):
@@ -118,7 +154,7 @@ def check_coverage(contract, answer, verdict):
         if item_failure:
             failures.append(item_failure)
         malformed = malformed or not valid
-        result.append({"requirement": requirement, "covered": covered,
+        result.append({"requirement_id": f"R{i + 1}", "requirement": requirement, "covered": covered,
                        "quote": quote if covered else "",
                        "status": "covered" if covered else "missing" if valid else "unavailable",
                        "reason_code": item_failure or ("requirement_satisfied" if covered else "requirement_missing"),
@@ -126,6 +162,7 @@ def check_coverage(contract, answer, verdict):
                        if valid and isinstance(item.get("reason", ""), str) else ""})
     complete = bool(result) and not malformed and all(x["covered"] for x in result)
     return {"complete": complete, "items": result,
+            "intent_contract_sha256": graph_helper().compile_contract(contract)['contract_sha256'],
             "status": "unavailable" if malformed else "complete" if complete else "incomplete",
             "failure_codes": sorted(set(failures)),
             "reason_code": "coverage_verdict_invalid" if malformed else

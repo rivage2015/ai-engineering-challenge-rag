@@ -1,6 +1,12 @@
 #!/bin/zsh
 set -euo pipefail
 
+MODE="${1:-release}"
+if [ "$MODE" != release ] && [ "$MODE" != --trial ]; then
+  print -u2 "usage: $0 [--trial]"
+  exit 2
+fi
+
 ROOT="$(cd "$(dirname "$0")/../../.." && pwd)"
 SOURCE="$ROOT/distribution/macos-local-memory"
 STAGE="$ROOT/.tmp/local-memory-macos-package"
@@ -17,6 +23,18 @@ ZIP="$DELIVERABLES/$ZIP_NAME"
 CHECKSUM="$DELIVERABLES/$CHECKSUM_NAME"
 OUTPUT_STAGE=""
 
+# Trial builds are additive: never remove the release stage or replace a release.
+if [ "$MODE" = --trial ]; then
+  mkdir -p "$DELIVERABLES"
+  TRIAL_DATE="$(date +%Y-%m-%d)"
+  PACKAGE_VERSION="$(date +%Y.%m.%d)"
+  PACKAGE_BUILD="$(date +%Y%m%d.%H%M%S)"
+  TRIAL_PROFILE="LocalMemorySearch-Trial-$(date +%Y%m%d-%H%M%S)-$$"
+  STAGE="$(mktemp -d "$DELIVERABLES/Local-Memory-Search-Trial-$(date +%Y%m%d)-XXXXXX")"
+  APP="$STAGE/Local Memory Search 試用版 $TRIAL_DATE.app"
+  RESOURCES="$APP/Contents/Resources"
+fi
+
 cleanup_output_stage() {
   if [ -n "${OUTPUT_STAGE:-}" ] && [ -d "$OUTPUT_STAGE" ]; then
     rm -rf -- "$OUTPUT_STAGE"
@@ -24,14 +42,19 @@ cleanup_output_stage() {
 }
 trap cleanup_output_stage EXIT
 
-rm -rf "$STAGE"
-mkdir -p "$STAGE/導入ガイド" "$DELIVERABLES"
+if [ "$MODE" = release ]; then
+  rm -rf "$STAGE"
+fi
+mkdir -p "$STAGE" "$DELIVERABLES"
+if [ "$MODE" = release ]; then
+mkdir -p "$STAGE/導入ガイド"
 OUTPUT_STAGE="$(mktemp -d "$DELIVERABLES/.local-memory-package.XXXXXX")"
 DMG_CANDIDATE="$OUTPUT_STAGE/$DMG_NAME"
 ZIP_CANDIDATE="$OUTPUT_STAGE/$ZIP_NAME"
 CHECKSUM_CANDIDATE="$OUTPUT_STAGE/$CHECKSUM_NAME"
 ZIP_STAGE="$OUTPUT_STAGE/Local Memory Search"
 ln -s /Applications "$STAGE/Applications"
+fi
 
 /usr/bin/osacompile -l JavaScript -o "$APP" "$SOURCE/app/launcher.js"
 mkdir -p "$RESOURCES/engine"
@@ -40,6 +63,7 @@ cp "$SOURCE/app/answerability_policy.py" "$RESOURCES/"
 cp "$SOURCE/app/audit_response_guard.py" "$RESOURCES/"
 cp "$SOURCE/app/grounded_guidance.py" "$RESOURCES/"
 cp "$SOURCE/app/source_updates.py" "$RESOURCES/"
+cp "$SOURCE/app/source_selection.py" "$RESOURCES/"
 cp "$SOURCE/app/bootstrap.py" "$SOURCE/app/claim_graph_validator.py" "$SOURCE/app/final_answer_audit.py" "$SOURCE/app/cross_document_semantic_graph_edge_audit.py" "$SOURCE/app/semantic_graph_answer_promotion.py" "$SOURCE/app/semantic_graph_trust.py" "$SOURCE/app/launcher_lease.py" "$SOURCE/app/local_memory_server.py" "$SOURCE/app/launch.sh" "$RESOURCES/"
 cp "$SOURCE/engine/"*.py "$RESOURCES/engine/"
 mkdir -p "$RESOURCES/engine/layer1/scripts" "$RESOURCES/engine/layer1/schemas"
@@ -83,15 +107,26 @@ cp \
   "$SOURCE/paddleocr-requirements.lock.txt" \
   "$SOURCE/paddleocr-model-manifest.json" \
   "$RESOURCES/"
-cp "$SOURCE/docs/はじめにお読みください.md" "$STAGE/導入ガイド/"
-cp "$SOURCE/docs/START-HERE.html" "$STAGE/START-HERE.html"
+if [ "$MODE" = release ]; then
+  cp "$SOURCE/docs/はじめにお読みください.md" "$STAGE/導入ガイド/"
+  cp "$SOURCE/docs/START-HERE.html" "$STAGE/START-HERE.html"
+fi
 chmod +x "$RESOURCES/launch.sh" "$RESOURCES/"*.py "$RESOURCES/engine/"*.py "$RESOURCES/engine/layer1/scripts/"*.py
+
+if [ "$MODE" = --trial ]; then
+  python3 "$SOURCE/build/prepare_trial_bundle.py" "$RESOURCES" \
+    --profile "$TRIAL_PROFILE" --port 8766 --version "$PACKAGE_VERSION"
+fi
 
 PLIST="$APP/Contents/Info.plist"
 /usr/libexec/PlistBuddy -c "Add :CFBundleIdentifier string jp.rivage.local-memory-search" "$PLIST" 2>/dev/null || /usr/libexec/PlistBuddy -c "Set :CFBundleIdentifier jp.rivage.local-memory-search" "$PLIST"
 /usr/libexec/PlistBuddy -c "Add :LSMinimumSystemVersion string 14.0" "$PLIST" 2>/dev/null || /usr/libexec/PlistBuddy -c "Set :LSMinimumSystemVersion 14.0" "$PLIST"
 /usr/libexec/PlistBuddy -c "Add :CFBundleShortVersionString string $PACKAGE_VERSION" "$PLIST" 2>/dev/null || /usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString $PACKAGE_VERSION" "$PLIST"
 /usr/libexec/PlistBuddy -c "Add :CFBundleVersion string $PACKAGE_BUILD" "$PLIST" 2>/dev/null || /usr/libexec/PlistBuddy -c "Set :CFBundleVersion $PACKAGE_BUILD" "$PLIST"
+if [ "$MODE" = --trial ]; then
+  /usr/libexec/PlistBuddy -c "Set :CFBundleIdentifier jp.rivage.local-memory-search.trial.$PACKAGE_BUILD" "$PLIST"
+  /usr/libexec/PlistBuddy -c "Add :CFBundleDisplayName string Local Memory Search 試用版 $TRIAL_DATE" "$PLIST"
+fi
 for key in NSAppleMusicUsageDescription NSCalendarsUsageDescription NSCameraUsageDescription NSContactsUsageDescription NSHomeKitUsageDescription NSMicrophoneUsageDescription NSPhotoLibraryUsageDescription NSRemindersUsageDescription NSSiriUsageDescription NSSystemAdministrationUsageDescription; do
   /usr/libexec/PlistBuddy -c "Delete :$key" "$PLIST" 2>/dev/null || true
 done
@@ -106,6 +141,11 @@ if [ -n "$FORBIDDEN_FILE" ]; then
 fi
 
 /usr/bin/codesign --verify --deep --strict "$APP"
+if [ "$MODE" = --trial ]; then
+  print "created trial: $APP"
+  print "trial profile: $TRIAL_PROFILE; URL: http://127.0.0.1:8766/"
+  exit 0
+fi
 /usr/bin/hdiutil create -volname "Local Memory Search" -srcfolder "$STAGE" -ov -format UDZO "$DMG_CANDIDATE" >/dev/null
 # Keep the ZIP self-contained too: recipients who choose it instead of the
 # DMG need the same start page and written installation guide.

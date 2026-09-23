@@ -68,11 +68,89 @@
           "type": "array",
           "items": {"type": "string"},
           "uniqueItems": true
-        }
-      }
+        },
+        "reading_policy": {"const": "text_first_v1"},
+        "visual_coverage": {"$ref": "#/$defs/visualCoverage"}
+      },
+      "dependentRequired": {
+        "reading_policy": ["visual_coverage"],
+        "visual_coverage": ["reading_policy"]
+      },
+      "allOf": [{
+        "if": {
+          "required": ["visual_coverage"],
+          "properties": {"visual_coverage": {
+            "required": ["status"],
+            "properties": {"status": {"const": "pending"}}
+          }}
+        },
+        "then": {"properties": {"status": {"enum": ["partial", "failed"]}}}
+      }]
     }
   },
   "$defs": {
+    "visualCoverage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status", "pending"],
+      "properties": {
+        "status": {"enum": ["pending", "none_pending"]},
+        "pending": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {"$ref": "#/$defs/pendingVisual"}
+        }
+      },
+      "allOf": [{
+        "if": {"properties": {"status": {"const": "pending"}}},
+        "then": {"properties": {"pending": {"minItems": 1}}},
+        "else": {"properties": {"pending": {"maxItems": 0}}}
+      }]
+    },
+    "pendingVisual": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["evidence_id", "source_sha256", "location", "reason", "kind"],
+      "properties": {
+        "evidence_id": {"type": "string", "pattern": "^ev_[0-9a-f]{16,64}$"},
+        "source_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+        "image_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+        "location": {"$ref": "#/$defs/visualLocation"},
+        "reason": {"const": "deferred_by_reading_policy"},
+        "kind": {"enum": ["embedded_image", "pdf_page", "standalone_image"]}
+      },
+      "allOf": [{
+        "if": {"properties": {"kind": {"const": "pdf_page"}}},
+        "then": {"not": {"required": ["image_sha256"]}},
+        "else": {"required": ["image_sha256"]}
+      }]
+    },
+    "visualLocation": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "page_number": {"type": "integer", "minimum": 1},
+        "slide_number": {"type": "integer", "minimum": 1},
+        "sheet_name": {"type": "string", "minLength": 1},
+        "cell": {"type": "string", "pattern": "^[A-Z]{1,3}[1-9][0-9]*$"},
+        "range": {"type": "string", "minLength": 1},
+        "section": {"type": "string", "minLength": 1},
+        "paragraph_index": {"type": "integer", "minimum": 1},
+        "table_index": {"type": "integer", "minimum": 1},
+        "row_index": {"type": "integer", "minimum": 1},
+        "column_index": {"type": "integer", "minimum": 1},
+        "shape_id": {"type": "string", "minLength": 1},
+        "object_id": {"type": "string", "minLength": 1},
+        "object_index": {"type": "integer", "minimum": 1},
+        "image_object_index": {"type": "integer", "minimum": 1},
+        "series_index": {"type": "integer", "minimum": 1},
+        "notebook_cell_index": {"type": "integer", "minimum": 1},
+        "code_line_start": {"type": "integer", "minimum": 1},
+        "code_line_end": {"type": "integer", "minimum": 1},
+        "source_member": {"type": "string", "minLength": 1},
+        "locator_text": {"type": "string", "minLength": 1}
+      }
+    },
     "derivedString": {
       "type": "object",
       "additionalProperties": false,

@@ -13,6 +13,7 @@ import re
 import secrets
 import stat
 import statistics
+import sys
 import unicodedata
 import urllib.parse
 from collections import Counter, defaultdict
@@ -1045,12 +1046,58 @@ def _derive_native_smartart_relations(
     return expected
 
 
+def _verified_snapshot_context(
+    intermediate_state: dict[str, Any],
+    layer_documents: list[dict[str, Any]] | None = None,
+    layer_evidence: list[dict[str, Any]] | None = None,
+    *, directory: Path | None = None, source_root: Path | None = None,
+) -> dict[str, Any] | None:
+    if intermediate_state.get("extractor") != "reading-snapshot-importer":
+        return None
+    binding = intermediate_state.get("snapshot_binding")
+    fail(not isinstance(binding, dict) or not isinstance(binding.get("path"), str),
+         "snapshot_binding_missing")
+    snapshot_path = Path(binding["path"])
+    fail(not snapshot_path.is_absolute() or snapshot_path.name != "reading-snapshot.json",
+         "snapshot_binding_path_invalid")
+    actual_directory = snapshot_path.parent.resolve(strict=True)
+    if directory is not None:
+        fail(actual_directory != directory.resolve(strict=True), "snapshot_binding_directory_mismatch")
+    tools_dir = Path(__file__).resolve().parent / "layer1" / "scripts"
+    if not tools_dir.is_dir():
+        tools_dir = Path(__file__).resolve().parents[3] / "scripts"
+    spec = importlib.util.spec_from_file_location(
+        "_validated_snapshot_importer", tools_dir / "materialize_reading_snapshot.py")
+    fail(spec is None or spec.loader is None, "snapshot_importer_unavailable")
+    module = importlib.util.module_from_spec(spec)
+    sys.path.insert(0, str(tools_dir))
+    try:
+        spec.loader.exec_module(module)
+        envelope = module.validate_materialized_snapshot(actual_directory, source_root)
+    finally:
+        sys.path.remove(str(tools_dir))
+    fail(canonical(intermediate_state) != canonical(json.loads(
+        (actual_directory / "build-state.json").read_text(encoding="utf-8"))),
+        "snapshot_intermediate_state_mismatch")
+    records = envelope["payload"]["records"]
+    if layer_documents is not None:
+        fail(records["documents"] != layer_documents, "snapshot_document_records_mismatch")
+    if layer_evidence is not None:
+        fail(records["evidence"] != layer_evidence, "snapshot_evidence_records_mismatch")
+    return envelope
+
+
 def derive_native_structural_relations(
     layer_documents: list[dict[str, Any]],
     layer_evidence: list[dict[str, Any]],
     intermediate_state: dict[str, Any],
 ) -> list[dict[str, Any]]:
     """Rebuild native containment from Layer 1 records, not Relation claims."""
+    snapshot = _verified_snapshot_context(intermediate_state, layer_documents, layer_evidence)
+    if snapshot is not None:
+        # The importer is not the reader. Recover reader provenance only from
+        # the independently validated frozen source, never caller metadata.
+        intermediate_state = snapshot["payload"]["provenance"]
     extractor = intermediate_state.get("extractor")
     extractor_version = intermediate_state.get("extractor_version")
     generated_at = intermediate_state.get("run_at")
@@ -2612,9 +2659,14 @@ def validate(
         "_validator_reader_selection", Path(__file__).with_name("build_adaptive_semantic_graph.py"))
     reader = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(reader)
+    selection_state = json.loads((output / "layer1-intermediate" / "build-state.json").read_text(encoding="utf-8"))
+    snapshot_for_selection = _verified_snapshot_context(
+        selection_state, directory=output / "layer1-intermediate", source_root=source_root)
     selection = reader.select_attested_inventory(
         inventory, version_graph, version_authority_mode=version_authority_mode,
         version_decisions_path=version_decisions_path, version_decisions_sha256=version_decisions_sha256,
+        **({"reading_snapshot_path": output / "layer1-intermediate" / "reading-snapshot.json"}
+           if snapshot_for_selection is not None else {}),
     )
     fail(state.get("source_inventory", {}).get("sha256") != selection["inventory_sha256"], "source_inventory_hash_mismatch")
     version_binding = selection["document_version_graph"]
@@ -2654,6 +2706,13 @@ def validate(
     layer1_inventory_files = inventory_files_by_layer1_path(inventory_files)
 
     intermediate_state = json.loads((output / "layer1-intermediate" / "build-state.json").read_text(encoding="utf-8"))
+    reading_snapshot = _verified_snapshot_context(
+        intermediate_state, directory=output / "layer1-intermediate", source_root=source_root)
+    if reading_snapshot is not None:
+        fail(state.get("reading_snapshot") != intermediate_state["snapshot_binding"],
+             "reader_snapshot_binding_mismatch")
+    else:
+        fail("reading_snapshot" in state, "unexpected_reader_snapshot_binding")
     fail(
         intermediate_state.get("build_status") not in {"complete", "complete_with_failures"},
         "intermediate_build_not_terminal",
@@ -2678,6 +2737,9 @@ def validate(
     fail(adapter_state.get("requires_content_security_gate") is not True, "adapter_security_gate_requirement_invalid")
     fail(adapter_state.get("adapter") != ADAPTER_NAME, "adapter_name_invalid")
     fail(adapter_state.get("adapter_version") != ADAPTER_VERSION, "adapter_version_invalid")
+    if reading_snapshot is not None:
+        fail(adapter_state.get("reading_snapshot") != intermediate_state["snapshot_binding"],
+             "adapter_snapshot_binding_mismatch")
 
     layer_documents_path = output / "layer1-intermediate" / "documents.jsonl"
     layer_evidence_path = output / "layer1-intermediate" / "evidence.jsonl"
@@ -2984,6 +3046,14 @@ def validate(
         fail(path.stat().st_size != document["source"].get("size_bytes"), "source_size_mismatch")
         fail(sha256_file(path) != document["source"].get("sha256"), "source_hash_mismatch")
         fail(document.get("evidence_ids", []) != by_document.get(document["document_id"], []), "document_evidence_order_mismatch")
+        if reading_snapshot is not None:
+            original_document = next(item for item in reading_snapshot["payload"]["records"]["documents"]
+                                     if item["document_id"] == document["document_id"])
+            metadata = document.get("extraction_metadata", {})
+            fail(metadata.get("reading_snapshot") != intermediate_state["snapshot_binding"],
+                 "document_snapshot_binding_mismatch")
+            fail(metadata.get("source_extraction") != original_document["extraction"],
+                 "document_snapshot_extraction_coverage_mismatch")
 
     limitations = state.get("limitations", {})
     has_limits = any(isinstance(value, int) and value > 0 for value in limitations.values())

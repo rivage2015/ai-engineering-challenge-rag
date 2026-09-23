@@ -490,9 +490,24 @@ def adapt(
         raise ValueError("Layer 1 intermediate build must have reached a terminal state")
     if Path(state.get("source_root", "")).resolve() != source_root:
         raise ValueError("source root does not match Layer 1 build state")
-    validate_managed_build_integrity(intermediate, state)
+    snapshot = None
+    if state.get("extractor") == "reading-snapshot-importer":
+        from materialize_reading_snapshot import validate_materialized_snapshot
+        snapshot = validate_materialized_snapshot(intermediate, source_root)
+    else:
+        validate_managed_build_integrity(intermediate, state)
 
     layer_documents = read_jsonl(intermediate / "documents.jsonl")
+    # R2a outputs are complete reader experiments, not answer-ready generations.
+    # Do not erase their pending-visual contract by projecting partial -> extracted.
+    # The future R2b path must bind coverage through generation, query and audit.
+    reading_policy = state.get("processing_fingerprint", {}).get("payload", {}).get("reading_policy", "full")
+    if snapshot is None and (reading_policy != "full" or any(
+        "reading_policy" in document.get("extraction", {})
+        or "visual_coverage" in document.get("extraction", {})
+        for document in layer_documents
+    )):
+        raise ValueError("text-first/unknown reading coverage is not yet supported by the answer adapter (R2b required)")
     layer_evidence = read_jsonl(intermediate / "evidence.jsonl")
     search_units: list[dict[str, Any]] = []
     if search_output is not None:
@@ -729,6 +744,10 @@ def adapt(
                 "layer1_parser_version": source_document.get("extraction", {}).get("parser_version"),
                 "adapter": ADAPTER,
                 "adapter_version": ADAPTER_VERSION,
+                **({
+                    "reading_snapshot": copy.deepcopy(state["snapshot_binding"]),
+                    "source_extraction": copy.deepcopy(source_document["extraction"]),
+                } if snapshot is not None else {}),
             },
             "error": (
                 "; ".join(str(item) for item in source_document.get("extraction", {}).get("errors", []))
@@ -785,6 +804,8 @@ def adapt(
         },
         "skipped_binary_evidence": skipped_binary_evidence,
     }
+    if snapshot is not None:
+        result["reading_snapshot"] = copy.deepcopy(state["snapshot_binding"])
     atomic_write(
         output / "layer1-adapter-state.json",
         (json.dumps(result, ensure_ascii=False, indent=2, sort_keys=True) + "\n").encode("utf-8"),

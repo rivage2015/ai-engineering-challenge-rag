@@ -576,6 +576,194 @@ class LocalVisualObservationTests(unittest.TestCase):
                 timeout=1,
             )
 
+    def test_completed_response_schema_failure_has_a_distinct_error(self) -> None:
+        with self.assertRaises(visual.CompletedResponseValidationError):
+            visual._parse_model_content(chat_response({}))
+
+    def test_completed_response_accepts_integer_prompt_cache_metadata(self) -> None:
+        for count in (0, 123):
+            with self.subTest(count=count):
+                response = {**chat_response(), "prompt_eval_cached_count": count}
+                observation, raw = visual._parse_model_content(response)
+                self.assertEqual(observation, observation_payload())
+                self.assertEqual(json.loads(raw), observation_payload())
+                self.assertFalse(image_reader.local_model_timeout_latched())
+
+    def test_completed_response_rejects_invalid_prompt_cache_metadata(self) -> None:
+        for count in (True, False, 1.0, -1):
+            with self.subTest(count=count), self.assertRaises(
+                visual.CompletedResponseValidationError
+            ):
+                visual._parse_model_content(
+                    {**chat_response(), "prompt_eval_cached_count": count}
+                )
+            self.assertFalse(image_reader.local_model_timeout_latched())
+
+    def test_completed_response_unknown_metadata_is_not_adopted(self) -> None:
+        response = {
+            **chat_response(),
+            "PRIVATE_SOURCE_METADATA": "PRIVATE_SOURCE_VALUE",
+        }
+        with self.assertRaises(
+            visual.CompletedResponseValidationError
+        ) as caught:
+            visual._parse_model_content(response)
+        self.assertNotIn("PRIVATE_SOURCE_METADATA", str(caught.exception))
+        self.assertNotIn("PRIVATE_SOURCE_VALUE", str(caught.exception))
+        self.assertFalse(image_reader.local_model_timeout_latched())
+
+    def test_unconfirmed_response_failures_are_not_asset_local(self) -> None:
+        missing_done = chat_response({})
+        missing_done.pop("done")
+        responses = {
+            "not_done": {**chat_response({}), "done": False},
+            "truthy_nonboolean_done": {**chat_response({}), "done": 1},
+            "missing_done": missing_done,
+            "server_error": {**chat_response({}), "error": "fixture failure"},
+            "different_model": chat_response({}, model="untrusted-model"),
+        }
+        for case, response in responses.items():
+            with self.subTest(case=case), self.assertRaises(
+                visual.VisualObservationError
+            ) as caught:
+                visual._parse_model_content(response)
+            self.assertNotIsInstance(
+                caught.exception, visual.CompletedResponseValidationError
+            )
+
+    def test_completed_response_error_does_not_expose_source_json_keys(self) -> None:
+        response = chat_response()
+        response["message"]["content"] = (
+            '{"PRIVATE_SOURCE_TEXT": 1, "PRIVATE_SOURCE_TEXT": 2}'
+        )
+        with self.assertRaises(
+            visual.CompletedResponseValidationError
+        ) as caught:
+            visual._parse_model_content(response)
+        self.assertNotIn("PRIVATE_SOURCE_TEXT", str(caught.exception))
+
+    @staticmethod
+    def _completed_validation_worker(
+        *,
+        valid_identity: bool = True,
+        returncode: int = 2,
+        reaped: bool = True,
+        result: dict[str, object] | None = None,
+        after_communicate=None,
+    ):
+        class FixtureProcess:
+            pid = 424257
+            stdin = None
+            stdout = None
+
+            def __init__(self) -> None:
+                self.returncode = returncode
+                self.reaped = reaped
+
+            def communicate(self, *, input: bytes, timeout: float):
+                header = json.loads(input.partition(b"\n")[0])
+                if result is None:
+                    envelope = {
+                        "protocol_version": visual.WORKER_PROTOCOL_VERSION,
+                        "type": "error",
+                        "request_id": (
+                            header["request_id"] if valid_identity else "invalid"
+                        ),
+                        "error_type": "CompletedResponseValidationError",
+                        "error": "completed response failed validation",
+                    }
+                else:
+                    envelope = {
+                        "protocol_version": visual.WORKER_PROTOCOL_VERSION,
+                        "type": "result",
+                        "request_id": header["request_id"],
+                        "task": header["task"],
+                        "input": header["input"],
+                        "prompt_sha256": header["prompt_sha256"],
+                        "result_sha256": hashlib.sha256(
+                            visual._canonical_json_bytes(result)
+                        ).hexdigest(),
+                        "result": result,
+                    }
+                if after_communicate is not None:
+                    after_communicate()
+                return visual._canonical_json_bytes(envelope), b""
+
+            def poll(self):
+                return self.returncode if self.reaped else None
+
+        return FixtureProcess()
+
+    def test_completed_response_failure_allows_the_next_image_worker(self) -> None:
+        request = mock.Mock(
+            side_effect=[tags_response(), chat_response(), tags_response()]
+        )
+        with mock.patch.object(visual, "_ollama_json", request):
+            expected = visual._observe_image_inline(IMAGE_BYTES, timeout=12)
+        rejected = self._completed_validation_worker()
+        successful = self._completed_validation_worker(
+            returncode=0, result=expected
+        )
+        with mock.patch.object(
+            visual.subprocess, "Popen", side_effect=[rejected, successful]
+        ) as popen:
+            with self.assertRaises(visual.CompletedResponseValidationError):
+                visual.observe_image(IMAGE_BYTES, timeout=1)
+            self.assertFalse(image_reader.local_model_timeout_latched())
+            actual = visual.observe_image(IMAGE_BYTES, timeout=1)
+        self.assertEqual(actual, expected)
+        self.assertEqual(popen.call_count, 2)
+        self.assertFalse(image_reader.local_model_timeout_latched())
+
+    def test_completed_error_requires_bound_identity_and_reaped_error_exit(self) -> None:
+        cases = {
+            "wrong_identity": {"valid_identity": False},
+            "unexpected_exit": {"returncode": -9},
+            "success_exit_with_error_envelope": {"returncode": 0},
+            "not_reaped": {"reaped": False},
+        }
+        for case, options in cases.items():
+            with self.subTest(case=case):
+                image_reader._LOCAL_MODEL_TIMEOUT_LATCH.clear()
+                process = self._completed_validation_worker(**options)
+
+                def retire(child):
+                    self.assertIs(child, process)
+                    child.returncode = -15
+                    child.reaped = True
+                    return True
+
+                with (
+                    mock.patch.object(
+                        visual.subprocess, "Popen", return_value=process
+                    ),
+                    mock.patch.object(
+                        visual, "_terminate_worker_process", side_effect=retire
+                    ),
+                    self.assertRaises(visual.VisualObservationError),
+                ):
+                    visual.observe_image(IMAGE_BYTES, timeout=1)
+                self.assertTrue(image_reader.local_model_timeout_latched())
+
+    def test_completed_error_after_deadline_still_stops_later_models(self) -> None:
+        clock = {"now": 100.0}
+
+        def expire() -> None:
+            clock["now"] = 102.0
+
+        process = self._completed_validation_worker(after_communicate=expire)
+        with (
+            mock.patch.object(visual.subprocess, "Popen", return_value=process),
+            mock.patch.object(
+                visual.time, "monotonic", side_effect=lambda: clock["now"]
+            ),
+            self.assertRaisesRegex(
+                visual.VisualObservationError, "deadline was exceeded"
+            ),
+        ):
+            visual.observe_image(IMAGE_BYTES, timeout=1)
+        self.assertTrue(image_reader.local_model_timeout_latched())
+
     def test_expected_input_digest_is_verified_before_http(self) -> None:
         request = mock.Mock(side_effect=AssertionError("HTTP must not run"))
         with (

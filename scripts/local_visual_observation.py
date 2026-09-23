@@ -26,6 +26,10 @@ import tempfile
 import threading
 import time
 import unicodedata
+from collections import OrderedDict
+from collections.abc import Iterator
+from contextlib import contextmanager
+from contextvars import ContextVar
 from pathlib import Path
 from typing import Any
 
@@ -34,7 +38,7 @@ OLLAMA_HOST = "127.0.0.1"
 OLLAMA_PORT = 11434
 VISUAL_OBSERVATION_MODEL = "gemma4:12b"
 VISUAL_OBSERVATION_RUNNER = "ollama_loopback_chat"
-VISUAL_OBSERVATION_VERSION = "0.3.0"
+VISUAL_OBSERVATION_VERSION = "0.3.2"
 PROVISIONAL_MARKER = "[暫定読取]"
 
 MAX_IMAGE_BYTES = 20 * 1024 * 1024
@@ -55,6 +59,8 @@ MAX_WORKER_RESPONSE_BYTES = 2 * 1024 * 1024
 WORKER_REQUEST_ID_RE = re.compile(r"^[0-9a-f]{32}$")
 _UNREAPED_WORKER_LOCK = threading.Lock()
 _UNREAPED_VISUAL_WORKERS: list[subprocess.Popen[bytes]] = []
+MAX_MEMO_ENTRIES = 128
+MAX_MEMO_BYTES = 16 * 1024 * 1024
 
 ID_RE = re.compile(r"^[a-z][a-z0-9_-]{0,63}$")
 SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
@@ -105,7 +111,7 @@ JSONの各配列は、該当する観測がなければ空配列にします。
 - ラベルと値がともに明瞭な場合だけ value_status を exact_label にし、見えた文字をそのまま記録します。
 - 数値、ラベル、単位、またはそれらの対応が不明な場合は value_status を unclear にし、value_text を空文字にします。estimated や推定数値は出力しません。
 - 画像にない事実、背景、因果、意図、感情、評価、時間や場所を推定・補完しません。
-- 顔や外見から個人を特定しません。人物は単に person として観測します。
+- 顔や外見から個人を特定しません。kind が person の対象は description も必ず文字列 "person" だけにします。人物の姿勢・服装・周囲の状況などは description に追加しません。
 - 人種・民族、国籍、宗教、健康・障害、性的指向、性自認、政治的信条、犯罪歴などのセンシティブ属性を推測しません。
 - 判断できない場合は、推測せず warnings または unclear として残します。
 - Markdown、説明文、コードブロックを加えず、指定されたJSONオブジェクトだけを返します。
@@ -264,6 +270,89 @@ VISUAL_OBSERVATION_WIRE_SCHEMA: dict[str, Any] = _ollama_wire_schema(
 
 class VisualObservationError(RuntimeError):
     """Raised when a local visual observation fails its safety contract."""
+
+
+class CompletedResponseValidationError(VisualObservationError):
+    """Inference ended, but this asset's observation is not usable evidence."""
+
+
+class _VisualObservationMemo:
+    """Bounded immutable observations, owned by exactly one build context."""
+
+    def __init__(self, *, enabled: bool) -> None:
+        self.enabled = enabled
+        self.owner = (os.getpid(), threading.get_ident())
+        self.closed = False
+        self._entries: OrderedDict[str, bytes] = OrderedDict()
+        self._bytes = 0
+        self._counts = dict(hits=0, misses=0, stores=0, evictions=0)
+
+    def available(self) -> bool:
+        return (
+            self.enabled and not self.closed
+            and self.owner == (os.getpid(), threading.get_ident())
+        )
+
+    def get(self, key: str) -> dict[str, Any] | None:
+        raw = self._entries.get(key)
+        if raw is None:
+            self._counts["misses"] += 1
+            return None
+        self._entries.move_to_end(key)
+        # Each occurrence gets its own dict, including the very first caller.
+        return _strict_json_object(raw.decode("utf-8"), label="visual memo result")
+
+    def put(self, key: str, result: dict[str, Any]) -> None:
+        raw = _canonical_json_bytes(result)
+        if (
+            MAX_MEMO_ENTRIES <= 0 or MAX_MEMO_BYTES <= 0
+            or len(raw) > min(MAX_MEMO_BYTES, MAX_WORKER_RESPONSE_BYTES)
+        ):
+            return
+        previous = self._entries.pop(key, None)
+        if previous is not None:
+            self._bytes -= len(previous)
+        while self._entries and (
+            len(self._entries) >= MAX_MEMO_ENTRIES
+            or self._bytes + len(raw) > MAX_MEMO_BYTES
+        ):
+            _, evicted = self._entries.popitem(last=False)
+            self._bytes -= len(evicted)
+            self._counts["evictions"] += 1
+        self._entries[key] = raw
+        self._bytes += len(raw)
+        self._counts["stores"] += 1
+
+    def stats(self) -> dict[str, int]:
+        return dict(self._counts, entries=len(self._entries), bytes=self._bytes)
+
+    def close(self) -> None:
+        self._entries.clear()
+        self._bytes = 0
+        self.closed = True
+
+
+_VISUAL_MEMO: ContextVar[_VisualObservationMemo | None] = ContextVar(
+    "local_visual_observation_memo", default=None
+)
+
+
+@contextmanager
+def visual_observation_session(*, enabled: bool = True) -> Iterator[_VisualObservationMemo]:
+    """Reuse validated observations within this build only; never write a cache.
+
+    Reuse is not a second independent observation or an upgrade in confidence.
+    Outside this opt-in context, the reader retains its ordinary worker path.
+    """
+    if _VISUAL_MEMO.get() is not None:
+        raise RuntimeError("visual observation sessions must not be nested")
+    memo = _VisualObservationMemo(enabled=enabled)
+    token = _VISUAL_MEMO.set(memo)
+    try:
+        yield memo
+    finally:
+        memo.close()
+        _VISUAL_MEMO.reset(token)
 
 
 def _bounded_timeout(timeout: float) -> float:
@@ -749,15 +838,54 @@ def validate_observation(value: Any) -> dict[str, Any]:
 
 
 def _parse_model_content(response: dict[str, Any]) -> tuple[dict[str, Any], str]:
+    # Only a complete, model-bound HTTP response proves inference has ended.
+    # Transport errors, missing done, and model mismatches remain fail-closed.
+    completed = (
+        response.get("done") is True
+        and response.get("model") == VISUAL_OBSERVATION_MODEL
+        and "error" not in response
+    )
+    try:
+        return _validate_model_content(response)
+    except VisualObservationError as exc:
+        if not completed:
+            raise
+        # Validation errors can contain model-supplied keys or text. Never
+        # forward that material into document warnings or the worker protocol.
+        reason = (
+            "strict JSON"
+            if str(exc) == "visual observation model content is not strict JSON"
+            else "content_validation"
+        )
+        if str(exc).startswith("visual observation JSON contains duplicate key:"):
+            reason = "duplicate key"
+        elif " violates the strict schema;" in str(exc):
+            reason = "strict schema"
+        raise CompletedResponseValidationError(
+            f"completed local visual response rejected ({reason})"
+        ) from exc
+
+
+def _validate_model_content(response: dict[str, Any]) -> tuple[dict[str, Any], str]:
     allowed_response_keys = {
         "model", "created_at", "message", "done", "done_reason",
         "total_duration", "load_duration", "prompt_eval_count",
-        "prompt_eval_duration", "eval_count", "eval_duration",
+        "prompt_eval_cached_count", "prompt_eval_duration", "eval_count", "eval_duration",
     }
-    if "error" in response or not set(response).issubset(allowed_response_keys):
+    if "error" in response:
         raise VisualObservationError(
-            "loopback Ollama chat response contains an error or unknown field"
+            "loopback Ollama chat response contains a server error"
         )
+    if not set(response).issubset(allowed_response_keys):
+        raise VisualObservationError(
+            "loopback Ollama chat response contains an unknown field"
+        )
+    # Ollama 0.34 reports cache reuse as optional metadata, not model content.
+    # Accept only its observed integer shape; unknown fields remain rejected.
+    if "prompt_eval_cached_count" in response:
+        cached = response["prompt_eval_cached_count"]
+        if type(cached) is not int or cached < 0:
+            raise VisualObservationError("loopback Ollama cache count is invalid")
     if response.get("model") != VISUAL_OBSERVATION_MODEL:
         raise VisualObservationError(
             "loopback Ollama response model does not match the fixed request"
@@ -788,13 +916,9 @@ def _parse_model_content(response: dict[str, Any]) -> tuple[dict[str, Any], str]
     return validate_observation(parsed), content
 
 
-def _request_observation(
-    image_bytes: bytes,
-    *,
-    deadline_at: float,
-) -> tuple[dict[str, Any], str]:
-    _remaining_timeout(deadline_at)
-    payload = {
+def _observation_request_template() -> dict[str, Any]:
+    """Single source for inference settings and their memo fingerprint."""
+    return {
         "model": VISUAL_OBSERVATION_MODEL,
         "stream": False,
         "format": VISUAL_OBSERVATION_WIRE_SCHEMA,
@@ -810,7 +934,6 @@ def _request_observation(
             {
                 "role": "user",
                 "content": VISUAL_OBSERVATION_PROMPT,
-                "images": [base64.b64encode(image_bytes).decode("ascii")],
             },
         ],
         "think": False,
@@ -821,6 +944,16 @@ def _request_observation(
             "num_predict": MAX_PREDICT_TOKENS,
         },
     }
+
+
+def _request_observation(
+    image_bytes: bytes,
+    *,
+    deadline_at: float,
+) -> tuple[dict[str, Any], str]:
+    _remaining_timeout(deadline_at)
+    payload = _observation_request_template()
+    payload["messages"][1]["images"] = [base64.b64encode(image_bytes).decode("ascii")]
     _remaining_timeout(deadline_at)
     response = _ollama_json(
         "POST", "/api/chat", payload=payload, deadline_at=deadline_at
@@ -1056,6 +1189,10 @@ def _decode_worker_envelope(
             or any(ord(character) < 32 or ord(character) == 127 for character in error)
         ):
             raise VisualObservationError("local visual worker error envelope is invalid")
+        if error_type == "CompletedResponseValidationError":
+            raise CompletedResponseValidationError(
+                "completed local visual response rejected (content_validation)"
+            )
         raise VisualObservationError(f"local visual worker failed: {error}")
     response_input = envelope.get("input")
     if (
@@ -1127,6 +1264,7 @@ def _run_isolated_task(
         "PYTHONDONTWRITEBYTECODE": "1",
     }
     process: subprocess.Popen[bytes] | None = None
+    completed_asset_failure = False
     try:
         with tempfile.TemporaryFile(
             mode="w+b", prefix="aiec-local-visual-response-"
@@ -1195,18 +1333,21 @@ def _run_isolated_task(
                 raise VisualObservationError(
                     f"local visual worker exited unexpectedly ({process.returncode})"
                 )
-            if process.returncode == 2:
-                # The child may have dispatched inference before its failure.
-                # Fail closed for the rest of this parent process.
-                _latch_local_model_timeout()
-            result = _decode_worker_envelope(
-                stdout,
-                request_id=request_id,
-                task=task,
-                input_sha256=input_sha256,
-                input_size=len(raw),
-                prompt_sha256=prompt_sha256,
-            )
+            try:
+                result = _decode_worker_envelope(
+                    stdout,
+                    request_id=request_id,
+                    task=task,
+                    input_sha256=input_sha256,
+                    input_size=len(raw),
+                    prompt_sha256=prompt_sha256,
+                )
+            except CompletedResponseValidationError:
+                _remaining_timeout(deadline_at)
+                completed_asset_failure = (
+                    process.returncode == 2 and process.poll() == 2
+                )
+                raise
             if process.returncode != 0:
                 raise VisualObservationError(
                     "local visual worker returned success with a failing exit status"
@@ -1214,7 +1355,9 @@ def _run_isolated_task(
             _remaining_timeout(deadline_at)
             return result
     except BaseException as exc:
-        if process is not None or not isinstance(exc, Exception):
+        if not completed_asset_failure and (
+            process is not None or not isinstance(exc, Exception)
+        ):
             _latch_local_model_timeout()
         if process is not None and process.poll() is None:
             _terminate_worker_process(process)
@@ -1272,6 +1415,27 @@ def _validate_visual_worker_result(
     return result
 
 
+def _memo_key(input_sha256: str, model: dict[str, Any], prompt_sha256: str) -> str:
+    return hashlib.sha256(_canonical_json_bytes({
+        "input_image_sha256": input_sha256,
+        "model": model,
+        "prompt_sha256": prompt_sha256,
+        "request": _observation_request_template(),
+        "validation_schema": VISUAL_OBSERVATION_SCHEMA,
+        "runner": VISUAL_OBSERVATION_RUNNER,
+        "runner_version": VISUAL_OBSERVATION_VERSION,
+        "worker_protocol_version": WORKER_PROTOCOL_VERSION,
+        "host": OLLAMA_HOST,
+        "port": OLLAMA_PORT,
+    })).hexdigest()
+
+
+def _check_memo_safety(deadline_at: float) -> None:
+    _remaining_timeout(deadline_at)
+    if _local_model_timeout_latched():
+        raise VisualObservationError("local model safety timeout is latched")
+
+
 def observe_image(
     raw: bytes,
     *,
@@ -1283,18 +1447,48 @@ def observe_image(
     deadline_at = time.monotonic() + bounded_timeout
     image_bytes, input_sha256 = _input_bytes(raw, expected_input_sha256)
     prompt_sha256 = _verified_prompt_sha256()
-    result = _run_isolated_task(
-        "visual_observation",
-        image_bytes,
-        input_sha256=input_sha256,
-        prompt_sha256=prompt_sha256,
-        deadline_at=deadline_at,
-    )
-    return _validate_visual_worker_result(
+    memo = _VISUAL_MEMO.get()
+    if memo is not None and not memo.available():
+        memo = None
+    result = None
+    key = None
+    model_before = None
+    cache_hit = False
+    if memo is not None:
+        _check_memo_safety(deadline_at)
+        model_before = _installed_model(deadline_at=deadline_at)
+        key = _memo_key(input_sha256, model_before, prompt_sha256)
+        result = memo.get(key)
+        cache_hit = result is not None
+    if not cache_hit:
+        result = _run_isolated_task(
+            "visual_observation",
+            image_bytes,
+            input_sha256=input_sha256,
+            prompt_sha256=prompt_sha256,
+            deadline_at=deadline_at,
+        )
+    result = _validate_visual_worker_result(
         result,
         input_sha256=input_sha256,
         prompt_sha256=prompt_sha256,
     )
+    if memo is not None:
+        _check_memo_safety(deadline_at)
+        model_after = _installed_model(deadline_at=deadline_at)
+        if (
+            model_before != model_after
+            or result["model_digest"] != model_before["digest"]
+            or result["model"] != model_before["resolved"]
+            or key != _memo_key(input_sha256, model_after, _verified_prompt_sha256())
+        ):
+            raise VisualObservationError("visual memo model or reading contract changed")
+        _check_memo_safety(deadline_at)
+        if cache_hit:
+            memo._counts["hits"] += 1
+        else:
+            memo.put(key, result)
+    return result
 
 
 def run_unlocated_transcript_isolated(
@@ -1475,6 +1669,7 @@ __all__ = [
     "read_checked_image_bytes",
     "run_unlocated_transcript_isolated",
     "validate_observation",
+    "visual_observation_session",
 ]
 
 

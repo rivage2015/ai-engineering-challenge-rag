@@ -66,6 +66,13 @@ if AUDIT_GUARD_SPEC is None or AUDIT_GUARD_SPEC.loader is None:
 audit_guard = importlib.util.module_from_spec(AUDIT_GUARD_SPEC)
 AUDIT_GUARD_SPEC.loader.exec_module(audit_guard)
 
+INTENT_SPEC = importlib.util.spec_from_file_location(
+    'final_audit_intent_contract', Path(__file__).with_name('intent_contract.py'))
+if INTENT_SPEC is None or INTENT_SPEC.loader is None:
+    raise ImportError('intent_contract_unavailable')
+intent_contract = importlib.util.module_from_spec(INTENT_SPEC)
+INTENT_SPEC.loader.exec_module(intent_contract)
+
 
 SCHEMA = {
     "type": "object",
@@ -633,6 +640,7 @@ def validate_workflow_retrieval_binding(record: dict, rows: list[dict], policy: 
         spec = importlib.util.spec_from_file_location('final_workflow_selection', path)
         engine = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(engine)
+        engine.ACTIVE_READING_SNAPSHOT = policy['metadata'].get('reading_snapshot')
         bundle, binding = engine.build_workflow_source_bundle(
             record['query'], rows, policy['source_graph'], policy['metadata'])
         if (not bundle or binding.get('status') != 'ready'
@@ -1156,6 +1164,9 @@ def audit(
     }
     if workflow:
         compact_contract['workflow_explanations'] = workflow
+    snapshot = graph_context.get("reading_snapshot")
+    if snapshot:
+        compact_contract["reading_scope"] = answer_engine.snapshot_context_helper().model_scope(snapshot)
     answer_body = str(answer.get("answer", ""))
     prompt = f"""以下の質問、回答本文、Evidenceを敵対的に監査してください。
 別のモデルが作った回答なので、正しいと仮定してはいけません。
@@ -1190,6 +1201,8 @@ Evidence:
 機械検証済み情報（監査対象ではなく、対象・時制・全件性の確認補助）:
 {json.dumps(compact_contract, ensure_ascii=False)}
 """
+    if snapshot:
+        prompt += "\n" + answer_engine.snapshot_context_helper().GUIDANCE
     if any(c.get("claim_kind") == "workflow_quotes" for c in compact_contract["claims"]):
         prompt += """
 追加の手順引用監査：workflow_quotesの文字列一致は確認済みですが、意味の正しさは未確認です。
@@ -1209,6 +1222,21 @@ question_requirement_checksに全question_requirementsのIDを一回ずつ列挙
 """
     if workflow_groups:
         prompt = workflow_group_audit_prompt(query, workflow_groups)
+        if snapshot:
+            prompt += ("\n" + answer_engine.snapshot_context_helper().GUIDANCE
+                       + answer_engine.snapshot_context_helper().scope_text(snapshot))
+    if graph_context.get('intent_requirement_graph'):
+        intent = graph_context['intent_requirement_graph']
+        prompt += ('\n承認済みの検索目的（資料の事実ではありません。'
+                   '要求の充足判定は別であり、ここでのverifiedは事実支持だけです）:\n'
+                   + json.dumps({'contract_sha256': intent['contract_sha256'],
+                                 'nodes': intent['nodes'], 'edges': intent['edges']}, ensure_ascii=False))
+    prompt += (
+        '\n最終再照合：「それって本当？」と回答の各事実・関係を問い直してください。'
+        'Evidenceの原文・出典と照合し、対象、時点・版、条件、否定、例外の取り違えを確認してください。'
+        '直接支持されない主張はverifiedにせず、既定の判定とunsupported_claimsで具体的に示してください。'
+        '根拠がある内容まで疑いだけで落とさず、資料外の知識や推測で補わないでください。'
+    )
     response_schema = (workflow_group_audit_schema(workflow_groups) if workflow_groups else
                        workflow_audit_schema() if workflow else SCHEMA)
     payload = {
@@ -1440,6 +1468,44 @@ def project_validation_failure(answer: dict, diagnostic_ids: list[str], error: E
     return projected
 
 
+def validate_intent_lookup_binding(record: dict, rows: list[dict], source_graph: dict) -> dict:
+    """Rebuild candidate lookup separately from the unchanged scalar QEG gate."""
+    helper = intent_contract.graph_helper()
+    plan = record['question_plan']
+    intent_contract.validate_record_binding(record.get('confirmed_intent'), record)
+    mapping = record.get('intent_requirement_trace', {}).get('work_mapping')
+    helper.validate_work_mapping(plan, mapping, question_graph.RECORD_LOOKUP_FIELD_ALIASES)
+    dispatch = record.get('intent_lookup_dispatch')
+    helper.validate_lookup_dispatch(plan, dispatch, rows, source_graph,
+                                   record.get('question_reference_date'), question_graph)
+    scope = record.get('registered_version_scope', {'status': 'disabled'})
+    by_id = {r['evidence_id']: r for r in rows}
+    delivery = []
+    for run in record['field_runs']:
+        item_id = run['item']['item_id']
+        ids = dispatch['selected_by_item'][item_id]
+        if ids and (scope.get('status') == 'hold' or (
+                scope.get('status') == 'ready' and any(
+                    by_id[eid]['relative_path'] not in scope.get('allowed_relative_paths', [])
+                    for eid in ids))):
+            raise ValueError('intent_lookup_version_scope_mismatch')
+        if (run.get('intent_lookup_candidate_evidence_ids') != ids
+                or set(ids) - set(run.get('retrieved_evidence_ids', []))):
+            raise ValueError('intent_lookup_retrieval_binding_mismatch')
+        observed = any(
+            a.get('delivery_status') == 'response_received'
+            and a.get('intent_capacity_status') == 'observed'
+            and not set(ids) - set(a.get('evidence_ids', []))
+            for a in run.get('model_context_attempts', []))
+        if ids and run['audit'].get('verdict') == 'supported' and not observed:
+            raise ValueError('intent_lookup_delivery_unconfirmed')
+        delivery.append({'item_id': item_id, 'candidate_evidence_ids': ids,
+                         'delivery': 'observed' if ids and observed else
+                                     ('not_observed' if ids else 'no_candidate')})
+    return {'status': 'pass', 'candidate_binding_only': True,
+            'requirements_checked': False, 'delivery': delivery}
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--record", required=True)
@@ -1448,6 +1514,9 @@ def main() -> int:
     parser.add_argument("--timeout", type=int, default=300)
     args = parser.parse_args()
     record = json.loads(Path(args.record).read_text(encoding="utf-8"))
+    if any(key in record for key in ('confirmed_intent', 'intent_requirement_graph')) \
+            or 'intent_graph' in record.get('question_plan', {}):
+        intent_contract.validate_record_binding(record.get('confirmed_intent'), record)
     answer = record["answer"]
     ids = list(dict.fromkeys(answer.get("evidence_ids", []) + answer.get("diagnostic_evidence_ids", [])))
     index_path = Path(args.index)
@@ -1456,6 +1525,20 @@ def main() -> int:
     )
     eligible_ids = set(answer_graph_policy["eligible_evidence_ids"])
     current_metadata = answer_graph_policy["metadata"]
+    # Older records without this comparison route remain readable. A record
+    # carrying either the dispatch or its receipt must rebuild the whole path;
+    # removing only one of them cannot turn off the check.
+    if (record.get('schema_version') == '0.4-intent-candidate-dispatch'
+            or 'intent_lookup_dispatch' in record or any(
+            'intent_lookup_candidate_evidence_ids' in run
+            for run in record.get('field_runs', []))):
+        record['intent_lookup_validation'] = validate_intent_lookup_binding(
+            record, all_graph_evidence, answer_graph_policy.get('source_graph'))
+    snapshot = current_metadata.get("reading_snapshot")
+    if record.get("reading_snapshot") != snapshot:
+        raise ValueError("answer_snapshot_scope_mismatch")
+    if snapshot is not None and record.get("index", {}).get("reading_snapshot_sha256") != snapshot["contract_sha256"]:
+        raise ValueError("answer_snapshot_binding_mismatch")
     record_index = record.get("index")
     binding_fields = (
         "evidence_sha256",
@@ -1692,6 +1775,7 @@ def main() -> int:
             args.timeout,
             {
                 "question_contract": contract,
+                "intent_requirement_graph": record.get('intent_requirement_graph'),
                 "claim_graph": graph,
                 "validation": validation,
                 "question_evidence_graph": {
@@ -1705,6 +1789,7 @@ def main() -> int:
                 "graph_retrieval_trace": graph_retrieval_trace,
                 "answerability_policy": record.get("answerability_policy", {}),
                 "source_metadata_policy": record.get("source_metadata_policy", {}),
+                "reading_snapshot": snapshot,
                 "workflow_explanations": workflow_context,
                 "workflow_groups": workflow_groups_context,
             },
@@ -1740,7 +1825,8 @@ def main() -> int:
                     result, retry_performance = audit_fail_closed(
                         args.model, record["query"], answer, packets, args.timeout,
                         {"question_contract": contract, "claim_graph": graph,
-                         "validation": validation, "answerability_policy": record["answerability_policy"]},
+                         "validation": validation, "answerability_policy": record["answerability_policy"],
+                         "reading_snapshot": snapshot},
                     )
                     audit_performance = {**retry_performance, "first_attempt": audit_performance, "attempts": 2}
                     ids = list(dict.fromkeys(answer.get("evidence_ids", []) + answer.get("diagnostic_evidence_ids", [])))

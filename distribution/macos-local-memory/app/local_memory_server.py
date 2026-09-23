@@ -37,11 +37,13 @@ import intent_contract
 import grounded_guidance
 import audit_response_guard
 import source_updates
+import source_selection
 
 
 BUILD_LOCK = threading.Lock()
 ACTIVE_WORK_LOCK = threading.Lock()
 ACTIVE_WORK_COUNT = 0
+SOURCE_CHANGE_ACTIVE = False
 SERVER_SHUTDOWN_REQUESTED = threading.Event()
 BASE = Path(__file__).resolve().parent
 ENGINE = BASE / "engine"
@@ -338,58 +340,99 @@ code{background:#edf5fb;padding:2px 6px;border-radius:5px}details{margin-top:16p
 """
 
 
-UI_SCRIPT = b"""(() => {
+UI_SCRIPT = """(() => {
+  let submitting = false;
+  let disposed = false;
+  let pollTimer;
   const pollUpdates = async () => {
+    if (disposed) return;
     const card = document.getElementById("source-updates");
     if (!card || card.dataset.busy !== "true") return;
     try {
       const response = await fetch("/source-updates/status", {credentials: "same-origin", cache: "no-store"});
       if (!response.ok) throw new Error("status unavailable");
       const result = await response.json();
+      if (disposed) return;
       card.outerHTML = result.html;
-      if (result.busy) setTimeout(pollUpdates, 4000);
+      if (result.busy) pollTimer = setTimeout(pollUpdates, 4000);
     } catch (_error) {
+      if (disposed) return;
       card.dataset.busy = "false";
       const notice = document.createElement("p");
       notice.textContent = "\\u72b6\\u614b\\u3092\\u53d6\\u5f97\\u3067\\u304d\\u307e\\u305b\\u3093\\u3002\\u753b\\u9762\\u3092\\u958b\\u304d\\u76f4\\u3057\\u3066\\u78ba\\u8a8d\\u3057\\u3066\\u304f\\u3060\\u3055\\u3044\\u3002";
       card.appendChild(notice);
     }
   };
-  setTimeout(pollUpdates, 1000);
-  const form = document.getElementById("local-search-form");
-  if (!form) return;
-  form.addEventListener("submit", async (event) => {
+  pollTimer = setTimeout(pollUpdates, 1000);
+  // Native POST + no-referrer can send Origin:null. Keep the server's strict
+  // Origin/CSRF checks; use same-origin fetch for every owned POST form instead.
+  // Delegation also covers source-update cards replaced by the polling above.
+  document.addEventListener("submit", async (event) => {
+    const form = event.target;
+    if (!(form instanceof HTMLFormElement) || form.method.toLowerCase() !== "post"
+        || !form.querySelector('input[name="_local_memory_csrf"]')) return;
     event.preventDefault();
-    const button = form.querySelector("button");
-    const status = document.getElementById("local-search-progress");
-    if (button) button.disabled = true;
-    if (status) {
-      status.hidden = false;
-      status.textContent = "\xe5\xae\x9f\xe8\xa1\x8c\xe4\xb8\xad\xe3\x81\xa7\xe3\x81\x99\xe3\x80\x82\xe6\xa0\xb9\xe6\x8b\xa0\xe3\x81\xae\xe6\xa4\x9c\xe7\xb4\xa2\xe3\x81\xa8\xe7\x9b\xa3\xe6\x9f\xbb\xe3\x82\x92\xe8\xa1\x8c\xe3\x81\xa3\xe3\x81\xa6\xe3\x81\x84\xe3\x81\xbe\xe3\x81\x99\xe2\x80\xa6";
+    if (submitting) return;
+    let status = form.querySelector(".progress, .local-submit-status");
+    if (!status) {
+      status = document.createElement("p");
+      status.className = "progress local-submit-status";
+      status.setAttribute("role", "status");
+      form.appendChild(status);
     }
-    if (status && form.dataset.progress) status.textContent = form.dataset.progress;
+    const buttons = Array.from(form.querySelectorAll('button, input[type="submit"]'));
+    const wasDisabled = buttons.map((button) => button.disabled);
     try {
-      const body = new URLSearchParams(new FormData(form));
-      const response = await fetch(form.action, {
+      const submitter = event.submitter;
+      const action = new URL(submitter?.hasAttribute("formaction")
+        ? submitter.formAction : form.action, location.href);
+      if (action.origin !== location.origin) throw new Error("invalid form origin");
+      // Capture successful controls BEFORE disabling, including a named button.
+      const fields = new FormData(form);
+      if (submitter && submitter.name && !submitter.disabled) {
+        fields.append(submitter.name, submitter.value);
+      }
+      const body = new URLSearchParams(fields);
+      submitting = true;
+      buttons.forEach((button) => { button.disabled = true; });
+      status.hidden = false;
+      status.className = "progress local-submit-status";
+      status.textContent = form.dataset.localProgress || form.dataset.progress
+        || (form.id === "local-search-form"
+          ? "実行中です。根拠の検索と監査を行っています…" : "実行中です。処理結果を待っています…");
+      const response = await fetch(action.href, {
         method: "POST",
         body,
+        mode: "same-origin",
         credentials: "same-origin",
         headers: {"Content-Type": "application/x-www-form-urlencoded"},
       });
+      if (!(response.headers.get("Content-Type") || "").toLowerCase().startsWith("text/html")) {
+        throw new Error("unexpected response");
+      }
       const result = await response.text();
+      // POST-only result paths must never become refresh/bookmark destinations.
+      // A build's 303 was followed by fetch; refresh always returns to GET /.
+      history.replaceState(null, "", "/");
+      disposed = true;
+      clearTimeout(pollTimer);
       document.open();
       document.write(result);
       document.close();
     } catch (_error) {
-      if (button) button.disabled = false;
-      if (status) {
-        status.hidden = false;
-        status.textContent = "\xe9\x80\x81\xe4\xbf\xa1\xe3\x81\xa7\xe3\x81\x8d\xe3\x81\xbe\xe3\x81\x9b\xe3\x82\x93\xe3\x81\xa7\xe3\x81\x97\xe3\x81\x9f\xe3\x80\x82\xe3\x82\xa2\xe3\x83\x97\xe3\x83\xaa\xe3\x82\x92\xe9\x96\x8b\xe3\x81\x8d\xe7\x9b\xb4\xe3\x81\x97\xe3\x81\xa6\xe3\x81\x8f\xe3\x81\xa0\xe3\x81\x95\xe3\x81\x84\xe3\x80\x82";
-      }
+      submitting = false;
+      buttons.forEach((button, index) => { button.disabled = wasDisabled[index]; });
+      status.hidden = false;
+      status.className = "warn local-submit-status";
+      status.textContent = "送信結果を確認できませんでした。再送する前に、ホーム画面で処理状態を確認してください。入力内容はこの画面に残っています。 ";
+      const link = document.createElement("a");
+      link.href = "/";
+      link.textContent = "ホーム画面で確認する";
+      status.appendChild(link);
     }
   });
 })();
-"""
+""".encode("utf-8")
 
 
 def page(body: str, refresh: int | None = None) -> bytes:
@@ -817,7 +860,7 @@ def _local_ui_post_has_stale_csrf(
 def _begin_active_work() -> bool:
     global ACTIVE_WORK_COUNT
     with ACTIVE_WORK_LOCK:
-        if SERVER_SHUTDOWN_REQUESTED.is_set():
+        if SERVER_SHUTDOWN_REQUESTED.is_set() or SOURCE_CHANGE_ACTIVE:
             return False
         ACTIVE_WORK_COUNT += 1
         return True
@@ -827,6 +870,28 @@ def _end_active_work() -> None:
     global ACTIVE_WORK_COUNT
     with ACTIVE_WORK_LOCK:
         ACTIVE_WORK_COUNT = max(0, ACTIVE_WORK_COUNT - 1)
+
+
+def _reserve_source_change() -> bool:
+    """Do not switch scopes while an answer, build, or update is running."""
+    global ACTIVE_WORK_COUNT, SOURCE_CHANGE_ACTIVE
+    if not BUILD_LOCK.acquire(blocking=False):
+        return False
+    with ACTIVE_WORK_LOCK:
+        if SERVER_SHUTDOWN_REQUESTED.is_set() or SOURCE_CHANGE_ACTIVE or ACTIVE_WORK_COUNT:
+            BUILD_LOCK.release()
+            return False
+        SOURCE_CHANGE_ACTIVE = True
+        ACTIVE_WORK_COUNT += 1
+        return True
+
+
+def _release_source_change() -> None:
+    global ACTIVE_WORK_COUNT, SOURCE_CHANGE_ACTIVE
+    with ACTIVE_WORK_LOCK:
+        SOURCE_CHANGE_ACTIVE = False
+        ACTIVE_WORK_COUNT = max(0, ACTIVE_WORK_COUNT - 1)
+    BUILD_LOCK.release()
 
 
 def _reserve_server_shutdown() -> bool:
@@ -1313,11 +1378,84 @@ def start_source_update(server, action: str, ticket: str = "", *, confirmed: boo
         raise
 
 
+def source_selection_card(view: dict | None, csrf_token: str = "") -> str:
+    view = view or {"phase": "idle"}
+    escape = lambda value: html.escape(str(value), quote=True)
+    field = (f'<input type="hidden" name="{UI_CSRF_FIELD}" value="{escape(csrf_token)}">')
+    phase = view.get("phase")
+    body = ('<p>読み込むフォルダを選び、次の画面で対象を確認して開始します。'
+            '原本は変更しません。</p>')
+    if phase in {"picking", "building"} or SOURCE_CHANGE_ACTIVE:
+        body += ('<p class="progress">実行中：' + (
+            'Macのフォルダ選択画面で選んでください。' if phase == "picking"
+            else '選択した資料の地図・索引を準備しています。')
+            + f' 経過 {escape(view.get("elapsed_seconds", 0))} 秒。</p>')
+    elif phase == "selected" and not view.get("expired"):
+        body += (f'<p>読み込む場所：<code>{escape(view["path"])}</code></p>'
+            '<p>下位フォルダの対応資料も対象です。これまでの検索対象に追加するのではなく、'
+            'このフォルダへ切り替えます。旧索引は保持しますが、新しい対象の回答には使いません。</p>'
+            '<p>作成時間は資料量・形式によって変わります。版の判断が必要なら画面で確認します。'
+            '不足するモデルの自動ダウンロードは行いません。</p>'
+            '<form method="post" action="/source-selection/build" data-local-progress="読み込みを開始しています…">'
+            + field + f'<input type="hidden" name="selection_ticket" value="{escape(view["ticket"])}">'
+            '<label><input type="checkbox" name="confirmed" value="yes" required>このフォルダを読み込み、検索対象にします。</label>'
+            '<br><button>このフォルダを読み込む</button><p class="progress" hidden></p></form>'
+            '<form method="post" action="/source-selection/cancel">' + field
+            + '<button class="secondary">変更しない</button></form>')
+    else:
+        if phase == "cancelled":
+            body += '<p>フォルダ選択を取り消しました。選択操作による設定の変更はありません。</p>'
+        elif phase == "error":
+            body += ('<p class="warn">フォルダ選択または読み込みを完了できませんでした。'
+                     '現在の検索対象と準備状態を確認してください。資料不足という判定ではありません。</p>')
+            reason = {
+                "source_is_application_data": "アプリの保存領域と重なる場所は読み込めません。ホーム全体ではなく、資料のあるフォルダを選んでください。",
+                "source_directory_changed": "選択後にフォルダが置き換わりました。もう一度選んでください。",
+                "configuration_changed_before_publish": "選択後に設定が変わりました。もう一度選んでください。",
+                "source_confirmation_invalid": "確認が未完了、期限切れ、または使用済みです。もう一度選んでください。",
+                "source_configuration_missing": "初回設定が見つかりません。アプリを開き直して設定してください。",
+                "build_already_running": "別の取り込みが実行中です。完了後にもう一度選んでください。",
+                "TimeoutExpired": "フォルダ選択の待ち時間を超えました。もう一度選んでください。",
+            }.get(view.get("error"), "")
+            if reason:
+                body += '<p>' + reason + '</p>'
+        elif phase == "complete":
+            body += '<p>取込処理が終了しました。準備状態・読取制限・版の確認は下の表示をご覧ください。</p>'
+        if view.get("expired"):
+            body += '<p class="warn">選択の確認期限が切れました。もう一度選んでください。</p>'
+        body += ('<form method="post" action="/source-selection/pick" data-local-progress="Macのフォルダ選択画面を開いています…">'
+                 + field + '<button class="secondary">読み込むフォルダを選ぶ</button>'
+                 '<p class="progress" hidden></p></form>')
+    return '<section id="source-selection" class="card"><h2>読み込む資料</h2>' + body + '</section>'
+
+
+def start_selected_source_build(server, candidate: dict) -> None:
+    """Caller owns the exclusive reservation; the worker releases it."""
+    service = server.source_selection
+    def run():
+        try:
+            bootstrap.apply_source_selection(
+                Path(candidate["identity"]["path"]), candidate["config"], candidate["identity"],
+            )
+            service.complete()
+        except Exception as exc:
+            service.fail(exc)
+        finally:
+            # Old source update tickets must never be shown for the new scope.
+            # A failed attempt may also invalidate them; a new scan is harmless.
+            try:
+                server.source_updates = source_updates.SourceUpdates(bootstrap)
+            finally:
+                _release_source_change()
+    threading.Thread(target=run, name="local-memory-source-selection", daemon=True).start()
+
+
 def home(message: str = "", csrf_token: str = "", review_ticket_issuer=None,
-         source_update_state=None) -> bytes:
+         source_update_state=None, source_selection_state=None) -> bytes:
     diagnosis = bootstrap.diagnose()
     current = state()
-    ready = diagnosis["index_ready"] and current.get("phase") in {"ready", "ready_with_limits"}
+    ready = (diagnosis["index_ready"] and current.get("phase") in {"ready", "ready_with_limits"}
+             and not SOURCE_CHANGE_ACTIVE)
     answer_path = semantic_graph_answer_path_status(diagnosis, current)
     models = " / ".join(diagnosis["models"]) or "未確認"
     notices = "".join(f'<p class="warn">{html.escape(item)}</p>' for item in diagnosis["warnings"])
@@ -1327,10 +1465,12 @@ def home(message: str = "", csrf_token: str = "", review_ticket_issuer=None,
         f'value="{html.escape(csrf_token, quote=True)}">'
     )
     setup = ""
-    if current["phase"] == "building":
+    if SOURCE_CHANGE_ACTIVE:
+        setup = '<p class="progress">選択・取り込み処理中です。準備完了までお待ちください。新しいフォルダの取込操作ではモデルの自動取得は行いません。</p>'
+    elif current["phase"] == "building":
         setup = '<p class="progress">索引を作成中です。ファイル数と初回モデル取得により時間がかかります。この画面は自動更新します。</p>'
     elif current["phase"] == "error":
-        setup = f'<p class="bad">{html.escape(current["message"])}<br><span class="small">{html.escape(current.get("error", ""))}</span></p><form method="post" action="/build">{csrf_field}<button>再実行</button></form>'
+        setup = f'<p class="bad">{html.escape(current["message"])}<br><span class="small">{html.escape(current.get("error", ""))}</span></p><p>次の再実行では、不足するモデルがあれば公式Ollama経由で取得します。資料は外部へ送信しません。</p><form method="post" action="/build">{csrf_field}<button>不足モデルの取得を許可して再実行</button></form>'
     elif not ready:
         setup = f'<p>初回だけ、ローカルモデルの確認と索引作成を行います。このボタンで、不足モデルがある場合の公式Ollama経由の取得を開始します。ファイルは外部へ送信しません。</p><form method="post" action="/build">{csrf_field}<button>初回セットアップを開始</button></form>'
     elif current["phase"] == "ready_with_limits":
@@ -1362,6 +1502,7 @@ def home(message: str = "", csrf_token: str = "", review_ticket_issuer=None,
     refresh = (
         4
         if current.get("phase") == "building"
+        or SOURCE_CHANGE_ACTIVE
         or _semantic_graph_observer_pending(current)
         else None
     )
@@ -1369,7 +1510,8 @@ def home(message: str = "", csrf_token: str = "", review_ticket_issuer=None,
     <div class="eyebrow">PRIVATE / LOCAL / EVIDENCE-BASED</div><h1 class="hero">あなたのMacを、<br>曖昧な記憶から探す。</h1>
     <p class="sub">Word・Excel・PowerPoint・PDF・テキストなどの所在と内容をローカルで索引化。回答は根拠と別モデルの監査を通し、判断できない場合は理由付きで「わかりません」と停止します。</p>
     {ask}
-    {source_update_card(source_update_state, csrf_token)}
+    {source_selection_card(source_selection_state, csrf_token)}
+    {source_update_card(source_update_state, csrf_token) if not SOURCE_CHANGE_ACTIVE else ''}
     {transient}{notices}<section class="card"><div class="eyebrow">SYSTEM STATUS</div><h2>現在の状態</h2><div class="grid">
     <div class="metric">メモリ<b>{diagnosis['memory_gb'] or '?'} GB</b></div><div class="metric">空き容量<b>{diagnosis['free_gb']} GB</b></div>
     <div class="metric">チップ<b>{html.escape(diagnosis['architecture'])}</b></div><div class="metric">Ollama<b>{'起動中' if diagnosis['ollama_online'] else '停止中/未導入'}</b></div></div>
@@ -3047,10 +3189,11 @@ def audit_verdict_notice(audit: dict) -> str:
 def answerability_notice(record: dict) -> str:
     """Distinguish answer usefulness, evidence certainty, and completeness."""
     policy = record.get("answerability_policy", {})
+    snapshot_notice = reading_snapshot_notice(record)
     if not isinstance(policy, dict) or not policy.get("applied"):
-        return ""
+        return snapshot_notice
     if record.get("independent_final_audit", {}).get("verdict") != "verified":
-        return ""  # An auditor's qualified verdict still contains unsupported claims.
+        return snapshot_notice  # Preserve reading limits even when audit is incomplete.
     observations = policy.get("observations", [])
     observations = observations if isinstance(observations, list) else []
     provisional = any(isinstance(item, dict) and item.get("kind") == "provisional_reading"
@@ -3065,10 +3208,20 @@ def answerability_notice(record: dict) -> str:
     if policy.get("unresolved_field_ids"):
         messages.append("未確認の項目があります。回答内の未確認理由と出典を確認してください。")
     if not messages:
-        return ""
-    return '<div class="warn" aria-label="根拠の状態">' + ''.join(
+        return snapshot_notice
+    return snapshot_notice + '<div class="warn" aria-label="根拠の状態">' + ''.join(
         '<p>' + html.escape(message) + '</p>' for message in messages
     ) + '</div>'
+
+
+def reading_snapshot_notice(record: dict) -> str:
+    snapshot = record.get("reading_snapshot")
+    if not snapshot:
+        return ""
+    spec = importlib.util.spec_from_file_location("ui_reading_snapshot", ENGINE / "reading_snapshot_context.py")
+    helper = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(helper)
+    return '<div class="warn" aria-label="保存JSONの読取範囲">' + html.escape(helper.notice(snapshot)) + '</div>'
 
 
 SOURCE_REVIEW_REASONS = {
@@ -3309,6 +3462,7 @@ def answer_query(
     query: str,
     *,
     expected_active_revision: dict | None = None,
+    confirmed_intent: dict | None = None,
 ) -> dict:
     pipeline_started = time.perf_counter()
     _search_stage("configuration")
@@ -3324,6 +3478,13 @@ def answer_query(
             config, expected_active_revision
         ):
             raise RuntimeError("answer_revision_changed_before_query")
+    if confirmed_intent is not None:
+        intent_contract.graph_helper().compile_contract(confirmed_intent)
+        if (confirmed_intent['question'] != query
+                or confirmed_intent.get('expires_at', 0) < time.time()
+                or (expected_active_revision is not None
+                    and confirmed_intent['revision'] != expected_active_revision)):
+            raise ValueError('intent_request_binding_mismatch')
     index = Path(config["index_path"])
     _search_stage("model_start")
     bootstrap.start_ollama()
@@ -3337,9 +3498,17 @@ def answer_query(
     ]
     answer_started = time.perf_counter()
     _search_stage("answer_generation")
-    generated = subprocess.run(command, capture_output=True, text=True, timeout=900, check=True)
+    input_options = {}
+    if confirmed_intent is not None:
+        # Private stdin, not command-line arguments or a shared temporary file.
+        command.append('--intent-contract-stdin')
+        input_options['input'] = json.dumps(confirmed_intent, ensure_ascii=False)
+    generated = subprocess.run(command, capture_output=True, text=True, timeout=900, check=True,
+                               **input_options)
     answer_seconds = time.perf_counter() - answer_started
     record = json.loads(generated.stdout)
+    if confirmed_intent is not None:
+        intent_contract.validate_record_binding(confirmed_intent, record)
     _attach_search_request(record)
     sequential = bool(config.get("sequential_model_loading", True))
     reuse_loaded_model = config["answer_model"] == config["audit_model"]
@@ -3368,6 +3537,8 @@ def answer_query(
         ], capture_output=True, text=True, timeout=600, check=True)
         audit_seconds = time.perf_counter() - audit_started
         audited_record = json.loads(audited.stdout)
+        if confirmed_intent is not None:
+            intent_contract.validate_record_binding(confirmed_intent, audited_record)
         _attach_search_request(audited_record)
         audited_record.pop(SEMANTIC_GRAPH_CANDIDATE_KEY, None)
         audited_record.pop(SEMANTIC_GRAPH_EDGE_AUDIT_KEY, None)
@@ -3587,6 +3758,14 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(content)
 
+    def redirect_home(self) -> None:
+        self.send_response(303)
+        self.send_header("Location", "/")
+        self.send_header("Content-Length", "0")
+        self.send_header("Cache-Control", "no-store")
+        self.send_local_security_headers()
+        self.end_headers()
+
     def send_javascript(self, content: bytes) -> None:
         self.send_response(200)
         self.send_header("Content-Type", "text/javascript; charset=utf-8")
@@ -3639,6 +3818,8 @@ class Handler(BaseHTTPRequestHandler):
             review_ticket_issuer=review_ticket_issuer(self.server),
             source_update_state=(self.server.source_updates.snapshot()
                                  if hasattr(self.server, 'source_updates') else None),
+            source_selection_state=(self.server.source_selection.snapshot()
+                                    if hasattr(self.server, 'source_selection') else None),
         ))
 
     def do_POST(self) -> None:
@@ -3716,6 +3897,46 @@ class Handler(BaseHTTPRequestHandler):
                 return
             self.send_json({"status": "forbidden"}, 403)
             return
+        if SOURCE_CHANGE_ACTIVE and self.path in {"/build", "/document-version-decision"}:
+            self.send(page('<a href="/">← 戻る</a><section class="card"><h1>資料の切替処理中です</h1>'
+                '<p>完了後に最新の画面で操作してください。今回は開始・保存していません。</p></section>'), 409)
+            return
+        if self.path in {"/source-selection/pick", "/source-selection/build", "/source-selection/cancel"}:
+            service = getattr(self.server, "source_selection", None)
+            if service is None:
+                self.send_json({"status": "source_selection_unavailable"}, 503)
+                return
+            if not _reserve_source_change():
+                self.send(page('<a href="/">← 戻る</a><section class="card"><h1>処理中です</h1>'
+                    '<p>回答・取り込み・更新確認が終わってから、フォルダを選んでください。</p></section>'), 409)
+                return
+            handed_off = False
+            try:
+                if self.path.endswith("/pick"):
+                    service.pick()
+                elif self.path.endswith("/cancel"):
+                    service.cancel()
+                else:
+                    tickets = form.get("selection_ticket", [])
+                    ticket = tickets[0] if len(tickets) == 1 else ""
+                    candidate = service.consume(ticket, confirmed=form.get("confirmed") == ["yes"])
+                    start_selected_source_build(self.server, candidate)
+                    handed_off = True
+            except Exception as exc:
+                service.fail(exc)
+            finally:
+                if not handed_off:
+                    _release_source_change()
+            view = service.snapshot()
+            if handed_off:
+                # Refresh must GET the home/status page, never replay POST or
+                # GET the POST-only build endpoint.
+                self.redirect_home()
+                return
+            self.send(page('<a href="/">← 現在の状態と質問画面へ</a>'
+                + source_selection_card(view, self.server.ui_csrf_token)),
+                409 if view["phase"] == "error" else 200)
+            return
         if self.path in {'/source-updates/scan', '/source-updates/adopt', '/source-updates/dismiss'}:
             service = getattr(self.server, 'source_updates', None)
             if service is None:
@@ -3759,63 +3980,69 @@ class Handler(BaseHTTPRequestHandler):
             ))
             return
         if self.path == "/document-version-decision":
-            if state().get("phase") == "building":
-                self.send(home(
-                    "索引作成中のため、資料版の選択を保留しました。",
-                    self.server.ui_csrf_token,
-                ), 409)
+            if not _begin_active_work():
+                self.send(page('<p>資料の切替または終了処理中です。最新の画面で確認してください。</p>'), 409)
                 return
-            if str(form.get("review_ticket", [""])[0]).strip():
-                try:
-                    should_rebuild = save_dated_review_submission(self.server, form)
-                except Exception:
+            try:
+                if state().get("phase") == "building":
                     self.send(home(
-                        "資料または判断状態が表示後に変わったため、保存しませんでした。もう一度確認してください。",
+                        "索引作成中のため、資料版の選択を保留しました。",
                         self.server.ui_csrf_token,
                     ), 409)
                     return
-                if should_rebuild:
-                    threading.Thread(target=build_worker, daemon=True).start()
-                    message = "確認を保存し、索引の再構築を開始しました。"
-                else:
-                    message = "判断を保留しました。これらの資料は回答に使いません。"
-                self.send(home(message, self.server.ui_csrf_token))
-                return
-            group_id = str(form.get("group_id", [""])[0]).strip()
-            selected = str(form.get("selected_relative_path", [""])[0]).strip()
-            if not group_id or not selected:
+                if str(form.get("review_ticket", [""])[0]).strip():
+                    try:
+                        should_rebuild = save_dated_review_submission(self.server, form)
+                    except Exception:
+                        self.send(home(
+                            "資料または判断状態が表示後に変わったため、保存しませんでした。もう一度確認してください。",
+                            self.server.ui_csrf_token,
+                        ), 409)
+                        return
+                    if should_rebuild:
+                        threading.Thread(target=build_worker, daemon=True).start()
+                        message = "確認を保存し、索引の再構築を開始しました。"
+                    else:
+                        message = "判断を保留しました。これらの資料は回答に使いません。"
+                    self.send(home(message, self.server.ui_csrf_token))
+                    return
+                group_id = str(form.get("group_id", [""])[0]).strip()
+                selected = str(form.get("selected_relative_path", [""])[0]).strip()
+                if not group_id or not selected:
+                    self.send(home(
+                        "現在使う資料を1つ選んでください。",
+                        self.server.ui_csrf_token,
+                    ), 400)
+                    return
+                process = subprocess.run(
+                    [
+                        sys.executable,
+                        str(bootstrap.ENGINE / "document_version_resolver.py"),
+                        "decide",
+                        "--graph", str(bootstrap.DOCUMENT_VERSION_REVIEW),
+                        "--decisions", str(bootstrap.DOCUMENT_VERSION_DECISIONS),
+                        "--group-id", group_id,
+                        "--select", selected,
+                        "--actor", "local-ui-human",
+                    ],
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                    check=False,
+                )
+                if process.returncode:
+                    self.send(home(
+                        "資料版の選択を記録できませんでした。候補を再確認してください。",
+                        self.server.ui_csrf_token,
+                    ), 409)
+                    return
+                threading.Thread(target=build_worker, daemon=True).start()
                 self.send(home(
-                    "現在使う資料を1つ選んでください。",
+                    "選択を記録し、索引の再構築を開始しました。",
                     self.server.ui_csrf_token,
-                ), 400)
+                ))
                 return
-            process = subprocess.run(
-                [
-                    sys.executable,
-                    str(bootstrap.ENGINE / "document_version_resolver.py"),
-                    "decide",
-                    "--graph", str(bootstrap.DOCUMENT_VERSION_REVIEW),
-                    "--decisions", str(bootstrap.DOCUMENT_VERSION_DECISIONS),
-                    "--group-id", group_id,
-                    "--select", selected,
-                    "--actor", "local-ui-human",
-                ],
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
-                check=False,
-            )
-            if process.returncode:
-                self.send(home(
-                    "資料版の選択を記録できませんでした。候補を再確認してください。",
-                    self.server.ui_csrf_token,
-                ), 409)
-                return
-            threading.Thread(target=build_worker, daemon=True).start()
-            self.send(home(
-                "選択を記録し、索引の再構築を開始しました。",
-                self.server.ui_csrf_token,
-            ))
-            return
+            finally:
+                _end_active_work()
         if self.path in {"/intent-dialog", "/intent-scope", "/intent-preview"}:
             query = str(form.get('query', [''])[0]).strip()
             csrf = self.server.ui_csrf_token
@@ -3895,7 +4122,7 @@ class Handler(BaseHTTPRequestHandler):
                 self.send(intent_preview(contract, self.server.ui_csrf_token), 409)
                 return
             if not _begin_active_work():
-                self.send_json({"status": "shutting_down"}, 503)
+                self.send_json({"status": "source_changing" if SOURCE_CHANGE_ACTIVE else "shutting_down"}, 503)
                 return
             request_context = {
                 "request_id": str(uuid.uuid4()),
@@ -4098,6 +4325,7 @@ def main() -> int:
         server.review_ticket_lock = threading.Lock()
         server.review_tickets = {}
         server.source_updates = source_updates.SourceUpdates(bootstrap)
+        server.source_selection = source_selection.SourceSelection(bootstrap)
         server.startup_state = "recovering"
         if not _begin_active_work():
             raise RuntimeError("server_startup_shutdown_already_requested")

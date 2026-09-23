@@ -24,6 +24,8 @@ from validate_intermediate_records import (
     question_boundary_errors,
     schema_record_errors,
     strict_json_loads,
+    visual_coverage_binding_errors,
+    visual_coverage_shape_errors,
 )
 from validate_search_units import (
     IMAGE_CONTAINER_KINDS,
@@ -420,6 +422,7 @@ def validate_report(
             if extra:
                 errors.append(f"{label}: unexpected fields {sorted(extra)}")
             errors.extend(question_boundary_errors("document", record, label))
+            errors.extend(visual_coverage_shape_errors(record, label))
             if record_schema_errors:
                 continue
             record_id = record.get("document_id", "")
@@ -627,6 +630,16 @@ def validate_report(
 
         for (document_json,) in connection.execute("SELECT record_json FROM documents"):
             document = json.loads(document_json)
+            extraction = document.get("extraction")
+            if isinstance(extraction, dict) and "reading_policy" in extraction:
+                errors.extend(visual_coverage_binding_errors(
+                    document,
+                    (json.loads(row[0]) for row in connection.execute(
+                        "SELECT record_json FROM evidence WHERE document_id=?",
+                        (document["document_id"],),
+                    )),
+                    str(document.get("document_id")),
+                ))
             try:
                 bindings.append(notebook_document_binding(
                     document,

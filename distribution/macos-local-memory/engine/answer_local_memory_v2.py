@@ -55,6 +55,118 @@ workflow_reading = importlib.util.module_from_spec(WORKFLOW_READING_SPEC)
 WORKFLOW_READING_SPEC.loader.exec_module(workflow_reading)
 WORKFLOW_CONTEXT_CHARACTERS = 12000
 WORKFLOW_CONTEXT_TOKENS = 16384
+SNAPSHOT_FIELD_CONTEXT_TOKENS = 8192
+# Each CLI process handles one request. This immutable validated scope is shared
+# with parallel field auditors, never inferred from the top-k retrieval subset.
+ACTIVE_READING_SNAPSHOT = None
+ACTIVE_INTENT_PLAN = None
+
+INTENT_SPEC = importlib.util.spec_from_file_location(
+    'local_memory_intent_requirements', Path(__file__).with_name('intent_requirement_graph.py'))
+if INTENT_SPEC is None or INTENT_SPEC.loader is None:
+    raise ImportError('intent_requirement_graph_unavailable')
+intent_requirements = importlib.util.module_from_spec(INTENT_SPEC)
+INTENT_SPEC.loader.exec_module(intent_requirements)
+
+_guard_path = Path(__file__).resolve().parent.parent / 'audit_response_guard.py'
+if not _guard_path.is_file():
+    _guard_path = _guard_path.parent / 'app' / 'audit_response_guard.py'
+_guard_spec = importlib.util.spec_from_file_location('intent_response_guard', _guard_path)
+if _guard_spec is None or _guard_spec.loader is None:
+    raise ImportError('intent_response_guard_unavailable')
+intent_response_guard = importlib.util.module_from_spec(_guard_spec)
+_guard_spec.loader.exec_module(intent_response_guard)
+
+
+def checked_intent_response(outer: dict, schema: dict, output_tokens: int,
+                            context_tokens: int = SNAPSHOT_FIELD_CONTEXT_TOKENS) -> dict:
+    value, _diagnostics = intent_response_guard.parse_normal_response(
+        outer, schema, context_tokens, output_tokens)
+    return value
+
+
+def approved_intent_context(items: list[dict]) -> str:
+    """Carry explicit intent separately from source facts, once per model call."""
+    if ACTIVE_INTENT_PLAN is None:
+        return ''
+    intent_requirements.validate_plan_binding(ACTIVE_INTENT_PLAN)
+    known = {item['item_id']: item for item in ACTIVE_INTENT_PLAN['items']}
+    if not items or any(known.get(item.get('item_id')) != item for item in items):
+        raise ValueError('intent_prompt_item_mismatch')
+    graph = ACTIVE_INTENT_PLAN['intent_graph']
+    # Send exact source text only once. IDs/edges describe user requirements,
+    # not a claim that semantic relations in the documents are already proved.
+    payload = {'contract_sha256': graph['contract_sha256'],
+               'nodes': graph['nodes'], 'edges': graph['edges'],
+               'item_requirement_links': [
+                   {'item_id': item['item_id'], 'requirement_id': item['intent_requirement_id']}
+                   for item in items]}
+    return ('承認済みの質問・目的・要件です。原質問を目的で明確化しています。'
+            'この内容は検索要求であって資料の事実ではありません。'
+            '各要件を元の質問と目的の範囲で確認し、指定のない担当や条件は補わないでください。\n'
+            '<USER_INTENT_JSON>\n' + json.dumps(payload, ensure_ascii=False)
+            + '\n</USER_INTENT_JSON>\n')
+
+
+def intent_execution_trace(plan: dict, field_runs: list[dict]) -> dict:
+    """Track transport and per-requirement work, without claiming semantic truth."""
+    intent_requirements.validate_plan_binding(plan)
+    if [run.get('item') for run in field_runs] != plan['items']:
+        raise ValueError('intent_field_trace_mismatch')
+    entries = []
+    for run in field_runs:
+        attempts = run.get('model_context_attempts', [])
+        received = [a for a in attempts if a.get('delivery_status') == 'response_received'
+                    and a.get('intent_capacity_status') == 'observed']
+        entries.append({
+            'requirement_id': run['item']['intent_requirement_id'],
+            'item_id': run['item']['item_id'],
+            'candidate_evidence_ids': run.get('retrieved_evidence_ids', []),
+            'model_input_attempts': attempts,
+            'input_observed': bool(received),
+            'model_understanding': 'not_proven_by_transport',
+            'field_verdict': run['audit']['verdict'],
+            'supporting_evidence_ids': run['audit'].get('supporting_packet_ids', []),
+            'coverage_status': 'not_checked',
+        })
+    return {'contract_sha256': plan['intent_graph']['contract_sha256'],
+            'work_mapping': intent_requirements.build_work_mapping(
+                plan, question_graph.RECORD_LOOKUP_FIELD_ALIASES),
+            'graph_built': True, 'graph_kind': 'user_requirements',
+            'graph_delivered': all(e['input_observed'] for e in entries),
+            'semantic_relation_matching': 'not_implemented_in_this_stage',
+            'input_completeness': 'not_independently_tokenized',
+            'relations_adopted': False, 'requirements_checked': False,
+            'requirements': entries}
+
+
+def augment_intent_lookup_candidates(retrieved: list[dict], by_id: dict,
+                                     dispatch: dict | None, item_id: str,
+                                     version_scope: dict) -> tuple[list[dict], list[str]]:
+    """Append validated source candidates without replacing the whole request."""
+    if dispatch is None:
+        return retrieved, []
+    ids = dispatch['selected_by_item'][item_id]
+    if any(eid not in by_id for eid in ids):
+        raise ValueError('intent_lookup_source_missing')
+    candidates = [by_id[eid] for eid in ids]
+    if [r['evidence_id'] for r in restrict_version_paths(candidates, version_scope)] != ids:
+        raise ValueError('intent_lookup_version_scope_mismatch')
+    seen = {r['evidence_id'] for r in retrieved}
+    return retrieved + [{**row, **{key: 0.0 for key in (
+                            'score', 'rerank_score', 'document_support_bonus',
+                            'semantic_score', 'lexical_score', 'token_score')},
+                         'retrieval_source': 'intent_lookup_candidate'}
+                        for row in candidates if row['evidence_id'] not in seen], ids
+
+
+def field_audit_context_options(reading_input: bool) -> dict:
+    """Reserve capacity for the snapshot scope without shrinking workflow input."""
+    if reading_input:
+        return {"num_ctx": WORKFLOW_CONTEXT_TOKENS}
+    if ACTIVE_READING_SNAPSHOT is not None or ACTIVE_INTENT_PLAN is not None:
+        return {"num_ctx": SNAPSHOT_FIELD_CONTEXT_TOKENS}
+    return {}
 
 
 def merge_reading_sections(packets: list[dict], ordinary: list[dict], excluded=(),
@@ -1147,6 +1259,9 @@ retrieval_queryは原資料で使われそうな名詞・表現を含む短い�
 def validate_plan(
     plan: dict, query: str | None = None, reference_date: str | None = None,
 ) -> None:
+    if isinstance(plan, dict) and 'intent_graph' in plan:
+        intent_requirements.validate_plan_binding(plan)
+        return
     if not isinstance(plan, dict) or not isinstance(plan.get("items"), list):
         raise ValueError("plan_invalid")
     if not 1 <= len(plan["items"]) <= 5:
@@ -1526,6 +1641,10 @@ def record_model_context(field_input: dict, context: str, packet_ids: dict[str, 
         "omitted_candidate_ids": [r['evidence_id'] for r in field_input.get('retrieved', [])
                                   if r['evidence_id'] not in set(packet_ids.values())],
         "context_sha256": hashlib.sha256(context.encode('utf-8')).hexdigest(),
+        **({'intent_contract_sha256': ACTIVE_INTENT_PLAN['intent_graph']['contract_sha256'],
+            'intent_input_sha256': hashlib.sha256(approved_intent_context(
+                [field_input['item']]).encode('utf-8')).hexdigest(),
+            'delivery_status': 'packed_not_sent'} if ACTIVE_INTENT_PLAN is not None else {}),
     })
 
 
@@ -1600,7 +1719,9 @@ def compact_context(results: list[dict], max_characters: int = 4200) -> tuple[st
             source_scopes[scope_key] = scope_id
         packet_ids[packet_id] = item["evidence_id"]
         remaining -= required
-    return "".join(blocks), packet_ids
+    scope = (base.snapshot_context_helper().scope_text(ACTIVE_READING_SNAPSHOT)
+             if ACTIVE_READING_SNAPSHOT else "")
+    return scope + "".join(blocks), packet_ids
 
 
 def require_graph_primary_coverage(field_input: dict, packet_map: dict[str, str]) -> None:
@@ -1615,6 +1736,8 @@ def require_graph_primary_coverage(field_input: dict, packet_map: dict[str, str]
         raise ValueError("graph_primary_evidence_ids_invalid")
     if set(required) - set(packet_map.values()):
         raise ValueError("graph_context_missing_primary_evidence")
+    if set(field_input.get('intent_lookup_candidate_evidence_ids', [])) - set(packet_map.values()):
+        raise ValueError('intent_lookup_context_missing_candidate_evidence')
 
 
 def require_batch_primary_coverage(
@@ -1917,7 +2040,9 @@ supportedでは、Evidenceが直接示す値だけをsupported_valueへ転記し
 拒否する場合はsupported_valueを空文字にします。
 近接、類似、同じページだけを根拠に関係を作ってはいけません。"""
     system += WORKFLOW_AUDIT_GUIDANCE
-    user = (
+    if ACTIVE_READING_SNAPSHOT:
+        system += "\n" + base.snapshot_context_helper().GUIDANCE
+    user = approved_intent_context([item]) + (
         # Guidance is request-local; the legacy QF experiment keeps its prompt.
         f"item_id={item['item_id']}\n"
         f"label={item['label']}\n"
@@ -1942,12 +2067,17 @@ supportedでは、Evidenceが直接示す値だけをsupported_valueへ転記し
             "think": False,
             "format": schema,
             "messages": [{"role": "system", "content": system}, {"role": "user", "content": user}],
-            "options": {"temperature": 0, **({"num_ctx": WORKFLOW_CONTEXT_TOKENS} if reading_input else {}), "num_predict": 1600 if re.search(
+            "options": {"temperature": 0, **field_audit_context_options(reading_input), "num_predict": 1600 if re.search(
                 r'流れ|業務フロー|ワークフロー|手順', item['required_claim']) else 450},
         },
         timeout,
     )
-    value = (parse_workflow_model_json if reading_input else json.loads)(outer.get("message", {}).get("content", ""))
+    if ACTIVE_INTENT_PLAN is not None:
+        value = checked_intent_response(outer, schema, 1600 if re.search(
+            r'流れ|業務フロー|ワークフロー|手順', item['required_claim']) else 450,
+            field_audit_context_options(reading_input)['num_ctx'])
+    else:
+        value = (parse_workflow_model_json if reading_input else json.loads)(outer.get("message", {}).get("content", ""))
     if reading_input:
         project_workflow_assignments(value, context, packet_ids, is_workflow_content_item(item))
     repair_rejection_contract(value, item)
@@ -1987,6 +2117,8 @@ supportedでは直接示された値だけをsupported_valueへ転記し、suppo
 拒否する場合はsupported_valueを空にし、具体的な欠陥をdefectへ、必要な情報をmissing_informationへ記載してください。
 近接、類似、同じページだけを根拠に関係を作ってはいけません。入力された全item_idについて一件ずつ、同じ順序で返してください。"""
     system += WORKFLOW_AUDIT_GUIDANCE
+    if ACTIVE_READING_SNAPSHOT:
+        system += "\n" + base.snapshot_context_helper().GUIDANCE
     union_results = []
     seen_ids = set()
     max_rank = max(len(field_input["retrieved"]) for field_input in field_inputs)
@@ -1998,6 +2130,8 @@ supportedでは直接示された値だけをsupported_valueへ転記し、suppo
             if evidence["evidence_id"] not in seen_ids:
                 seen_ids.add(evidence["evidence_id"])
                 union_results.append(evidence)
+    if ACTIVE_INTENT_PLAN is not None and len(union_results) > 12:
+        raise ValueError('intent_candidate_block_budget_exceeded')
     context, packet_map = compact_context(union_results, max_characters=5200)
     reading_input = any(p.get("retrieval_source") == "workflow_reading_section" for p in union_results)
     if reading_input:
@@ -2007,6 +2141,11 @@ supportedでは直接示された値だけをsupported_valueへ転記し、suppo
         record_focus_context(field_input, packet_map)
     for field_input in field_inputs:
         record_model_context(field_input, context, packet_map)
+    if ACTIVE_INTENT_PLAN is not None:
+        intent_input_hash = hashlib.sha256(approved_intent_context(
+            [f['item'] for f in field_inputs]).encode('utf-8')).hexdigest()
+        for field_input in field_inputs:
+            field_input['model_context_attempts'][-1]['intent_input_sha256'] = intent_input_hash
     claims = "\n".join(
         f"- item_id={field_input['item']['item_id']} | label={field_input['item']['label']} | "
         f"REQUIRED_CLAIM={field_input['item']['required_claim']}"
@@ -2022,7 +2161,7 @@ supportedでは直接示された値だけをsupported_valueへ転記し、suppo
     if any(re.search(r'流れ|業務フロー|ワークフロー|手順', f['item']['required_claim'])
            for f in field_inputs):
         schema['properties']['audits']['items']['properties']['supporting_packet_ids']['maxItems'] = min(80 if reading_input else 24, len(packet_map))
-    user = (
+    user = approved_intent_context([f['item'] for f in field_inputs]) + (
         f"<AUDIT_ITEMS>\n{claims}\n</AUDIT_ITEMS>\n"
         "<UNTRUSTED_EVIDENCE>\n"
         f"{base.escape_evidence_quotation(context)}\n"
@@ -2041,15 +2180,24 @@ supportedでは直接示された値だけをsupported_valueへ転記し、suppo
                 {"role": "system", "content": system},
                 {"role": "user", "content": user},
             ],
-            "options": {"temperature": 0, **({"num_ctx": WORKFLOW_CONTEXT_TOKENS} if reading_input else {}), "num_predict": 3200 if any(
+            "options": {"temperature": 0, **field_audit_context_options(reading_input), "num_predict": 3200 if any(
                 re.search(r'流れ|業務フロー|ワークフロー|手順', f['item']['required_claim'])
-                for f in field_inputs) else 900},
+                for f in field_inputs) else (max(900, 350 * len(field_inputs))
+                                           if ACTIVE_INTENT_PLAN is not None else 900)},
         },
         timeout,
     )
     for field_input in field_inputs:
         mark_workflow_delivery(field_input, "response_received", outer)
-    payload = (parse_workflow_model_json if reading_input else json.loads)(outer.get("message", {}).get("content", ""))
+    if ACTIVE_INTENT_PLAN is not None:
+        output_tokens = (3200 if any(re.search(r'流れ|業務フロー|ワークフロー|手順', f['item']['required_claim'])
+                                    for f in field_inputs) else max(900, 350 * len(field_inputs)))
+        payload = checked_intent_response(outer, schema, output_tokens,
+                                         field_audit_context_options(reading_input)['num_ctx'])
+        for field_input in field_inputs:
+            field_input['model_context_attempts'][-1]['intent_capacity_status'] = 'observed'
+    else:
+        payload = (parse_workflow_model_json if reading_input else json.loads)(outer.get("message", {}).get("content", ""))
     audits = payload.get("audits") if isinstance(payload, dict) else None
     if not isinstance(audits, list) or len(audits) != len(field_inputs):
         raise ValueError("batch_audit_count_mismatch")
@@ -2073,6 +2221,12 @@ supportedでは直接示された値だけをsupported_valueへ転記し、suppo
 
 
 def mark_workflow_delivery(field_input: dict, status: str, response: dict | None = None) -> None:
+    if ACTIVE_INTENT_PLAN is not None and field_input.get('model_context_attempts'):
+        attempt = field_input['model_context_attempts'][-1]
+        attempt['delivery_status'] = status
+        if response is not None:
+            attempt['model_response'] = {key: response[key] for key in
+                ('prompt_eval_count', 'eval_count', 'done', 'done_reason') if key in response}
     attempts = field_input.get("workflow_context_attempts", [])
     if attempts:
         attempts[-1]["delivery_status"] = status
@@ -2305,6 +2459,7 @@ def load_workflow_reasoner():
 
 def answer_cache_key(
     query: str, metadata: dict, model: str, top_k: int, audit_mode: str, fast_plan: bool = False,
+    confirmed_intent: dict | None = None,
 ) -> str:
     payload = {
         "version": ENGINE_CACHE_VERSION,
@@ -2322,6 +2477,9 @@ def answer_cache_key(
         "graph_embeddings_sha256": metadata["graph_embeddings_sha256"],
         "top_k": top_k, "audit_mode": audit_mode, "fast_plan": fast_plan,
     }
+    if confirmed_intent is not None:
+        payload['intent_contract_sha256'] = intent_requirements.compile_contract(
+            confirmed_intent)['contract_sha256']
     return hashlib.sha256(json.dumps(payload, ensure_ascii=False, sort_keys=True).encode("utf-8")).hexdigest()
 
 
@@ -2563,6 +2721,8 @@ def resolve_registered_version_scope(
 
 
 def main() -> int:
+    global ACTIVE_READING_SNAPSHOT, ACTIVE_INTENT_PLAN
+    ACTIVE_INTENT_PLAN = None
     parser = argparse.ArgumentParser()
     parser.add_argument("query")
     parser.add_argument("--index", required=True)
@@ -2574,6 +2734,8 @@ def main() -> int:
     parser.add_argument("--no-cache", action="store_true")
     parser.add_argument("--audit-mode", choices=("parallel", "sequential", "batched"), default="sequential")
     parser.add_argument("--fast-plan", action="store_true", help="experimental deterministic planner")
+    parser.add_argument('--intent-contract-stdin', action='store_true',
+                        help='read user-reviewed intent JSON from stdin; requires batched auditing')
     parser.add_argument("--workflow-reading", action="store_true",
                         help="isolated opt-in for version-checked bounded section reading")
     parser.add_argument("--no-workflow-bundle", action="store_true",
@@ -2588,11 +2750,25 @@ def main() -> int:
         raise SystemExit("query must not be empty")
     if not 2 <= args.top_k <= 8:
         raise SystemExit("top-k must be between 2 and 8 for field-level auditing")
+    confirmed_intent = None
+    if args.intent_contract_stdin:
+        if args.audit_mode != 'batched' or args.workflow_relations:
+            raise ValueError('intent_requires_batched_nonduplicated_route')
+        raw = sys.stdin.read(65537)
+        if len(raw) > 65536:
+            raise ValueError('intent_transport_too_large')
+        confirmed_intent = json.loads(raw)
+        ACTIVE_INTENT_PLAN = intent_requirements.plan_from_contract(confirmed_intent)
+        if (confirmed_intent['question'] != args.query
+                or type(confirmed_intent.get('expires_at')) not in (int, float)
+                or not confirmed_intent['expires_at'] >= time.time()):
+            raise ValueError('intent_request_invalid_or_expired')
 
     total_started = time.perf_counter()
     workflow_deadline = time.monotonic() + 600
     index_path = Path(args.index).resolve(strict=True)
     validated_metadata = index_metadata(index_path)
+    ACTIVE_READING_SNAPSHOT = validated_metadata.get("reading_snapshot")
     graph_evidence, graph_evidence_by_id, stored_source_graph = load_index_evidence_graph(index_path)
     version_scope = (resolve_registered_version_scope(index_path, validated_metadata, graph_evidence, args.query)
                      if args.workflow_reading else {"status": "disabled", "latest_confirmed": False})
@@ -2604,13 +2780,15 @@ def main() -> int:
             "required_claim": args.query, "retrieval_query": args.query, "required": True}],
             "answer_shape": "版の確認が必要"}
     planning_mode = "deterministic" if fast_plan is not None else "llm"
-    plan = sanitize_plan(
+    plan = ACTIVE_INTENT_PLAN if ACTIVE_INTENT_PLAN is not None else sanitize_plan(
         fast_plan or plan_question(
             args.model, args.query, args.timeout, reference_date=reference_date,
         ),
         args.query,
         reference_date=reference_date,
     )
+    if ACTIVE_INTENT_PLAN is not None:
+        planning_mode = 'confirmed_intent_deterministic'
     plan_seconds = time.perf_counter() - plan_started
     workflow_reasoner = load_workflow_reasoner() if args.workflow_relations else None
     workflow_question = (workflow_reasoner.graph.build_question_graph(args.query, plan)
@@ -2625,6 +2803,11 @@ def main() -> int:
         source_graph=stored_source_graph,
         question_plan=plan, reference_date=reference_date,
     )
+    intent_lookup_started = time.perf_counter()
+    intent_lookup_dispatch = (intent_requirements.dispatch_lookup_candidates(
+        plan, graph_evidence, stored_source_graph, reference_date, question_graph)
+        if confirmed_intent is not None else None)
+    intent_lookup_seconds = time.perf_counter() - intent_lookup_started
     graph_seconds = time.perf_counter() - graph_started
     reading_result = (prepare_reading_sections(args.query, graph_evidence,
         stored_source_graph, version_scope, question_evidence_graph) if args.workflow_reading
@@ -2654,6 +2837,9 @@ def main() -> int:
     field_runs = []
     metadata = validated_metadata
     shared_retrieval_anchors = " ".join(item["retrieval_query"] for item in plan["items"])
+    if confirmed_intent is not None:
+        shared_retrieval_anchors = ' '.join((confirmed_intent['question'],
+            confirmed_intent['goal'], shared_retrieval_anchors))
     retrieval_seconds = 0.0
     audit_started = time.perf_counter()
     batch_fallback = ""
@@ -2723,12 +2909,16 @@ def main() -> int:
                         reading_trace.get("row_cell_decomposition") if reading_trace["status"] == "ready" else None)
                 else:
                     retrieved = merge_workflow_bundle(workflow_context, retrieved, workflow_excluded) if workflow_bundle else workflow_context
+            retrieved, intent_lookup_ids = augment_intent_lookup_candidates(
+                retrieved, graph_evidence_by_id, intent_lookup_dispatch,
+                item['item_id'], version_scope)
             retrieval_seconds += time.perf_counter() - retrieval_started
             for evidence in retrieved:
                 all_retrieved[evidence["evidence_id"]] = evidence
             context, packet_ids = compact_context(retrieved)
             field_inputs.append({
                 "item": item, "retrieved": retrieved, "context": context, "packet_ids": packet_ids,
+                "intent_lookup_candidate_evidence_ids": intent_lookup_ids,
                 "workflow_reading_hold": reading_hold,
                 "workflow_bundle_hold_reason": workflow_hold,
                 "graph_augmented_evidence_ids": graph_augmented_ids,
@@ -2744,6 +2934,9 @@ def main() -> int:
             for field_input in field_inputs:
                 item = field_input["item"]
                 try:
+                    if ACTIVE_INTENT_PLAN is not None:
+                        # Do not turn one failed call into up to eight retries.
+                        raise ValueError('intent_batch_failed_no_individual_retry') from exc
                     require_graph_primary_coverage(field_input, field_input["packet_ids"])
                     record_focus_context(field_input, field_input["packet_ids"])
                     record_model_context(field_input, field_input["context"], field_input["packet_ids"])
@@ -2775,6 +2968,8 @@ def main() -> int:
                 "graph_augmented_evidence_ids": field_input["graph_augmented_evidence_ids"],
                 "graph_primary_evidence_ids": field_input["graph_primary_evidence_ids"],
                 "model_context_attempts": field_input.get("model_context_attempts", []),
+                **({'intent_lookup_candidate_evidence_ids': field_input['intent_lookup_candidate_evidence_ids']}
+                   if intent_lookup_dispatch is not None else {}),
                 "audit": audit,
             })
     elif args.audit_mode == "parallel":
@@ -2948,7 +3143,7 @@ def main() -> int:
 
     assert metadata is not None
     record = {
-        "schema_version": "0.3-field-audit",
+        "schema_version": "0.4-intent-candidate-dispatch" if confirmed_intent is not None else "0.3-field-audit",
         "created_at": datetime.now().astimezone().isoformat(timespec="seconds"),
         "query": args.query,
         # Preserve the single calendar anchor used by the planner and QEG so
@@ -2995,6 +3190,8 @@ def main() -> int:
             "batch_fallback": batch_fallback,
             "plan_seconds": round(plan_seconds, 3),
             "question_graph_seconds": round(graph_seconds, 3),
+            **({'intent_lookup_seconds': round(intent_lookup_seconds, 3)}
+               if confirmed_intent is not None else {}),
             "question_graph_selected_evidence": len(question_evidence_graph.get("selected_evidence_ids", [])),
             "retrieval_seconds": round(retrieval_seconds, 3),
             "audit_seconds": round(audit_seconds, 3),
@@ -3004,6 +3201,14 @@ def main() -> int:
         },
         "external_network_required": False,
     }
+    if ACTIVE_READING_SNAPSHOT is not None:
+        record["reading_snapshot"] = ACTIVE_READING_SNAPSHOT
+        record["index"]["reading_snapshot_sha256"] = ACTIVE_READING_SNAPSHOT["contract_sha256"]
+    if confirmed_intent is not None:
+        record['confirmed_intent'] = confirmed_intent
+        record['intent_requirement_graph'] = plan['intent_graph']
+        record['intent_requirement_trace'] = intent_execution_trace(plan, field_runs)
+        record['intent_lookup_dispatch'] = intent_lookup_dispatch
     if args.log:
         append_log(Path(args.log).resolve(), record)
     emit_record(record, args.json)
