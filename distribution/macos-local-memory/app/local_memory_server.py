@@ -894,6 +894,24 @@ def _release_source_change() -> None:
     BUILD_LOCK.release()
 
 
+def _reserve_memory_reset() -> bool:
+    """Start a new question session only when no answer or build is active."""
+    global ACTIVE_WORK_COUNT
+    if not BUILD_LOCK.acquire(blocking=False):
+        return False
+    with ACTIVE_WORK_LOCK:
+        if SERVER_SHUTDOWN_REQUESTED.is_set() or SOURCE_CHANGE_ACTIVE or ACTIVE_WORK_COUNT:
+            BUILD_LOCK.release()
+            return False
+        ACTIVE_WORK_COUNT += 1
+        return True
+
+
+def _release_memory_reset() -> None:
+    _end_active_work()
+    BUILD_LOCK.release()
+
+
 def _reserve_server_shutdown() -> bool:
     with ACTIVE_WORK_LOCK:
         if (
@@ -1483,6 +1501,11 @@ def home(message: str = "", csrf_token: str = "", review_ticket_issuer=None,
     <section class="card"><div class="eyebrow">ASK YOUR MEMORY</div><h2>パソコンの中に質問する</h2>
     <form id="local-search-form" method="post" action="/intent-dialog">{csrf_field}<textarea name="query" required maxlength="2000" placeholder="何を知りたいか、話しかけてください"></textarea><br><button>知りたいことを相談する</button><p id="local-search-progress" class="progress" hidden></p></form></section>
     """
+    reset_form = f"""
+    <section class="card"><h2>新しい質問を始める</h2>
+    <p class="small">確認途中の質問をリセットします。読み込んだ資料と索引は残ります。</p>
+    <form method="post" action="/memory-reset">{csrf_field}<button class="secondary">メモリをリセット</button></form></section>
+    """
     rebuild_label = (
         "Step 7 Reader索引を再構築"
         if answer_path["state"] == "reader_migration_required"
@@ -1510,6 +1533,7 @@ def home(message: str = "", csrf_token: str = "", review_ticket_issuer=None,
     <div class="eyebrow">PRIVATE / LOCAL / EVIDENCE-BASED</div><h1 class="hero">あなたのMacを、<br>曖昧な記憶から探す。</h1>
     <p class="sub">Word・Excel・PowerPoint・PDF・テキストなどの所在と内容をローカルで索引化。回答は根拠と別モデルの監査を通し、判断できない場合は理由付きで「わかりません」と停止します。</p>
     {ask}
+    {reset_form}
     {source_selection_card(source_selection_state, csrf_token)}
     {source_update_card(source_update_state, csrf_token) if not SOURCE_CHANGE_ACTIVE else ''}
     {transient}{notices}<section class="card"><div class="eyebrow">SYSTEM STATUS</div><h2>現在の状態</h2><div class="grid">
@@ -3889,7 +3913,7 @@ class Handler(BaseHTTPRequestHandler):
                 self.send(page(
                     '<a class="button secondary" href="/">← 最新の画面に戻る</a>'
                     '<section class="card"><h1>質問画面が更新されました</h1>'
-                    '<p>アプリの更新または再起動により、開いていた画面の'
+                    '<p>アプリの更新・再起動・メモリのリセットにより、開いていた画面の'
                     '安全トークンが失効しました。質問はまだ検索に送られていません。</p>'
                     '<p>最新の画面に戻り、もう一度質問を入力してください。</p>'
                     '</section>'
@@ -3900,6 +3924,19 @@ class Handler(BaseHTTPRequestHandler):
         if SOURCE_CHANGE_ACTIVE and self.path in {"/build", "/document-version-decision"}:
             self.send(page('<a href="/">← 戻る</a><section class="card"><h1>資料の切替処理中です</h1>'
                 '<p>完了後に最新の画面で操作してください。今回は開始・保存していません。</p></section>'), 409)
+            return
+        if self.path == "/memory-reset":
+            if not _reserve_memory_reset():
+                self.send(page('<a href="/">← 戻る</a><section class="card"><h1>処理中です</h1>'
+                    '<p>回答・取り込みが終わってから、メモリをリセットしてください。</p></section>'), 409)
+                return
+            try:
+                intent_contract.SIGNING_KEY = secrets.token_urlsafe(32)
+                self.server.ui_csrf_token = secrets.token_urlsafe(32)
+            finally:
+                _release_memory_reset()
+            self.send(home("質問のメモリをリセットしました。新しい質問を入力できます。",
+                           self.server.ui_csrf_token))
             return
         if self.path in {"/source-selection/pick", "/source-selection/build", "/source-selection/cancel"}:
             service = getattr(self.server, "source_selection", None)
@@ -4275,6 +4312,8 @@ class Handler(BaseHTTPRequestHandler):
                 {coverage_notice}
                 {revise_form}
                 <section class="card">{certainty_notice}<div class="answer">{html.escape(str(answer.get('answer','')))}</div><p class="small">回答モード: {html.escape(str(answer.get('answer_mode','')))}<br>回答経路: {html.escape(answer_route)}<br>{audit_label}<br>要求ID: {request_context['request_id']}</p></section>
+                {intent_form('/memory-reset', self.server.ui_csrf_token,
+                    '<button class="secondary">メモリをリセットして新しい質問へ</button>')}
                 {source_review_notice(source_review)}
                 <section class="card"><h2>{html.escape(source_heading)}</h2><ul>{sources}</ul><p class="small">{html.escape(source_note)}</p></section>
                 {semantic_candidate}
